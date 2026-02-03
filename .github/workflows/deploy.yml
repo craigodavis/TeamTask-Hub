@@ -19,7 +19,8 @@ jobs:
           script: |
             set -e
             cd /home/kindredv/teamtaskhub
-            git pull
+            git fetch origin
+            git reset --hard origin/main
             npm install --prefix server
             npm install --prefix client
             npm run build
