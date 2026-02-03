@@ -14,7 +14,7 @@ jobs:
           host: server.kindredvineyards.com
           username: kindredv
           port: 7822
-          key: ${{ secrets.DEPLOY_KEY }}
+          key: ${{ secrets.TEAMTASKHUB_KEY }}
           script: |
             set -e
             cd /home/kindredv/teamtaskhub
