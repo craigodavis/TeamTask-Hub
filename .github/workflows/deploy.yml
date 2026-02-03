@@ -17,9 +17,11 @@ jobs:
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
             set -e
-            cd /home/kindredv/clubsteward
+            cd /home/kindredv/teamhub
             git pull
-            cd admin
-            /home/kindredv/nodevenv/clubsteward/admin/20/bin/npm install
+            /home/kindredv/nodevenv/teamhub/22/bin/npm install --prefix server
+            /home/kindredv/nodevenv/teamhub/22/bin/npm install --prefix client
+            /home/kindredv/nodevenv/teamhub/22/bin/npm run build
+            cd server && /home/kindredv/nodevenv/teamhub/22/bin/npm run migrate && cd ..
             mkdir -p tmp
             touch tmp/restart.txt
