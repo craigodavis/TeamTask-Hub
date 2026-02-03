@@ -12,7 +12,7 @@ on:
           host: server.kindredvineyards.com
           username: kindredv
           port: 7822
-          key: ${{ secrets.TEAMTASKHUB_KEY }}
+          key: ${{ secrets.TEAMTASKHUB_KEY }}  # changed to match your secret
           script: |
             set -e
             cd /home/kindredv/teamtaskhub
@@ -23,5 +23,3 @@ on:
             cd server && npm run migrate && cd ..
             mkdir -p tmp
             touch tmp/restart.txt
-
-            
