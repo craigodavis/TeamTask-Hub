@@ -2,7 +2,9 @@ name: Deploy to server
 
 on:
   push:
-    branches: jobs:
+    branches: [ "main" ]
+
+jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
