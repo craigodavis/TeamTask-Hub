@@ -13,6 +13,7 @@ on:
           username: kindredv
           port: 7822
           key: ${{ secrets.TEAMTASKHUB_KEY }}  # changed to match your secret
+          # Note: server/.env must exist on the server (not in git). Copy from server/.env.example and set values.
           script: |
             set -e
             cd /home/kindredv/teamtaskhub
