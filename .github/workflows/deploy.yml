@@ -23,3 +23,5 @@ on:
             cd server && npm run migrate && cd ..
             mkdir -p tmp
             touch tmp/restart.txt
+
+            
