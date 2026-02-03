@@ -15,13 +15,30 @@ jobs:
           username: kindredv
           port: 7822
           key: ${{ secrets.TEAMTASKHUB_KEY }}
+name: Deploy to server
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: server.kindredvineyards.com
+          username: kindredv
+          port: 7822
+          key: ${{ secrets.TEAMTASKHUB_KEY }}
           script: |
             set -e
             cd /home/kindredv/teamtaskhub
             git pull
-            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm install --prefix server
-            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm install --prefix client
-            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm run build
-            cd server && /home/kindredv/nodevenv/teamtaskhub/22/bin/npm run migrate && cd ..
+            npm install --prefix server
+            npm install --prefix client
+            npm run build
+            cd server && npm run migrate && cd ..
             mkdir -p tmp
             touch tmp/restart.txt
