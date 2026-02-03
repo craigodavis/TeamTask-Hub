@@ -1,0 +1,354 @@
+.dashboard {
+  min-height: 100vh;
+  padding-bottom: 2rem;
+}
+
+.dashboard-header {
+  background: var(--card);
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.nav-date {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 1.2rem;
+}
+
+.date-label {
+  font-weight: 600;
+  min-width: 7ch;
+}
+
+.btn-today {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--primary);
+}
+
+.btn-today:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.user-name {
+  font-weight: 500;
+}
+
+.link-manage {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.btn-logout {
+  margin-left: auto;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.dashboard-error {
+  margin: 0.5rem 1rem;
+  padding: 0.5rem;
+  background: #ffebee;
+  color: #c62828;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.dashboard-main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+@media (max-width: 768px) {
+  .dashboard-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+  }
+  .section-announcements {
+    order: -1;
+  }
+}
+
+.section-tasks h2,
+.section-announcements h2 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+
+.task-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.task-tabs button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 0.95rem;
+}
+
+.task-tabs button.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.task-section {
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.task-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: var(--card);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-section-header:hover {
+  background: var(--primary-soft);
+}
+
+.task-section-title {
+  flex: 1;
+}
+
+.task-section-count {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.task-section-chevron {
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.task-section-content {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.task-section-content .assignment-block {
+  margin-top: 1rem;
+}
+
+.task-section-content .assignment-block:first-child {
+  margin-top: 0.75rem;
+}
+
+.assignment-block {
+  margin-bottom: 1.5rem;
+}
+
+.template-name {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.task-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  margin-bottom: 0.5rem;
+  background: var(--primary-soft);
+  border-radius: var(--radius);
+  min-height: var(--touch);
+}
+
+.task-done {
+  background: var(--card-done);
+}
+
+.task-title {
+  flex: 1;
+}
+
+.toggle-complete {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: var(--primary);
+}
+
+.task-done .toggle-complete {
+  background: var(--primary);
+  color: #fff;
+}
+
+.toggle-complete .circle {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+}
+
+.toggle-incomplete {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  min-height: 44px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 0.9rem;
+}
+
+.toggle-incomplete:hover {
+  background: var(--primary-soft);
+}
+
+.announcement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.announcement-card {
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.announcement-card h4 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.announcement-body {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.announcement-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.announcement-tabs button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.announcement-tabs button.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.btn-ack,
+.btn-mark-read {
+  padding: 0.5rem 1rem;
+  min-height: 44px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  transition: box-shadow 0.1s ease, transform 0.1s ease, background 0.1s ease;
+}
+
+.btn-ack:hover,
+.btn-mark-read:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+}
+
+.btn-ack:active,
+.btn-mark-read:active {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.2), inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-ack:focus-visible,
+.btn-mark-read:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.announcement-read .ack-status {
+  margin: 0.5rem 0 0;
+}
+
+.ack-status {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}

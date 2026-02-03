@@ -1,0 +1,109 @@
+.sync-users-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+  padding-bottom: 3rem;
+}
+
+.sync-users-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.sync-users-header .back {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.sync-users-header .title {
+  font-weight: 600;
+}
+
+.sync-users-header .btn-logout {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.sync-users-error {
+  color: #c62828;
+  margin-bottom: 1rem;
+}
+
+.sync-users-message {
+  color: #2e7d32;
+  margin-bottom: 1rem;
+}
+
+.sync-users-section {
+  margin-top: 1rem;
+}
+
+.sync-users-section p {
+  margin-bottom: 0.75rem;
+}
+
+.sync-users-section > button:first-of-type {
+  margin-bottom: 1rem;
+}
+
+.square-team-members {
+  margin: 1rem 0;
+}
+
+.square-team-members h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.square-team-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.75rem 0;
+}
+
+.square-team-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.square-team-name {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.square-team-status {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.square-team-role {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.square-team-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.btn-add-selected {
+  margin-top: 0.25rem;
+  margin-right: 0.5rem;
+}
+
+.btn-sync {
+  margin-top: 0.25rem;
+}

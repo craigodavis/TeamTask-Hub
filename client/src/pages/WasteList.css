@@ -1,0 +1,113 @@
+.waste-list-page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 1rem;
+  padding-bottom: 3rem;
+}
+
+.waste-list-header {
+  margin-bottom: 1.5rem;
+}
+
+.waste-list-header a {
+  color: var(--primary);
+  text-decoration: none;
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.waste-list-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.waste-list-error {
+  color: #c62828;
+  margin-bottom: 1rem;
+}
+
+.waste-list-create {
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.waste-list-create h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.waste-create-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.waste-create-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.waste-create-form input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 0.25rem;
+  min-width: 140px;
+}
+
+.waste-create-form .required {
+  color: var(--text-muted);
+}
+
+.waste-create-form button {
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  min-height: 36px;
+}
+
+.waste-list-entries h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.waste-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.waste-list li {
+  margin-bottom: 0.5rem;
+}
+
+.waste-list a {
+  display: block;
+  padding: 1rem;
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  min-height: var(--touch);
+}
+
+.waste-list a:active,
+.waste-list a:hover {
+  background: var(--primary-soft);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
