@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,9 +21,14 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
-app.get('/', (req, res) => {
-  res.json({ name: 'TeamTask Hub API', docs: 'Use /api/* routes. Health: GET /api/health' });
-});
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+const servingClient = fs.existsSync(clientDist);
+
+if (!servingClient) {
+  app.get('/', (req, res) => {
+    res.json({ name: 'TeamTask Hub API', docs: 'Use /api/* routes. Health: GET /api/health' });
+  });
+}
 
 app.use('/api/auth', authRouter);
 app.use('/api/companies', requireAuth, companiesRouter);
@@ -35,6 +41,13 @@ app.use('/api/settings', requireAuth, settingsRouter);
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
 });
+
+if (servingClient) {
+  app.use(express.static(clientDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
