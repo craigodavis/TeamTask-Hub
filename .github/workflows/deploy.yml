@@ -2,26 +2,7 @@ name: Deploy to server
 
 on:
   push:
-    branches: [ "main" ]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: server.kindredvineyards.com
-          username: kindredv
-          port: 7822
-          key: ${{ secrets.TEAMTASKHUB_KEY }}
-name: Deploy to server
-
-on:
-  push:
-    branches: [ "main" ]
-
-jobs:
+    branches: jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
