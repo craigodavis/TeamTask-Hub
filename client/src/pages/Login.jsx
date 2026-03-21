@@ -5,7 +5,6 @@ import './Login.css';
 export function Login({ onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [companySlug, setCompanySlug] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
@@ -16,7 +15,7 @@ export function Login({ onLogin }) {
     setError('');
     setLoading(true);
     try {
-      const { user, token } = await login(email, password, companySlug || undefined);
+      const { user, token } = await login(email, password);
       localStorage.setItem('teamtask_token', token);
       onLogin(user);
     } catch (err) {
@@ -32,7 +31,7 @@ export function Login({ onLogin }) {
     setForgotMessage('');
     setLoading(true);
     try {
-      await forgotPassword(email || undefined, companySlug || undefined);
+      await forgotPassword(email || undefined);
       setForgotMessage('If that email exists, we sent a reset link.');
     } catch (err) {
       setError(err.message || 'Request failed');
@@ -46,15 +45,6 @@ export function Login({ onLogin }) {
       <div className="login-card">
         <h1>TeamTask Hub</h1>
         <form onSubmit={handleSubmit}>
-          <label>
-            Company (optional)
-            <input
-              type="text"
-              placeholder="company-slug"
-              value={companySlug}
-              onChange={(e) => setCompanySlug(e.target.value)}
-            />
-          </label>
           <label>
             Email
             <input
@@ -87,14 +77,10 @@ export function Login({ onLogin }) {
         </p>
         {showForgot && (
           <form onSubmit={handleForgotSubmit} style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
-            <p className="hint">Enter your email (and company if you use one) to receive a reset link.</p>
+            <p className="hint">Enter your email to receive a reset link.</p>
             <label>
               Email
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </label>
-            <label>
-              Company (optional)
-              <input type="text" placeholder="company-slug" value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} />
             </label>
             {forgotMessage && <p className="login-message">{forgotMessage}</p>}
             <button type="submit" disabled={loading}>Send reset link</button>

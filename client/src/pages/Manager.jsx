@@ -20,6 +20,12 @@ import {
   sendPasswordResetEmail,
   sendSms,
   getSmsLog,
+  getLocations,
+  createLocation,
+  updateLocation,
+  deleteLocation,
+  getFoodWasteReport,
+  getTaskReport,
   createTaskListTemplate,
   updateTaskListTemplate,
   deleteTaskListTemplate,
@@ -44,8 +50,19 @@ export function Manager({ user, onLogout }) {
   const [announcements, setAnnouncements] = useState([]);
   const [ingredients, setIngredients] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [smsLog, setSmsLog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [reportFrom, setReportFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportLocationId, setReportLocationId] = useState('');
+  const [foodWasteReport, setFoodWasteReport] = useState(null);
+  const [taskReport, setTaskReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -114,15 +131,32 @@ export function Manager({ user, onLogout }) {
     }
   };
 
+  const loadLocations = async () => {
+    try {
+      const r = await getLocations();
+      setLocations(r.locations || []);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   useEffect(() => {
     if (tab === 'tasks') {
       loadTemplates();
       loadAssignments();
-    } else if (tab === 'announcements') loadAnnouncements();
-    else if (tab === 'ingredients') {
+      loadLocations();
+    } else if (tab === 'announcements') {
+      loadAnnouncements();
+      loadLocations();
+    } else if (tab === 'ingredients') {
       loadIngredients();
     } else if (tab === 'users') {
       loadUsers();
+      loadLocations();
+    } else if (tab === 'locations') {
+      loadLocations();
+    } else if (tab === 'reports') {
+      loadLocations();
     } else if (tab === 'integrations') {
       loadUsers();
       loadSmsLog();
@@ -235,6 +269,45 @@ export function Manager({ user, onLogout }) {
     }
   };
 
+  const runFoodWasteReport = async () => {
+    setError('');
+    setReportLoading(true);
+    setFoodWasteReport(null);
+    try {
+      const r = await getFoodWasteReport(reportFrom, reportTo, reportLocationId || undefined);
+      setFoodWasteReport(r);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const runTaskReport = async () => {
+    setError('');
+    setReportLoading(true);
+    setTaskReport(null);
+    try {
+      const r = await getTaskReport(reportFrom, reportTo);
+      setTaskReport(r);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleUserLocationChange = async (userId, location_ids) => {
+    setError('');
+    try {
+      await updateUser(user.company_id, userId, { location_ids });
+      setMessage('Locations updated');
+      loadUsers();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   return (
     <div className="manager-page">
       <header className="manager-header">
@@ -251,12 +324,14 @@ export function Manager({ user, onLogout }) {
       {message && <p className="manager-message">{message}</p>}
 
       <nav className="manager-tabs">
-        {['tasks', 'announcements', 'ingredients', 'users', 'integrations'].map((t) => (
+        {['tasks', 'announcements', 'ingredients', 'users', 'locations', 'reports', 'integrations'].map((t) => (
           <button key={t} type="button" className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
             {t === 'tasks' && 'Tasks'}
             {t === 'announcements' && 'Announcements'}
             {t === 'ingredients' && 'Ingredients'}
             {t === 'users' && 'Users'}
+            {t === 'locations' && 'Locations'}
+            {t === 'reports' && 'Reports'}
             {t === 'integrations' && 'Send SMS'}
           </button>
         ))}
@@ -265,12 +340,13 @@ export function Manager({ user, onLogout }) {
       {tab === 'tasks' && (
         <section className="manager-section">
           <h2>Task list templates</h2>
-          <TaskListTemplateForm onCreated={loadTemplates} />
+          <TaskListTemplateForm locations={locations} onCreated={loadTemplates} />
           <ul className="template-list">
             {templates.map((t) => (
               <TaskTemplateRow
                 key={t.id}
                 template={t}
+                locations={locations}
                 onUpdate={loadTemplates}
                 onAssign={() => handleCreateAssignment(t.id)}
                 assignDate={assignDate}
@@ -300,16 +376,137 @@ export function Manager({ user, onLogout }) {
       {tab === 'announcements' && (
         <section className="manager-section">
           <h2>Announcements</h2>
-          <AnnouncementForm onCreated={loadAnnouncements} />
+          <AnnouncementForm locations={locations} onCreated={loadAnnouncements} />
           <ul className="announcement-list">
             {announcements.map((a) => (
               <li key={a.id}>
                 <strong>{a.title}</strong> {a.effective_from} – {a.effective_until}
                 <WhoRead id={a.id} />
-                <AnnouncementEditDelete announcement={a} onUpdate={loadAnnouncements} />
+                <AnnouncementEditDelete announcement={a} locations={locations} onUpdate={loadAnnouncements} />
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {tab === 'locations' && (
+        <section className="manager-section">
+          <h2>Locations</h2>
+          <p className="hint">Add locations for this company. Then assign users, announcements, and task templates to one or many locations in the other tabs.</p>
+          <LocationsCrud
+            locations={locations}
+            onUpdate={loadLocations}
+            saving={loading}
+            onSavingChange={setLoading}
+            onError={setError}
+            onMessage={setMessage}
+          />
+        </section>
+      )}
+
+      {tab === 'reports' && (
+        <section className="manager-section">
+          <h2>Reports</h2>
+          <p className="hint">Choose a date range and run reports for food waste (by ingredient) or task completions.</p>
+
+          <div className="report-filters">
+            <label>
+              From
+              <input
+                type="date"
+                value={reportFrom}
+                onChange={(e) => setReportFrom(e.target.value)}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="date"
+                value={reportTo}
+                onChange={(e) => setReportTo(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <h3>Food waste summary</h3>
+          <p className="hint">Total quantity (grams) per ingredient for the selected period. Optionally filter by location.</p>
+          {locations.length > 0 && (
+            <label className="report-location-filter">
+              Location
+              <select value={reportLocationId} onChange={(e) => setReportLocationId(e.target.value)}>
+                <option value="">All locations</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button type="button" onClick={runFoodWasteReport} disabled={reportLoading}>Run food waste report</button>
+          {foodWasteReport && (
+            <div className="report-result">
+              <p className="report-meta">
+                {foodWasteReport.from} – {foodWasteReport.to}
+                {foodWasteReport.location_name ? ` · ${foodWasteReport.location_name}` : ' · All locations'}
+              </p>
+              <table className="report-table">
+                <thead>
+                  <tr>
+                    <th>Ingredient</th>
+                    <th>Total (g)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {foodWasteReport.rows.length === 0 ? (
+                    <tr><td colSpan={2}>No waste recorded in this period.</td></tr>
+                  ) : (
+                    foodWasteReport.rows.map((row) => (
+                      <tr key={row.ingredient_id}>
+                        <td>{row.ingredient_name}</td>
+                        <td>{Number(row.total_quantity).toLocaleString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <h3>Task completions</h3>
+          <p className="hint">Tasks completed in the selected date range (by assigned date).</p>
+          <button type="button" onClick={runTaskReport} disabled={reportLoading}>Run task report</button>
+          {taskReport && (
+            <div className="report-result">
+              <p className="report-meta">{taskReport.from} – {taskReport.to}</p>
+              <table className="report-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Template</th>
+                    <th>Task</th>
+                    <th>Assignee</th>
+                    <th>Completed by</th>
+                    <th>Completed at</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taskReport.rows.length === 0 ? (
+                    <tr><td colSpan={6}>No completions in this period.</td></tr>
+                  ) : (
+                    taskReport.rows.map((row, idx) => (
+                      <tr key={idx}>
+                        <td>{row.assigned_date}</td>
+                        <td>{row.template_name}</td>
+                        <td>{row.task_title}</td>
+                        <td>{row.assignee_name || '—'}</td>
+                        <td>{row.completed_by_name || '—'}</td>
+                        <td>{row.completed_at ? new Date(row.completed_at).toLocaleString() : '—'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 
@@ -322,8 +519,10 @@ export function Manager({ user, onLogout }) {
               <UserRow
                 key={u.id}
                 user={u}
+                locations={locations}
                 currentUserId={user?.id}
                 onRoleChange={(role) => handleUserRoleChange(u.id, role)}
+                onLocationChange={(locationIds) => handleUserLocationChange(u.id, locationIds)}
                 onSetPassword={(password) => handleUserSetPassword(u.id, password)}
                 onSendResetEmail={() => handleSendResetEmail(u.id)}
                 onDelete={() => handleDeleteUser(u.id)}
@@ -368,7 +567,112 @@ export function Manager({ user, onLogout }) {
   );
 }
 
-function UserRow({ user, currentUserId, onRoleChange, onSetPassword, onSendResetEmail, onDelete, loading }) {
+function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, onMessage }) {
+  const [newLocationName, setNewLocationName] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    const name = newLocationName.trim();
+    if (!name) return;
+    onError('');
+    onSavingChange(true);
+    try {
+      await createLocation(name);
+      setNewLocationName('');
+      onUpdate();
+      onMessage('Location added.');
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      onSavingChange(false);
+    }
+  };
+
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    if (!editingId) return;
+    const name = editingName.trim();
+    if (!name) return;
+    onError('');
+    onSavingChange(true);
+    try {
+      await updateLocation(editingId, { name });
+      setEditingId(null);
+      setEditingName('');
+      onUpdate();
+      onMessage('Location updated.');
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      onSavingChange(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this location? Users, announcements, and templates will no longer be assigned to it.')) return;
+    onError('');
+    onSavingChange(true);
+    try {
+      await deleteLocation(id);
+      setEditingId(null);
+      setEditingName('');
+      onUpdate();
+      onMessage('Location deleted.');
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      onSavingChange(false);
+    }
+  };
+
+  return (
+    <>
+      <form onSubmit={handleAdd} className="form-inline" style={{ marginBottom: '1rem' }}>
+        <input
+          type="text"
+          placeholder="New location name"
+          value={newLocationName}
+          onChange={(e) => setNewLocationName(e.target.value)}
+          autoComplete="off"
+        />
+        <button type="submit" disabled={saving || !newLocationName.trim()}>{saving ? 'Adding…' : 'Add location'}</button>
+      </form>
+      {locations.length === 0 ? (
+        <p className="hint">No locations yet. Add one above.</p>
+      ) : (
+        <ul className="manager-locations-list">
+          {locations.map((loc) => (
+            <li key={loc.id}>
+              {editingId === loc.id ? (
+                <form onSubmit={handleUpdate} className="form-inline">
+                  <input
+                    type="text"
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    autoFocus
+                    autoComplete="off"
+                  />
+                  <button type="submit" disabled={saving}>Save</button>
+                  <button type="button" onClick={() => { setEditingId(null); setEditingName(''); }}>Cancel</button>
+                </form>
+              ) : (
+                <>
+                  <span>{loc.name}</span>
+                  <button type="button" className="btn-small" onClick={() => { setEditingId(loc.id); setEditingName(loc.name); }}>Edit</button>
+                  <button type="button" className="btn-remove btn-small" onClick={() => handleDelete(loc.id)}>Delete</button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function UserRow({ user, locations, currentUserId, onRoleChange, onLocationChange, onSetPassword, onSendResetEmail, onDelete, loading }) {
   const [showSetPassword, setShowSetPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -380,6 +684,14 @@ function UserRow({ user, currentUserId, onRoleChange, onSetPassword, onSendReset
     setNewPassword('');
     setConfirmPassword('');
     setShowSetPassword(false);
+  };
+
+  const userLocationIds = Array.isArray(user.location_ids) ? user.location_ids : [];
+  const handleLocationToggle = (locationId) => {
+    const next = userLocationIds.includes(locationId)
+      ? userLocationIds.filter((id) => id !== locationId)
+      : [...userLocationIds, locationId];
+    onLocationChange(next);
   };
 
   const isSelf = user.id === currentUserId;
@@ -398,6 +710,22 @@ function UserRow({ user, currentUserId, onRoleChange, onSetPassword, onSendReset
         <option value="manager">Manager</option>
         <option value="owner">Owner</option>
       </select>
+      {locations && locations.length > 0 && (
+        <span className="user-locations">
+          Locations:{' '}
+          {locations.map((loc) => (
+            <label key={loc.id} className="user-location-checkbox">
+              <input
+                type="checkbox"
+                checked={userLocationIds.includes(loc.id)}
+                onChange={() => handleLocationToggle(loc.id)}
+                disabled={loading}
+              />
+              {loc.name}
+            </label>
+          ))}
+        </span>
+      )}
       <span className="user-actions">
         <button type="button" className="btn-small" onClick={() => setShowSetPassword(!showSetPassword)} disabled={loading}>
           Set password
@@ -436,22 +764,30 @@ function UserRow({ user, currentUserId, onRoleChange, onSetPassword, onSendReset
   );
 }
 
-function AnnouncementForm({ onCreated }) {
+function AnnouncementForm({ locations, onCreated }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [from, setFrom] = useState(todayStr());
   const [to, setTo] = useState(todayStr());
+  const [locationIds, setLocationIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+
+  const toggleLocation = (id) => {
+    setLocationIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     setErr('');
     setLoading(true);
     try {
-      await createAnnouncement(title, body, from, to);
+      await createAnnouncement(title, body, from, to, locationIds.length > 0 ? locationIds : undefined);
       setTitle('');
       setBody('');
+      setLocationIds([]);
       onCreated();
     } catch (e) {
       setErr(e.message);
@@ -466,6 +802,21 @@ function AnnouncementForm({ onCreated }) {
       <textarea placeholder="Body" value={body} onChange={(e) => setBody(e.target.value)} />
       <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
       <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      {locations && locations.length > 0 && (
+        <div className="form-locations">
+          <span>Locations (leave empty = all):</span>
+          {locations.map((loc) => (
+            <label key={loc.id} className="location-checkbox">
+              <input
+                type="checkbox"
+                checked={locationIds.includes(loc.id)}
+                onChange={() => toggleLocation(loc.id)}
+              />
+              {loc.name}
+            </label>
+          ))}
+        </div>
+      )}
       {err && <p className="form-error">{err}</p>}
       <button type="submit" disabled={loading}>Create announcement</button>
     </form>
@@ -495,7 +846,7 @@ const TASK_TEMPLATE_TYPES = [
   { value: 'free_time', label: 'Free Time' },
 ];
 
-function TaskListTemplateForm({ onCreated }) {
+function TaskListTemplateForm({ locations, onCreated }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('opening');
   const [period_type, setPeriodType] = useState('daily');
@@ -503,8 +854,14 @@ function TaskListTemplateForm({ onCreated }) {
   const [day_of_month, setDayOfMonth] = useState(1);
   const [recur_month, setRecurMonth] = useState(1);
   const [recur_day, setRecurDay] = useState(1);
+  const [locationIds, setLocationIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  const toggleLocation = (id) => {
+    setLocationIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
   const submit = async (e) => {
     e.preventDefault();
     setErr('');
@@ -526,8 +883,10 @@ function TaskListTemplateForm({ onCreated }) {
       if (period_type === 'weekly') options.day_of_week = day_of_week;
       if (period_type === 'monthly') options.day_of_month = day_of_month;
       if (period_type === 'yearly') { options.recur_month = recur_month; options.recur_day = recur_day; }
+      if (locationIds.length > 0) options.location_ids = locationIds;
       await createTaskListTemplate(name.trim(), type.trim(), period_type, options);
       setName('');
+      setLocationIds([]);
       onCreated();
     } catch (e) {
       setErr(e.message);
@@ -589,13 +948,24 @@ function TaskListTemplateForm({ onCreated }) {
           </label>
         </>
       )}
+      {locations && locations.length > 0 && (
+        <span className="form-locations-inline">
+          Locations (empty = all):{' '}
+          {locations.map((loc) => (
+            <label key={loc.id} className="location-checkbox">
+              <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
+              {loc.name}
+            </label>
+          ))}
+        </span>
+      )}
       {err && <span className="form-error">{err}</span>}
       <button type="submit" disabled={loading}>Create template</button>
     </form>
   );
 }
 
-function TaskTemplateRow({ template, onUpdate, onAssign, assignDate }) {
+function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }) {
   const [tasks, setTasks] = useState([]);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -726,6 +1096,30 @@ function TaskTemplateRow({ template, onUpdate, onAssign, assignDate }) {
               </select>
             </p>
           )}
+          {locations && locations.length > 0 && (
+            <p className="template-locations">
+              Locations (empty = all):{' '}
+              {locations.map((loc) => {
+                const templateLocationIds = Array.isArray(template.location_ids) ? template.location_ids : [];
+                const checked = templateLocationIds.includes(loc.id);
+                return (
+                  <label key={loc.id} className="location-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = checked
+                          ? templateLocationIds.filter((id) => id !== loc.id)
+                          : [...templateLocationIds, loc.id];
+                        updateTaskListTemplate(template.id, { location_ids: next }).then(onUpdate).catch((err) => alert(err.message));
+                      }}
+                    />
+                    {loc.name}
+                  </label>
+                );
+              })}
+            </p>
+          )}
           <ul>
             {tasks.map((t) => (
               <li key={t.id}>
@@ -744,19 +1138,26 @@ function TaskTemplateRow({ template, onUpdate, onAssign, assignDate }) {
   );
 }
 
-function AnnouncementEditDelete({ announcement, onUpdate }) {
+function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(announcement.title);
   const [body, setBody] = useState(announcement.body || '');
   const [from, setFrom] = useState(announcement.effective_from);
   const [to, setTo] = useState(announcement.effective_until);
+  const [locationIds, setLocationIds] = useState(Array.isArray(announcement.location_ids) ? announcement.location_ids : []);
   const [loading, setLoading] = useState(false);
+
+  const toggleLocation = (id) => {
+    setLocationIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await updateAnnouncement(announcement.id, { title, body, effective_from: from, effective_until: to });
+      await updateAnnouncement(announcement.id, { title, body, effective_from: from, effective_until: to, location_ids: locationIds });
       setEditing(false);
       onUpdate();
     } catch (e) {
@@ -783,6 +1184,17 @@ function AnnouncementEditDelete({ announcement, onUpdate }) {
         <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} />
         <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        {locations && locations.length > 0 && (
+          <div className="form-locations">
+            Locations (empty = all):{' '}
+            {locations.map((loc) => (
+              <label key={loc.id} className="location-checkbox">
+                <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
+                {loc.name}
+              </label>
+            ))}
+          </div>
+        )}
         <button type="submit" disabled={loading}>Save</button>
         <button type="button" onClick={() => setEditing(false)}>Cancel</button>
       </form>

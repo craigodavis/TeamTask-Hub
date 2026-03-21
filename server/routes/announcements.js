@@ -5,7 +5,8 @@ import { requireManager } from '../middleware/auth.js';
 const router = express.Router();
 const companyId = (req) => req.companyId;
 
-// Active announcements for main screen (effective today or in range); includes my_acknowledged_at
+// Active announcements for main screen (effective today or in range); includes my_acknowledged_at.
+// Filtered by location: show if announcement has no location restriction (all locations) or overlaps user's locations.
 router.get('/active', async (req, res) => {
   try {
     const { date } = req.query;
@@ -16,6 +17,14 @@ router.get('/active', async (req, res) => {
        FROM announcements a
        LEFT JOIN announcement_acknowledgments aa ON aa.announcement_id = a.id AND aa.user_id = $2
        WHERE a.company_id = $1 AND a.effective_from <= $3::date AND a.effective_until >= $3::date
+         AND (
+           NOT EXISTS (SELECT 1 FROM announcement_locations al WHERE al.announcement_id = a.id)
+           OR EXISTS (
+             SELECT 1 FROM announcement_locations al
+             INNER JOIN user_locations ul ON ul.location_id = al.location_id AND ul.user_id = $2
+             WHERE al.announcement_id = a.id
+           )
+         )
        ORDER BY a.created_at DESC`,
       [companyId(req), req.userId, d]
     );
@@ -29,12 +38,16 @@ router.get('/active', async (req, res) => {
   }
 });
 
-// List all announcements (manager; optional date filter)
+// List all announcements (manager; optional date filter). Includes location_ids per announcement.
 router.get('/', async (req, res) => {
   try {
     const { from, to } = req.query;
     let q = `SELECT a.id, a.company_id, a.title, a.body, a.effective_from, a.effective_until, a.created_by, a.created_at,
-                    u.display_name as created_by_name
+                    u.display_name as created_by_name,
+                    COALESCE(
+                      (SELECT array_agg(al.location_id ORDER BY al.location_id) FROM announcement_locations al WHERE al.announcement_id = a.id),
+                      ARRAY[]::uuid[]
+                    ) AS location_ids
              FROM announcements a
              LEFT JOIN users u ON u.id = a.created_by
              WHERE a.company_id = $1`;
@@ -43,7 +56,8 @@ router.get('/', async (req, res) => {
     if (to) { q += ` AND a.effective_from <= $${params.length + 1}::date`; params.push(to); }
     q += ` ORDER BY a.effective_from DESC, a.created_at DESC`;
     const r = await query(q, params);
-    res.json({ announcements: r.rows });
+    const announcements = r.rows.map((row) => ({ ...row, location_ids: row.location_ids || [] }));
+    res.json({ announcements });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -51,17 +65,36 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireManager, async (req, res) => {
   try {
-    const { title, body, effective_from, effective_until } = req.body;
+    const { title, body, effective_from, effective_until, location_ids } = req.body;
     if (!title || !effective_from || !effective_until) {
       return res.status(400).json({ error: 'title, effective_from, effective_until required' });
     }
+    const cId = companyId(req);
     const r = await query(
       `INSERT INTO announcements (company_id, title, body, effective_from, effective_until, created_by)
        VALUES ($1, $2, $3, $4::date, $5::date, $6)
        RETURNING id, company_id, title, body, effective_from, effective_until, created_by, created_at`,
-      [companyId(req), title, body || null, effective_from, effective_until, req.userId]
+      [cId, title, body || null, effective_from, effective_until, req.userId]
     );
-    res.status(201).json(r.rows[0]);
+    const announcement = r.rows[0];
+    const ids = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
+    if (ids.length > 0) {
+      const valid = await query(
+        `SELECT id FROM locations WHERE id = ANY($1::uuid[]) AND company_id = $2`,
+        [ids, cId]
+      );
+      for (const row of valid.rows) {
+        await query(
+          `INSERT INTO announcement_locations (announcement_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [announcement.id, row.id]
+        );
+      }
+    }
+    const locAgg = await query(
+      `SELECT array_agg(location_id ORDER BY location_id) AS location_ids FROM announcement_locations WHERE announcement_id = $1`,
+      [announcement.id]
+    );
+    res.status(201).json({ ...announcement, location_ids: locAgg.rows[0]?.location_ids || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -70,7 +103,8 @@ router.post('/', requireManager, async (req, res) => {
 router.patch('/:id', requireManager, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, body, effective_from, effective_until } = req.body;
+    const { title, body, effective_from, effective_until, location_ids } = req.body;
+    const cId = companyId(req);
     const r = await query(
       `UPDATE announcements SET
          title = COALESCE($2, title), body = COALESCE($3, body),
@@ -78,10 +112,32 @@ router.patch('/:id', requireManager, async (req, res) => {
          updated_at = NOW()
        WHERE id = $1 AND company_id = $6
        RETURNING id, company_id, title, body, effective_from, effective_until, created_by, updated_at`,
-      [id, title, body, effective_from, effective_until, companyId(req)]
+      [id, title, body, effective_from, effective_until, cId]
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Announcement not found' });
-    res.json(r.rows[0]);
+    const announcement = r.rows[0];
+    if (location_ids !== undefined) {
+      await query(`DELETE FROM announcement_locations WHERE announcement_id = $1`, [id]);
+      const ids = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
+      if (ids.length > 0) {
+        const valid = await query(
+          `SELECT id FROM locations WHERE id = ANY($1::uuid[]) AND company_id = $2`,
+          [ids, cId]
+        );
+        for (const row of valid.rows) {
+          await query(
+            `INSERT INTO announcement_locations (announcement_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [id, row.id]
+          );
+        }
+      }
+    }
+    const locAgg = await query(
+      `SELECT array_agg(location_id ORDER BY location_id) AS location_ids FROM announcement_locations WHERE announcement_id = $1`,
+      [id]
+    );
+    announcement.location_ids = locAgg.rows[0]?.location_ids || [];
+    res.json(announcement);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

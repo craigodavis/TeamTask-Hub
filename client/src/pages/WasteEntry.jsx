@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getFoodWasteEntry, getIngredients, addFoodWasteItem, updateFoodWasteEntry } from '../api';
+import { getFoodWasteEntry, getIngredients, addFoodWasteItem, updateFoodWasteEntry, getLocations } from '../api';
 import './WasteEntry.css';
 
 const GRAMS_UNIT = 'g';
@@ -9,8 +9,10 @@ export function WasteEntry({ user }) {
   const { entryId } = useParams();
   const [entry, setEntry] = useState(null);
   const [ingredients, setIngredients] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [editTitle, setEditTitle] = useState('');
   const [editDate, setEditDate] = useState('');
+  const [editLocationId, setEditLocationId] = useState('');
   const [selectedIngredient, setSelectedIngredient] = useState('');
   const [grams, setGrams] = useState('');
   const [loading, setLoading] = useState(true);
@@ -22,15 +24,18 @@ export function WasteEntry({ user }) {
     let cancelled = false;
     (async () => {
       try {
-        const [e, i] = await Promise.all([
+        const [e, i, locs] = await Promise.all([
           getFoodWasteEntry(entryId),
           getIngredients(),
+          getLocations().catch(() => ({ locations: [] })),
         ]);
         if (!cancelled) {
           setEntry(e);
           setEditTitle(e.title || 'Waste log');
           setEditDate(e.entry_date || new Date().toISOString().slice(0, 10));
+          setEditLocationId(e.location_id || '');
           setIngredients(i.ingredients || []);
+          setLocations(locs.locations || []);
           if ((i.ingredients || []).length > 0) setSelectedIngredient((i.ingredients || [])[0].id);
         }
       } catch (err) {
@@ -49,12 +54,17 @@ export function WasteEntry({ user }) {
       setError('Date is required.');
       return;
     }
-    if (editTitle === (entry.title || '') && editDate === (entry.entry_date || '')) return;
+    const sameTitle = editTitle === (entry.title || '');
+    const sameDate = editDate === (entry.entry_date || '');
+    const sameLocation = (editLocationId || null) === (entry.location_id || null);
+    if (sameTitle && sameDate && sameLocation) return;
     setError('');
     setSavingHeader(true);
     try {
-      await updateFoodWasteEntry(entryId, { title: editTitle.trim() || 'Waste log', entry_date: editDate.trim() });
-      setEntry((prev) => prev ? { ...prev, title: editTitle.trim() || 'Waste log', entry_date: editDate.trim() } : prev);
+      const body = { title: editTitle.trim() || 'Waste log', entry_date: editDate.trim() };
+      if (locations.length > 0) body.location_id = editLocationId || null;
+      await updateFoodWasteEntry(entryId, body);
+      setEntry((prev) => prev ? { ...prev, title: body.title, entry_date: body.entry_date, location_id: body.location_id } : prev);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -111,6 +121,20 @@ export function WasteEntry({ user }) {
               required
             />
           </label>
+          {locations.length > 0 && (
+            <label className="waste-entry-location-label">
+              Location
+              <select
+                value={editLocationId}
+                onChange={(e) => setEditLocationId(e.target.value)}
+              >
+                <option value="">—</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button type="submit" className="waste-entry-save-header" disabled={savingHeader}>
             {savingHeader ? 'Saving…' : 'Save header'}
           </button>

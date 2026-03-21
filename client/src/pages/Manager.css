@@ -81,13 +81,13 @@
   border: 1px solid var(--border);
 }
 
-.template-list, .announcement-list, .entry-list, .sms-log, .assignment-list, .ingredient-list {
+.template-list, .announcement-list, .entry-list, .sms-log, .assignment-list, .ingredient-list, .manager-locations-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.template-list li, .announcement-list li {
+.template-list li, .announcement-list li, .manager-locations-list li {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -394,4 +394,128 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 0.9rem;
+}
+
+.user-locations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.user-location-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.form-locations,
+.form-locations-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.form-locations-inline {
+  margin: 0 0.5rem;
+}
+
+.location-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.template-locations {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.template-locations .location-checkbox {
+  margin-right: 0.5rem;
+}
+
+/* Reports */
+.report-filters {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.report-filters label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.report-filters input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.report-location-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  margin-right: 1rem;
+}
+
+.report-location-filter select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.report-result {
+  margin-top: 1rem;
+  margin-bottom: 2rem;
+  overflow-x: auto;
+}
+
+.report-meta {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.report-table th,
+.report-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.report-table th {
+  font-weight: 600;
+  background: var(--card);
+}
+
+.report-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.manager-section h3 {
+  margin: 2rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.manager-section h3:first-of-type {
+  margin-top: 0;
 }

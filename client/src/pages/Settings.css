@@ -120,3 +120,26 @@
   font-size: 0.9rem;
   color: #2e7d32;
 }
+
+.settings-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.settings-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-list li button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.settings-list li span {
+  flex: 1;
+}

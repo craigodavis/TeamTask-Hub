@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testMail } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation } from '../api';
 import './Settings.css';
 
 export function Settings({ user, onLogout }) {
@@ -28,6 +28,12 @@ export function Settings({ user, onLogout }) {
   const [mailPass, setMailPass] = useState('');
   const [mailFrom, setMailFrom] = useState('');
   const [mailSecure, setMailSecure] = useState(false);
+
+  const [locations, setLocations] = useState([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+  const [newLocationName, setNewLocationName] = useState('');
+  const [editingLocationId, setEditingLocationId] = useState(null);
+  const [editingLocationName, setEditingLocationName] = useState('');
 
   const isOwner = user?.role === 'owner';
   useEffect(() => {
@@ -143,6 +149,70 @@ export function Settings({ user, onLogout }) {
     }
   };
 
+  const loadLocations = () => {
+    setLocationsLoading(true);
+    setError('');
+    getLocations()
+      .then((r) => setLocations(r.locations || []))
+      .catch((e) => setError(e.message))
+      .finally(() => setLocationsLoading(false));
+  };
+
+  const handleAddLocation = async (e) => {
+    e.preventDefault();
+    const name = newLocationName.trim();
+    if (!name) return;
+    setError('');
+    setSaving(true);
+    try {
+      await createLocation(name);
+      setNewLocationName('');
+      loadLocations();
+      setMessage('Location added.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateLocation = async (e) => {
+    e.preventDefault();
+    if (!editingLocationId) return;
+    const name = editingLocationName.trim();
+    if (!name) return;
+    setError('');
+    setSaving(true);
+    try {
+      await updateLocation(editingLocationId, { name });
+      setEditingLocationId(null);
+      setEditingLocationName('');
+      loadLocations();
+      setMessage('Location updated.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteLocation = async (id) => {
+    if (!window.confirm('Delete this location? Users, announcements, and templates will no longer be assigned to it.')) return;
+    setError('');
+    setSaving(true);
+    try {
+      await deleteLocation(id);
+      setEditingLocationId(null);
+      setEditingLocationName('');
+      loadLocations();
+      setMessage('Location deleted.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!isOwner) {
     return (
       <div className="settings-page">
@@ -164,6 +234,7 @@ export function Settings({ user, onLogout }) {
       <nav className="settings-tabs">
         <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setTab('integrations')}>Integrations</button>
         <button type="button" className={tab === 'mail' ? 'active' : ''} onClick={() => setTab('mail')}>Mail</button>
+        <button type="button" className={tab === 'locations' ? 'active' : ''} onClick={() => { setTab('locations'); if (tab !== 'locations') loadLocations(); }}>Locations</button>
       </nav>
       {error && <p className="settings-error">{error}</p>}
       {message && <p className="settings-message">{message}</p>}
@@ -315,6 +386,56 @@ export function Settings({ user, onLogout }) {
             </fieldset>
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </form>
+        </>
+      )}
+
+      {tab === 'locations' && (
+        <>
+          <p className="settings-intro">Locations for this company. Assign users, announcements, and task templates to one or many locations from the Manager page.</p>
+          <form onSubmit={handleAddLocation} className="settings-form" style={{ marginBottom: '1rem' }}>
+            <label>
+              New location
+              <input
+                type="text"
+                placeholder="Location name"
+                value={newLocationName}
+                onChange={(e) => setNewLocationName(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <button type="submit" disabled={saving || !newLocationName.trim()}>{saving ? 'Adding…' : 'Add location'}</button>
+          </form>
+          {locationsLoading ? (
+            <p>Loading locations…</p>
+          ) : locations.length === 0 ? (
+            <p className="empty">No locations yet. Add one above.</p>
+          ) : (
+            <ul className="settings-list">
+              {locations.map((loc) => (
+                <li key={loc.id}>
+                  {editingLocationId === loc.id ? (
+                    <form onSubmit={handleUpdateLocation} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={editingLocationName}
+                        onChange={(e) => setEditingLocationName(e.target.value)}
+                        autoFocus
+                        autoComplete="off"
+                      />
+                      <button type="submit" disabled={saving}>Save</button>
+                      <button type="button" onClick={() => { setEditingLocationId(null); setEditingLocationName(''); }}>Cancel</button>
+                    </form>
+                  ) : (
+                    <>
+                      <span>{loc.name}</span>
+                      <button type="button" onClick={() => { setEditingLocationId(loc.id); setEditingLocationName(loc.name); }}>Edit</button>
+                      <button type="button" onClick={() => handleDeleteLocation(loc.id)}>Delete</button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
     </div>

@@ -42,6 +42,43 @@ export async function me() {
   return data;
 }
 
+export async function getLocations() {
+  const res = await fetch(`${API}/locations`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load locations');
+  return data;
+}
+
+export async function createLocation(name) {
+  const res = await fetch(`${API}/locations`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ name: String(name).trim() }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create location');
+  return data;
+}
+
+export async function updateLocation(id, body) {
+  const res = await fetch(`${API}/locations/${id}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update location');
+  return data;
+}
+
+export async function deleteLocation(id) {
+  const res = await fetch(`${API}/locations/${id}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to delete location');
+  }
+}
+
 export async function getDaySummary(date) {
   const res = await fetch(`${API}/task-lists/day-summary?date=${encodeURIComponent(date)}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
@@ -116,6 +153,7 @@ export async function createTaskListTemplate(name, type, period_type, options = 
   if (period_type === 'monthly' && options.day_of_month != null) body.day_of_month = options.day_of_month;
   if (period_type === 'yearly' && options.recur_month != null) body.recur_month = options.recur_month;
   if (period_type === 'yearly' && options.recur_day != null) body.recur_day = options.recur_day;
+  if (options.location_ids != null && Array.isArray(options.location_ids)) body.location_ids = options.location_ids;
   const res = await fetch(`${API}/task-lists/templates`, {
     method: 'POST',
     headers: headers(),
@@ -196,11 +234,13 @@ export async function getAnnouncements(from, to) {
   return data;
 }
 
-export async function createAnnouncement(title, body, effective_from, effective_until) {
+export async function createAnnouncement(title, body, effective_from, effective_until, location_ids) {
+  const payload = { title, body, effective_from, effective_until };
+  if (location_ids != null && Array.isArray(location_ids)) payload.location_ids = location_ids;
   const res = await fetch(`${API}/announcements`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ title, body, effective_from, effective_until }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create announcement');
@@ -270,11 +310,12 @@ export async function deleteIngredient(id) {
   }
 }
 
-export async function getFoodWasteEntries(from, to) {
+export async function getFoodWasteEntries(from, to, location_id) {
   let url = `${API}/food-waste/entries`;
   const params = new URLSearchParams();
   if (from) params.set('from', from);
   if (to) params.set('to', to);
+  if (location_id) params.set('location_id', location_id);
   if (params.toString()) url += '?' + params.toString();
   const res = await fetch(url, { headers: headers() });
   const data = await res.json().catch(() => ({}));
@@ -289,11 +330,13 @@ export async function getFoodWasteEntry(entryId) {
   return data;
 }
 
-export async function createFoodWasteEntry(title, entry_date) {
+export async function createFoodWasteEntry(title, entry_date, location_id) {
+  const body = { title, entry_date };
+  if (location_id != null) body.location_id = location_id;
   const res = await fetch(`${API}/food-waste/entries`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ title, entry_date }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create entry');
@@ -319,6 +362,25 @@ export async function addFoodWasteItem(entryId, ingredient_id, quantity, unit) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to add item');
+  return data;
+}
+
+export async function getFoodWasteReport(from, to, location_id) {
+  let url = `${API}/food-waste/report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  if (location_id) url += `&location_id=${encodeURIComponent(location_id)}`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load report');
+  return data;
+}
+
+export async function getTaskReport(from, to) {
+  const res = await fetch(
+    `${API}/task-lists/report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { headers: headers() }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load report');
   return data;
 }
 

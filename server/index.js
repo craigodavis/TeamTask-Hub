@@ -14,6 +14,8 @@ import { foodWasteRouter } from './routes/foodWaste.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { requireAuth, requireManager, requireOwner } from './middleware/auth.js';
 import { settingsRouter } from './routes/settings.js';
+import { locationsRouter } from './routes/locations.js';
+import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +39,7 @@ app.use('/api/announcements', requireAuth, announcementsRouter);
 app.use('/api/food-waste', requireAuth, foodWasteRouter);
 app.use('/api/integrations', requireAuth, requireManager, integrationsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
+app.use('/api/locations', requireAuth, locationsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
@@ -49,6 +52,13 @@ if (servingClient) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
-});
+ensureLocationsTables()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server listening on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Startup failed:', err);
+    process.exit(1);
+  });

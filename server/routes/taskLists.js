@@ -5,15 +5,39 @@ import { requireManager } from '../middleware/auth.js';
 const router = express.Router();
 const companyId = (req) => req.companyId;
 
+function isMissingTableErr(err, tableName) {
+  return err.code === '42P01' || (err.message && String(err.message).includes(tableName) && String(err.message).toLowerCase().includes('does not exist'));
+}
+
 // ---------- Templates (manager) ----------
 router.get('/templates', async (req, res) => {
   try {
-    const r = await query(
-      `SELECT id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, created_at
-       FROM task_list_templates WHERE company_id = $1 ORDER BY name`,
-      [companyId(req)]
-    );
-    res.json({ templates: r.rows });
+    let r;
+    try {
+      r = await query(
+        `SELECT tlt.id, tlt.company_id, tlt.name, tlt.type, tlt.period_type, tlt.day_of_week, tlt.day_of_month, tlt.recur_month, tlt.recur_day, tlt.created_at,
+                COALESCE(
+                  (SELECT array_agg(tll.location_id ORDER BY tll.location_id) FROM task_list_template_locations tll WHERE tll.template_id = tlt.id),
+                  ARRAY[]::uuid[]
+                ) AS location_ids
+         FROM task_list_templates tlt
+         WHERE tlt.company_id = $1 ORDER BY tlt.name`,
+        [companyId(req)]
+      );
+    } catch (tableErr) {
+      if (isMissingTableErr(tableErr, 'task_list_template_locations')) {
+        r = await query(
+          `SELECT id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, created_at
+           FROM task_list_templates WHERE company_id = $1 ORDER BY name`,
+          [companyId(req)]
+        );
+        r.rows = r.rows.map((row) => ({ ...row, location_ids: [] }));
+      } else {
+        throw tableErr;
+      }
+    }
+    const templates = r.rows.map((row) => ({ ...row, location_ids: row.location_ids || [] }));
+    res.json({ templates });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -21,7 +45,7 @@ router.get('/templates', async (req, res) => {
 
 router.post('/templates', requireManager, async (req, res) => {
   try {
-    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day } = req.body;
+    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids } = req.body;
     if (!name || !type || !period_type) {
       return res.status(400).json({ error: 'name, type, period_type required' });
     }
@@ -47,12 +71,37 @@ router.post('/templates', requireManager, async (req, res) => {
       recurMonthVal = rm;
       recurDayVal = rd;
     }
+    const cId = companyId(req);
     const r = await query(
       `INSERT INTO task_list_templates (company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, created_at`,
-      [companyId(req), name, type, period_type, dayOfWeekVal, dayOfMonthVal, recurMonthVal, recurDayVal]
+      [cId, name, type, period_type, dayOfWeekVal, dayOfMonthVal, recurMonthVal, recurDayVal]
     );
-    res.status(201).json(r.rows[0]);
+    const template = r.rows[0];
+    let locationIds = [];
+    try {
+      const ids = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
+      if (ids.length > 0) {
+        const valid = await query(
+          `SELECT id FROM locations WHERE id = ANY($1::uuid[]) AND company_id = $2`,
+          [ids, cId]
+        );
+        for (const row of valid.rows) {
+          await query(
+            `INSERT INTO task_list_template_locations (template_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [template.id, row.id]
+          );
+        }
+      }
+      const locAgg = await query(
+        `SELECT array_agg(location_id ORDER BY location_id) AS location_ids FROM task_list_template_locations WHERE template_id = $1`,
+        [template.id]
+      );
+      locationIds = locAgg.rows[0]?.location_ids || [];
+    } catch (locErr) {
+      if (!isMissingTableErr(locErr, 'task_list_template_locations')) throw locErr;
+    }
+    res.status(201).json({ ...template, location_ids: locationIds });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -61,7 +110,7 @@ router.post('/templates', requireManager, async (req, res) => {
 router.patch('/templates/:id', requireManager, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day } = req.body;
+    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids } = req.body;
     if (period_type === 'weekly' && day_of_week != null) {
       const dow = parseInt(day_of_week, 10);
       if (dow < 0 || dow > 6) {
@@ -80,6 +129,7 @@ router.patch('/templates/:id', requireManager, async (req, res) => {
       if (rm != null && (rm < 1 || rm > 12)) return res.status(400).json({ error: 'recur_month must be 1-12' });
       if (rd != null && (rd < 1 || rd > 31)) return res.status(400).json({ error: 'recur_day must be 1-31' });
     }
+    const cId = companyId(req);
     const r = await query(
       `UPDATE task_list_templates SET
          name = COALESCE(NULLIF($2, ''), name),
@@ -114,11 +164,38 @@ router.patch('/templates/:id', requireManager, async (req, res) => {
         period_type === 'monthly' && day_of_month != null ? parseInt(day_of_month, 10) : null,
         period_type === 'yearly' && recur_month != null ? parseInt(recur_month, 10) : null,
         period_type === 'yearly' && recur_day != null ? parseInt(recur_day, 10) : null,
-        companyId(req),
+        cId,
       ]
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
-    res.json(r.rows[0]);
+    const template = r.rows[0];
+    try {
+      if (location_ids !== undefined) {
+        await query(`DELETE FROM task_list_template_locations WHERE template_id = $1`, [id]);
+        const ids = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
+        if (ids.length > 0) {
+          const valid = await query(
+            `SELECT id FROM locations WHERE id = ANY($1::uuid[]) AND company_id = $2`,
+            [ids, cId]
+          );
+          for (const row of valid.rows) {
+            await query(
+              `INSERT INTO task_list_template_locations (template_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              [id, row.id]
+            );
+          }
+        }
+      }
+      const locAgg = await query(
+        `SELECT array_agg(location_id ORDER BY location_id) AS location_ids FROM task_list_template_locations WHERE template_id = $1`,
+        [id]
+      );
+      template.location_ids = locAgg.rows[0]?.location_ids || [];
+    } catch (locErr) {
+      if (!isMissingTableErr(locErr, 'task_list_template_locations')) throw locErr;
+      template.location_ids = [];
+    }
+    res.json(template);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -429,6 +506,44 @@ router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (r
       [assignmentId, taskTemplateId, userId]
     );
     res.json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Task report (manager): completions in date range ----------
+router.get('/report', requireManager, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'from and to date required (YYYY-MM-DD)' });
+    const cId = companyId(req);
+    const r = await query(
+      `SELECT ta.assigned_date, tlt.name AS template_name, tt.title AS task_title,
+              u_assignee.display_name AS assignee_name,
+              u_completed.display_name AS completed_by_name,
+              tc.completed_at
+       FROM task_completions tc
+       JOIN task_assignments ta ON ta.id = tc.assignment_id AND ta.company_id = $1
+         AND ta.assigned_date >= $2::date AND ta.assigned_date <= $3::date
+       JOIN task_templates tt ON tt.id = tc.task_template_id
+       JOIN task_list_templates tlt ON tlt.id = ta.template_id
+       LEFT JOIN users u_assignee ON u_assignee.id = ta.assignee_id
+       LEFT JOIN users u_completed ON u_completed.id = tc.user_id
+       ORDER BY ta.assigned_date DESC, tlt.name, tt.sort_order, tt.id`,
+      [cId, from, to]
+    );
+    res.json({
+      from,
+      to,
+      rows: r.rows.map((row) => ({
+        assigned_date: row.assigned_date,
+        template_name: row.template_name,
+        task_title: row.task_title,
+        assignee_name: row.assignee_name || null,
+        completed_by_name: row.completed_by_name || null,
+        completed_at: row.completed_at,
+      })),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

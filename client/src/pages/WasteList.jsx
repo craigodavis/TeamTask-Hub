@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getFoodWasteEntries, createFoodWasteEntry } from '../api';
+import { getFoodWasteEntries, createFoodWasteEntry, getLocations } from '../api';
 import './WasteList.css';
 
 function todayStr() {
@@ -16,19 +16,26 @@ function thirtyDaysAgo() {
 export function WasteList({ user }) {
   const navigate = useNavigate();
   const [entries, setEntries] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [createTitle, setCreateTitle] = useState('Waste log');
   const [createDate, setCreateDate] = useState(todayStr());
+  const [createLocationId, setCreateLocationId] = useState('');
+  const [filterLocationId, setFilterLocationId] = useState('');
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    getLocations().then((r) => setLocations(r.locations || [])).catch(() => {});
+  }, []);
 
   const loadEntries = useCallback(() => {
     setLoading(true);
-    getFoodWasteEntries(thirtyDaysAgo(), todayStr())
+    getFoodWasteEntries(thirtyDaysAgo(), todayStr(), filterLocationId || undefined)
       .then((r) => setEntries(r.entries || []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [filterLocationId]);
 
   useEffect(() => {
     loadEntries();
@@ -43,10 +50,15 @@ export function WasteList({ user }) {
     }
     setCreating(true);
     try {
-      const created = await createFoodWasteEntry(createTitle.trim() || 'Waste log', createDate.trim());
+      const created = await createFoodWasteEntry(
+        createTitle.trim() || 'Waste log',
+        createDate.trim(),
+        createLocationId || undefined
+      );
       loadEntries();
       setCreateTitle('Waste log');
       setCreateDate(todayStr());
+      setCreateLocationId('');
       navigate(`/waste/${created.id}`);
     } catch (err) {
       setError(err.message);
@@ -84,12 +96,40 @@ export function WasteList({ user }) {
               required
             />
           </label>
+          {locations.length > 0 && (
+            <label>
+              Location
+              <select
+                value={createLocationId}
+                onChange={(e) => setCreateLocationId(e.target.value)}
+              >
+                <option value="">—</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create waste log'}</button>
         </form>
       </section>
 
       <section className="waste-list-entries">
         <h2>Waste logs</h2>
+        {locations.length > 0 && (
+          <label className="waste-list-filter">
+            Filter by location
+            <select
+              value={filterLocationId}
+              onChange={(e) => setFilterLocationId(e.target.value)}
+            >
+              <option value="">All</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>{loc.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         {loading ? (
           <p>Loading…</p>
         ) : entries.length === 0 ? (
@@ -100,6 +140,7 @@ export function WasteList({ user }) {
               <li key={e.id}>
                 <Link to={`/waste/${e.id}`}>
                   {e.title} – {e.entry_date}
+                  {e.location_name ? ` (${e.location_name})` : ''}
                 </Link>
               </li>
             ))}
