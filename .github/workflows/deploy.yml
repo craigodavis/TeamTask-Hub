@@ -13,9 +13,9 @@ jobs:
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          printf "%s\n" "$DEPLOY_KEY" > ~/.ssh/github_action_key
-          chmod 600 ~/.ssh/github_action_key
+          mkdir -p /home/runner/.ssh
+          printf "%s\n" "$DEPLOY_KEY" > /home/runner/.ssh/github_action_key
+          chmod 600 /home/runner/.ssh/github_action_key
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -23,7 +23,7 @@ jobs:
           host: d16057.usc1.stableserver.net
           username: kindredv
           port: 22
-          key_path: ~/.ssh/github_action_key
+          key_path: /home/runner/.ssh/github_action_key
           script: |
             set -e
 
