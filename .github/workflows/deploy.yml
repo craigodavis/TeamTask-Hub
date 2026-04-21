@@ -1,4 +1,4 @@
-name: Deploy to server
+name: Deploy TeamHub to server
 
 on:
   push:
@@ -7,23 +7,29 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: server.kindredvineyards.com
+          host: d16057.usc1.stableserver.net
           username: kindredv
-          port: 7822
-          key: ${{ secrets.TEAMTASKHUB_KEY }}  # changed to match your secret
-          # Note: server/.env must exist on the server (not in git). Copy from server/.env.example and set values.
+          port: 22
+          key: ${{ secrets.DEPLOY_KEY }}
           script: |
             set -e
-            cd /home/kindredv/teamtaskhub
-            git fetch origin
+
+            cd /home/kindredv/teamhub
+
+            git fetch origin main
+            git checkout main
             git reset --hard origin/main
-            npm install --prefix server
-            npm install --prefix client
-            npm run build
-            cd server && npm run migrate && cd ..
+
+            # If TeamHub has a Node app, adjust this path as needed
+            cd admin
+
+            /home/kindredv/nodevenv/teamhub/admin/20/bin/npm install
+            /home/kindredv/nodevenv/teamhub/admin/20/bin/node scripts/bump-build-version.js || true
+
             mkdir -p tmp
             touch tmp/restart.txt
