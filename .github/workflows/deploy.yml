@@ -9,14 +9,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check secret presence
+      - name: Write SSH key to file
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
-          if [ -z "$DEPLOY_KEY" ]; then
-            echo "DEPLOY_KEY is empty"
-            exit 1
-          fi
+          mkdir -p ~/.ssh
+          printf "%s\n" "$DEPLOY_KEY" > ~/.ssh/github_action_key
+          chmod 600 ~/.ssh/github_action_key
 
-          echo "DEPLOY_KEY exists"
-          echo "$DEPLOY_KEY" | head -n 1
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: d16057.usc1.stableserver.net
+          username: kindredv
+          port: 22
+          key_path: ~/.ssh/github_action_key
+          script: |
+            set -e
+
+            cd /home/kindredv/teamhub
+
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            cd admin
+
+            /home/kindredv/nodevenv/teamhub/admin/20/bin/npm install
+            /home/kindredv/nodevenv/teamhub/admin/20/bin/node scripts/bump-build-version.js || true
+
+            mkdir -p tmp
+            touch tmp/restart.txt
