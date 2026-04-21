@@ -9,27 +9,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: d16057.usc1.stableserver.net
-          username: kindredv
-          port: 22
-          key: ${{ secrets.DEPLOY_KEY }}
-          script: |
-            set -e
+      - name: Check secret presence
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "DEPLOY_KEY is empty"
+            exit 1
+          fi
 
-            cd /home/kindredv/teamhub
-
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
-
-            # If TeamHub has a Node app, adjust this path as needed
-            cd admin
-
-            /home/kindredv/nodevenv/teamhub/admin/20/bin/npm install
-            /home/kindredv/nodevenv/teamhub/admin/20/bin/node scripts/bump-build-version.js || true
-
-            mkdir -p tmp
-            touch tmp/restart.txt
+          echo "DEPLOY_KEY exists"
+          echo "$DEPLOY_KEY" | head -n 1
