@@ -73,6 +73,11 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_announcement_locations_location_id ON announcement_locations(location_id)`,
   `CREATE INDEX IF NOT EXISTS idx_task_list_template_locations_template_id ON task_list_template_locations(template_id)`,
   `CREATE INDEX IF NOT EXISTS idx_task_list_template_locations_location_id ON task_list_template_locations(location_id)`,
+  // 012: Campaign Monitor settings moved to Club Steward — drop legacy columns if present
+  `ALTER TABLE company_integrations
+   DROP COLUMN IF EXISTS campaign_monitor_api_key,
+   DROP COLUMN IF EXISTS campaign_monitor_api_clientid,
+   DROP COLUMN IF EXISTS campaign_monitor_api_secret`,
 ];
 
 async function run() {

@@ -13,7 +13,7 @@ Multi-tenant task lists, announcements with read acknowledgment, and food waste 
 
 2. **Backend env**  
    Copy `server/.env.example` to `server/.env` and set:
-   - `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`, `DB_SCHEMA` (e.g. `teamtask_hub`). You can copy `admin/.env` from clubsteward and set `DB_SCHEMA=teamtask_hub`, `PORT=3001`, and `JWT_SECRET`.
+   - `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`, `DB_SCHEMA` (e.g. `teamtask_hub`). Easiest: copy `../clubsteward/admin/.env` to `server/.env`, then set `DB_SCHEMA=teamtask_hub`, `PORT=3001`, and `JWT_SECRET` (same Postgres host as clubsteward’s `admin/.env.example`).
    - `JWT_SECRET` (min 32 chars)
    - Optional: `SQUARE_ACCESS_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
 

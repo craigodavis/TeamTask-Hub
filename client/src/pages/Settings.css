@@ -44,6 +44,19 @@
   color: var(--primary);
 }
 
+.settings-cred-status {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin: 0 0 0.75rem;
+}
+
+.settings-cred-status code {
+  font-size: 0.85rem;
+  background: var(--border);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
 .settings-error {
   color: #c62828;
   margin-bottom: 1rem;

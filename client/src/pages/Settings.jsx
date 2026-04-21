@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation } from '../api';
 import './Settings.css';
 
 export function Settings({ user, onLogout }) {
@@ -19,6 +19,8 @@ export function Settings({ user, onLogout }) {
   const [twilioPhoneNumber, setTwilioPhoneNumber] = useState('');
   const [testingSquare, setTestingSquare] = useState(false);
   const [squareTestResult, setSquareTestResult] = useState(null);
+  const [testingTwilio, setTestingTwilio] = useState(false);
+  const [twilioTestResult, setTwilioTestResult] = useState(null);
   const [testingMail, setTestingMail] = useState(false);
   const [mailTestResult, setMailTestResult] = useState(null);
 
@@ -73,10 +75,12 @@ export function Settings({ user, onLogout }) {
       setSquareAccessToken('');
       setTwilioAccountSid('');
       setTwilioAuthToken('');
-      getIntegrationSettings().then((r) => {
-        setSettings(r);
-        setSquareApplicationId(r.square_application_id || '');
-      });
+      getIntegrationSettings()
+        .then((r) => {
+          setSettings(r);
+          setSquareApplicationId(r.square_application_id || '');
+        })
+        .catch((e) => setError(e.message || 'Failed to reload settings'));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -99,6 +103,25 @@ export function Settings({ user, onLogout }) {
       setError(e.message);
     } finally {
       setTestingSquare(false);
+    }
+  };
+
+  const handleTestTwilio = async () => {
+    setTwilioTestResult(null);
+    setError('');
+    setTestingTwilio(true);
+    try {
+      const body = {};
+      if (twilioAccountSid.trim()) body.twilio_account_sid = twilioAccountSid.trim();
+      if (twilioAuthToken.trim()) body.twilio_auth_token = twilioAuthToken.trim();
+      const r = await testTwilioConnection(body);
+      const extra = r.friendly_name ? ` (${r.friendly_name})` : '';
+      setTwilioTestResult(r.ok ? `${r.message || 'Connected.'}${extra}` : (r.error || 'Unknown'));
+    } catch (e) {
+      setTwilioTestResult(null);
+      setError(e.message);
+    } finally {
+      setTestingTwilio(false);
     }
   };
 
@@ -241,7 +264,7 @@ export function Settings({ user, onLogout }) {
 
       {tab === 'integrations' && (
         <>
-          <p className="settings-intro">Configure Twilio and Square for this company. Values are stored per company and used when managers sync Square or send SMS. Leave a field blank to keep the current value.</p>
+          <p className="settings-intro">Configure Square, Twilio, and Campaign Monitor for this company. Values are stored per company and used when managers sync Square or send SMS. Leave a field blank to keep the current value.</p>
           <p className="settings-help">Square: get an <strong>access token</strong> from the <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer">Square Developer Dashboard</a> (Open your app → Credentials → Access token). Use <strong>sandbox</strong> for testing.</p>
           <form onSubmit={handleSubmit} className="settings-form">
             <fieldset>
@@ -284,7 +307,7 @@ export function Settings({ user, onLogout }) {
             Account SID
             <input
               type="password"
-              placeholder={settings?.twilio_configured ? 'Leave blank to keep current' : 'Twilio Account SID'}
+              placeholder={settings?.twilio_api_configured ? 'Leave blank to keep current' : 'Twilio Account SID'}
               value={twilioAccountSid}
               onChange={(e) => setTwilioAccountSid(e.target.value)}
               autoComplete="off"
@@ -294,7 +317,7 @@ export function Settings({ user, onLogout }) {
             Auth token
             <input
               type="password"
-              placeholder={settings?.twilio_configured ? 'Leave blank to keep current' : 'Twilio Auth Token'}
+              placeholder={settings?.twilio_api_configured ? 'Leave blank to keep current' : 'Twilio Auth Token'}
               value={twilioAuthToken}
               onChange={(e) => setTwilioAuthToken(e.target.value)}
               autoComplete="off"
@@ -309,6 +332,20 @@ export function Settings({ user, onLogout }) {
               onChange={(e) => setTwilioPhoneNumber(e.target.value)}
             />
           </label>
+          <button
+            type="button"
+            className="btn-test"
+            onClick={handleTestTwilio}
+            disabled={
+              testingTwilio ||
+              (!settings?.twilio_api_configured &&
+                (!twilioAccountSid.trim() || !twilioAuthToken.trim()))
+            }
+            title="Test using saved credentials or the SID and token entered above"
+          >
+            {testingTwilio ? 'Testing…' : 'Test Twilio connection'}
+          </button>
+          {twilioTestResult && <p className="test-result success">{twilioTestResult}</p>}
         </fieldset>
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </form>

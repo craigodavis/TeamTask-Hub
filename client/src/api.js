@@ -517,6 +517,17 @@ export async function testSquareConnection(body = {}) {
   return data;
 }
 
+export async function testTwilioConnection(body = {}) {
+  const res = await fetch(`${API}/settings/integrations/test-twilio`, {
+    method: 'POST',
+    headers: headers(),
+    body: Object.keys(body).length ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Twilio test failed');
+  return data;
+}
+
 export async function testMail() {
   const res = await fetch(`${API}/settings/mail/test`, { method: 'POST', headers: headers() });
   const data = await res.json().catch(() => ({}));
