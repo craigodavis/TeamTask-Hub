@@ -19,7 +19,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/kindredv/teamtaskhub
+            cd /home/kindredv/teamhub
 
             git fetch origin main
             git checkout main
