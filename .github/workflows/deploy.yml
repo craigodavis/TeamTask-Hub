@@ -25,7 +25,7 @@ jobs:
             git checkout main
             git reset --hard origin/main
 
-            cd admin
+            cd client
 
             /home/kindredv/nodevenv/teamhub/admin/20/bin/npm install
             /home/kindredv/nodevenv/teamhub/admin/20/bin/node scripts/bump-build-version.js || true
