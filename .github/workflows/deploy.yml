@@ -27,8 +27,8 @@ jobs:
 
             cd client
 
-            /home/kindredv/nodevenv/teamhub/admin/20/bin/npm install
-            /home/kindredv/nodevenv/teamhub/admin/20/bin/node scripts/bump-build-version.js || true
+            /home/kindredv/nodevenv/teamhub/client/20/bin/npm install
+            /home/kindredv/nodevenv/teamhub/client/20/bin/node scripts/bump-build-version.js || true
 
             mkdir -p tmp
             touch tmp/restart.txt
