@@ -27,8 +27,8 @@ jobs:
 
             cd client
 
-            /home/kindredv/nodevenv/teamhub/10/bin/npm install
-            /home/kindredv/nodevenv/teamhub/10/bin/npm run build
+            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm install
+            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm run build
 
             mkdir -p tmp
             touch tmp/restart.txt
