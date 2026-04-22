@@ -19,7 +19,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/kindredv/teamtaskhub
+            cd /home/kindredv/teamhub
 
             git fetch origin main
             git checkout main
@@ -27,8 +27,8 @@ jobs:
 
             cd client
 
-            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm install
-            /home/kindredv/nodevenv/teamtaskhub/22/bin/npm run build
+            /home/kindredv/nodevenv/teamhub/22/bin/npm install
+            /home/kindredv/nodevenv/teamhub/22/bin/npm run build
 
             mkdir -p tmp
             touch tmp/restart.txt
