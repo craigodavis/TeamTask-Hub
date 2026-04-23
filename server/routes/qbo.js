@@ -7,12 +7,7 @@ const router = express.Router();
 
 const QBO_AUTH_ENDPOINT = 'https://appcenter.intuit.com/connect/oauth2';
 const QBO_TOKEN_ENDPOINT = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
-const QBO_SCOPES = [
-  'com.intuit.quickbooks.accounting',
-  'com.intuit.quickbooks.payment',
-  'project-management.project',
-  'payroll.compensation.read',
-].join(' ');
+const QBO_SCOPES = 'com.intuit.quickbooks.accounting';
 
 function getCallbackUri() {
   return process.env.QBO_REDIRECT_URI || 'https://team.kindredvineyards.com/api/integrations/qbo/callback';
