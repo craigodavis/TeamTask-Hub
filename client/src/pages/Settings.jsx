@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO } from '../api';
 import './Settings.css';
 
 export function Settings({ user, onLogout }) {
@@ -23,6 +23,8 @@ export function Settings({ user, onLogout }) {
   const [twilioTestResult, setTwilioTestResult] = useState(null);
   const [testingMail, setTestingMail] = useState(false);
   const [mailTestResult, setMailTestResult] = useState(null);
+  const [qboConnecting, setQboConnecting] = useState(false);
+  const [qboDisconnecting, setQboDisconnecting] = useState(false);
 
   const [mailHost, setMailHost] = useState('');
   const [mailPort, setMailPort] = useState('');
@@ -38,6 +40,18 @@ export function Settings({ user, onLogout }) {
   const [editingLocationName, setEditingLocationName] = useState('');
 
   const isOwner = user?.role === 'owner';
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('qbo_connected')) {
+      setMessage('QuickBooks connected successfully.');
+      window.history.replaceState({}, '', '/settings');
+    } else if (params.get('qbo_error')) {
+      setError(`QuickBooks connection failed: ${params.get('qbo_error')}`);
+      window.history.replaceState({}, '', '/settings');
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOwner) return;
     getIntegrationSettings()
@@ -122,6 +136,33 @@ export function Settings({ user, onLogout }) {
       setError(e.message);
     } finally {
       setTestingTwilio(false);
+    }
+  };
+
+  const handleQBOConnect = async () => {
+    setQboConnecting(true);
+    setError('');
+    try {
+      const { url } = await getQBOConnectUrl();
+      window.location.href = url;
+    } catch (e) {
+      setError(e.message);
+      setQboConnecting(false);
+    }
+  };
+
+  const handleQBODisconnect = async () => {
+    if (!window.confirm('Disconnect QuickBooks Online? This will remove stored tokens for this company.')) return;
+    setQboDisconnecting(true);
+    setError('');
+    try {
+      await disconnectQBO();
+      setMessage('QuickBooks disconnected.');
+      getIntegrationSettings().then((r) => setSettings(r)).catch(() => {});
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setQboDisconnecting(false);
     }
   };
 
@@ -349,6 +390,24 @@ export function Settings({ user, onLogout }) {
         </fieldset>
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </form>
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>QuickBooks Online</legend>
+            {settings?.qbo_connected ? (
+              <div>
+                <p className="test-result success">Connected — Realm ID: {settings.qbo_realm_id} ({settings.qbo_environment})</p>
+                <button type="button" className="btn-test" onClick={handleQBODisconnect} disabled={qboDisconnecting}>
+                  {qboDisconnecting ? 'Disconnecting…' : 'Disconnect QuickBooks'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>Connect this company to QuickBooks Online to enable accounting data access.</p>
+                <button type="button" className="btn-test" onClick={handleQBOConnect} disabled={qboConnecting}>
+                  {qboConnecting ? 'Connecting…' : 'Connect QuickBooks'}
+                </button>
+              </div>
+            )}
+          </fieldset>
         </>
       )}
 

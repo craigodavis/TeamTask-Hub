@@ -534,3 +534,17 @@ export async function testMail() {
   if (!res.ok) throw new Error(data.error || 'Test email failed');
   return data;
 }
+
+export async function getQBOConnectUrl() {
+  const res = await fetch(`${API}/integrations/qbo/connect-url`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to get QuickBooks connect URL');
+  return data;
+}
+
+export async function disconnectQBO() {
+  const res = await fetch(`${API}/integrations/qbo/disconnect`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to disconnect QuickBooks');
+  return data;
+}

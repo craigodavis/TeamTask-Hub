@@ -131,7 +131,9 @@ router.get('/integrations', requireOwner, async (req, res) => {
               twilio_auth_token IS NOT NULL AND twilio_auth_token != '' AND
               twilio_phone_number IS NOT NULL AND twilio_phone_number != '' AS twilio_configured,
               mail_host, mail_port, mail_user, mail_from, mail_secure,
-              (mail_host IS NOT NULL AND mail_host != '') AS mail_configured
+              (mail_host IS NOT NULL AND mail_host != '') AS mail_configured,
+              qbo_realm_id, qbo_environment,
+              qbo_access_token IS NOT NULL AND qbo_access_token != '' AS qbo_connected
        FROM company_integrations WHERE company_id = $1`,
       [companyId(req)]
     );
@@ -150,6 +152,9 @@ router.get('/integrations', requireOwner, async (req, res) => {
         mail_from: null,
         mail_secure: false,
         mail_configured: false,
+        qbo_connected: false,
+        qbo_realm_id: null,
+        qbo_environment: 'production',
       });
     }
     res.json({
@@ -165,6 +170,9 @@ router.get('/integrations', requireOwner, async (req, res) => {
       mail_from: row.mail_from || null,
       mail_secure: row.mail_secure || false,
       mail_configured: row.mail_configured || false,
+      qbo_connected: !!row.qbo_connected,
+      qbo_realm_id: row.qbo_realm_id || null,
+      qbo_environment: row.qbo_environment || 'production',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
