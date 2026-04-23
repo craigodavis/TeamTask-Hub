@@ -1,0 +1,40 @@
+.food-layout {
+  max-width: 960px;
+  margin: 0;
+  padding: 0 0 2rem;
+}
+
+.food-layout-title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.food-layout-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 0 0 1.25rem;
+}
+
+.food-layout-tabs a {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.food-layout-tabs a:hover {
+  border-color: var(--primary-soft);
+}
+
+.food-layout-tabs a.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}

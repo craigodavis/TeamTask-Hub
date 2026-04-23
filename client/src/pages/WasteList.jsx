@@ -13,7 +13,7 @@ function thirtyDaysAgo() {
   return d.toISOString().slice(0, 10);
 }
 
-export function WasteList({ user }) {
+export function WasteList() {
   const navigate = useNavigate();
   const [entries, setEntries] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -59,7 +59,7 @@ export function WasteList({ user }) {
       setCreateTitle('Waste log');
       setCreateDate(todayStr());
       setCreateLocationId('');
-      navigate(`/waste/${created.id}`);
+      navigate(`/food/waste/${created.id}`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -69,10 +69,7 @@ export function WasteList({ user }) {
 
   return (
     <div className="waste-list-page">
-      <header className="waste-list-header">
-        <Link to="/">← Dashboard</Link>
-        <h1>Food waste</h1>
-      </header>
+      <h1 className="waste-list-title">Food waste</h1>
       {error && <p className="waste-list-error">{error}</p>}
 
       <section className="waste-list-create">
@@ -138,7 +135,7 @@ export function WasteList({ user }) {
           <ul className="waste-list">
             {entries.map((e) => (
               <li key={e.id}>
-                <Link to={`/waste/${e.id}`}>
+                <Link to={`/food/waste/${e.id}`}>
                   {e.title} – {e.entry_date}
                   {e.location_name ? ` (${e.location_name})` : ''}
                 </Link>

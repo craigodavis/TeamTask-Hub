@@ -1,24 +1,14 @@
 .waste-list-page {
   max-width: 600px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 0;
   padding-bottom: 3rem;
 }
 
-.waste-list-header {
-  margin-bottom: 1.5rem;
-}
-
-.waste-list-header a {
-  color: var(--primary);
-  text-decoration: none;
-  display: inline-block;
-  margin-bottom: 0.5rem;
-}
-
-.waste-list-header h1 {
-  margin: 0;
+.waste-list-title {
+  margin: 0 0 1rem;
   font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .waste-list-error {

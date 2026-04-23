@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { getDaySummary, setTaskComplete, getActiveAnnouncements, acknowledgeAnnouncement } from '../api';
 import './Dashboard.css';
 
@@ -7,7 +7,9 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function Dashboard({ user, onLogout }) {
+export function Dashboard() {
+  const { user } = useOutletContext();
+  const isManager = user?.role === 'manager' || user?.role === 'owner';
   const [date, setDate] = useState(todayStr());
   const [daySummary, setDaySummary] = useState({ assignments: [] });
   const [announcements, setAnnouncements] = useState([]);
@@ -177,36 +179,29 @@ export function Dashboard({ user, onLogout }) {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <div className="header-row">
-          <button type="button" className="nav-date" onClick={() => goDate(-1)} aria-label="Previous day">
-            &lt;
-          </button>
-          <span className="date-label">{date}</span>
-          <button type="button" className="nav-date" onClick={() => goDate(1)} aria-label="Next day">
-            &gt;
-          </button>
-          <button type="button" className="btn-today" onClick={() => setDate(todayStr())} disabled={isToday}>
-            Today
-          </button>
-        </div>
-        <div className="user-row">
-          <span className="user-name">{user?.display_name || user?.email}</span>
-          {(user?.role === 'manager' || user?.role === 'owner') && (
-            <Link to="/manage" className="link-manage">
-              Manage
-            </Link>
+        <div className="dashboard-header-inner">
+          <div className="header-row">
+            <button type="button" className="nav-date" onClick={() => goDate(-1)} aria-label="Previous day">
+              &lt;
+            </button>
+            <span className="date-label">{date}</span>
+            <button type="button" className="nav-date" onClick={() => goDate(1)} aria-label="Next day">
+              &gt;
+            </button>
+            <button type="button" className="btn-today" onClick={() => setDate(todayStr())} disabled={isToday}>
+              Today
+            </button>
+          </div>
+          {isManager && (
+            <div className="dashboard-header-actions">
+              <Link to="/manage?tab=announcements" className="btn-manage-tasks">
+                Announcements
+              </Link>
+              <Link to="/manage?tab=tasks" className="btn-manage-tasks">
+                Manage Tasks
+              </Link>
+            </div>
           )}
-          {user?.role === 'owner' && (
-            <Link to="/settings" className="link-manage">
-              Settings
-            </Link>
-          )}
-          <Link to="/waste" className="link-manage">
-            Food waste
-          </Link>
-          <button type="button" className="btn-logout" onClick={onLogout}>
-            Out
-          </button>
         </div>
       </header>
 

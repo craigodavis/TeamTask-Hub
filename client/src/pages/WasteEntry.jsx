@@ -5,7 +5,7 @@ import './WasteEntry.css';
 
 const GRAMS_UNIT = 'g';
 
-export function WasteEntry({ user }) {
+export function WasteEntry() {
   const { entryId } = useParams();
   const [entry, setEntry] = useState(null);
   const [ingredients, setIngredients] = useState([]);
@@ -93,14 +93,14 @@ export function WasteEntry({ user }) {
   };
 
   if (loading) return <div className="waste-entry-page"><p>Loading…</p></div>;
-  if (!entry) return <div className="waste-entry-page"><p>Entry not found.</p><Link to="/waste">Back</Link></div>;
+  if (!entry) return <div className="waste-entry-page"><p>Entry not found.</p><Link to="/food/waste">Back</Link></div>;
 
   const ingredientName = (id) => ingredients.find((i) => i.id === id)?.name || id;
 
   return (
     <div className="waste-entry-page">
       <header className="waste-entry-header">
-        <Link to="/waste">← Food waste</Link>
+        <Link to="/food/waste">← Food waste</Link>
         <form onSubmit={handleSaveHeader} className="waste-entry-title-row">
           <label className="waste-entry-title-label">
             Name
@@ -161,7 +161,7 @@ export function WasteEntry({ user }) {
             Ingredient
             <select value={selectedIngredient} onChange={(e) => setSelectedIngredient(e.target.value)}>
               {ingredients.length === 0 ? (
-                <option value="">No ingredients – manager adds them in Manage → Ingredients</option>
+                <option value="">No ingredients – a manager adds them under Food → Ingredients</option>
               ) : (
                 ingredients.map((i) => (
                   <option key={i.id} value={i.id}>{i.name}</option>

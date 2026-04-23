@@ -1,13 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Manager } from './pages/Manager';
 import { WasteEntry } from './pages/WasteEntry';
 import { WasteList } from './pages/WasteList';
 import { Settings } from './pages/Settings';
-import { SyncUsers } from './pages/SyncUsers';
 import { ResetPassword } from './pages/ResetPassword';
+import { FoodLayout } from './pages/FoodLayout';
+import { FoodIngredients } from './pages/FoodIngredients';
+import { AppShell } from './components/AppShell';
+import { appHubTitle } from './appHubTitle';
+
+function LegacyWasteEntryRedirect() {
+  const { entryId } = useParams();
+  return <Navigate to={`/food/waste/${entryId}`} replace />;
+}
+
+function AuthGate({ user }) {
+  if (!user) return <Navigate to="/login" replace />;
+  return <Outlet />;
+}
+
+function AppShellLayout({ user, onLogout }) {
+  return (
+    <AppShell user={user} onLogout={onLogout}>
+      <Outlet context={{ user, onLogout }} />
+    </AppShell>
+  );
+}
 
 function App() {
   const [user, setUser] = useState(null);
@@ -34,18 +55,41 @@ function App() {
     setUser(null);
   };
 
+  useEffect(() => {
+    document.title = appHubTitle(user);
+  }, [user]);
+
   if (loading) return <div className="app-loading">Loading…</div>;
 
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login onLogin={onLogin} />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/" element={user ? <Dashboard user={user} onLogout={onLogout} /> : <Navigate to="/login" replace />} />
-      <Route path="/manage" element={user ? <Manager user={user} onLogout={onLogout} /> : <Navigate to="/login" replace />} />
-      <Route path="/sync-users" element={user ? <SyncUsers user={user} onLogout={onLogout} /> : <Navigate to="/login" replace />} />
-      <Route path="/settings" element={user?.role === 'owner' ? <Settings user={user} onLogout={onLogout} /> : user ? <Navigate to="/" replace /> : <Navigate to="/login" replace />} />
-      <Route path="/waste" element={user ? <WasteList user={user} /> : <Navigate to="/login" replace />} />
-      <Route path="/waste/:entryId" element={user ? <WasteEntry user={user} /> : <Navigate to="/login" replace />} />
+      <Route element={<AuthGate user={user} />}>
+        <Route element={<AppShellLayout user={user} onLogout={onLogout} />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/manage" element={<Manager />} />
+          <Route path="/food" element={<FoodLayout />}>
+            <Route index element={<Navigate to="waste" replace />} />
+            <Route path="ingredients" element={<FoodIngredients />} />
+            <Route path="waste" element={<WasteList />} />
+            <Route path="waste/:entryId" element={<WasteEntry />} />
+          </Route>
+          <Route path="/waste" element={<Navigate to="/food/waste" replace />} />
+          <Route path="/waste/:entryId" element={<LegacyWasteEntryRedirect />} />
+          <Route path="/sync-users" element={<Navigate to="/settings?tab=square" replace />} />
+          <Route
+            path="/settings"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <Settings />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+        </Route>
+      </Route>
       <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />
     </Routes>
   );

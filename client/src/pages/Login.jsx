@@ -43,7 +43,7 @@ export function Login({ onLogin }) {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>TeamTask Hub</h1>
+        <h1>Team Hub</h1>
         <form onSubmit={handleSubmit}>
           <label>
             Email

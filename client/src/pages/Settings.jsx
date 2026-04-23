@@ -1,12 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
 import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO } from '../api';
+import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import './Settings.css';
 
-export function Settings({ user, onLogout }) {
-  const [tab, setTab] = useState('integrations');
+const OWNER_TABS = ['integrations', 'mail', 'locations', 'square'];
+
+export function Settings() {
+  const { user } = useOutletContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const isOwner = user?.role === 'owner';
+  const isManager = user?.role === 'manager' || user?.role === 'owner';
+
+  const tab = (() => {
+    if (!isOwner) return 'square';
+    if (!tabParam) return 'integrations';
+    return OWNER_TABS.includes(tabParam) ? tabParam : 'integrations';
+  })();
+
+  const setSettingsTab = (next) => {
+    if (next === 'integrations' && isOwner) {
+      setSearchParams({}, { replace: true });
+    } else {
+      setSearchParams({ tab: next }, { replace: true });
+    }
+  };
   const [settings, setSettings] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => user?.role === 'owner');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -39,7 +60,11 @@ export function Settings({ user, onLogout }) {
   const [editingLocationId, setEditingLocationId] = useState(null);
   const [editingLocationName, setEditingLocationName] = useState('');
 
-  const isOwner = user?.role === 'owner';
+  useEffect(() => {
+    if (!isOwner && isManager && tabParam && tabParam !== 'square') {
+      setSearchParams({ tab: 'square' }, { replace: true });
+    }
+  }, [isOwner, isManager, tabParam, setSearchParams]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -277,28 +302,29 @@ export function Settings({ user, onLogout }) {
     }
   };
 
-  if (!isOwner) {
+  if (!isManager) {
     return (
       <div className="settings-page">
-        <p>Owner access required.</p>
+        <p>Manager or owner access required.</p>
         <Link to="/">Back to dashboard</Link>
       </div>
     );
   }
 
-  if (loading) return <div className="settings-page"><p>Loading…</p></div>;
+  if (isOwner && loading) return <div className="settings-page"><p>Loading…</p></div>;
 
   return (
     <div className="settings-page">
-      <header className="settings-header">
-        <Link to="/" className="back">← Dashboard</Link>
-        <span className="title">Settings</span>
-        <button type="button" className="btn-logout" onClick={onLogout}>Out</button>
-      </header>
-      <nav className="settings-tabs">
-        <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setTab('integrations')}>Integrations</button>
-        <button type="button" className={tab === 'mail' ? 'active' : ''} onClick={() => setTab('mail')}>Mail</button>
-        <button type="button" className={tab === 'locations' ? 'active' : ''} onClick={() => { setTab('locations'); if (tab !== 'locations') loadLocations(); }}>Locations</button>
+      <h1 className="settings-page-title">Settings</h1>
+      <nav className="settings-tabs" aria-label="Settings sections">
+        {isOwner && (
+          <>
+            <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setSettingsTab('integrations')}>Integrations</button>
+            <button type="button" className={tab === 'mail' ? 'active' : ''} onClick={() => setSettingsTab('mail')}>Mail</button>
+            <button type="button" className={tab === 'locations' ? 'active' : ''} onClick={() => { setSettingsTab('locations'); if (tab !== 'locations') loadLocations(); }}>Locations</button>
+          </>
+        )}
+        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>Square users</button>
       </nav>
       {error && <p className="settings-error">{error}</p>}
       {message && <p className="settings-message">{message}</p>}
@@ -484,6 +510,8 @@ export function Settings({ user, onLogout }) {
           </form>
         </>
       )}
+
+      {tab === 'square' && <SquareUsersPanel />}
 
       {tab === 'locations' && (
         <>

@@ -18,6 +18,19 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
 const RESET_EXPIRY_HOURS = 1;
 
+/** Prefer companies.name; if empty, humanize slug for UI (header, tab title). */
+function companyDisplayLabel(nameRaw, slugRaw) {
+  const n = nameRaw != null ? String(nameRaw).trim() : '';
+  if (n) return n;
+  const s = slugRaw != null ? String(slugRaw).trim() : '';
+  if (!s) return null;
+  return s
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(' ');
+}
+
 router.post('/register', async (req, res) => {
   try {
     const { company_id, email, password, display_name, role } = req.body;
@@ -55,7 +68,7 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password required' });
     }
-    let q = `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.password_hash, c.slug as company_slug
+    let q = `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.password_hash, c.slug as company_slug, c.name as company_name
              FROM users u JOIN companies c ON c.id = u.company_id
              WHERE u.email = $1`;
     const params = [email.toLowerCase()];
@@ -85,7 +98,15 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
     res.json({
-      user: { id: row.id, company_id: row.company_id, email: row.email, display_name: row.display_name, role: row.role, company_slug: row.company_slug },
+      user: {
+        id: row.id,
+        company_id: row.company_id,
+        email: row.email,
+        display_name: row.display_name,
+        role: row.role,
+        company_slug: row.company_slug,
+        company_name: companyDisplayLabel(row.company_name, row.company_slug),
+      },
       token,
     });
   } catch (err) {
@@ -107,7 +128,18 @@ router.get('/me', async (req, res) => {
     );
     const user = r.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
-    res.json({ user: { id: user.id, company_id: user.company_id, email: user.email, display_name: user.display_name, role: user.role, phone: user.phone, company_name: user.company_name, company_slug: user.company_slug } });
+    res.json({
+      user: {
+        id: user.id,
+        company_id: user.company_id,
+        email: user.email,
+        display_name: user.display_name,
+        role: user.role,
+        phone: user.phone,
+        company_name: companyDisplayLabel(user.company_name, user.company_slug),
+        company_slug: user.company_slug,
+      },
+    });
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired token' });
   }

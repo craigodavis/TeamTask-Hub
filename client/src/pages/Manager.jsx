@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useSearchParams, useOutletContext } from 'react-router-dom';
 import {
   getTaskTemplates,
   getAssignments,
@@ -10,10 +10,6 @@ import {
   updateAnnouncement,
   deleteAnnouncement,
   getAnnouncementAcknowledgments,
-  getIngredients,
-  createIngredient,
-  updateIngredient,
-  deleteIngredient,
   getCompanyUsers,
   updateUser,
   deleteUser,
@@ -42,13 +38,22 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function Manager({ user, onLogout }) {
-  const [tab, setTab] = useState('tasks');
+const VALID_TABS = new Set(['announcements', 'tasks', 'reports', 'integrations', 'users']);
+
+export function Manager() {
+  const { user } = useOutletContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const tab = tabParam && VALID_TABS.has(tabParam) ? tabParam : 'announcements';
+
+  const setTab = (t) => {
+    if (t === 'announcements') setSearchParams({}, { replace: true });
+    else setSearchParams({ tab: t }, { replace: true });
+  };
   const [templates, setTemplates] = useState([]);
   const [assignDate, setAssignDate] = useState(todayStr());
   const [assignments, setAssignments] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
-  const [ingredients, setIngredients] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
   const [locations, setLocations] = useState([]);
   const [smsLog, setSmsLog] = useState([]);
@@ -63,6 +68,7 @@ export function Manager({ user, onLogout }) {
   const [foodWasteReport, setFoodWasteReport] = useState(null);
   const [taskReport, setTaskReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [activeReport, setActiveReport] = useState('food-waste');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -74,6 +80,10 @@ export function Manager({ user, onLogout }) {
         <Link to="/">Back to dashboard</Link>
       </div>
     );
+  }
+
+  if (tabParam === 'ingredients') {
+    return <Navigate to="/food/ingredients" replace />;
   }
 
   const loadTemplates = async () => {
@@ -98,15 +108,6 @@ export function Manager({ user, onLogout }) {
     try {
       const r = await getAnnouncements();
       setAnnouncements(r.announcements || []);
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
-  const loadIngredients = async () => {
-    try {
-      const r = await getIngredients();
-      setIngredients(r.ingredients || []);
     } catch (e) {
       setError(e.message);
     }
@@ -148,12 +149,8 @@ export function Manager({ user, onLogout }) {
     } else if (tab === 'announcements') {
       loadAnnouncements();
       loadLocations();
-    } else if (tab === 'ingredients') {
-      loadIngredients();
     } else if (tab === 'users') {
       loadUsers();
-      loadLocations();
-    } else if (tab === 'locations') {
       loadLocations();
     } else if (tab === 'reports') {
       loadLocations();
@@ -310,32 +307,8 @@ export function Manager({ user, onLogout }) {
 
   return (
     <div className="manager-page">
-      <header className="manager-header">
-        <Link to="/" className="back">← Dashboard</Link>
-        <span className="title">Manager</span>
-        <Link to="/sync-users" className="link-settings">Get Square Users</Link>
-        {user?.role === 'owner' && (
-          <Link to="/settings" className="link-settings">Settings</Link>
-        )}
-        <button type="button" className="btn-logout" onClick={onLogout}>Out</button>
-      </header>
-
       {error && <p className="manager-error">{error}</p>}
       {message && <p className="manager-message">{message}</p>}
-
-      <nav className="manager-tabs">
-        {['tasks', 'announcements', 'ingredients', 'users', 'locations', 'reports', 'integrations'].map((t) => (
-          <button key={t} type="button" className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-            {t === 'tasks' && 'Tasks'}
-            {t === 'announcements' && 'Announcements'}
-            {t === 'ingredients' && 'Ingredients'}
-            {t === 'users' && 'Users'}
-            {t === 'locations' && 'Locations'}
-            {t === 'reports' && 'Reports'}
-            {t === 'integrations' && 'Send SMS'}
-          </button>
-        ))}
-      </nav>
 
       {tab === 'tasks' && (
         <section className="manager-section">
@@ -389,25 +362,27 @@ export function Manager({ user, onLogout }) {
         </section>
       )}
 
-      {tab === 'locations' && (
-        <section className="manager-section">
-          <h2>Locations</h2>
-          <p className="hint">Add locations for this company. Then assign users, announcements, and task templates to one or many locations in the other tabs.</p>
-          <LocationsCrud
-            locations={locations}
-            onUpdate={loadLocations}
-            saving={loading}
-            onSavingChange={setLoading}
-            onError={setError}
-            onMessage={setMessage}
-          />
-        </section>
-      )}
-
       {tab === 'reports' && (
         <section className="manager-section">
           <h2>Reports</h2>
-          <p className="hint">Choose a date range and run reports for food waste (by ingredient) or task completions.</p>
+          <nav className="manager-report-picker" aria-label="Available reports">
+            <button
+              type="button"
+              className={activeReport === 'food-waste' ? 'active' : ''}
+              onClick={() => setActiveReport('food-waste')}
+            >
+              Food waste report
+            </button>
+            <button
+              type="button"
+              className={activeReport === 'tasks' ? 'active' : ''}
+              onClick={() => setActiveReport('tasks')}
+            >
+              Task completion report
+            </button>
+          </nav>
+
+          <p className="hint">Pick a report, set the date range, then run. More reports can be added here over time.</p>
 
           <div className="report-filters">
             <label>
@@ -428,83 +403,99 @@ export function Manager({ user, onLogout }) {
             </label>
           </div>
 
-          <h3>Food waste summary</h3>
-          <p className="hint">Total quantity (grams) per ingredient for the selected period. Optionally filter by location.</p>
-          {locations.length > 0 && (
-            <label className="report-location-filter">
-              Location
-              <select value={reportLocationId} onChange={(e) => setReportLocationId(e.target.value)}>
-                <option value="">All locations</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>{loc.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          <button type="button" onClick={runFoodWasteReport} disabled={reportLoading}>Run food waste report</button>
-          {foodWasteReport && (
-            <div className="report-result">
-              <p className="report-meta">
-                {foodWasteReport.from} – {foodWasteReport.to}
-                {foodWasteReport.location_name ? ` · ${foodWasteReport.location_name}` : ' · All locations'}
-              </p>
-              <table className="report-table">
-                <thead>
-                  <tr>
-                    <th>Ingredient</th>
-                    <th>Total (g)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {foodWasteReport.rows.length === 0 ? (
-                    <tr><td colSpan={2}>No waste recorded in this period.</td></tr>
-                  ) : (
-                    foodWasteReport.rows.map((row) => (
-                      <tr key={row.ingredient_id}>
-                        <td>{row.ingredient_name}</td>
-                        <td>{Number(row.total_quantity).toLocaleString()}</td>
+          {activeReport === 'food-waste' && (
+            <div className="manager-report-panel">
+              <h3 className="manager-report-panel-title">Food waste summary</h3>
+              <p className="hint">Total quantity (grams) per ingredient for the selected period. Optionally filter by location.</p>
+              {locations.length > 0 && (
+                <label className="report-location-filter">
+                  Location
+                  <select value={reportLocationId} onChange={(e) => setReportLocationId(e.target.value)}>
+                    <option value="">All locations</option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div>
+                <button type="button" onClick={runFoodWasteReport} disabled={reportLoading}>
+                  {reportLoading ? 'Running…' : 'Run report'}
+                </button>
+              </div>
+              {foodWasteReport && (
+                <div className="report-result">
+                  <p className="report-meta">
+                    {foodWasteReport.from} – {foodWasteReport.to}
+                    {foodWasteReport.location_name ? ` · ${foodWasteReport.location_name}` : ' · All locations'}
+                  </p>
+                  <table className="report-table">
+                    <thead>
+                      <tr>
+                        <th>Ingredient</th>
+                        <th>Total (g)</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {foodWasteReport.rows.length === 0 ? (
+                        <tr><td colSpan={2}>No waste recorded in this period.</td></tr>
+                      ) : (
+                        foodWasteReport.rows.map((row) => (
+                          <tr key={row.ingredient_id}>
+                            <td>{row.ingredient_name}</td>
+                            <td>{Number(row.total_quantity).toLocaleString()}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
-          <h3>Task completions</h3>
-          <p className="hint">Tasks completed in the selected date range (by assigned date).</p>
-          <button type="button" onClick={runTaskReport} disabled={reportLoading}>Run task report</button>
-          {taskReport && (
-            <div className="report-result">
-              <p className="report-meta">{taskReport.from} – {taskReport.to}</p>
-              <table className="report-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Template</th>
-                    <th>Task</th>
-                    <th>Assignee</th>
-                    <th>Completed by</th>
-                    <th>Completed at</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {taskReport.rows.length === 0 ? (
-                    <tr><td colSpan={6}>No completions in this period.</td></tr>
-                  ) : (
-                    taskReport.rows.map((row, idx) => (
-                      <tr key={idx}>
-                        <td>{row.assigned_date}</td>
-                        <td>{row.template_name}</td>
-                        <td>{row.task_title}</td>
-                        <td>{row.assignee_name || '—'}</td>
-                        <td>{row.completed_by_name || '—'}</td>
-                        <td>{row.completed_at ? new Date(row.completed_at).toLocaleString() : '—'}</td>
+          {activeReport === 'tasks' && (
+            <div className="manager-report-panel">
+              <h3 className="manager-report-panel-title">Task completions</h3>
+              <p className="hint">Tasks completed in the selected date range (by assigned date).</p>
+              <div>
+                <button type="button" onClick={runTaskReport} disabled={reportLoading}>
+                  {reportLoading ? 'Running…' : 'Run report'}
+                </button>
+              </div>
+              {taskReport && (
+                <div className="report-result">
+                  <p className="report-meta">{taskReport.from} – {taskReport.to}</p>
+                  <table className="report-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Template</th>
+                        <th>Task</th>
+                        <th>Assignee</th>
+                        <th>Completed by</th>
+                        <th>Completed at</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {taskReport.rows.length === 0 ? (
+                        <tr><td colSpan={6}>No completions in this period.</td></tr>
+                      ) : (
+                        taskReport.rows.map((row, idx) => (
+                          <tr key={idx}>
+                            <td>{row.assigned_date}</td>
+                            <td>{row.template_name}</td>
+                            <td>{row.task_title}</td>
+                            <td>{row.assignee_name || '—'}</td>
+                            <td>{row.completed_by_name || '—'}</td>
+                            <td>{row.completed_at ? new Date(row.completed_at).toLocaleString() : '—'}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -530,26 +521,23 @@ export function Manager({ user, onLogout }) {
               />
             ))}
           </ul>
-        </section>
-      )}
-
-      {tab === 'ingredients' && (
-        <section className="manager-section">
-          <h2>Ingredients</h2>
-          <p className="hint">Create ingredients here. Everyone can log food waste using these on the Food waste page.</p>
-          <IngredientForm onCreated={loadIngredients} />
-          <ul className="ingredient-list">
-            {ingredients.map((i) => (
-              <IngredientRow key={i.id} ingredient={i} onUpdate={loadIngredients} />
-            ))}
-          </ul>
+          <h2 className="manager-subsection-title">Locations</h2>
+          <p className="hint">Add locations for this company. Then assign users, announcements, and task templates to one or many locations.</p>
+          <LocationsCrud
+            locations={locations}
+            onUpdate={loadLocations}
+            saving={loading}
+            onSavingChange={setLoading}
+            onError={setError}
+            onMessage={setMessage}
+          />
         </section>
       )}
 
       {tab === 'integrations' && (
         <section className="manager-section">
-          <h2>Square & Twilio</h2>
-          <p className="hint">Manage Square users: <Link to="/sync-users">Get Square Users page</Link>.</p>
+          <h2>SMS Send</h2>
+          <p className="hint">Send SMS via Twilio. Sync Square team under <Link to="/settings?tab=square">Settings → Square users</Link>.</p>
           <SmsSendForm
             users={companyUsers}
             loading={loading}
@@ -1205,78 +1193,6 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
       <button type="button" className="btn-small" onClick={() => setEditing(true)}>Edit</button>
       <button type="button" className="btn-remove btn-small" onClick={handleDelete}>Delete</button>
     </span>
-  );
-}
-
-function IngredientForm({ onCreated }) {
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setLoading(true);
-    try {
-      await createIngredient(name.trim());
-      setName('');
-      onCreated();
-    } finally {
-      setLoading(false);
-    }
-  };
-  return (
-    <form onSubmit={submit} className="form-inline">
-      <input placeholder="Ingredient name" value={name} onChange={(e) => setName(e.target.value)} />
-      <button type="submit" disabled={loading}>Add ingredient</button>
-    </form>
-  );
-}
-
-function IngredientRow({ ingredient, onUpdate }) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(ingredient.name);
-  const [loading, setLoading] = useState(false);
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await updateIngredient(ingredient.id, name);
-      setEditing(false);
-      onUpdate();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!window.confirm(`Delete ingredient "${ingredient.name}"?`)) return;
-    try {
-      await deleteIngredient(ingredient.id);
-      onUpdate();
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  if (editing) {
-    return (
-      <li>
-        <form onSubmit={handleSave} className="form-inline">
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
-          <button type="submit" disabled={loading}>Save</button>
-          <button type="button" onClick={() => setEditing(false)}>Cancel</button>
-        </form>
-      </li>
-    );
-  }
-  return (
-    <li>
-      {ingredient.name}
-      <button type="button" className="btn-small" onClick={() => setEditing(true)}>Edit</button>
-      <button type="button" className="btn-remove btn-small" onClick={handleDelete}>Delete</button>
-    </li>
   );
 }
 

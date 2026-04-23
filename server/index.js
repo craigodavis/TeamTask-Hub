@@ -54,13 +54,16 @@ if (servingClient) {
   });
 }
 
+// Listen immediately so the dev proxy (Vite → :3001) works while DB connects or migrations run.
+// Previously we awaited ensureLocationsTables() before listen(); slow/unreachable DB caused ECONNREFUSED on /api/*.
+app.listen(PORT, () => {
+  console.log(`Server listening on http://localhost:${PORT}`);
+});
+
 ensureLocationsTables()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server listening on http://localhost:${PORT}`);
-    });
+    console.log('Schema checks (locations / migration 008) finished.');
   })
   .catch((err) => {
-    console.error('Startup failed:', err);
-    process.exit(1);
+    console.error('ensureLocationsTables failed:', err);
   });

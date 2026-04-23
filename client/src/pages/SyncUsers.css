@@ -1,31 +1,24 @@
 .sync-users-page {
   max-width: 900px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 0;
   padding-bottom: 3rem;
 }
 
-.sync-users-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.sync-users-header .back {
-  color: var(--primary);
-  text-decoration: none;
-}
-
-.sync-users-header .title {
+.sync-users-page-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.25rem;
   font-weight: 600;
 }
 
-.sync-users-header .btn-logout {
-  margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
+.sync-users-back {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+.sync-users-back .back {
+  color: var(--primary);
+  text-decoration: none;
 }
 
 .sync-users-error {

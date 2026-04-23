@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { squareSync, squareAddUsers, squareSyncUsers } from '../api';
 import './SyncUsers.css';
 
-export function SyncUsers({ user, onLogout }) {
+export function SyncUsers() {
+  const { user } = useOutletContext();
   const [squareTeamMembers, setSquareTeamMembers] = useState([]);
   const [squareSelections, setSquareSelections] = useState({});
   const [loading, setLoading] = useState(false);
@@ -100,11 +101,10 @@ export function SyncUsers({ user, onLogout }) {
 
   return (
     <div className="sync-users-page">
-      <header className="sync-users-header">
-        <Link to="/manage" className="back">← Manager</Link>
-        <span className="title">Get Square Users</span>
-        <button type="button" className="btn-logout" onClick={onLogout}>Out</button>
-      </header>
+      <h1 className="sync-users-page-title">Get Square Users</h1>
+      <p className="sync-users-back">
+        <Link to="/manage" className="back">← Back to manager</Link>
+      </p>
 
       {error && <p className="sync-users-error">{error}</p>}
       {message && <p className="sync-users-message">{message}</p>}

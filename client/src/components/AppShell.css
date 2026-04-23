@@ -1,0 +1,211 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.app-shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 1rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.app-shell-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-shell-sidebar-toggle {
+  border: none;
+  background: none;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 1.25rem;
+  line-height: 1;
+  border-radius: 6px;
+}
+
+.app-shell-sidebar-toggle:hover {
+  background: var(--bg);
+}
+
+.app-shell-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  flex: 1 1 auto;
+  text-align: center;
+  min-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-shell-header-right .user-menu {
+  margin-left: 0;
+}
+
+.app-shell-body {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  min-height: 0;
+  width: 100%;
+}
+
+.app-shell-sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: width 0.25s ease;
+}
+
+.app-shell-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1rem 1.25rem 2rem;
+}
+
+.app-shell-nav-item {
+  display: block;
+  padding: 0.7rem 1.25rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.app-shell-nav-item:hover {
+  background: var(--bg);
+  color: var(--primary);
+}
+
+.app-shell-nav-item.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-left-color: var(--primary);
+  font-weight: 600;
+}
+
+/* Collapsed: icon-only strip (clubsteward-style) */
+.app-shell-collapsed .app-shell-sidebar {
+  width: 60px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-shell-collapsed .app-shell-nav-item {
+  padding: 0.75rem;
+  text-align: center;
+  position: relative;
+}
+
+.app-shell-collapsed .app-shell-nav-item span {
+  display: none;
+}
+
+.app-shell-collapsed .app-shell-nav-item::before {
+  content: attr(data-icon);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.app-shell-collapsed .app-shell-nav-item[title]::after {
+  content: attr(title);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0.5rem;
+  padding: 0.4rem 0.65rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 50;
+}
+
+.app-shell-collapsed .app-shell-nav-item:hover::after {
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .app-shell-title {
+    font-size: 0.95rem;
+  }
+
+  .app-shell-body {
+    flex-direction: column;
+  }
+
+  .app-shell-sidebar {
+    width: 100% !important;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 0.5rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .app-shell-collapsed .app-shell-sidebar {
+    width: 100% !important;
+  }
+
+  .app-shell-nav-item {
+    flex: 1 1 auto;
+    min-width: 44%;
+    text-align: center;
+    border-left: none;
+    border-radius: 8px;
+  }
+
+  .app-shell-nav-item.active {
+    border-left: none;
+    box-shadow: inset 0 0 0 2px var(--primary);
+  }
+
+  .app-shell-collapsed .app-shell-nav-item span {
+    display: inline;
+    margin-left: 0.35rem;
+  }
+
+  .app-shell-collapsed .app-shell-nav-item::before {
+    content: none;
+  }
+
+  .app-shell-collapsed .app-shell-nav-item[title]::after {
+    display: none;
+  }
+}

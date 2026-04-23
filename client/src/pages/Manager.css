@@ -1,67 +1,22 @@
 .manager-page {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 1rem;
-  padding-bottom: 3rem;
-}
-
-.manager-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.manager-header .back {
-  color: var(--primary);
-  text-decoration: none;
-}
-
-.manager-header .title {
-  font-weight: 600;
-}
-
-.manager-header .link-settings {
-  color: var(--primary);
-  text-decoration: none;
-  font-size: 0.9rem;
-}
-
-.manager-header .btn-logout {
-  margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
+  max-width: 960px;
+  margin: 0;
+  padding: 0 0 2rem;
 }
 
 .manager-error {
   color: #c62828;
-  margin-bottom: 1rem;
+  margin: 0 0 1rem;
 }
 
 .manager-message {
   color: #2e7d32;
-  margin-bottom: 1rem;
+  margin: 0 0 1rem;
 }
 
-.manager-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.manager-tabs button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-}
-
-.manager-tabs button.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
+.manager-subsection-title {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.1rem;
 }
 
 .manager-section h2 {
@@ -444,6 +399,44 @@
 }
 
 /* Reports */
+.manager-report-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.manager-report-picker button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.manager-report-picker button:hover {
+  border-color: var(--primary-soft);
+}
+
+.manager-report-picker button.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.manager-report-panel {
+  margin-top: 0.25rem;
+}
+
+.manager-section h3.manager-report-panel-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 .report-filters {
   display: flex;
   gap: 1rem;
