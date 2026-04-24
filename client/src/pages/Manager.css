@@ -512,3 +512,155 @@
 .manager-section h3:first-of-type {
   margin-top: 0;
 }
+
+/* Debt report */
+.debt-report-panel {
+  margin-top: 0.5rem;
+}
+
+.debt-year-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.debt-year-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.debt-year-row input[type='number'] {
+  width: 6.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.debt-chart-wrap {
+  margin: 1rem 0;
+  max-width: 100%;
+}
+
+.debt-chart-svg {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+}
+
+.debt-chart-empty {
+  padding: 1.5rem;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  margin: 1rem 0;
+}
+
+.debt-chart-legend {
+  display: flex;
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.debt-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.debt-legend-dot-prior {
+  background: var(--primary);
+}
+
+.debt-legend-dot-current {
+  background: #2e7d32;
+}
+
+.debt-table-title {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.debt-table-scroll {
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.debt-balance-table .debt-balance-input {
+  width: 100%;
+  min-width: 6rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.debt-save-row {
+  margin-top: 0.5rem;
+}
+
+.debt-ceiling-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.debt-ceiling-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.debt-ceiling-input {
+  min-width: 12rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.debt-legend-ceiling {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #c62828;
+  font-weight: 500;
+}
+
+.debt-legend-dash {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px dashed #c62828;
+  vertical-align: middle;
+}
+
+.debt-legend-projection {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #ef6c00;
+  font-weight: 500;
+}
+
+.debt-legend-dash-proj {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px dashed #ef6c00;
+  vertical-align: middle;
+}

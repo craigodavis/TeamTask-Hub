@@ -32,6 +32,7 @@ import {
   taskDayNames,
   taskMonthNames,
 } from '../api';
+import { DebtReportSection } from '../components/DebtReportSection';
 import './Manager.css';
 
 function todayStr() {
@@ -380,10 +381,22 @@ export function Manager() {
             >
               Task completion report
             </button>
+            <button
+              type="button"
+              className={activeReport === 'debt' ? 'active' : ''}
+              onClick={() => setActiveReport('debt')}
+            >
+              Debt report
+            </button>
           </nav>
 
-          <p className="hint">Pick a report, set the date range, then run. More reports can be added here over time.</p>
+          <p className="hint">
+            {activeReport === 'debt'
+              ? 'Debt report compares month-end balances for two calendar years. Edit the table and save.'
+              : 'Pick a report, set the date range, then run. More reports can be added here over time.'}
+          </p>
 
+          {activeReport !== 'debt' && (
           <div className="report-filters">
             <label>
               From
@@ -402,6 +415,7 @@ export function Manager() {
               />
             </label>
           </div>
+          )}
 
           {activeReport === 'food-waste' && (
             <div className="manager-report-panel">
@@ -498,6 +512,8 @@ export function Manager() {
               )}
             </div>
           )}
+
+          {activeReport === 'debt' && <DebtReportSection />}
         </section>
       )}
 

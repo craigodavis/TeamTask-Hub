@@ -13,9 +13,10 @@ import { announcementsRouter } from './routes/announcements.js';
 import { foodWasteRouter } from './routes/foodWaste.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { qboRouter } from './routes/qbo.js';
-import { requireAuth, requireManager, requireOwner } from './middleware/auth.js';
+import { requireAuth, requireManager } from './middleware/auth.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
+import { debtRouter } from './routes/debt.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api/integrations/qbo', qboRouter);
 app.use('/api/integrations', requireAuth, requireManager, integrationsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/locations', requireAuth, locationsRouter);
+app.use('/api/debt', requireAuth, debtRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });

@@ -384,6 +384,45 @@ export async function getTaskReport(from, to) {
   return data;
 }
 
+export async function getDebtReport(priorYear, currentYear) {
+  const q = new URLSearchParams();
+  if (priorYear != null) q.set('prior_year', String(priorYear));
+  if (currentYear != null) q.set('current_year', String(currentYear));
+  const res = await fetch(`${API}/debt/report?${q}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load debt report');
+  return data;
+}
+
+export async function postDebtBalancesBulk(balances) {
+  const res = await fetch(`${API}/debt/balances/bulk`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ balances }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save balances');
+  return data;
+}
+
+/** debt_ceiling: number, or null / omit to clear */
+export async function putDebtCeiling(debt_ceiling) {
+  // Use balances/bulk so ceiling saves use the same POST route as monthly balances (avoids 404 on /debt/ceiling if that path is not deployed or routed).
+  const res = await fetch(`${API}/debt/balances/bulk`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ balances: [], debt_ceiling }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save debt ceiling');
+  if (!('debt_ceiling' in data)) {
+    throw new Error(
+      'The server accepted the request but did not save the debt ceiling. Deploy the latest API (debt routes) so optional debt_ceiling on balances/bulk is enabled.'
+    );
+  }
+  return data;
+}
+
 export async function getCompanyUsers(companyId) {
   const res = await fetch(`${API}/companies/${companyId}/users`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
