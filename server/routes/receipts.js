@@ -1,7 +1,10 @@
 import express from 'express';
 import multer from 'multer';
-import pdfParse from 'pdf-parse';
+import { createRequire } from 'module';
 import { query } from '../db.js';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 import { requireAuth, requireOwner } from '../middleware/auth.js';
 import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
 
