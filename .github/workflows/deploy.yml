@@ -25,10 +25,13 @@ jobs:
             git checkout main
             git reset --hard origin/main
 
-            cd client
+            cd server
+            /home/kindredv/nodevenv/teamhub/22/bin/npm install
 
+            cd ../client
             /home/kindredv/nodevenv/teamhub/22/bin/npm install
             /home/kindredv/nodevenv/teamhub/22/bin/npm run build
 
+            cd ..
             mkdir -p tmp
             touch tmp/restart.txt
