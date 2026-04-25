@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
   uploadReceipts, getReceipts, getReceipt, saveReceiptItems,
-  getRules, createRule, updateRule, deleteRule,
+  getRules, createRule, updateRule, deleteRule, reapplyRules,
 } from '../api';
 import './Quickbooks.css';
 
@@ -38,6 +38,9 @@ export function Quickbooks({ user }) {
   const [reviewing, setReviewing] = useState(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Re-apply rules
+  const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
 
   // Rules
   const [rules, setRules] = useState([]);
@@ -133,6 +136,16 @@ export function Quickbooks({ user }) {
   };
 
   // ── Rules ──
+  const handleReapplyRules = async (receiptId) => {
+    setReapplying(receiptId);
+    setError(''); setMessage('');
+    try {
+      const r = await reapplyRules(receiptId);
+      setMessage(`Rules re-applied — ${r.updated} of ${r.total} pending items updated.`);
+    } catch (e) { setError(e.message); }
+    finally { setReapplying(null); }
+  };
+
   const openNewRule = () => { setRuleForm(BLANK_RULE); setEditingRule('new'); setRulesOpen(true); };
   const openEditRule = (rule) => { setRuleForm({ ...rule }); setEditingRule(rule); };
   const closeRuleForm = () => setEditingRule(null);
@@ -267,6 +280,9 @@ export function Quickbooks({ user }) {
                   <div className="qb-receipt-right">
                     {r.total != null && <span className="qb-receipt-total">${parseFloat(r.total).toFixed(2)}</span>}
                     <span className="qb-receipt-items">{r.item_count} items</span>
+                    <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying} title="Re-apply categorization rules to pending items">
+                      {reapplying === r.id ? '…' : '⚙'}
+                    </button>
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>Review</button>
                   </div>
                 </div>

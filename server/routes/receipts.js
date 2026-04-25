@@ -194,6 +194,44 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── POST /api/receipts/:id/reapply-rules ─────────────────────────────────────
+// Re-run rules against all pending items on this receipt (does not re-run AI).
+router.post('/:id/reapply-rules', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { id } = req.params;
+
+  try {
+    const rr = await query(`SELECT vendor FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
+    if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+    const vendor = rr.rows[0].vendor;
+
+    const [itemsRes, accountsRes, rulesRes] = await Promise.all([
+      query(`SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`, [id]),
+      query(`SELECT qbo_id, name, account_type FROM qbo_accounts WHERE company_id = $1`, [cId]),
+      query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
+    ]);
+
+    const accounts = accountsRes.rows;
+    const rules = rulesRes.rows;
+    let updated = 0;
+
+    for (const item of itemsRes.rows) {
+      const override = applyRules(item, vendor, rules, accounts);
+      if (override.rule_applied || override.qbo_account_id !== item.qbo_account_id || override.qbo_class_id !== item.qbo_class_id) {
+        await query(
+          `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3 WHERE id = $1`,
+          [item.id, override.qbo_account_id, override.qbo_class_id]
+        );
+        updated++;
+      }
+    }
+
+    res.json({ ok: true, updated, total: itemsRes.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PATCH /api/receipts/:id/items ─────────────────────────────────────────────
 // Save user's accept/reject/edit decisions for line items.
 // Body: { items: [{ id, item_status, qbo_account_id, qbo_class_id }] }

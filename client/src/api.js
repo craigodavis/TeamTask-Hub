@@ -672,3 +672,10 @@ export async function deleteRule(id) {
   if (!res.ok) throw new Error(data.error || 'Failed to delete rule');
   return data;
 }
+
+export async function reapplyRules(receiptId) {
+  const res = await fetch(`${API}/receipts/${receiptId}/reapply-rules`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to re-apply rules');
+  return data;
+}

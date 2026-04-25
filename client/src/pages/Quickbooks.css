@@ -264,3 +264,11 @@
 .qb-item-rule { font-size: 0.75rem; color: #1565c0; background: #e3f2fd; border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.2rem; display: inline-block; }
 
 .qb-form-hint { font-size: 0.78rem; color: #888; font-style: italic; }
+
+.qb-btn-reapply {
+  background: #fff; border: 1px solid #90a4ae; color: #546e7a;
+  border-radius: 5px; padding: 0.3rem 0.6rem; font-size: 0.9rem;
+  cursor: pointer; line-height: 1;
+}
+.qb-btn-reapply:hover:not(:disabled) { background: #eceff1; }
+.qb-btn-reapply:disabled { opacity: 0.5; cursor: not-allowed; }
