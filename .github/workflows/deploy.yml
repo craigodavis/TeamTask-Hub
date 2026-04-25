@@ -26,7 +26,7 @@ jobs:
             git reset --hard origin/main
 
             cd server
-            /home/kindredv/nodevenv/teamhub/22/bin/npm install
+            ~/.nvm/versions/node/v22.22.0/bin/npm install
 
             cd ../client
             /home/kindredv/nodevenv/teamhub/22/bin/npm install
