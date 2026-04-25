@@ -574,6 +574,20 @@ export async function testMail() {
   return data;
 }
 
+export async function getQBOStatus() {
+  const res = await fetch(`${API}/integrations/qbo/status`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load QBO status');
+  return data;
+}
+
+export async function syncQBO() {
+  const res = await fetch(`${API}/integrations/qbo/sync`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Sync failed');
+  return data;
+}
+
 export async function getQBOConnectUrl() {
   const res = await fetch(`${API}/integrations/qbo/connect-url`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

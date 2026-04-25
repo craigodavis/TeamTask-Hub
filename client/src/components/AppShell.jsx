@@ -24,6 +24,7 @@ export function AppShell({ user, onLogout, children }) {
   }, [collapsed]);
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
+  const isOwner = user?.role === 'owner';
   const appTitle = appHubTitle(user);
 
   const managerLinks = isManager
@@ -75,6 +76,16 @@ export function AppShell({ user, onLogout, children }) {
           >
             <span>Food</span>
           </NavLink>
+          {isOwner && (
+            <NavLink
+              to="/quickbooks"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="📒"
+              title="QuickBooks"
+            >
+              <span>QuickBooks</span>
+            </NavLink>
+          )}
           {managerLinks.map((item) => (
             <NavLink
               key={item.to}

@@ -6,6 +6,7 @@ import { Manager } from './pages/Manager';
 import { WasteEntry } from './pages/WasteEntry';
 import { WasteList } from './pages/WasteList';
 import { Settings } from './pages/Settings';
+import { Quickbooks } from './pages/Quickbooks';
 import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
@@ -83,6 +84,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Settings />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/quickbooks"
+            element={
+              user?.role === 'owner' ? (
+                <Quickbooks user={user} />
               ) : (
                 <Navigate to="/" replace />
               )

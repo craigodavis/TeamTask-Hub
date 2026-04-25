@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { query } from '../db.js';
 import { requireAuth, requireOwner } from '../middleware/auth.js';
+import { qboQueryAll } from '../qboClient.js';
 
 const router = express.Router();
 
@@ -139,6 +140,81 @@ router.post('/disconnect', requireAuth, requireOwner, async (req, res) => {
     );
     res.json({ ok: true });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/integrations/qbo/status  — connection + sync status (owner only)
+router.get('/status', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT qbo_realm_id, qbo_environment, qbo_token_expires_at,
+              qbo_access_token IS NOT NULL AND qbo_access_token != '' AS connected
+       FROM company_integrations WHERE company_id = $1`,
+      [req.companyId]
+    );
+    const row = r.rows[0] || {};
+
+    const counts = await query(
+      `SELECT
+         (SELECT COUNT(*) FROM qbo_accounts WHERE company_id = $1) AS accounts,
+         (SELECT COUNT(*) FROM qbo_classes  WHERE company_id = $1) AS classes,
+         (SELECT MAX(synced_at) FROM qbo_accounts WHERE company_id = $1) AS last_synced`,
+      [req.companyId]
+    );
+    const c = counts.rows[0] || {};
+
+    res.json({
+      connected: !!row.connected,
+      realm_id: row.qbo_realm_id || null,
+      environment: row.qbo_environment || 'production',
+      token_expires_at: row.qbo_token_expires_at || null,
+      accounts: parseInt(c.accounts || 0, 10),
+      classes: parseInt(c.classes || 0, 10),
+      last_synced: c.last_synced || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integrations/qbo/sync  — sync accounts + classes from QBO (owner only)
+router.post('/sync', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  try {
+    // -- Accounts --
+    const accounts = await qboQueryAll(cId, 'SELECT * FROM Account');
+    for (const a of accounts) {
+      await query(
+        `INSERT INTO qbo_accounts (company_id, qbo_id, name, fully_qualified_name, account_type, account_sub_type, active, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+         ON CONFLICT (company_id, qbo_id) DO UPDATE SET
+           name = $3, fully_qualified_name = $4, account_type = $5,
+           account_sub_type = $6, active = $7, synced_at = NOW()`,
+        [cId, a.Id, a.Name, a.FullyQualifiedName || a.Name, a.AccountType, a.AccountSubType, a.Active !== false]
+      );
+    }
+
+    // -- Classes --
+    const classes = await qboQueryAll(cId, 'SELECT * FROM Class');
+    for (const c of classes) {
+      await query(
+        `INSERT INTO qbo_classes (company_id, qbo_id, name, fully_qualified_name, parent_id, active, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW())
+         ON CONFLICT (company_id, qbo_id) DO UPDATE SET
+           name = $3, fully_qualified_name = $4, parent_id = $5, active = $6, synced_at = NOW()`,
+        [cId, c.Id, c.Name, c.FullyQualifiedName || c.Name, c.ParentRef?.value || null, c.Active !== false]
+      );
+    }
+
+    res.json({
+      ok: true,
+      accounts: accounts.length,
+      classes: classes.length,
+      synced_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[qbo] sync error:', err);
     res.status(500).json({ error: err.message });
   }
 });
