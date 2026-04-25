@@ -18,7 +18,7 @@ export async function extractReceiptData(pdfText) {
   const client = getClient();
 
   const message = await client.messages.create({
-    model: 'claude-opus-4-5',
+    model: 'claude-haiku-4-5',
     max_tokens: 2048,
     messages: [
       {
@@ -89,7 +89,7 @@ export async function categorizeLineItems(items, accounts, classes, memory) {
   const itemList = items.map((it, i) => `${i + 1}. ${it.description} ($${it.total ?? '?'})`).join('\n');
 
   const message = await client.messages.create({
-    model: 'claude-opus-4-5',
+    model: 'claude-haiku-4-5',
     max_tokens: 4096,
     messages: [
       {
