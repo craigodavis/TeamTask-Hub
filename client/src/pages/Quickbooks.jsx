@@ -335,7 +335,8 @@ export function Quickbooks({ user }) {
 
                   <div className="qb-form-row">
                     <label>Description contains</label>
-                    <input type="text" value={ruleForm.if_description_contains} onChange={(e) => handleRuleFormChange('if_description_contains', e.target.value)} placeholder="e.g. food, label, cleaning" />
+                    <input type="text" value={ruleForm.if_description_contains} onChange={(e) => handleRuleFormChange('if_description_contains', e.target.value)} placeholder='e.g. food   or   food AND (label OR container)' />
+                    <span className="qb-form-hint">Words are AND'd by default. Use AND, OR, and ( ) for logic.</span>
                   </div>
                   <div className="qb-form-row">
                     <label>Vendor is</label>

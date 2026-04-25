@@ -262,3 +262,5 @@
 
 /* Rule applied badge in review table */
 .qb-item-rule { font-size: 0.75rem; color: #1565c0; background: #e3f2fd; border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.2rem; display: inline-block; }
+
+.qb-form-hint { font-size: 0.78rem; color: #888; font-style: italic; }
