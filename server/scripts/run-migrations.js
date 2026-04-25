@@ -92,6 +92,80 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_debt_monthly_balances_company_year ON debt_monthly_balances(company_id, year)`,
   // 015: debt ceiling
   `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS debt_ceiling NUMERIC(14, 2)`,
+  // 013: QBO integration columns
+  `ALTER TABLE company_integrations
+   ADD COLUMN IF NOT EXISTS qbo_access_token     TEXT,
+   ADD COLUMN IF NOT EXISTS qbo_refresh_token    TEXT,
+   ADD COLUMN IF NOT EXISTS qbo_token_expires_at TIMESTAMPTZ,
+   ADD COLUMN IF NOT EXISTS qbo_realm_id         VARCHAR(50),
+   ADD COLUMN IF NOT EXISTS qbo_environment      VARCHAR(20) DEFAULT 'production',
+   ADD COLUMN IF NOT EXISTS qbo_pending_state    VARCHAR(200)`,
+  // 014: QBO reference data
+  `CREATE TABLE IF NOT EXISTS qbo_accounts (
+    company_id           UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    qbo_id               VARCHAR(50) NOT NULL,
+    name                 VARCHAR(255) NOT NULL,
+    fully_qualified_name VARCHAR(500),
+    account_type         VARCHAR(100),
+    account_sub_type     VARCHAR(100),
+    active               BOOLEAN NOT NULL DEFAULT true,
+    synced_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (company_id, qbo_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS qbo_classes (
+    company_id           UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    qbo_id               VARCHAR(50) NOT NULL,
+    name                 VARCHAR(255) NOT NULL,
+    fully_qualified_name VARCHAR(500),
+    parent_id            VARCHAR(50),
+    active               BOOLEAN NOT NULL DEFAULT true,
+    synced_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (company_id, qbo_id)
+  )`,
+  // 016: receipts, receipt_items, product_memory
+  `CREATE TABLE IF NOT EXISTS receipts (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    order_number VARCHAR(100) NOT NULL,
+    order_date   DATE,
+    vendor       VARCHAR(100) NOT NULL DEFAULT 'Amazon',
+    subtotal     NUMERIC(10,2),
+    tax          NUMERIC(10,2),
+    total        NUMERIC(10,2),
+    pdf_filename VARCHAR(255),
+    status       VARCHAR(20) NOT NULL DEFAULT 'pending',
+    imported_at  TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, order_number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_receipts_company_id ON receipts(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_receipts_company_status ON receipts(company_id, status)`,
+  `CREATE TABLE IF NOT EXISTS receipt_items (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    receipt_id     UUID NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    description    TEXT NOT NULL,
+    quantity       NUMERIC(10,3) DEFAULT 1,
+    unit_price     NUMERIC(10,2),
+    total          NUMERIC(10,2),
+    qbo_account_id VARCHAR(50),
+    qbo_class_id   VARCHAR(50),
+    ai_confidence  NUMERIC(3,2),
+    item_status    VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_receipt_items_receipt_id ON receipt_items(receipt_id)`,
+  `CREATE TABLE IF NOT EXISTS product_memory (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    product_pattern TEXT NOT NULL,
+    qbo_account_id  VARCHAR(50),
+    qbo_class_id    VARCHAR(50),
+    usage_count     INTEGER NOT NULL DEFAULT 1,
+    last_used_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, product_pattern)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_product_memory_company_id ON product_memory(company_id)`,
 ];
 
 async function run() {

@@ -601,3 +601,44 @@ export async function disconnectQBO() {
   if (!res.ok) throw new Error(data.error || 'Failed to disconnect QuickBooks');
   return data;
 }
+
+// ── Receipts ──────────────────────────────────────────────────────────────────
+
+export async function uploadReceipts(files) {
+  const formData = new FormData();
+  for (const file of files) formData.append('pdfs', file);
+  const res = await fetch(`${API}/receipts/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` }, // no Content-Type — let browser set boundary
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+export async function getReceipts(status) {
+  const qs = status ? `?status=${status}` : '';
+  const res = await fetch(`${API}/receipts${qs}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load receipts');
+  return data;
+}
+
+export async function getReceipt(id) {
+  const res = await fetch(`${API}/receipts/${id}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load receipt');
+  return data;
+}
+
+export async function saveReceiptItems(receiptId, items) {
+  const res = await fetch(`${API}/receipts/${receiptId}/items`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify({ items }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save receipt items');
+  return data;
+}

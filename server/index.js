@@ -17,6 +17,7 @@ import { requireAuth, requireManager } from './middleware/auth.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
+import { receiptsRouter } from './routes/receipts.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/integrations', requireAuth, requireManager, integrationsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/locations', requireAuth, locationsRouter);
 app.use('/api/debt', requireAuth, debtRouter);
+app.use('/api/receipts', requireAuth, receiptsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
