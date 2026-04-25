@@ -2,11 +2,12 @@ import express from 'express';
 import multer from 'multer';
 import { createRequire } from 'module';
 import { query } from '../db.js';
-
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
 import { requireAuth, requireOwner } from '../middleware/auth.js';
 import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
+
+// pdf-parse v1 is CommonJS — use createRequire for ESM compatibility
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 const router = express.Router();
 
