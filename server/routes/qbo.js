@@ -219,4 +219,17 @@ router.post('/sync', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// GET /api/integrations/qbo/reference  — accounts + classes for dropdowns
+router.get('/reference', requireAuth, async (req, res) => {
+  try {
+    const [a, c] = await Promise.all([
+      query(`SELECT qbo_id, name, fully_qualified_name, account_type, active FROM qbo_accounts WHERE company_id = $1 ORDER BY fully_qualified_name`, [req.companyId]),
+      query(`SELECT qbo_id, name, fully_qualified_name, active FROM qbo_classes WHERE company_id = $1 ORDER BY fully_qualified_name`, [req.companyId]),
+    ]);
+    res.json({ accounts: a.rows, classes: c.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as qboRouter };

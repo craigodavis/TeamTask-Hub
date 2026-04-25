@@ -179,3 +179,86 @@
 }
 .qb-btn-save:hover:not(:disabled) { background: #1565c0; }
 .qb-btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Categorization Rules ── */
+.qb-rules-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 1.75rem 0 0; padding: 0.75rem 1rem;
+  background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 8px;
+  cursor: pointer; user-select: none;
+}
+.qb-rules-header:hover { background: #eeeeee; }
+.qb-rules-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.qb-rules-count {
+  display: inline-block; background: #1976d2; color: #fff;
+  font-size: 0.72rem; font-weight: 700; border-radius: 10px;
+  padding: 0.1rem 0.45rem; margin-left: 0.4rem; vertical-align: middle;
+}
+.qb-rules-toggle { color: #666; font-size: 0.8rem; }
+
+.qb-rules-body { border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; padding: 1rem; }
+
+.qb-rule-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 0.65rem 0; border-bottom: 1px solid #f0f0f0; gap: 1rem;
+}
+.qb-rule-row:last-of-type { border-bottom: none; }
+.qb-rule-row.inactive { opacity: 0.5; }
+.qb-rule-left { display: flex; align-items: flex-start; gap: 0.75rem; flex: 1; }
+.qb-rule-name { font-weight: 600; font-size: 0.9rem; }
+.qb-rule-priority { font-weight: 400; color: #888; font-size: 0.8rem; }
+.qb-rule-desc { font-size: 0.8rem; color: #555; margin-top: 0.2rem; }
+.qb-rule-notes { font-size: 0.78rem; color: #888; font-style: italic; margin-top: 0.15rem; }
+.qb-rule-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.qb-btn-rule-edit, .qb-btn-rule-del {
+  border: 1px solid; border-radius: 4px; padding: 0.2rem 0.6rem;
+  font-size: 0.8rem; cursor: pointer; font-weight: 500; background: #fff;
+}
+.qb-btn-rule-edit { border-color: #90a4ae; color: #546e7a; }
+.qb-btn-rule-edit:hover { background: #eceff1; }
+.qb-btn-rule-del { border-color: #ef9a9a; color: #c62828; }
+.qb-btn-rule-del:hover { background: #ffebee; }
+
+.qb-btn-add-rule {
+  margin-top: 0.75rem; background: #e8f5e9; border: 1px dashed #4caf50;
+  color: #2e7d32; border-radius: 6px; padding: 0.45rem 1rem;
+  font-size: 0.875rem; cursor: pointer; font-weight: 500; width: 100%;
+}
+.qb-btn-add-rule:hover { background: #c8e6c9; }
+
+/* Toggle switch */
+.qb-toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; margin-top: 2px; }
+.qb-toggle input { opacity: 0; width: 0; height: 0; }
+.qb-toggle-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: #ccc; border-radius: 20px; transition: 0.2s;
+}
+.qb-toggle-slider:before {
+  content: ''; position: absolute; height: 14px; width: 14px;
+  left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.qb-toggle input:checked + .qb-toggle-slider { background: #4caf50; }
+.qb-toggle input:checked + .qb-toggle-slider:before { transform: translateX(16px); }
+
+/* Rule form modal */
+.qb-rule-modal { max-width: 560px; }
+.qb-rule-form { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.qb-form-section {
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #888; padding-top: 0.5rem;
+  border-top: 1px solid #eee; margin-top: 0.25rem;
+}
+.qb-form-row { display: flex; flex-direction: column; gap: 0.25rem; }
+.qb-form-row label { font-size: 0.85rem; font-weight: 500; color: #444; }
+.qb-form-row input[type="text"],
+.qb-form-row input[type="number"],
+.qb-form-row select,
+.qb-form-row textarea {
+  border: 1px solid #ccc; border-radius: 5px; padding: 0.4rem 0.6rem;
+  font-size: 0.875rem; width: 100%; box-sizing: border-box;
+}
+.qb-form-row input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
+.qb-form-row textarea { resize: vertical; }
+
+/* Rule applied badge in review table */
+.qb-item-rule { font-size: 0.75rem; color: #1565c0; background: #e3f2fd; border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.2rem; display: inline-block; }

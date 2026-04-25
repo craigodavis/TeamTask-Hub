@@ -65,7 +65,7 @@ ${pdfText}`,
  * @param {Array} memory       - Array of { product_pattern, qbo_account_id, qbo_class_id }
  * @returns {Array}            - Array of { description, qbo_account_id, qbo_class_id, confidence, reasoning }
  */
-export async function categorizeLineItems(items, accounts, classes, memory) {
+export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '') {
   if (!items.length) return [];
 
   const client = getClient();
@@ -95,7 +95,7 @@ export async function categorizeLineItems(items, accounts, classes, memory) {
       {
         role: 'user',
         content: `You are an accounting assistant helping categorize Amazon purchase line items for a winery's QuickBooks Online.
-
+${rulesPrompt}
 ${memoryContext}
 
 Available QBO Accounts (id: name):

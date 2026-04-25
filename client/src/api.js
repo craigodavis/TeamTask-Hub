@@ -642,3 +642,33 @@ export async function saveReceiptItems(receiptId, items) {
   if (!res.ok) throw new Error(data.error || 'Failed to save receipt items');
   return data;
 }
+
+// ── Categorization Rules ──────────────────────────────────────────────────────
+
+export async function getRules() {
+  const res = await fetch(`${API}/receipts/rules`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load rules');
+  return data;
+}
+
+export async function createRule(rule) {
+  const res = await fetch(`${API}/receipts/rules`, { method: 'POST', headers: headers(), body: JSON.stringify(rule) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create rule');
+  return data;
+}
+
+export async function updateRule(id, rule) {
+  const res = await fetch(`${API}/receipts/rules/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(rule) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update rule');
+  return data;
+}
+
+export async function deleteRule(id) {
+  const res = await fetch(`${API}/receipts/rules/${id}`, { method: 'DELETE', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete rule');
+  return data;
+}

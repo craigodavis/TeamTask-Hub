@@ -166,6 +166,24 @@ const MIGRATIONS = [
     UNIQUE(company_id, product_pattern)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_product_memory_company_id ON product_memory(company_id)`,
+  // 017: categorization rules
+  `CREATE TABLE IF NOT EXISTS categorization_rules (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name        VARCHAR(255) NOT NULL,
+    priority    INTEGER NOT NULL DEFAULT 100,
+    if_description_contains TEXT,
+    if_vendor               VARCHAR(100),
+    if_account_type_contains TEXT,
+    then_account_id   VARCHAR(50),
+    then_class_id     VARCHAR(50),
+    then_clear        BOOLEAN NOT NULL DEFAULT false,
+    notes       TEXT,
+    active      BOOLEAN NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cat_rules_company ON categorization_rules(company_id, priority)`,
 ];
 
 async function run() {
