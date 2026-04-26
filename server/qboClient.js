@@ -201,6 +201,40 @@ export async function qboUpdatePurchase(companyId, existing, items) {
 }
 
 /**
+ * Upload a file to QBO and attach it to a transaction in one multipart request.
+ * transactionType: 'Purchase', 'Bill', etc.
+ */
+export async function qboAttachFile(companyId, transactionType, transactionId, filename, fileBuffer) {
+  const row = await loadTokens(companyId);
+  if (!row?.qbo_realm_id) throw new Error('QBO realm ID not found.');
+  const token = await getAccessToken(companyId);
+  const base = row.qbo_environment === 'sandbox' ? QBO_BASE_SANDBOX : QBO_BASE_PRODUCTION;
+  const url = `${base}/v3/company/${row.qbo_realm_id}/upload?minorversion=${MINOR_VERSION}`;
+
+  const metadata = JSON.stringify({
+    AttachableRef: [{ EntityRef: { type: transactionType, value: String(transactionId) } }],
+    ContentType: 'application/pdf',
+    FileName: filename,
+  });
+
+  const formData = new FormData();
+  formData.append('file_metadata_01', new Blob([metadata], { type: 'application/json' }), 'metadata.json');
+  formData.append('file_content_01', new Blob([fileBuffer], { type: 'application/pdf' }), filename);
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`QBO attachment upload failed ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+/**
  * Paginate through all results of a QBO query.
  */
 export async function qboQueryAll(companyId, selectStatement) {
