@@ -95,7 +95,13 @@
   background: #fff; border: 1px solid #e0e0e0; border-radius: 7px;
   padding: 0.75rem 1rem; gap: 1rem; flex-wrap: wrap;
 }
+.qb-receipt-main { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
 .qb-receipt-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.qb-receipt-cats { display: flex; gap: 1rem; flex-wrap: wrap; }
+.qb-receipt-accounts, .qb-receipt-classes {
+  font-size: 0.78rem; color: #555;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px;
+}
 .qb-receipt-order { font-weight: 500; font-size: 0.9rem; }
 .qb-receipt-vendor { font-size: 0.85rem; color: #555; }
 .qb-receipt-date  { font-size: 0.85rem; color: #777; }

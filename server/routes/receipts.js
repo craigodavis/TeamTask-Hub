@@ -149,9 +149,13 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
     const r = await query(
       `SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
               r.pdf_filename, r.created_at,
-              COUNT(ri.id) AS item_count
+              COUNT(ri.id) AS item_count,
+              STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
+              STRING_AGG(DISTINCT qc.name, ', ') AS classes_used
        FROM receipts r
        LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
+       LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
+       LEFT JOIN qbo_classes  qc ON qc.company_id = r.company_id AND qc.qbo_id = ri.qbo_class_id
        WHERE r.company_id = $1 ${where}
        GROUP BY r.id
        ORDER BY r.created_at DESC
