@@ -643,6 +643,16 @@ export async function saveReceiptItems(receiptId, items) {
   return data;
 }
 
+export async function acceptAllItems(receiptId) {
+  const res = await fetch(`${API}/receipts/${receiptId}/accept-all`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to accept items');
+  return data;
+}
+
 // ── Categorization Rules ──────────────────────────────────────────────────────
 
 export async function getRules() {

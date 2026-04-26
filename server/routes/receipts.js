@@ -299,6 +299,47 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── POST /api/receipts/:id/accept-all ────────────────────────────────────────
+// Accept all pending items on this receipt and mark it reviewed.
+router.post('/:id/accept-all', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { id } = req.params;
+  try {
+    const rr = await query(`SELECT id FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
+    if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+
+    // Accept all pending items
+    const updated = await query(
+      `UPDATE receipt_items SET item_status = 'accepted'
+       WHERE receipt_id = $1 AND item_status = 'pending'
+       RETURNING id, description, qbo_account_id, qbo_class_id`,
+      [id]
+    );
+
+    // Update product memory for each accepted item
+    for (const item of updated.rows) {
+      if (item.description) {
+        const pattern = item.description.toLowerCase().trim().slice(0, 200);
+        await query(
+          `INSERT INTO product_memory (company_id, product_pattern, qbo_account_id, qbo_class_id, usage_count, last_used_at)
+           VALUES ($1, $2, $3, $4, 1, NOW())
+           ON CONFLICT (company_id, product_pattern) DO UPDATE
+             SET qbo_account_id = $3,
+                 qbo_class_id   = $4,
+                 usage_count    = product_memory.usage_count + 1,
+                 last_used_at   = NOW()`,
+          [cId, pattern, item.qbo_account_id || null, item.qbo_class_id || null]
+        );
+      }
+    }
+
+    await query(`UPDATE receipts SET status = 'reviewed' WHERE id = $1`, [id]);
+    res.json({ ok: true, accepted: updated.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/receipts/:id/reapply-rules ─────────────────────────────────────
 // Re-run rules against all pending items on this receipt (does not re-run AI).
 router.post('/:id/reapply-rules', requireAuth, requireOwner, async (req, res) => {
