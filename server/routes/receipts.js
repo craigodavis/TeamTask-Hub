@@ -554,8 +554,40 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── POST /api/receipts/export/search ─────────────────────────────────────────
+// Search QBO for purchases near a date to allow manual linking.
+// Body: { payment_account_id, center_date, day_window? }
+router.post('/export/search', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { payment_account_id, center_date, day_window = 7 } = req.body;
+  if (!center_date) return res.status(400).json({ error: 'center_date is required.' });
+
+  try {
+    const purchases = await qboFindPurchases(cId, payment_account_id, null, center_date, day_window);
+    // Return summary of each purchase for the picker UI
+    const results = purchases.map((p) => {
+      const currentLines = (p.Line || []).filter((l) => l.DetailType === 'AccountBasedExpenseLineDetail');
+      const currentCategories = [...new Set(
+        currentLines.map((l) => l.AccountBasedExpenseLineDetail?.AccountRef?.name).filter(Boolean)
+      )].join(', ');
+      return {
+        qbo_id:             p.Id,
+        txn_date:           p.TxnDate,
+        total:              p.TotalAmt,
+        vendor:             p.EntityRef?.name || '',
+        current_categories: currentCategories || 'Uncategorized',
+      };
+    }).sort((a, b) => new Date(b.txn_date) - new Date(a.txn_date));
+
+    res.json({ purchases: results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/receipts/export/confirm ────────────────────────────────────────
 // Update selected QBO transactions with split line items.
+// Multiple receipts pointing to the same qbo_transaction_id are combined.
 // Body: { exports: [{ receipt_id, qbo_transaction_id }] }
 router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
@@ -565,43 +597,57 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
     return res.status(400).json({ error: 'exports must be a non-empty array.' });
   }
 
+  // Group receipt_ids by qbo_transaction_id so combined receipts update once
+  const grouped = {};
+  for (const { receipt_id, qbo_transaction_id } of exports) {
+    if (!grouped[qbo_transaction_id]) grouped[qbo_transaction_id] = [];
+    grouped[qbo_transaction_id].push(receipt_id);
+  }
+
   const results = [];
 
-  for (const { receipt_id, qbo_transaction_id } of exports) {
+  for (const [qbo_transaction_id, receipt_ids] of Object.entries(grouped)) {
     try {
-      // Load accepted line items
+      // Load accepted line items from ALL receipts mapping to this QBO transaction
+      const placeholders = receipt_ids.map((_, i) => `$${i + 1}`).join(',');
       const itemsRes = await query(
         `SELECT ri.description, ri.total, ri.qbo_account_id, ri.qbo_class_id
          FROM receipt_items ri
-         WHERE ri.receipt_id = $1
+         WHERE ri.receipt_id IN (${placeholders})
            AND ri.item_status = 'accepted'
-           AND ri.qbo_account_id IS NOT NULL`,
-        [receipt_id]
+           AND ri.qbo_account_id IS NOT NULL
+         ORDER BY ri.receipt_id, ri.created_at`,
+        receipt_ids
       );
 
       if (!itemsRes.rows.length) {
-        results.push({ receipt_id, ok: false, error: 'No accepted items with an account assigned.' });
+        for (const receipt_id of receipt_ids) {
+          results.push({ receipt_id, ok: false, error: 'No accepted items with an account assigned.' });
+        }
         continue;
       }
 
-      // GET existing purchase (need SyncToken)
+      // GET existing purchase (needs SyncToken)
       const existing = await qboGetPurchase(cId, qbo_transaction_id);
 
-      // Update with split lines
+      // Update with combined split lines from all receipts
       await qboUpdatePurchase(cId, existing, itemsRes.rows);
 
-      // Mark receipt as imported
-      await query(
-        `UPDATE receipts
-         SET status = 'imported', qbo_transaction_id = $2, exported_at = NOW()
-         WHERE id = $1 AND company_id = $3`,
-        [receipt_id, qbo_transaction_id, cId]
-      );
-
-      results.push({ receipt_id, ok: true });
+      // Mark all receipts as imported
+      for (const receipt_id of receipt_ids) {
+        await query(
+          `UPDATE receipts
+           SET status = 'imported', qbo_transaction_id = $2, exported_at = NOW()
+           WHERE id = $1 AND company_id = $3`,
+          [receipt_id, qbo_transaction_id, cId]
+        );
+        results.push({ receipt_id, ok: true });
+      }
     } catch (err) {
-      console.error('[export] failed for receipt', receipt_id, err.message);
-      results.push({ receipt_id, ok: false, error: err.message });
+      console.error('[export] failed for QBO txn', qbo_transaction_id, err.message);
+      for (const receipt_id of receipt_ids) {
+        results.push({ receipt_id, ok: false, error: err.message });
+      }
     }
   }
 

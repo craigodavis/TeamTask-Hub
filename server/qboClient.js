@@ -144,11 +144,11 @@ export async function qboFindPurchases(companyId, accountId, totalAmt, centerDat
   });
   const purchases = data.QueryResponse?.Purchase || [];
 
-  const target = parseFloat(totalAmt);
+  const target = totalAmt != null ? parseFloat(totalAmt) : null;
 
-  // Filter client-side: matching account and amount (within $0.01 for float safety)
+  // Filter client-side by account and (optionally) amount within $0.01
   const matches = purchases.filter((p) => {
-    const amountMatch = Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
+    const amountMatch = target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
     const accountMatch = !accountId || p.AccountRef?.value === accountId;
     return amountMatch && accountMatch;
   });

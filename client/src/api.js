@@ -671,6 +671,16 @@ export async function savePaymentAccount(account_id) {
   return data;
 }
 
+export async function searchQBOPurchases(payment_account_id, center_date) {
+  const res = await fetch(`${API}/receipts/export/search`, {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ payment_account_id, center_date }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to search QBO');
+  return data;
+}
+
 export async function previewExport(payment_account_id) {
   const res = await fetch(`${API}/receipts/export/preview`, {
     method: 'POST', headers: headers(), body: JSON.stringify({ payment_account_id }),
