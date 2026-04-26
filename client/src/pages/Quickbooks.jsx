@@ -627,21 +627,19 @@ export function Quickbooks({ user }) {
                       </select>
                     </div>
                   )}
-                  <div className="qb-form-row qb-form-row-checkbox">
-                    <label className="qb-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={cardForm.personal_use}
-                        onChange={(e) => setCardForm((f) => ({ ...f, personal_use: e.target.checked, qbo_account_id: e.target.checked ? '' : f.qbo_account_id }))}
-                      />
-                      Personal use — exclude from exports
-                    </label>
-                  </div>
                   <button type="submit" className="qb-btn-save"
                     disabled={cardSaving || !cardForm.card_last4 || (!cardForm.personal_use && !cardForm.qbo_account_id)}>
                     {cardSaving ? 'Saving…' : 'Add'}
                   </button>
                 </div>
+                <label className="qb-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={cardForm.personal_use}
+                    onChange={(e) => setCardForm((f) => ({ ...f, personal_use: e.target.checked, qbo_account_id: e.target.checked ? '' : f.qbo_account_id }))}
+                  />
+                  Personal use
+                </label>
               </form>
 
               {/* Show which receipts have card data */}
