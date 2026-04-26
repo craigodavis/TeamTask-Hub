@@ -658,6 +658,8 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
           const { pdf_filename, order_number } = fnRes.rows[0] || {};
           const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
           await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
+          // Clean up local copy now that it's in QBO
+          await fs.promises.unlink(pdfPath).catch(() => {});
         } catch (attachErr) {
           console.error('[export] PDF attach failed for receipt', receipt_id, attachErr.message);
           // Non-fatal
