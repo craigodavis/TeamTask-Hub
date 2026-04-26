@@ -5,6 +5,7 @@ import { query } from '../db.js';
 import { requireAuth, requireOwner } from '../middleware/auth.js';
 import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
+import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase } from '../qboClient.js';
 
 // pdf-parse v1 is CommonJS — use createRequire for ESM compatibility
 const require = createRequire(import.meta.url);
@@ -432,6 +433,179 @@ router.patch('/:id/items', requireAuth, requireOwner, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── GET /api/receipts/export/payment-accounts ─────────────────────────────────
+// Return Credit Card + Bank type accounts and the saved default.
+router.get('/export/payment-accounts', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const [accts, integ] = await Promise.all([
+      query(
+        `SELECT qbo_id, name, fully_qualified_name, account_type
+         FROM qbo_accounts
+         WHERE company_id = $1
+           AND account_type IN ('Credit Card', 'Bank')
+           AND active = true
+         ORDER BY account_type, fully_qualified_name`,
+        [req.companyId]
+      ),
+      query(
+        `SELECT qbo_payment_account_id FROM company_integrations WHERE company_id = $1`,
+        [req.companyId]
+      ),
+    ]);
+    res.json({
+      accounts: accts.rows,
+      default_account_id: integ.rows[0]?.qbo_payment_account_id || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/export/payment-accounts ────────────────────────────────
+// Save default payment account.
+router.post('/export/payment-accounts', requireAuth, requireOwner, async (req, res) => {
+  const { account_id } = req.body;
+  try {
+    await query(
+      `UPDATE company_integrations SET qbo_payment_account_id = $2 WHERE company_id = $1`,
+      [req.companyId, account_id || null]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/export/preview ────────────────────────────────────────
+// For each reviewed (un-exported) receipt, search QBO for a matching Purchase.
+// Body: { payment_account_id }
+router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { payment_account_id } = req.body;
+
+  if (!payment_account_id) {
+    return res.status(400).json({ error: 'payment_account_id is required.' });
+  }
+
+  try {
+    // All reviewed receipts not yet exported
+    const receiptsRes = await query(
+      `SELECT id, order_number, order_date, vendor, total
+       FROM receipts
+       WHERE company_id = $1 AND status = 'reviewed' AND qbo_transaction_id IS NULL
+       ORDER BY order_date DESC`,
+      [cId]
+    );
+
+    const previews = [];
+
+    for (const receipt of receiptsRes.rows) {
+      if (!receipt.total || !receipt.order_date) {
+        previews.push({ receipt, match: null, confidence: 'none', reason: 'Missing total or date' });
+        continue;
+      }
+
+      try {
+        const matches = await qboFindPurchases(
+          cId, payment_account_id, receipt.total, receipt.order_date
+        );
+
+        if (!matches.length) {
+          previews.push({ receipt, match: null, confidence: 'none', reason: 'No QBO transaction found' });
+          continue;
+        }
+
+        const best = matches[0];
+        const daysDiff = Math.abs(
+          (new Date(best.TxnDate) - new Date(receipt.order_date)) / (1000 * 60 * 60 * 24)
+        );
+
+        // Summarise current categorisation
+        const currentLines = (best.Line || []).filter(
+          (l) => l.DetailType === 'AccountBasedExpenseLineDetail'
+        );
+        const currentCategories = [...new Set(
+          currentLines.map((l) => l.AccountBasedExpenseLineDetail?.AccountRef?.name).filter(Boolean)
+        )].join(', ');
+
+        previews.push({
+          receipt,
+          match: {
+            qbo_id:     best.Id,
+            txn_date:   best.TxnDate,
+            total:      best.TotalAmt,
+            vendor:     best.EntityRef?.name || '',
+            memo:       best.PrivateNote || '',
+            current_categories: currentCategories || 'Uncategorized',
+          },
+          confidence: daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low',
+          days_diff: daysDiff,
+        });
+      } catch (err) {
+        previews.push({ receipt, match: null, confidence: 'none', reason: err.message });
+      }
+    }
+
+    res.json({ previews });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/export/confirm ────────────────────────────────────────
+// Update selected QBO transactions with split line items.
+// Body: { exports: [{ receipt_id, qbo_transaction_id }] }
+router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { exports } = req.body;
+
+  if (!Array.isArray(exports) || !exports.length) {
+    return res.status(400).json({ error: 'exports must be a non-empty array.' });
+  }
+
+  const results = [];
+
+  for (const { receipt_id, qbo_transaction_id } of exports) {
+    try {
+      // Load accepted line items
+      const itemsRes = await query(
+        `SELECT ri.description, ri.total, ri.qbo_account_id, ri.qbo_class_id
+         FROM receipt_items ri
+         WHERE ri.receipt_id = $1
+           AND ri.item_status = 'accepted'
+           AND ri.qbo_account_id IS NOT NULL`,
+        [receipt_id]
+      );
+
+      if (!itemsRes.rows.length) {
+        results.push({ receipt_id, ok: false, error: 'No accepted items with an account assigned.' });
+        continue;
+      }
+
+      // GET existing purchase (need SyncToken)
+      const existing = await qboGetPurchase(cId, qbo_transaction_id);
+
+      // Update with split lines
+      await qboUpdatePurchase(cId, existing, itemsRes.rows);
+
+      // Mark receipt as imported
+      await query(
+        `UPDATE receipts
+         SET status = 'imported', qbo_transaction_id = $2, exported_at = NOW()
+         WHERE id = $1 AND company_id = $3`,
+        [receipt_id, qbo_transaction_id, cId]
+      );
+
+      results.push({ receipt_id, ok: true });
+    } catch (err) {
+      console.error('[export] failed for receipt', receipt_id, err.message);
+      results.push({ receipt_id, ok: false, error: err.message });
+    }
+  }
+
+  res.json({ results });
 });
 
 export { router as receiptsRouter };

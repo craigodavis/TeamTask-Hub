@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
   uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems,
+  getPaymentAccounts, savePaymentAccount, previewExport, confirmExport,
   getRules, createRule, updateRule, deleteRule, reapplyRules,
 } from '../api';
 import './Quickbooks.css';
@@ -41,6 +42,15 @@ export function Quickbooks({ user }) {
 
   // Tabs
   const [activeTab, setActiveTab] = useState('pending');
+
+  // Export
+  const [paymentAccounts, setPaymentAccounts] = useState([]);
+  const [defaultAccountId, setDefaultAccountId] = useState('');
+  const [exportPreviewing, setExportPreviewing] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportPreviews, setExportPreviews] = useState(null); // null | array
+  const [exportSelections, setExportSelections] = useState({}); // receipt_id → bool
+  const [exportConfirming, setExportConfirming] = useState(false);
 
   // Accept all
   const [accepting, setAccepting] = useState(null); // receipt id being accepted
@@ -97,6 +107,10 @@ export function Quickbooks({ user }) {
       .then((r) => r.json())
       .then((d) => { setAccounts(d.accounts || []); setClasses(d.classes || []); })
       .catch(() => {});
+    // Load payment accounts for export
+    getPaymentAccounts()
+      .then((d) => { setPaymentAccounts(d.accounts || []); setDefaultAccountId(d.default_account_id || ''); })
+      .catch(() => {});
   }, [status, loadReceipts, loadRules]);
 
   // ── Sync ──
@@ -147,6 +161,48 @@ export function Quickbooks({ user }) {
       setMessage('Receipt review saved.');
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
+  };
+
+  // ── Export to QBO ──
+  const handleOpenExport = async () => {
+    if (!defaultAccountId) {
+      setError('Please select a payment account before exporting.');
+      return;
+    }
+    setExportLoading(true); setError(''); setMessage('');
+    try {
+      const { previews } = await previewExport(defaultAccountId);
+      setExportPreviews(previews);
+      // Default: check everything that has a match
+      const sel = {};
+      previews.forEach((p) => { sel[p.receipt.id] = !!p.match; });
+      setExportSelections(sel);
+      setExportPreviewing(true);
+    } catch (e) { setError(e.message); }
+    finally { setExportLoading(false); }
+  };
+
+  const handleConfirmExport = async () => {
+    const toExport = exportPreviews
+      .filter((p) => exportSelections[p.receipt.id] && p.match)
+      .map((p) => ({ receipt_id: p.receipt.id, qbo_transaction_id: p.match.qbo_id }));
+
+    if (!toExport.length) { setError('No receipts selected for export.'); return; }
+
+    setExportConfirming(true); setError('');
+    try {
+      const { results } = await confirmExport(toExport);
+      const ok = results.filter((r) => r.ok).length;
+      const failed = results.filter((r) => !r.ok);
+      setExportPreviewing(false);
+      setExportPreviews(null);
+      loadReceipts(activeTab);
+      if (failed.length) {
+        setError(`${failed.length} receipt(s) failed to export. ${failed.map((f) => f.error).join('; ')}`);
+      }
+      setMessage(`Exported ${ok} receipt(s) to QuickBooks.`);
+    } catch (e) { setError(e.message); }
+    finally { setExportConfirming(false); }
   };
 
   // ── Accept All ──
@@ -288,22 +344,41 @@ export function Quickbooks({ user }) {
           )}
 
           {/* ── Receipt tabs ── */}
-          <div className="qb-tabs">
-            <button type="button" className={`qb-tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>
-              Pending
-            </button>
-            <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>
-              Reviewed
-            </button>
+          <div className="qb-tabs-row">
+            <div className="qb-tabs">
+              <button type="button" className={`qb-tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>Pending</button>
+              <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>Reviewed</button>
+              <button type="button" className={`qb-tab ${activeTab === 'imported' ? 'active' : ''}`} onClick={() => setActiveTab('imported')}>Imported</button>
+            </div>
+            {activeTab === 'reviewed' && (
+              <div className="qb-export-bar">
+                <select
+                  className="qb-export-account-select"
+                  value={defaultAccountId}
+                  onChange={async (e) => {
+                    setDefaultAccountId(e.target.value);
+                    await savePaymentAccount(e.target.value).catch(() => {});
+                  }}
+                >
+                  <option value="">— select payment account —</option>
+                  {paymentAccounts.map((a) => (
+                    <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                  ))}
+                </select>
+                <button type="button" className="qb-btn-export" onClick={handleOpenExport} disabled={exportLoading || !defaultAccountId}>
+                  {exportLoading ? 'Searching QBO…' : 'Export to QuickBooks'}
+                </button>
+              </div>
+            )}
           </div>
 
           {receiptsLoading ? (
             <p className="qb-loading">Loading receipts…</p>
           ) : receipts.length === 0 ? (
             <p className="qb-empty">
-              {activeTab === 'pending'
-                ? 'No pending receipts. Upload a PDF above or check the Reviewed tab.'
-                : 'No reviewed receipts yet.'}
+              {activeTab === 'pending'  && 'No pending receipts. Upload a PDF above or check the Reviewed tab.'}
+              {activeTab === 'reviewed' && 'No reviewed receipts. Accept some from the Pending tab.'}
+              {activeTab === 'imported' && 'No receipts exported to QuickBooks yet.'}
             </p>
           ) : (
             <div className="qb-receipt-list">
@@ -456,6 +531,96 @@ export function Quickbooks({ user }) {
                   <button type="button" className="qb-btn-cancel" onClick={closeRuleForm}>Cancel</button>
                   <button type="button" className="qb-btn-save" onClick={handleSaveRule} disabled={ruleSaving || !ruleForm.name.trim()}>
                     {ruleSaving ? 'Saving…' : 'Save Rule'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Export preview modal ── */}
+          {exportPreviewing && exportPreviews && (
+            <div className="qb-modal-overlay">
+              <div className="qb-modal qb-export-modal">
+                <div className="qb-modal-header">
+                  <div>
+                    <h3>Export to QuickBooks — Preview</h3>
+                    <p className="qb-modal-sub">Uncheck any rows that don't look right. Only checked rows will be updated in QBO.</p>
+                  </div>
+                  <button type="button" className="qb-modal-close" onClick={() => setExportPreviewing(false)}>✕</button>
+                </div>
+
+                <div className="qb-review-table-wrap">
+                  <table className="qb-review-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 32 }}></th>
+                        <th>Receipt</th>
+                        <th>Date</th>
+                        <th>Total</th>
+                        <th>QBO Transaction Found</th>
+                        <th>Current Category</th>
+                        <th>Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {exportPreviews.map((p) => {
+                        const checked = !!exportSelections[p.receipt.id];
+                        const hasMatch = !!p.match;
+                        return (
+                          <tr key={p.receipt.id} className={`qb-export-row ${!hasMatch ? 'no-match' : ''}`}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                checked={checked && hasMatch}
+                                disabled={!hasMatch}
+                                onChange={(e) => setExportSelections((s) => ({ ...s, [p.receipt.id]: e.target.checked }))}
+                              />
+                            </td>
+                            <td>
+                              <div className="qb-receipt-order">{p.receipt.order_number}</div>
+                              <div style={{ fontSize: '0.78rem', color: '#777' }}>{p.receipt.vendor}</div>
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                              {p.receipt.order_date ? new Date(p.receipt.order_date).toLocaleDateString() : '—'}
+                            </td>
+                            <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              ${parseFloat(p.receipt.total || 0).toFixed(2)}
+                            </td>
+                            <td style={{ fontSize: '0.85rem' }}>
+                              {hasMatch ? (
+                                <>
+                                  <div>{new Date(p.match.txn_date).toLocaleDateString()}
+                                    {p.days_diff > 0 && <span style={{ color: '#888', marginLeft: 4 }}>({p.days_diff}d off)</span>}
+                                  </div>
+                                  {p.match.vendor && <div style={{ color: '#777', fontSize: '0.78rem' }}>{p.match.vendor}</div>}
+                                </>
+                              ) : (
+                                <span className="qb-no-match-label">No match found</span>
+                              )}
+                            </td>
+                            <td style={{ fontSize: '0.85rem', color: '#555' }}>
+                              {hasMatch ? p.match.current_categories : '—'}
+                            </td>
+                            <td>
+                              {hasMatch ? (
+                                <span className={`qb-confidence qb-conf-${p.confidence}`}>
+                                  {p.confidence}
+                                </span>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="qb-modal-footer">
+                  <button type="button" className="qb-btn-cancel" onClick={() => setExportPreviewing(false)}>Cancel</button>
+                  <button type="button" className="qb-btn-save" onClick={handleConfirmExport} disabled={exportConfirming}>
+                    {exportConfirming
+                      ? 'Updating QBO…'
+                      : `Update ${Object.values(exportSelections).filter(Boolean).length} in QuickBooks`}
                   </button>
                 </div>
               </div>
