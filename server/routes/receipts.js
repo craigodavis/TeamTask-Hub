@@ -535,6 +535,14 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
       [cId]
     );
 
+    // Seed used IDs with QBO transaction IDs already stored on other receipts
+    const usedRes = await query(
+      `SELECT qbo_transaction_id FROM receipts
+       WHERE company_id = $1 AND qbo_transaction_id IS NOT NULL`,
+      [cId]
+    );
+    const usedQboIds = new Set(usedRes.rows.map((r) => r.qbo_transaction_id));
+
     const previews = [];
 
     for (const receipt of receiptsRes.rows) {
@@ -548,12 +556,19 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
           cId, payment_account_id, receipt.total, receipt.order_date
         );
 
-        if (!matches.length) {
-          previews.push({ receipt, match: null, confidence: 'none', reason: 'No QBO transaction found' });
+        // Skip any QBO transactions already claimed by another receipt in this batch
+        // or previously exported — ensures duplicate-amount receipts get distinct matches
+        const available = matches.filter((m) => !usedQboIds.has(m.Id));
+
+        if (!available.length) {
+          previews.push({ receipt, match: null, confidence: 'none', reason: 'No unused QBO transaction found' });
           continue;
         }
 
-        const best = matches[0];
+        const best = available[0];
+        // Reserve this QBO transaction for this receipt
+        usedQboIds.add(best.Id);
+
         const daysDiff = Math.abs(
           (new Date(best.TxnDate) - new Date(receipt.order_date)) / (1000 * 60 * 60 * 24)
         );
