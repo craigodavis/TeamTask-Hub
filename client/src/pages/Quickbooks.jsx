@@ -854,7 +854,7 @@ export function Quickbooks({ user }) {
                                 <div className="qb-shipment-items">
                                   {p.shipment.line_items.map((li, i) => (
                                     <div key={i} className="qb-shipment-item">
-                                      <span className="qb-shipment-item-desc">{li.description}</span>
+                                      <span className="qb-shipment-item-desc" title={li.description}>{li.description}</span>
                                       <span className="qb-shipment-item-acct">{li.account_name || '—'}</span>
                                       <span className="qb-shipment-item-amt">${li.item_total.toFixed(2)}</span>
                                     </div>

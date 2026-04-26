@@ -468,7 +468,9 @@
   font-size: 0.75rem; color: #555;
 }
 .qb-shipment-item-desc {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: inline-block; max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: default;
 }
 .qb-shipment-item-acct {
   color: #1976d2; white-space: nowrap; font-size: 0.72rem;
