@@ -238,6 +238,9 @@ const MIGRATIONS = [
   // 047: personal_use flag on card_account_mappings
   `ALTER TABLE card_account_mappings
    ADD COLUMN IF NOT EXISTS personal_use BOOLEAN NOT NULL DEFAULT FALSE`,
+  // 048: allow null qbo_account_id for personal-use cards
+  `ALTER TABLE card_account_mappings
+   ALTER COLUMN qbo_account_id DROP NOT NULL`,
 ];
 
 async function run() {
