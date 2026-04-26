@@ -141,6 +141,13 @@
 }
 .qb-btn-review:hover:not(:disabled) { background: #e3f2fd; }
 .qb-btn-review:disabled { opacity: 0.5; cursor: not-allowed; }
+.qb-btn-accept-all {
+  background: #4caf50; border: 1px solid #388e3c; color: #fff;
+  border-radius: 5px; padding: 0.3rem 0.85rem; font-size: 0.85rem;
+  cursor: pointer; font-weight: 500;
+}
+.qb-btn-accept-all:hover:not(:disabled) { background: #388e3c; }
+.qb-btn-accept-all:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Modal ── */
 .qb-modal-overlay {

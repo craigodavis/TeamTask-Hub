@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
-  uploadReceipts, getReceipts, getReceipt, saveReceiptItems,
+  uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems,
   getRules, createRule, updateRule, deleteRule, reapplyRules,
 } from '../api';
 import './Quickbooks.css';
@@ -41,6 +41,9 @@ export function Quickbooks({ user }) {
 
   // Tabs
   const [activeTab, setActiveTab] = useState('pending');
+
+  // Accept all
+  const [accepting, setAccepting] = useState(null); // receipt id being accepted
 
   // Re-apply rules
   const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
@@ -144,6 +147,18 @@ export function Quickbooks({ user }) {
       setMessage('Receipt review saved.');
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
+  };
+
+  // ── Accept All ──
+  const handleAcceptAll = async (receiptId) => {
+    setAccepting(receiptId);
+    setError(''); setMessage('');
+    try {
+      const r = await acceptAllItems(receiptId);
+      setMessage(`Accepted ${r.accepted} items.`);
+      loadReceipts(activeTab);
+    } catch (e) { setError(e.message); }
+    finally { setAccepting(null); }
   };
 
   // ── Rules ──
@@ -313,9 +328,14 @@ export function Quickbooks({ user }) {
                   <div className="qb-receipt-right">
                     {r.total != null && <span className="qb-receipt-total">${parseFloat(r.total).toFixed(2)}</span>}
                     <span className="qb-receipt-items">{r.item_count} items</span>
-                    <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying} title="Re-apply categorization rules to pending items">
-                      {reapplying === r.id ? '…' : '⚙'}
-                    </button>
+                    {activeTab === 'pending' && <>
+                      <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying || !!accepting} title="Re-apply categorization rules to pending items">
+                        {reapplying === r.id ? '…' : '⚙'}
+                      </button>
+                      <button type="button" className="qb-btn-accept-all" onClick={() => handleAcceptAll(r.id)} disabled={!!accepting || !!reapplying} title="Accept all suggested categorizations">
+                        {accepting === r.id ? '…' : '✓ Accept'}
+                      </button>
+                    </>}
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
                       {activeTab === 'reviewed' ? 'View' : 'Review'}
                     </button>
