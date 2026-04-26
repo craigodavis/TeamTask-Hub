@@ -579,7 +579,7 @@ export function Quickbooks({ user }) {
                     <tbody>
                       {amazonPayments.map((p) => (
                         <tr key={p.id}>
-                          <td>{p.payment_date ? new Date(p.payment_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+                          <td>{p.payment_date ? new Date(p.payment_date.slice(0, 10) + 'T12:00:00').toLocaleDateString() : '—'}</td>
                           <td className="qb-amazon-amount">{p.payment_amount != null ? `$${parseFloat(p.payment_amount).toFixed(2)}` : '—'}</td>
                           <td className="qb-amazon-card">
                             {p.payment_instrument || ''}{p.card_last4 ? ` ····${p.card_last4}` : ''}
@@ -589,7 +589,7 @@ export function Quickbooks({ user }) {
                               <span key={id} className="qb-amazon-order-chip">{id}</span>
                             ))}
                           </td>
-                          <td className="qb-amazon-imported">{new Date(p.imported_at).toLocaleDateString()}</td>
+                          <td className="qb-amazon-imported">{p.imported_at ? new Date(p.imported_at).toLocaleDateString() : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -623,7 +623,7 @@ export function Quickbooks({ user }) {
                     <div className="qb-receipt-meta">
                       <span className="qb-receipt-order">{r.order_number}</span>
                       <span className="qb-receipt-vendor">{r.vendor}</span>
-                      {r.order_date && <span className="qb-receipt-date">{new Date(r.order_date).toLocaleDateString()}</span>}
+                      {r.order_date && <span className="qb-receipt-date">{new Date(String(r.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
                     </div>
                     {r.descriptions && (
                       <div className="qb-receipt-descs">{r.descriptions}</div>
@@ -821,7 +821,7 @@ export function Quickbooks({ user }) {
                               <div style={{ fontSize: '0.78rem', color: '#777' }}>{p.receipt.vendor}</div>
                             </td>
                             <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
-                              {p.receipt.order_date ? new Date(p.receipt.order_date).toLocaleDateString() : '—'}
+                              {p.receipt.order_date ? new Date(String(p.receipt.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString() : '—'}
                             </td>
                             <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
                               ${parseFloat(p.receipt.total || 0).toFixed(2)}
@@ -920,7 +920,7 @@ export function Quickbooks({ user }) {
                       <div>
                         <h3>{reviewing.vendor} — {reviewing.order_number}</h3>
                         <p className="qb-modal-sub">
-                          {reviewing.order_date && new Date(reviewing.order_date).toLocaleDateString()} &nbsp;·&nbsp;
+                          {reviewing.order_date && new Date(String(reviewing.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()} &nbsp;·&nbsp;
                           Total: ${parseFloat(reviewing.total || 0).toFixed(2)}
                         </p>
                       </div>
