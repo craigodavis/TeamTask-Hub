@@ -442,10 +442,12 @@ export function Quickbooks({ user }) {
                       <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying || !!accepting} title="Re-apply categorization rules to pending items">
                         {reapplying === r.id ? '…' : '⚙'}
                       </button>
+                    </>}
+                    {(activeTab === 'pending' || activeTab === 'reviewed') &&
                       <button type="button" className="qb-btn-delete-receipt" onClick={() => handleDeleteReceipt(r)} title="Remove this receipt">
                         ✕
                       </button>
-                    </>}
+                    }
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
                       {activeTab === 'reviewed' ? 'View' : 'Review'}
                     </button>
