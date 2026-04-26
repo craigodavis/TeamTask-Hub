@@ -85,11 +85,25 @@
 .qb-upload-result.error   { background: #ffebee; color: #c62828; }
 .qb-result-file { font-weight: 500; flex-shrink: 0; }
 
+/* ── Tabs ── */
+.qb-tabs {
+  display: flex; gap: 0; margin: 1.75rem 0 0;
+  border-bottom: 2px solid #e0e0e0;
+}
+.qb-tab {
+  background: none; border: none; padding: 0.6rem 1.4rem;
+  font-size: 0.9rem; font-weight: 500; color: #666;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: color 0.15s, border-color 0.15s;
+}
+.qb-tab:hover { color: #1976d2; }
+.qb-tab.active { color: #1976d2; border-bottom-color: #1976d2; }
+
 /* ── Receipt list ── */
 .qb-receipts-header { margin: 1.5rem 0 0.75rem; }
 .qb-receipts-header h3 { font-size: 1.05rem; font-weight: 600; margin: 0; }
 
-.qb-receipt-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.qb-receipt-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
 .qb-receipt-row {
   display: flex; align-items: center; justify-content: space-between;
   background: #fff; border: 1px solid #e0e0e0; border-radius: 7px;
@@ -97,9 +111,14 @@
 }
 .qb-receipt-main { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
 .qb-receipt-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.qb-receipt-descs {
+  font-size: 0.8rem; color: #555;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 600px;
+}
 .qb-receipt-cats { display: flex; gap: 1rem; flex-wrap: wrap; }
 .qb-receipt-accounts, .qb-receipt-classes {
-  font-size: 0.78rem; color: #555;
+  font-size: 0.78rem; color: #777;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px;
 }
 .qb-receipt-order { font-weight: 500; font-size: 0.9rem; }
