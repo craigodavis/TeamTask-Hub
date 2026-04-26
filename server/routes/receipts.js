@@ -101,7 +101,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
         });
       }
 
-      // 7. Save receipt
+      // 6. Save receipt
       const receiptRes = await query(
         `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, pdf_filename)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
@@ -109,7 +109,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
       );
       const receiptId = receiptRes.rows[0].id;
 
-      // 8. Save line items
+      // 7. Save line items
       for (const item of categorized) {
         await query(
           `INSERT INTO receipt_items (receipt_id, description, quantity, unit_price, total, qbo_account_id, qbo_class_id, ai_confidence)
@@ -159,6 +159,106 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
       params
     );
     res.json(r.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/receipts/rules ───────────────────────────────────────────────────
+// IMPORTANT: must be before /:id routes or Express will treat "rules" as an id.
+router.get('/rules', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT cr.*,
+              qa.name AS then_account_name, qa.fully_qualified_name AS then_account_full_name,
+              qc.name AS then_class_name
+       FROM categorization_rules cr
+       LEFT JOIN qbo_accounts qa ON qa.company_id = cr.company_id AND qa.qbo_id = cr.then_account_id
+       LEFT JOIN qbo_classes  qc ON qc.company_id = cr.company_id AND qc.qbo_id = cr.then_class_id
+       WHERE cr.company_id = $1
+       ORDER BY cr.priority ASC, cr.created_at ASC`,
+      [req.companyId]
+    );
+    res.json(r.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/rules ──────────────────────────────────────────────────
+router.post('/rules', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const {
+    name, priority = 100,
+    if_description_contains, if_vendor, if_account_type_contains,
+    then_account_id, then_class_id, then_clear = false,
+    notes, active = true,
+  } = req.body;
+
+  if (!name?.trim()) return res.status(400).json({ error: 'Rule name is required.' });
+
+  try {
+    const r = await query(
+      `INSERT INTO categorization_rules
+         (company_id, name, priority, if_description_contains, if_vendor, if_account_type_contains,
+          then_account_id, then_class_id, then_clear, notes, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING *`,
+      [cId, name.trim(), priority,
+       if_description_contains || null, if_vendor || null, if_account_type_contains || null,
+       then_account_id || null, then_class_id || null, then_clear, notes || null, active]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/receipts/rules/:id ────────────────────────────────────────────
+router.patch('/rules/:id', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { id } = req.params;
+  const {
+    name, priority,
+    if_description_contains, if_vendor, if_account_type_contains,
+    then_account_id, then_class_id, then_clear,
+    notes, active,
+  } = req.body;
+
+  try {
+    const r = await query(
+      `UPDATE categorization_rules SET
+         name                    = COALESCE($3, name),
+         priority                = COALESCE($4, priority),
+         if_description_contains = $5,
+         if_vendor               = $6,
+         if_account_type_contains = $7,
+         then_account_id         = $8,
+         then_class_id           = $9,
+         then_clear              = COALESCE($10, then_clear),
+         notes                   = $11,
+         active                  = COALESCE($12, active),
+         updated_at              = NOW()
+       WHERE id = $1 AND company_id = $2
+       RETURNING *`,
+      [id, cId,
+       name || null, priority || null,
+       if_description_contains || null, if_vendor || null, if_account_type_contains || null,
+       then_account_id || null, then_class_id || null,
+       then_clear ?? null, notes || null, active ?? null]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Rule not found.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/receipts/rules/:id ───────────────────────────────────────────
+router.delete('/rules/:id', requireAuth, requireOwner, async (req, res) => {
+  try {
+    await query(`DELETE FROM categorization_rules WHERE id = $1 AND company_id = $2`, [req.params.id, req.companyId]);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -282,105 +382,6 @@ router.patch('/:id/items', requireAuth, requireOwner, async (req, res) => {
       await query(`UPDATE receipts SET status = 'reviewed' WHERE id = $1`, [id]);
     }
 
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/receipts/rules ───────────────────────────────────────────────────
-router.get('/rules', requireAuth, requireOwner, async (req, res) => {
-  try {
-    const r = await query(
-      `SELECT cr.*,
-              qa.name AS then_account_name, qa.fully_qualified_name AS then_account_full_name,
-              qc.name AS then_class_name
-       FROM categorization_rules cr
-       LEFT JOIN qbo_accounts qa ON qa.company_id = cr.company_id AND qa.qbo_id = cr.then_account_id
-       LEFT JOIN qbo_classes  qc ON qc.company_id = cr.company_id AND qc.qbo_id = cr.then_class_id
-       WHERE cr.company_id = $1
-       ORDER BY cr.priority ASC, cr.created_at ASC`,
-      [req.companyId]
-    );
-    res.json(r.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/receipts/rules ──────────────────────────────────────────────────
-router.post('/rules', requireAuth, requireOwner, async (req, res) => {
-  const cId = req.companyId;
-  const {
-    name, priority = 100,
-    if_description_contains, if_vendor, if_account_type_contains,
-    then_account_id, then_class_id, then_clear = false,
-    notes, active = true,
-  } = req.body;
-
-  if (!name?.trim()) return res.status(400).json({ error: 'Rule name is required.' });
-
-  try {
-    const r = await query(
-      `INSERT INTO categorization_rules
-         (company_id, name, priority, if_description_contains, if_vendor, if_account_type_contains,
-          then_account_id, then_class_id, then_clear, notes, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING *`,
-      [cId, name.trim(), priority,
-       if_description_contains || null, if_vendor || null, if_account_type_contains || null,
-       then_account_id || null, then_class_id || null, then_clear, notes || null, active]
-    );
-    res.status(201).json(r.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PATCH /api/receipts/rules/:id ────────────────────────────────────────────
-router.patch('/rules/:id', requireAuth, requireOwner, async (req, res) => {
-  const cId = req.companyId;
-  const { id } = req.params;
-  const {
-    name, priority,
-    if_description_contains, if_vendor, if_account_type_contains,
-    then_account_id, then_class_id, then_clear,
-    notes, active,
-  } = req.body;
-
-  try {
-    const r = await query(
-      `UPDATE categorization_rules SET
-         name                    = COALESCE($3, name),
-         priority                = COALESCE($4, priority),
-         if_description_contains = $5,
-         if_vendor               = $6,
-         if_account_type_contains = $7,
-         then_account_id         = $8,
-         then_class_id           = $9,
-         then_clear              = COALESCE($10, then_clear),
-         notes                   = $11,
-         active                  = COALESCE($12, active),
-         updated_at              = NOW()
-       WHERE id = $1 AND company_id = $2
-       RETURNING *`,
-      [id, cId,
-       name || null, priority || null,
-       if_description_contains || null, if_vendor || null, if_account_type_contains || null,
-       then_account_id || null, then_class_id || null,
-       then_clear ?? null, notes || null, active ?? null]
-    );
-    if (!r.rows.length) return res.status(404).json({ error: 'Rule not found.' });
-    res.json(r.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── DELETE /api/receipts/rules/:id ───────────────────────────────────────────
-router.delete('/rules/:id', requireAuth, requireOwner, async (req, res) => {
-  try {
-    await query(`DELETE FROM categorization_rules WHERE id = $1 AND company_id = $2`, [req.params.id, req.companyId]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
