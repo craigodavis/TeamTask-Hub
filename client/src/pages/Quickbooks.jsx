@@ -110,7 +110,7 @@ export function Quickbooks({ user }) {
     // Load payment accounts for export
     getPaymentAccounts()
       .then((d) => { setPaymentAccounts(d.accounts || []); setDefaultAccountId(d.default_account_id || ''); })
-      .catch(() => {});
+      .catch((e) => setError(`Could not load payment accounts: ${e.message}`));
   }, [status, loadReceipts, loadRules]);
 
   // ── Sync ──
