@@ -39,6 +39,9 @@ export function Quickbooks({ user }) {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Tabs
+  const [activeTab, setActiveTab] = useState('pending');
+
   // Re-apply rules
   const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
 
@@ -60,19 +63,25 @@ export function Quickbooks({ user }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const loadReceipts = useCallback(() => {
+  const loadReceipts = useCallback((tab) => {
     setReceiptsLoading(true);
-    getReceipts()
+    getReceipts(tab || activeTab)
       .then(setReceipts)
       .catch(() => {})
       .finally(() => setReceiptsLoading(false));
-  }, []);
+  }, [activeTab]);
 
   const loadRules = useCallback(() => {
     getRules().then(setRules).catch(() => {});
   }, []);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  // Reload when tab changes
+  useEffect(() => {
+    if (!status?.connected) return;
+    loadReceipts(activeTab);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!status?.connected) return;
@@ -130,7 +139,9 @@ export function Quickbooks({ user }) {
     setSaving(true);
     try {
       await saveReceiptItems(reviewing.id, reviewing.items);
-      setReviewing(null); loadReceipts(); setMessage('Receipt review saved.');
+      setReviewing(null);
+      loadReceipts(activeTab);
+      setMessage('Receipt review saved.');
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   };
@@ -261,12 +272,24 @@ export function Quickbooks({ user }) {
             </div>
           )}
 
-          {/* ── Receipt list ── */}
-          <div className="qb-receipts-header"><h3>Imported Receipts</h3></div>
+          {/* ── Receipt tabs ── */}
+          <div className="qb-tabs">
+            <button type="button" className={`qb-tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>
+              Pending
+            </button>
+            <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>
+              Reviewed
+            </button>
+          </div>
+
           {receiptsLoading ? (
             <p className="qb-loading">Loading receipts…</p>
           ) : receipts.length === 0 ? (
-            <p className="qb-empty">No receipts imported yet. Upload a PDF above to get started.</p>
+            <p className="qb-empty">
+              {activeTab === 'pending'
+                ? 'No pending receipts. Upload a PDF above or check the Reviewed tab.'
+                : 'No reviewed receipts yet.'}
+            </p>
           ) : (
             <div className="qb-receipt-list">
               {receipts.map((r) => (
@@ -276,8 +299,10 @@ export function Quickbooks({ user }) {
                       <span className="qb-receipt-order">{r.order_number}</span>
                       <span className="qb-receipt-vendor">{r.vendor}</span>
                       {r.order_date && <span className="qb-receipt-date">{new Date(r.order_date).toLocaleDateString()}</span>}
-                      <span className={`qb-receipt-status qb-status-${r.status}`}>{r.status}</span>
                     </div>
+                    {r.descriptions && (
+                      <div className="qb-receipt-descs">{r.descriptions}</div>
+                    )}
                     {(r.accounts_used || r.classes_used) && (
                       <div className="qb-receipt-cats">
                         {r.accounts_used && <span className="qb-receipt-accounts">📂 {r.accounts_used}</span>}
@@ -291,7 +316,9 @@ export function Quickbooks({ user }) {
                     <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying} title="Re-apply categorization rules to pending items">
                       {reapplying === r.id ? '…' : '⚙'}
                     </button>
-                    <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>Review</button>
+                    <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
+                      {activeTab === 'reviewed' ? 'View' : 'Review'}
+                    </button>
                   </div>
                 </div>
               ))}

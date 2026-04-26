@@ -151,7 +151,8 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
               r.pdf_filename, r.created_at,
               COUNT(ri.id) AS item_count,
               STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
-              STRING_AGG(DISTINCT qc.name, ', ') AS classes_used
+              STRING_AGG(DISTINCT qc.name, ', ') AS classes_used,
+              STRING_AGG(ri.description, ' · ' ORDER BY ri.created_at) AS descriptions
        FROM receipts r
        LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
        LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
