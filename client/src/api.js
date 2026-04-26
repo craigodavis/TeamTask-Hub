@@ -653,6 +653,42 @@ export async function acceptAllItems(receiptId) {
   return data;
 }
 
+// ── QBO Export ───────────────────────────────────────────────────────────────
+
+export async function getPaymentAccounts() {
+  const res = await fetch(`${API}/receipts/export/payment-accounts`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load payment accounts');
+  return data;
+}
+
+export async function savePaymentAccount(account_id) {
+  const res = await fetch(`${API}/receipts/export/payment-accounts`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ account_id }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save payment account');
+  return data;
+}
+
+export async function previewExport(payment_account_id) {
+  const res = await fetch(`${API}/receipts/export/preview`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ payment_account_id }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to preview export');
+  return data;
+}
+
+export async function confirmExport(exports) {
+  const res = await fetch(`${API}/receipts/export/confirm`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ exports }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to confirm export');
+  return data;
+}
+
 // ── Categorization Rules ──────────────────────────────────────────────────────
 
 export async function getRules() {

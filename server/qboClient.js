@@ -111,6 +111,89 @@ export async function qboRequest(companyId, method, path, { params = {}, body } 
 }
 
 /**
+ * Find a vendor in QBO whose DisplayName contains the given search string.
+ * Returns the first match, or null if none found.
+ */
+export async function qboFindVendor(companyId, nameContains) {
+  const safe = nameContains.replace(/'/g, "\\'");
+  const data = await qboRequest(companyId, 'GET', 'query', {
+    params: { query: `SELECT * FROM Vendor WHERE DisplayName LIKE '%${safe}%' MAXRESULTS 10` },
+  });
+  const vendors = data.QueryResponse?.Vendor || [];
+  if (!vendors.length) return null;
+  // Prefer exact match, fall back to first partial match
+  return vendors.find((v) => v.DisplayName.toLowerCase() === nameContains.toLowerCase()) || vendors[0];
+}
+
+/**
+ * Find Purchase transactions on a given account matching a total amount
+ * within a date window (±days around centerDate).
+ * Returns array of matches sorted by date proximity.
+ */
+export async function qboFindPurchases(companyId, accountId, totalAmt, centerDate, dayWindow = 4) {
+  const center = new Date(centerDate);
+  const start = new Date(center); start.setDate(start.getDate() - dayWindow);
+  const end   = new Date(center); end.setDate(end.getDate()   + dayWindow);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+
+  const data = await qboRequest(companyId, 'GET', 'query', {
+    params: {
+      query: `SELECT * FROM Purchase WHERE AccountRef = '${accountId}'
+              AND TotalAmt = '${totalAmt}'
+              AND TxnDate >= '${fmt(start)}' AND TxnDate <= '${fmt(end)}'
+              MAXRESULTS 10`,
+    },
+  });
+  const purchases = data.QueryResponse?.Purchase || [];
+
+  // Sort by date proximity to the center date
+  return purchases.sort((a, b) => {
+    const da = Math.abs(new Date(a.TxnDate) - center);
+    const db = Math.abs(new Date(b.TxnDate) - center);
+    return da - db;
+  });
+}
+
+/**
+ * GET a single Purchase by Id (includes SyncToken needed for updates).
+ */
+export async function qboGetPurchase(companyId, purchaseId) {
+  const data = await qboRequest(companyId, 'GET', `purchase/${purchaseId}`);
+  return data.Purchase;
+}
+
+/**
+ * Update an existing Purchase with new split line items.
+ * items: [{ description, total, qbo_account_id, qbo_class_id }]
+ */
+export async function qboUpdatePurchase(companyId, existing, items) {
+  const lines = items.map((item) => {
+    const line = {
+      Amount: parseFloat(item.total) || 0,
+      DetailType: 'AccountBasedExpenseLineDetail',
+      Description: item.description,
+      AccountBasedExpenseLineDetail: {
+        AccountRef: { value: item.qbo_account_id },
+        BillableStatus: 'NotBillable',
+      },
+    };
+    if (item.qbo_class_id) {
+      line.AccountBasedExpenseLineDetail.ClassRef = { value: item.qbo_class_id };
+    }
+    return line;
+  });
+
+  const updated = {
+    ...existing,
+    Line: lines,
+    sparse: true,
+  };
+
+  const data = await qboRequest(companyId, 'POST', 'purchase', { body: updated });
+  return data.Purchase;
+}
+
+/**
  * Paginate through all results of a QBO query.
  */
 export async function qboQueryAll(companyId, selectStatement) {

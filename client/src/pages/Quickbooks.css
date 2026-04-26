@@ -87,8 +87,8 @@
 
 /* ── Tabs ── */
 .qb-tabs {
-  display: flex; gap: 0; margin: 1.75rem 0 0;
-  border-bottom: 2px solid #e0e0e0;
+  display: flex; gap: 0; margin: 0;
+  border-bottom: none;
 }
 .qb-tab {
   background: none; border: none; padding: 0.6rem 1.4rem;
@@ -98,6 +98,38 @@
 }
 .qb-tab:hover { color: #1976d2; }
 .qb-tab.active { color: #1976d2; border-bottom-color: #1976d2; }
+
+.qb-tabs-row {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin: 1.75rem 0 0;
+  border-bottom: 2px solid #e0e0e0;
+}
+.qb-tabs-row .qb-tabs { border-bottom: none; margin: 0; }
+.qb-export-bar { display: flex; align-items: center; gap: 0.6rem; padding-bottom: 0.4rem; flex-wrap: wrap; }
+.qb-export-account-select {
+  font-size: 0.85rem; padding: 0.3rem 0.5rem; border: 1px solid #ccc;
+  border-radius: 5px; background: #fff; min-width: 200px;
+}
+.qb-btn-export {
+  background: #5c35c9; color: #fff; border: none; border-radius: 5px;
+  padding: 0.35rem 1rem; font-size: 0.85rem; cursor: pointer; font-weight: 500;
+  white-space: nowrap;
+}
+.qb-btn-export:hover:not(:disabled) { background: #4527a0; }
+.qb-btn-export:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Export preview modal ── */
+.qb-export-modal { max-width: 1000px; }
+.qb-export-row.no-match { background: #fff8f8; }
+.qb-no-match-label { color: #c62828; font-size: 0.82rem; }
+.qb-confidence {
+  display: inline-block; font-size: 0.75rem; font-weight: 600;
+  padding: 0.15rem 0.5rem; border-radius: 10px; text-transform: capitalize;
+}
+.qb-conf-high   { background: #e8f5e9; color: #2e7d32; }
+.qb-conf-medium { background: #fff8e1; color: #f57f17; }
+.qb-conf-low    { background: #fce4ec; color: #c62828; }
+.qb-conf-none   { background: #f5f5f5; color: #999; }
 
 /* ── Receipt list ── */
 .qb-receipts-header { margin: 1.5rem 0 0.75rem; }

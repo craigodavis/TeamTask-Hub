@@ -184,6 +184,12 @@ const MIGRATIONS = [
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cat_rules_company ON categorization_rules(company_id, priority)`,
+  // 018: QBO export tracking
+  `ALTER TABLE receipts
+   ADD COLUMN IF NOT EXISTS qbo_transaction_id VARCHAR(50),
+   ADD COLUMN IF NOT EXISTS exported_at TIMESTAMPTZ`,
+  `ALTER TABLE company_integrations
+   ADD COLUMN IF NOT EXISTS qbo_payment_account_id VARCHAR(50)`,
 ];
 
 async function run() {
