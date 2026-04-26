@@ -350,3 +350,9 @@
 }
 .qb-btn-reapply:hover:not(:disabled) { background: #eceff1; }
 .qb-btn-reapply:disabled { opacity: 0.5; cursor: not-allowed; }
+.qb-btn-delete-receipt {
+  background: #fff; border: 1px solid #e0e0e0; color: #bbb;
+  border-radius: 5px; padding: 0.3rem 0.6rem; font-size: 0.85rem;
+  cursor: pointer; line-height: 1;
+}
+.qb-btn-delete-receipt:hover { border-color: #e53935; color: #e53935; background: #fff8f8; }
