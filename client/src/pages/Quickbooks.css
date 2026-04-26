@@ -479,3 +479,42 @@
 .qb-shipment-item-amt {
   white-space: nowrap; font-weight: 500; color: #212121;
 }
+
+/* ── Settings tab ── */
+.qb-settings-section {
+  display: flex; flex-direction: column; gap: 1.25rem;
+}
+.qb-settings-heading {
+  font-size: 1rem; font-weight: 600; margin: 0; color: #212121;
+}
+.qb-settings-hint {
+  font-size: 0.83rem; color: #666; margin: 0; line-height: 1.5; max-width: 600px;
+}
+
+.qb-card-table {
+  width: 100%; border-collapse: collapse; font-size: 0.875rem;
+}
+.qb-card-table th {
+  text-align: left; padding: 0.45rem 0.75rem;
+  background: #f5f5f5; border-bottom: 2px solid #e0e0e0;
+  font-size: 0.78rem; font-weight: 600; text-transform: uppercase; color: #666;
+}
+.qb-card-table td {
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid #f0f0f0; vertical-align: middle;
+}
+.qb-card-last4 { font-family: monospace; font-size: 0.9rem; font-weight: 600; letter-spacing: 0.05em; }
+.qb-card-account { color: #1565c0; }
+
+.qb-card-form {
+  background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;
+}
+.qb-card-form-heading { margin: 0; font-size: 0.875rem; font-weight: 600; color: #444; }
+.qb-card-form-row {
+  display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;
+}
+.qb-card-form-row .qb-form-row { flex: 1; min-width: 120px; }
+.qb-card-form-row .qb-btn-save { flex-shrink: 0; margin-bottom: 0; align-self: flex-end; }
+
+.qb-settings-card-coverage { display: flex; flex-direction: column; gap: 0.4rem; }
+.qb-settings-card-coverage h4 { margin: 0; font-size: 0.875rem; font-weight: 600; color: #444; }

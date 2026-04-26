@@ -70,7 +70,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
         continue;
       }
 
-      const { order_number, order_date, vendor, subtotal, tax, total, items } = receiptData;
+      const { order_number, order_date, vendor, subtotal, tax, total, items, card_last4, payment_instrument } = receiptData;
 
       if (!order_number) {
         results.push({ filename, error: 'Could not extract order number from PDF.' });
@@ -111,9 +111,10 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
 
       // 6. Save receipt
       const receiptRes = await query(
-        `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, pdf_filename)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [cId, order_number, order_date || null, vendor || 'Amazon', subtotal || null, tax || null, total || null, filename]
+        `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, pdf_filename, card_last4, payment_instrument)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        [cId, order_number, order_date || null, vendor || 'Amazon', subtotal || null, tax || null, total || null, filename,
+         card_last4 || null, payment_instrument || null]
       );
       const receiptId = receiptRes.rows[0].id;
 
@@ -553,12 +554,19 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
   try {
     // All reviewed receipts not yet exported
     const receiptsRes = await query(
-      `SELECT id, order_number, order_date, vendor, total
+      `SELECT id, order_number, order_date, vendor, total, card_last4, payment_instrument
        FROM receipts
        WHERE company_id = $1 AND status = 'reviewed' AND qbo_transaction_id IS NULL
        ORDER BY order_date DESC`,
       [cId]
     );
+
+    // Load card → QBO account mappings for this company
+    const mappingsRes = await query(
+      `SELECT card_last4, qbo_account_id FROM card_account_mappings WHERE company_id = $1`,
+      [cId]
+    );
+    const cardAccountMap = new Map(mappingsRes.rows.map((r) => [r.card_last4, r.qbo_account_id]));
 
     // Load accepted line items for all these receipts at once
     const receiptIds = receiptsRes.rows.map((r) => r.id);
@@ -685,6 +693,10 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
                 account_name: ri.account_name,
               }));
 
+          // Resolve which QBO account to search: per-card mapping > global fallback
+          const accountId = (receipt.card_last4 && cardAccountMap.get(receipt.card_last4))
+            || payment_account_id;
+
           // Search QBO for a Purchase matching this shipment's date + amount
           let match = null;
           let confidence = 'none';
@@ -699,7 +711,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
               // QBO transaction date is always AFTER Amazon's charge date
               // (bank posts 1-4 days later), so we never look backwards.
               const matches = await qboFindPurchases(
-                cId, payment_account_id, shipment.payment_amount,
+                cId, accountId, shipment.payment_amount,
                 shipment.payment_date, 7, true
               );
               const available = matches.filter((m) => !usedQboIds.has(m.Id));
@@ -741,6 +753,9 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
               payment_amount: shipment.payment_amount,
               line_items: lineItems,
             },
+            card_last4: receipt.card_last4,
+            payment_instrument: receipt.payment_instrument,
+            account_id_used: accountId,
             match,
             confidence,
             days_diff: daysDiff,
@@ -765,8 +780,10 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
         }
 
         try {
+          const accountId = (receipt.card_last4 && cardAccountMap.get(receipt.card_last4))
+            || payment_account_id;
           const matches = await qboFindPurchases(
-            cId, payment_account_id, receipt.total, receipt.order_date, 5
+            cId, accountId, receipt.total, receipt.order_date, 5
           );
           const available = matches.filter((m) => !usedQboIds.has(m.Id));
           if (!available.length) {

@@ -219,6 +219,22 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_amazon_payment_items_payment ON amazon_payment_items(payment_id)`,
   `CREATE INDEX IF NOT EXISTS idx_amazon_payment_items_order ON amazon_payment_items(order_id)`,
+  // 021: card last4 on receipts (extracted from PDF)
+  `ALTER TABLE receipts
+   ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(10),
+   ADD COLUMN IF NOT EXISTS payment_instrument VARCHAR(50)`,
+  // 022: card → QBO payment account mappings
+  `CREATE TABLE IF NOT EXISTS card_account_mappings (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    card_last4     VARCHAR(10) NOT NULL,
+    card_label     VARCHAR(100),
+    qbo_account_id VARCHAR(50) NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, card_last4)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_card_mappings_company ON card_account_mappings(company_id)`,
 ];
 
 async function run() {

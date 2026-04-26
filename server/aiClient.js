@@ -33,6 +33,8 @@ The JSON must have this shape:
   "subtotal": number or null,
   "tax": number or null,
   "total": number or null,
+  "card_last4": "last 4 digits of payment card as a string, or null",
+  "payment_instrument": "Visa, Mastercard, Amex, etc. or null",
   "items": [
     {
       "description": "product name/description",

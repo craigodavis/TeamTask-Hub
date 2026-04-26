@@ -771,3 +771,28 @@ export async function getAmazonStats() {
   if (!res.ok) throw new Error(data.error || 'Failed to load stats');
   return data;
 }
+
+// ── Card → QBO Account Mappings ───────────────────────────────────────────────
+
+export async function getCardMappings() {
+  const res = await fetch(`${API}/card-mappings`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load card mappings');
+  return data;
+}
+
+export async function saveCardMapping(mapping) {
+  const res = await fetch(`${API}/card-mappings`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(mapping),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save card mapping');
+  return data;
+}
+
+export async function deleteCardMapping(id) {
+  const res = await fetch(`${API}/card-mappings/${id}`, { method: 'DELETE', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete mapping');
+  return data;
+}

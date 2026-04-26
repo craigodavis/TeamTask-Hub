@@ -6,6 +6,7 @@ import {
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
   getRules, createRule, updateRule, deleteRule, reapplyRules,
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
+  getCardMappings, saveCardMapping, deleteCardMapping,
 } from '../api';
 import './Quickbooks.css';
 
@@ -65,6 +66,11 @@ export function Quickbooks({ user }) {
   // Re-apply rules
   const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
 
+  // Card mappings (Settings tab)
+  const [cardMappings, setCardMappings] = useState([]);
+  const [cardForm, setCardForm] = useState({ card_last4: '', card_label: '', qbo_account_id: '' });
+  const [cardSaving, setCardSaving] = useState(false);
+
   // Amazon order history
   const [amazonPayments, setAmazonPayments] = useState([]);
   const [amazonStats, setAmazonStats] = useState(null);
@@ -110,6 +116,8 @@ export function Quickbooks({ user }) {
     if (activeTab === 'amazon') {
       getAmazonPayments().then((d) => setAmazonPayments(d.payments || [])).catch(() => {});
       getAmazonStats().then(setAmazonStats).catch(() => {});
+    } else if (activeTab === 'settings') {
+      getCardMappings().then((d) => setCardMappings(d.mappings || [])).catch(() => {});
     } else {
       loadReceipts(activeTab);
     }
@@ -134,6 +142,8 @@ export function Quickbooks({ user }) {
     // Load Amazon order history stats
     getAmazonPayments().then((d) => setAmazonPayments(d.payments || [])).catch(() => {});
     getAmazonStats().then(setAmazonStats).catch(() => {});
+    // Load card mappings
+    getCardMappings().then((d) => setCardMappings(d.mappings || [])).catch(() => {});
   }, [status, loadReceipts, loadRules]);
 
   // ── Sync ──
@@ -359,6 +369,27 @@ export function Quickbooks({ user }) {
     catch (e) { setError(e.message); }
   };
 
+  const handleSaveCardMapping = async (e) => {
+    e.preventDefault();
+    if (!cardForm.card_last4 || !cardForm.qbo_account_id) return;
+    setCardSaving(true);
+    try {
+      await saveCardMapping(cardForm);
+      const d = await getCardMappings();
+      setCardMappings(d.mappings || []);
+      setCardForm({ card_last4: '', card_label: '', qbo_account_id: '' });
+      setMessage('Card mapping saved.');
+    } catch (err) { setError(err.message); }
+    finally { setCardSaving(false); }
+  };
+
+  const handleDeleteCardMapping = async (id) => {
+    try {
+      await deleteCardMapping(id);
+      setCardMappings((m) => m.filter((c) => c.id !== id));
+    } catch (err) { setError(err.message); }
+  };
+
   const handleAmazonCSVUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -465,6 +496,7 @@ export function Quickbooks({ user }) {
               <button type="button" className={`qb-tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>Pending</button>
               <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>Reviewed</button>
               <button type="button" className={`qb-tab ${activeTab === 'imported' ? 'active' : ''}`} onClick={() => setActiveTab('imported')}>Imported</button>
+              <button type="button" className={`qb-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</button>
               <button type="button" className={`qb-tab ${activeTab === 'amazon' ? 'active' : ''}`} onClick={() => setActiveTab('amazon')}>
                 Amazon
                 {amazonStats && amazonStats.receipts_total > 0 && (
@@ -514,7 +546,90 @@ export function Quickbooks({ user }) {
             </div>
           )}
 
-          {activeTab === 'amazon' ? (
+          {activeTab === 'settings' ? (
+            /* ── Settings Tab ── */
+            <div className="qb-settings-section">
+              <h3 className="qb-settings-heading">Card → Payment Account Mapping</h3>
+              <p className="qb-settings-hint">
+                Map each card's last 4 digits to its QuickBooks payment account.
+                When exporting, each receipt will automatically search the correct account
+                instead of requiring a manual selection.
+              </p>
+
+              {/* Existing mappings */}
+              {cardMappings.length > 0 && (
+                <table className="qb-card-table">
+                  <thead>
+                    <tr>
+                      <th>Last 4</th>
+                      <th>Label</th>
+                      <th>QBO Payment Account</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cardMappings.map((m) => (
+                      <tr key={m.id}>
+                        <td className="qb-card-last4">····{m.card_last4}</td>
+                        <td>{m.card_label || <span style={{ color: '#aaa' }}>—</span>}</td>
+                        <td className="qb-card-account">{m.account_full_name || m.account_name || m.qbo_account_id}</td>
+                        <td>
+                          <button type="button" className="qb-btn-rule-del" onClick={() => handleDeleteCardMapping(m.id)}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* Add new mapping form */}
+              <form className="qb-card-form" onSubmit={handleSaveCardMapping}>
+                <h4 className="qb-card-form-heading">{cardMappings.length === 0 ? 'Add your first card' : 'Add another card'}</h4>
+                <div className="qb-card-form-row">
+                  <div className="qb-form-row">
+                    <label>Last 4 digits</label>
+                    <input
+                      type="text" maxLength={4} placeholder="e.g. 4376"
+                      value={cardForm.card_last4}
+                      onChange={(e) => setCardForm((f) => ({ ...f, card_last4: e.target.value.replace(/\D/g, '') }))}
+                    />
+                  </div>
+                  <div className="qb-form-row">
+                    <label>Label (optional)</label>
+                    <input
+                      type="text" placeholder="e.g. Craig Visa"
+                      value={cardForm.card_label}
+                      onChange={(e) => setCardForm((f) => ({ ...f, card_label: e.target.value }))}
+                    />
+                  </div>
+                  <div className="qb-form-row">
+                    <label>QBO Payment Account</label>
+                    <select
+                      value={cardForm.qbo_account_id}
+                      onChange={(e) => setCardForm((f) => ({ ...f, qbo_account_id: e.target.value }))}
+                    >
+                      <option value="">— select account —</option>
+                      {paymentAccounts.map((a) => (
+                        <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="submit" className="qb-btn-save" disabled={cardSaving || !cardForm.card_last4 || !cardForm.qbo_account_id}>
+                    {cardSaving ? 'Saving…' : 'Add'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Show which receipts have card data */}
+              <div className="qb-settings-card-coverage">
+                <h4>Card Data on Receipts</h4>
+                <p className="qb-settings-hint">
+                  Card last 4 is extracted from PDFs during upload. Receipts uploaded before this
+                  feature was added won't have card data — re-upload them to get it.
+                </p>
+              </div>
+            </div>
+          ) : activeTab === 'amazon' ? (
             /* ── Amazon Order History Tab ── */
             <div className="qb-amazon-section">
               {amazonStats && (
