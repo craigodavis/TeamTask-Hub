@@ -271,11 +271,19 @@ export function Quickbooks({ user }) {
             <div className="qb-receipt-list">
               {receipts.map((r) => (
                 <div key={r.id} className="qb-receipt-row">
-                  <div className="qb-receipt-meta">
-                    <span className="qb-receipt-order">{r.order_number}</span>
-                    <span className="qb-receipt-vendor">{r.vendor}</span>
-                    {r.order_date && <span className="qb-receipt-date">{new Date(r.order_date).toLocaleDateString()}</span>}
-                    <span className={`qb-receipt-status qb-status-${r.status}`}>{r.status}</span>
+                  <div className="qb-receipt-main">
+                    <div className="qb-receipt-meta">
+                      <span className="qb-receipt-order">{r.order_number}</span>
+                      <span className="qb-receipt-vendor">{r.vendor}</span>
+                      {r.order_date && <span className="qb-receipt-date">{new Date(r.order_date).toLocaleDateString()}</span>}
+                      <span className={`qb-receipt-status qb-status-${r.status}`}>{r.status}</span>
+                    </div>
+                    {(r.accounts_used || r.classes_used) && (
+                      <div className="qb-receipt-cats">
+                        {r.accounts_used && <span className="qb-receipt-accounts">📂 {r.accounts_used}</span>}
+                        {r.classes_used  && <span className="qb-receipt-classes">🏷 {r.classes_used}</span>}
+                      </div>
+                    )}
                   </div>
                   <div className="qb-receipt-right">
                     {r.total != null && <span className="qb-receipt-total">${parseFloat(r.total).toFixed(2)}</span>}
