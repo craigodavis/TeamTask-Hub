@@ -126,11 +126,12 @@ export async function qboFindVendor(companyId, nameContains) {
 }
 
 /**
- * Find Purchase transactions on a given account matching a total amount
- * within a date window (±days around centerDate).
+ * Find Purchase transactions matching a total amount within a date window.
+ * QBO only supports filtering by TxnDate in WHERE clauses for Purchase —
+ * amount and account filtering is done client-side after fetching.
  * Returns array of matches sorted by date proximity.
  */
-export async function qboFindPurchases(companyId, accountId, totalAmt, centerDate, dayWindow = 4) {
+export async function qboFindPurchases(companyId, accountId, totalAmt, centerDate, dayWindow = 5) {
   const center = new Date(centerDate);
   const start = new Date(center); start.setDate(start.getDate() - dayWindow);
   const end   = new Date(center); end.setDate(end.getDate()   + dayWindow);
@@ -138,16 +139,22 @@ export async function qboFindPurchases(companyId, accountId, totalAmt, centerDat
 
   const data = await qboRequest(companyId, 'GET', 'query', {
     params: {
-      query: `SELECT * FROM Purchase WHERE AccountRef = '${accountId}'
-              AND TotalAmt = '${totalAmt}'
-              AND TxnDate >= '${fmt(start)}' AND TxnDate <= '${fmt(end)}'
-              MAXRESULTS 10`,
+      query: `SELECT * FROM Purchase WHERE TxnDate >= '${fmt(start)}' AND TxnDate <= '${fmt(end)}' MAXRESULTS 200`,
     },
   });
   const purchases = data.QueryResponse?.Purchase || [];
 
+  const target = parseFloat(totalAmt);
+
+  // Filter client-side: matching account and amount (within $0.01 for float safety)
+  const matches = purchases.filter((p) => {
+    const amountMatch = Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
+    const accountMatch = !accountId || p.AccountRef?.value === accountId;
+    return amountMatch && accountMatch;
+  });
+
   // Sort by date proximity to the center date
-  return purchases.sort((a, b) => {
+  return matches.sort((a, b) => {
     const da = Math.abs(new Date(a.TxnDate) - center);
     const db = Math.abs(new Date(b.TxnDate) - center);
     return da - db;
