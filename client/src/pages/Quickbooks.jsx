@@ -871,8 +871,13 @@ export function Quickbooks({ user }) {
                             <td style={{ fontSize: '0.85rem' }}>
                               {hasMatch ? (
                                 <>
-                                  <div>{new Date(p.match.txn_date).toLocaleDateString()}
+                                  <div>
+                                    {new Date(p.match.txn_date).toLocaleDateString()}
                                     {p.days_diff > 0 && <span style={{ color: '#888', marginLeft: 4 }}>({p.days_diff}d off)</span>}
+                                    <span style={{ marginLeft: 6, fontWeight: 600 }}>${parseFloat(p.match.total || 0).toFixed(2)}</span>
+                                    {p.match.amount_matched === false && (
+                                      <span style={{ marginLeft: 4, color: '#e65100', fontSize: '0.75rem' }}>⚠ amt differs</span>
+                                    )}
                                   </div>
                                   {p.match.vendor && <div style={{ color: '#777', fontSize: '0.78rem' }}>{p.match.vendor}</div>}
                                 </>
