@@ -625,6 +625,13 @@ export async function getReceipts(status) {
   return data;
 }
 
+export async function deleteReceipt(id) {
+  const res = await fetch(`${API}/receipts/${id}`, { method: 'DELETE', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete receipt');
+  return data;
+}
+
 export async function getReceipt(id) {
   const res = await fetch(`${API}/receipts/${id}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

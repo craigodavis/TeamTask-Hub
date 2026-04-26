@@ -450,6 +450,27 @@ router.patch('/:id/items', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── DELETE /api/receipts/:id ──────────────────────────────────────────────────
+// Remove a receipt and its items. Also deletes the saved PDF if present.
+router.delete('/:id', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { id } = req.params;
+  try {
+    const rr = await query(`SELECT id FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
+    if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+
+    await query(`DELETE FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
+
+    // Clean up PDF from disk if present
+    const pdfPath = path.join(UPLOAD_DIR, `${id}.pdf`);
+    await fs.promises.unlink(pdfPath).catch(() => {});
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/receipts/export/payment-accounts ─────────────────────────────────
 // Return Credit Card + Bank type accounts and the saved default.
 router.get('/export/payment-accounts', requireAuth, requireOwner, async (req, res) => {

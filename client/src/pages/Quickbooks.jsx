@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
-  uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems,
+  uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems, deleteReceipt,
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
   getRules, createRule, updateRule, deleteRule, reapplyRules,
 } from '../api';
@@ -242,6 +242,16 @@ export function Quickbooks({ user }) {
     finally { setAccepting(null); }
   };
 
+  // ── Delete receipt ──
+  const handleDeleteReceipt = async (receipt) => {
+    if (!window.confirm(`Remove "${receipt.order_number}" from the list? This cannot be undone.`)) return;
+    try {
+      await deleteReceipt(receipt.id);
+      loadReceipts(activeTab);
+      setMessage(`Receipt ${receipt.order_number} removed.`);
+    } catch (e) { setError(e.message); }
+  };
+
   // ── Rules ──
   const handleReapplyRules = async (receiptId) => {
     setReapplying(receiptId);
@@ -428,11 +438,14 @@ export function Quickbooks({ user }) {
                   <div className="qb-receipt-right">
                     {r.total != null && <span className="qb-receipt-total">${parseFloat(r.total).toFixed(2)}</span>}
                     <span className="qb-receipt-items">{r.item_count} items</span>
-                    {activeTab === 'pending' &&
+                    {activeTab === 'pending' && <>
                       <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying || !!accepting} title="Re-apply categorization rules to pending items">
                         {reapplying === r.id ? '…' : '⚙'}
                       </button>
-                    }
+                      <button type="button" className="qb-btn-delete-receipt" onClick={() => handleDeleteReceipt(r)} title="Remove this receipt">
+                        ✕
+                      </button>
+                    </>}
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
                       {activeTab === 'reviewed' ? 'View' : 'Review'}
                     </button>
