@@ -695,11 +695,12 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
             if (!shipment.payment_date) {
               reason = 'Shipment has no payment date';
             } else {
-              // Search by exact amount within ±7 days.
-              // Credit cards can post 1-3 days after Amazon's charge date.
+              // Search by exact amount, payment date → +7 days (forward only).
+              // QBO transaction date is always AFTER Amazon's charge date
+              // (bank posts 1-4 days later), so we never look backwards.
               const matches = await qboFindPurchases(
                 cId, payment_account_id, shipment.payment_amount,
-                shipment.payment_date, 7
+                shipment.payment_date, 7, true
               );
               const available = matches.filter((m) => !usedQboIds.has(m.Id));
               if (available.length) {

@@ -131,10 +131,21 @@ export async function qboFindVendor(companyId, nameContains) {
  * amount and account filtering is done client-side after fetching.
  * Returns array of matches sorted by date proximity.
  */
-export async function qboFindPurchases(companyId, accountId, totalAmt, centerDate, dayWindow = 5) {
-  const center = new Date(centerDate);
-  const start = new Date(center); start.setDate(start.getDate() - dayWindow);
-  const end   = new Date(center); end.setDate(end.getDate()   + dayWindow);
+/**
+ * @param {string} companyId
+ * @param {string|null} accountId   - filter by payment account
+ * @param {number|null} totalAmt    - filter by exact amount (within $0.01), or null for any
+ * @param {string} startDate        - search start date (YYYY-MM-DD or ISO)
+ * @param {number} dayWindow        - number of days forward from startDate to search
+ * @param {boolean} forwardOnly     - if true, search startDate → startDate+dayWindow only
+ *                                    (use for Amazon: charge date is always before bank post date)
+ *                                    if false, search symmetrically ±dayWindow around startDate
+ */
+export async function qboFindPurchases(companyId, accountId, totalAmt, startDate, dayWindow = 5, forwardOnly = false) {
+  const anchor = new Date(startDate);
+  const start = forwardOnly ? anchor : new Date(anchor);
+  if (!forwardOnly) start.setDate(start.getDate() - dayWindow);
+  const end = new Date(anchor); end.setDate(end.getDate() + dayWindow);
   const fmt = (d) => d.toISOString().slice(0, 10);
 
   const data = await qboRequest(companyId, 'GET', 'query', {
@@ -153,10 +164,10 @@ export async function qboFindPurchases(companyId, accountId, totalAmt, centerDat
     return amountMatch && accountMatch;
   });
 
-  // Sort by date proximity to the center date
+  // Sort by date proximity to anchor (ascending — closest post date wins)
   return matches.sort((a, b) => {
-    const da = Math.abs(new Date(a.TxnDate) - center);
-    const db = Math.abs(new Date(b.TxnDate) - center);
+    const da = Math.abs(new Date(a.TxnDate) - anchor);
+    const db = Math.abs(new Date(b.TxnDate) - anchor);
     return da - db;
   });
 }
