@@ -78,11 +78,10 @@ router.post('/upload', requireAuth, requireOwner, upload.single('csv'), async (r
     const text = req.file.buffer.toString('utf-8');
     const rows = parseCSV(text);
 
-    // Group rows by Payment Reference ID
-    // Key insight: multiple rows share the same Payment Reference ID when:
-    //   - Multiple items from the same order shipped together, OR
-    //   - Multiple orders were charged together (rare)
-    const paymentsMap = new Map();
+    // Group rows by Payment Reference ID.
+    // Each row = one line item; rows with the same Payment Reference ID
+    // were charged together in one shipment.
+    const paymentsMap = new Map(); // payRef → payment metadata + items[]
 
     for (const row of rows) {
       const payRef = row['Payment Reference ID'];
@@ -97,15 +96,39 @@ router.post('/upload', requireAuth, requireOwner, upload.single('csv'), async (r
           payment_instrument: row['Payment Instrument Type'] || null,
           card_last4: row['Payment Identifier'] || null,
           order_ids: new Set(),
+          items: [], // { order_id, asin, title, item_subtotal, item_tax, item_total }
         });
       }
-      paymentsMap.get(payRef).order_ids.add(orderId);
+
+      const p = paymentsMap.get(payRef);
+      p.order_ids.add(orderId);
+
+      const title = row['Title'] || '';
+      const itemSubtotal = parseFloat(row['Item Subtotal']) || 0;
+      const itemTax = parseFloat(row['Item Tax']) || 0;
+      const itemNetTotal = parseFloat(row['Item Net Total']) || null;
+      // item_total = Item Net Total (subtotal + shipping - promotion + tax per item)
+      // Falls back to subtotal + tax if Item Net Total is missing
+      const itemTotal = itemNetTotal != null ? itemNetTotal : itemSubtotal + itemTax;
+
+      if (title) {
+        p.items.push({
+          order_id: orderId,
+          asin: row['ASIN'] || null,
+          title,
+          item_subtotal: itemSubtotal,
+          item_tax: itemTax,
+          item_total: itemTotal,
+        });
+      }
     }
 
     let upserted = 0;
     for (const [, p] of paymentsMap) {
       const orderIds = [...p.order_ids];
-      await query(
+
+      // Upsert the payment record
+      const payRes = await query(
         `INSERT INTO amazon_payments
            (company_id, payment_reference_id, payment_date, payment_amount,
             payment_instrument, card_last4, order_ids)
@@ -116,10 +139,25 @@ router.post('/upload', requireAuth, requireOwner, upload.single('csv'), async (r
            payment_instrument = EXCLUDED.payment_instrument,
            card_last4         = EXCLUDED.card_last4,
            order_ids          = EXCLUDED.order_ids,
-           imported_at        = NOW()`,
+           imported_at        = NOW()
+         RETURNING id`,
         [cId, p.payment_reference_id, p.payment_date, p.payment_amount,
          p.payment_instrument, p.card_last4, orderIds]
       );
+      const paymentId = payRes.rows[0].id;
+
+      // Replace items for this payment (delete + re-insert on reimport)
+      await query(`DELETE FROM amazon_payment_items WHERE payment_id = $1`, [paymentId]);
+      for (const item of p.items) {
+        await query(
+          `INSERT INTO amazon_payment_items
+             (payment_id, order_id, asin, title, item_subtotal, item_tax, item_total)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [paymentId, item.order_id, item.asin, item.title,
+           item.item_subtotal, item.item_tax, item.item_total]
+        );
+      }
+
       upserted++;
     }
 

@@ -187,21 +187,20 @@ export function Quickbooks({ user }) {
   };
 
   // ── Export to QBO ──
-  const handleManualSearch = async (receiptId, orderDate) => {
-    setManualLinks((m) => ({ ...m, [receiptId]: { searching: true, results: null, selectedQboId: null } }));
+  const handleManualSearch = async (shipmentKey, searchDate) => {
+    setManualLinks((m) => ({ ...m, [shipmentKey]: { searching: true, results: null, selectedQboId: null } }));
     try {
-      const { purchases } = await searchQBOPurchases(defaultAccountId, orderDate);
-      setManualLinks((m) => ({ ...m, [receiptId]: { searching: false, results: purchases, selectedQboId: null } }));
+      const { purchases } = await searchQBOPurchases(defaultAccountId, searchDate);
+      setManualLinks((m) => ({ ...m, [shipmentKey]: { searching: false, results: purchases, selectedQboId: null } }));
     } catch (e) {
-      setManualLinks((m) => ({ ...m, [receiptId]: { searching: false, results: [], selectedQboId: null } }));
+      setManualLinks((m) => ({ ...m, [shipmentKey]: { searching: false, results: [], selectedQboId: null } }));
       setError(e.message);
     }
   };
 
-  const handleManualSelect = (receiptId, qboId) => {
-    setManualLinks((m) => ({ ...m, [receiptId]: { ...m[receiptId], selectedQboId: qboId } }));
-    // Also check the row's checkbox
-    setExportSelections((s) => ({ ...s, [receiptId]: !!qboId }));
+  const handleManualSelect = (shipmentKey, qboId) => {
+    setManualLinks((m) => ({ ...m, [shipmentKey]: { ...m[shipmentKey], selectedQboId: qboId } }));
+    setExportSelections((s) => ({ ...s, [shipmentKey]: !!qboId }));
   };
 
   const handleOpenExport = async () => {
@@ -213,9 +212,9 @@ export function Quickbooks({ user }) {
     try {
       const { previews } = await previewExport(defaultAccountId);
       setExportPreviews(previews);
-      // Default: check everything that has a match
+      // Default: check everything that has a match, keyed by shipment_key
       const sel = {};
-      previews.forEach((p) => { sel[p.receipt.id] = !!p.match; });
+      previews.forEach((p) => { sel[p.shipment_key] = !!p.match; });
       setExportSelections(sel);
       setExportPreviewing(true);
     } catch (e) { setError(e.message); }
@@ -224,11 +223,18 @@ export function Quickbooks({ user }) {
 
   const handleConfirmExport = async () => {
     const toExport = exportPreviews
-      .filter((p) => exportSelections[p.receipt.id])
+      .filter((p) => exportSelections[p.shipment_key])
       .map((p) => {
-        const manualQboId = manualLinks[p.receipt.id]?.selectedQboId;
+        const manualQboId = manualLinks[p.shipment_key]?.selectedQboId;
         const qboId = manualQboId || p.match?.qbo_id;
-        return qboId ? { receipt_id: p.receipt.id, qbo_transaction_id: qboId } : null;
+        if (!qboId) return null;
+        return {
+          receipt_id: p.receipt.id,
+          qbo_transaction_id: qboId,
+          is_first_shipment: p.is_first_shipment !== false,
+          // Pass pre-computed line items for Amazon-backed shipments
+          line_items: p.shipment?.line_items || null,
+        };
       })
       .filter(Boolean);
 
@@ -244,9 +250,9 @@ export function Quickbooks({ user }) {
       setManualLinks({});
       loadReceipts(activeTab);
       if (failed.length) {
-        setError(`${failed.length} receipt(s) failed to export. ${failed.map((f) => f.error).join('; ')}`);
+        setError(`${failed.length} export(s) failed: ${failed.map((f) => f.error).join('; ')}`);
       }
-      setMessage(`Exported ${ok} receipt(s) to QuickBooks.`);
+      setMessage(`Updated ${ok} QBO transaction(s).`);
     } catch (e) { setError(e.message); }
     finally { setExportConfirming(false); }
   };
@@ -804,27 +810,63 @@ export function Quickbooks({ user }) {
                     </thead>
                     <tbody>
                       {exportPreviews.map((p) => {
-                        const checked = !!exportSelections[p.receipt.id];
+                        const key = p.shipment_key;
+                        const checked = !!exportSelections[key];
                         const hasMatch = !!p.match;
+                        const ml = manualLinks[key];
+                        const searchDate = p.shipment?.payment_date || p.receipt.order_date;
+                        const displayDate = p.shipment
+                          ? (p.shipment.payment_date
+                              ? new Date(String(p.shipment.payment_date).slice(0,10) + 'T12:00:00').toLocaleDateString()
+                              : '—')
+                          : (p.receipt.order_date
+                              ? new Date(String(p.receipt.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()
+                              : '—');
+                        const displayAmount = p.shipment
+                          ? `$${p.shipment.payment_amount.toFixed(2)}`
+                          : `$${parseFloat(p.receipt.total || 0).toFixed(2)}`;
+
                         return (
-                          <tr key={p.receipt.id} className={`qb-export-row ${!hasMatch ? 'no-match' : ''}`}>
+                          <tr key={key} className={`qb-export-row ${!hasMatch ? 'no-match' : ''} ${p.shipment && !p.is_first_shipment ? 'shipment-continuation' : ''}`}>
                             <td>
                               <input
                                 type="checkbox"
-                                checked={checked && hasMatch}
-                                disabled={!hasMatch}
-                                onChange={(e) => setExportSelections((s) => ({ ...s, [p.receipt.id]: e.target.checked }))}
+                                checked={checked && (hasMatch || !!ml?.selectedQboId)}
+                                disabled={!hasMatch && !ml?.selectedQboId}
+                                onChange={(e) => setExportSelections((s) => ({ ...s, [key]: e.target.checked }))}
                               />
                             </td>
                             <td>
-                              <div className="qb-receipt-order">{p.receipt.order_number}</div>
-                              <div style={{ fontSize: '0.78rem', color: '#777' }}>{p.receipt.vendor}</div>
+                              {p.is_first_shipment !== false && (
+                                <div className="qb-receipt-order">{p.receipt.order_number}</div>
+                              )}
+                              {p.shipment && (
+                                <div className="qb-shipment-label">
+                                  {p.total_shipments > 1
+                                    ? `Shipment ${exportPreviews.filter(x => x.receipt.id === p.receipt.id).indexOf(p) + 1} of ${p.total_shipments}`
+                                    : 'Shipment'}
+                                  {p.is_first_shipment && p.total_shipments > 1 && (
+                                    <span className="qb-pdf-badge" title="PDF will be attached to this shipment">📎</span>
+                                  )}
+                                </div>
+                              )}
+                              {p.shipment?.line_items?.length > 0 && (
+                                <div className="qb-shipment-items">
+                                  {p.shipment.line_items.map((li, i) => (
+                                    <div key={i} className="qb-shipment-item">
+                                      <span className="qb-shipment-item-desc">{li.description}</span>
+                                      <span className="qb-shipment-item-acct">{li.account_name || '—'}</span>
+                                      <span className="qb-shipment-item-amt">${li.item_total.toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                             <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
-                              {p.receipt.order_date ? new Date(String(p.receipt.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString() : '—'}
+                              {displayDate}
                             </td>
                             <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                              ${parseFloat(p.receipt.total || 0).toFixed(2)}
+                              {displayAmount}
                             </td>
                             <td style={{ fontSize: '0.85rem' }}>
                               {hasMatch ? (
@@ -835,22 +877,20 @@ export function Quickbooks({ user }) {
                                   {p.match.vendor && <div style={{ color: '#777', fontSize: '0.78rem' }}>{p.match.vendor}</div>}
                                 </>
                               ) : (() => {
-                                const ml = manualLinks[p.receipt.id];
                                 const sel = ml?.selectedQboId;
                                 const selTxn = sel && ml.results?.find((r) => r.qbo_id === sel);
                                 return sel && selTxn ? (
                                   <div>
-                                    <div style={{ color: '#1976d2', fontSize: '0.8rem', fontWeight: 600 }}>
-                                      ✓ Linked manually
-                                    </div>
+                                    <div style={{ color: '#1976d2', fontSize: '0.8rem', fontWeight: 600 }}>✓ Linked manually</div>
                                     <div>{new Date(selTxn.txn_date).toLocaleDateString()} · ${parseFloat(selTxn.total).toFixed(2)}</div>
                                   </div>
                                 ) : (
                                   <div>
                                     <span className="qb-no-match-label">No match found</span>
+                                    {p.reason && <div style={{ fontSize: '0.75rem', color: '#999' }}>{p.reason}</div>}
                                     <button
                                       type="button" className="qb-btn-manual-link"
-                                      onClick={() => handleManualSearch(p.receipt.id, p.receipt.order_date)}
+                                      onClick={() => handleManualSearch(key, searchDate)}
                                       disabled={ml?.searching}
                                     >
                                       {ml?.searching ? 'Searching…' : ml?.results ? 'Retry' : 'Link manually'}
@@ -859,7 +899,7 @@ export function Quickbooks({ user }) {
                                       <select
                                         className="qb-manual-select"
                                         value={ml.selectedQboId || ''}
-                                        onChange={(e) => handleManualSelect(p.receipt.id, e.target.value)}
+                                        onChange={(e) => handleManualSelect(key, e.target.value)}
                                       >
                                         <option value="">— pick a transaction —</option>
                                         {ml.results.map((r) => (
@@ -876,8 +916,8 @@ export function Quickbooks({ user }) {
                             </td>
                             <td style={{ fontSize: '0.85rem', color: '#555' }}>
                               {hasMatch ? p.match.current_categories
-                                : (manualLinks[p.receipt.id]?.selectedQboId
-                                    ? manualLinks[p.receipt.id].results?.find(r => r.qbo_id === manualLinks[p.receipt.id].selectedQboId)?.current_categories || '—'
+                                : (ml?.selectedQboId
+                                    ? ml.results?.find(r => r.qbo_id === ml.selectedQboId)?.current_categories || '—'
                                     : '—')}
                             </td>
                             <td>
@@ -885,7 +925,7 @@ export function Quickbooks({ user }) {
                                 <span className={`qb-confidence qb-conf-${p.confidence}`}>
                                   {p.confidence}
                                 </span>
-                              ) : manualLinks[p.receipt.id]?.selectedQboId ? (
+                              ) : ml?.selectedQboId ? (
                                 <span className="qb-confidence qb-conf-medium">manual</span>
                               ) : '—'}
                             </td>
@@ -901,7 +941,7 @@ export function Quickbooks({ user }) {
                   <button type="button" className="qb-btn-save" onClick={handleConfirmExport} disabled={exportConfirming}>
                     {exportConfirming
                       ? 'Updating QBO…'
-                      : `Update ${Object.values(exportSelections).filter(Boolean).length} in QuickBooks`}
+                      : `Update ${Object.values(exportSelections).filter(Boolean).length} transaction(s) in QuickBooks`}
                   </button>
                 </div>
               </div>

@@ -514,10 +514,33 @@ router.post('/export/payment-accounts', requireAuth, requireOwner, async (req, r
   }
 });
 
+/**
+ * Match a CSV item title against a list of receipt line items by keyword overlap.
+ * Returns the receipt item with the most words in common with the CSV title.
+ * Falls back to the first item if no words match.
+ */
+function matchItemToReceiptCategory(csvTitle, receiptItems) {
+  if (!receiptItems.length) return null;
+  if (receiptItems.length === 1) return receiptItems[0];
+
+  const titleWords = csvTitle.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+  let bestScore = -1;
+  let bestItem = receiptItems[0];
+
+  for (const ri of receiptItems) {
+    const descWords = ri.description.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+    const score = descWords.filter((w) =>
+      titleWords.some((tw) => tw.includes(w) || w.includes(tw))
+    ).length;
+    if (score > bestScore) { bestScore = score; bestItem = ri; }
+  }
+  return bestItem;
+}
+
 // ── POST /api/receipts/export/preview ────────────────────────────────────────
-// For each reviewed (un-exported) receipt, search QBO for a matching Purchase.
-// If Amazon order history has been imported, uses the actual payment date/amount
-// instead of the order date/total for much more accurate QBO matching.
+// For each reviewed (un-exported) receipt, produce one preview row per shipment
+// when Amazon order history data is available (Option C), or one row per receipt
+// when it isn't.
 // Body: { payment_account_id }
 router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
@@ -537,26 +560,84 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
       [cId]
     );
 
-    // Build a map of order_number → amazon payment(s) for all receipts at once
+    // Load accepted line items for all these receipts at once
+    const receiptIds = receiptsRes.rows.map((r) => r.id);
+    let allReceiptItems = [];
+    if (receiptIds.length > 0) {
+      const placeholders = receiptIds.map((_, i) => `$${i + 2}`).join(',');
+      const riRes = await query(
+        `SELECT ri.receipt_id, ri.description, ri.total, ri.qbo_account_id, ri.qbo_class_id,
+                qa.name AS account_name
+         FROM receipt_items ri
+         LEFT JOIN qbo_accounts qa ON qa.company_id = $1 AND qa.qbo_id = ri.qbo_account_id
+         WHERE ri.receipt_id IN (${placeholders})
+           AND ri.item_status = 'accepted'
+           AND ri.qbo_account_id IS NOT NULL
+         ORDER BY ri.receipt_id, ri.created_at`,
+        [cId, ...receiptIds]
+      );
+      allReceiptItems = riRes.rows;
+    }
+    // Map receipt_id → accepted items[]
+    const receiptItemsMap = new Map();
+    for (const item of allReceiptItems) {
+      if (!receiptItemsMap.has(item.receipt_id)) receiptItemsMap.set(item.receipt_id, []);
+      receiptItemsMap.get(item.receipt_id).push(item);
+    }
+
+    // Load Amazon payment + item data for all order numbers at once
     const orderNumbers = receiptsRes.rows.map((r) => r.order_number).filter(Boolean);
-    const amazonPaymentMap = new Map(); // order_number → { payment_date, payment_amount }[]
+    // amazonPaymentsMap: order_number → [{ payment_id, payment_reference_id, payment_date, payment_amount, items[] }]
+    const amazonPaymentsMap = new Map();
     if (orderNumbers.length > 0) {
       const apRes = await query(
-        `SELECT UNNEST(order_ids) AS order_id, payment_date, payment_amount
-         FROM amazon_payments
-         WHERE company_id = $1 AND order_ids && $2::text[]`,
+        `SELECT ap.id AS payment_id, ap.payment_reference_id,
+                ap.payment_date, ap.payment_amount,
+                UNNEST(ap.order_ids) AS order_id
+         FROM amazon_payments ap
+         WHERE ap.company_id = $1 AND ap.order_ids && $2::text[]
+         ORDER BY ap.payment_date`,
         [cId, orderNumbers]
       );
+      // Collect unique payment IDs to fetch items
+      const paymentIds = [...new Set(apRes.rows.map((r) => r.payment_id))];
+      let allAmazonItems = [];
+      if (paymentIds.length > 0) {
+        const ph = paymentIds.map((_, i) => `$${i + 1}`).join(',');
+        const aiRes = await query(
+          `SELECT payment_id, order_id, asin, title, item_subtotal, item_tax, item_total
+           FROM amazon_payment_items WHERE payment_id IN (${ph})
+           ORDER BY payment_id, id`,
+          paymentIds
+        );
+        allAmazonItems = aiRes.rows;
+      }
+      const itemsByPayment = new Map();
+      for (const item of allAmazonItems) {
+        if (!itemsByPayment.has(item.payment_id)) itemsByPayment.set(item.payment_id, []);
+        itemsByPayment.get(item.payment_id).push(item);
+      }
+
       for (const row of apRes.rows) {
-        if (!amazonPaymentMap.has(row.order_id)) amazonPaymentMap.set(row.order_id, []);
-        amazonPaymentMap.get(row.order_id).push({
-          payment_date: row.payment_date,
-          payment_amount: parseFloat(row.payment_amount),
-        });
+        if (!amazonPaymentsMap.has(row.order_id)) amazonPaymentsMap.set(row.order_id, []);
+        // Avoid duplicate payment entries (UNNEST produces one row per order_id per payment)
+        const existing = amazonPaymentsMap.get(row.order_id);
+        if (!existing.find((e) => e.payment_id === row.payment_id)) {
+          existing.push({
+            payment_id: row.payment_id,
+            payment_reference_id: row.payment_reference_id,
+            payment_date: row.payment_date,
+            payment_amount: parseFloat(row.payment_amount),
+            // Items belonging to THIS order_id within this payment
+            items: (itemsByPayment.get(row.payment_id) || []).filter(
+              (i) => i.order_id === row.order_id
+            ),
+          });
+        }
       }
     }
 
-    // Seed used IDs with QBO transaction IDs already stored on other receipts
+    // Seed used QBO IDs from already-exported receipts
     const usedRes = await query(
       `SELECT qbo_transaction_id FROM receipts
        WHERE company_id = $1 AND qbo_transaction_id IS NOT NULL`,
@@ -567,79 +648,170 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
     const previews = [];
 
     for (const receipt of receiptsRes.rows) {
-      // Determine the best search date and amount to use
-      // Priority: Amazon payment data > receipt data
-      const amazonPayments = amazonPaymentMap.get(receipt.order_number) || [];
-      const hasAmazonData = amazonPayments.length > 0;
+      const receiptItems = receiptItemsMap.get(receipt.id) || [];
+      const amazonShipments = amazonPaymentsMap.get(receipt.order_number);
+      const hasAmazonData = amazonShipments && amazonShipments.length > 0;
 
-      // Use Amazon payment data if available, otherwise fall back to receipt fields
-      // If multiple shipments, try each one and pick the best QBO match
-      const searchCandidates = hasAmazonData
-        ? amazonPayments.map((ap) => ({ date: ap.payment_date, amount: ap.payment_amount, source: 'amazon' }))
-        : [{ date: receipt.order_date, amount: receipt.total ? parseFloat(receipt.total) : null, source: 'receipt' }];
+      if (hasAmazonData) {
+        // ── Option C: one preview row per shipment ──────────────────────────
+        const totalShipments = amazonShipments.length;
 
-      if (!searchCandidates[0].date && !searchCandidates[0].amount) {
-        previews.push({ receipt, match: null, confidence: 'none', reason: 'Missing total or date', amazon_data: hasAmazonData });
-        continue;
-      }
+        for (let si = 0; si < amazonShipments.length; si++) {
+          const shipment = amazonShipments[si];
+          const shipmentKey = `${receipt.id}:${shipment.payment_reference_id}`;
 
-      try {
-        let bestMatch = null;
-        let bestDaysDiff = Infinity;
-        let bestSource = 'receipt';
+          // Build line items for this shipment: match each CSV item to a receipt category
+          const shipmentLineItems = shipment.items.map((csvItem) => {
+            const matched = matchItemToReceiptCategory(csvItem.title, receiptItems);
+            return {
+              title: csvItem.title,
+              item_total: parseFloat(csvItem.item_total) || 0,
+              description: matched?.description || csvItem.title.slice(0, 100),
+              qbo_account_id: matched?.qbo_account_id || null,
+              qbo_class_id: matched?.qbo_class_id || null,
+              account_name: matched?.account_name || null,
+            };
+          });
 
-        for (const candidate of searchCandidates) {
-          if (!candidate.date) continue;
-          const matches = await qboFindPurchases(
-            cId, payment_account_id, candidate.amount, candidate.date, hasAmazonData ? 3 : 5
-          );
-          const available = matches.filter((m) => !usedQboIds.has(m.Id));
-          if (!available.length) continue;
+          // If no item-level data, fall back to receipt items scaled to shipment amount
+          const lineItems = shipmentLineItems.length > 0
+            ? shipmentLineItems
+            : receiptItems.map((ri) => ({
+                title: ri.description,
+                item_total: parseFloat(ri.total) || 0,
+                description: ri.description,
+                qbo_account_id: ri.qbo_account_id,
+                qbo_class_id: ri.qbo_class_id,
+                account_name: ri.account_name,
+              }));
 
-          const best = available[0];
-          const daysDiff = Math.abs(
-            (new Date(best.TxnDate) - new Date(candidate.date)) / (1000 * 60 * 60 * 24)
-          );
-          if (daysDiff < bestDaysDiff) {
-            bestMatch = best;
-            bestDaysDiff = daysDiff;
-            bestSource = candidate.source;
+          // Search QBO for a Purchase matching this shipment's date + amount
+          let match = null;
+          let confidence = 'none';
+          let daysDiff = null;
+          let reason = null;
+
+          try {
+            if (!shipment.payment_date) {
+              reason = 'Shipment has no payment date';
+            } else {
+              const matches = await qboFindPurchases(
+                cId, payment_account_id, shipment.payment_amount,
+                shipment.payment_date, 3
+              );
+              const available = matches.filter((m) => !usedQboIds.has(m.Id));
+              if (available.length) {
+                const best = available[0];
+                usedQboIds.add(best.Id);
+                daysDiff = Math.abs(
+                  (new Date(best.TxnDate) - new Date(shipment.payment_date)) / 86400000
+                );
+                const currentLines = (best.Line || []).filter(
+                  (l) => l.DetailType === 'AccountBasedExpenseLineDetail'
+                );
+                const currentCategories = [...new Set(
+                  currentLines.map((l) => l.AccountBasedExpenseLineDetail?.AccountRef?.name).filter(Boolean)
+                )].join(', ');
+                match = {
+                  qbo_id:   best.Id,
+                  txn_date: best.TxnDate,
+                  total:    best.TotalAmt,
+                  vendor:   best.EntityRef?.name || '',
+                  memo:     best.PrivateNote || '',
+                  current_categories: currentCategories || 'Uncategorized',
+                };
+                confidence = daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low';
+              } else {
+                reason = 'No unused QBO transaction found for this shipment';
+              }
+            }
+          } catch (err) {
+            reason = err.message;
           }
-        }
 
-        if (!bestMatch) {
-          previews.push({ receipt, match: null, confidence: 'none', reason: 'No unused QBO transaction found', amazon_data: hasAmazonData });
+          previews.push({
+            shipment_key: shipmentKey,
+            receipt,
+            shipment: {
+              payment_reference_id: shipment.payment_reference_id,
+              payment_date: shipment.payment_date,
+              payment_amount: shipment.payment_amount,
+              line_items: lineItems,
+            },
+            match,
+            confidence,
+            days_diff: daysDiff,
+            reason,
+            is_first_shipment: si === 0,
+            total_shipments: totalShipments,
+            amazon_data: true,
+          });
+        }
+      } else {
+        // ── Fallback: one row per receipt (no Amazon data) ──────────────────
+        const shipmentKey = `${receipt.id}:`;
+
+        if (!receipt.total || !receipt.order_date) {
+          previews.push({
+            shipment_key: shipmentKey,
+            receipt, shipment: null, match: null, confidence: 'none',
+            reason: 'Missing total or date', amazon_data: false,
+            is_first_shipment: true, total_shipments: 1,
+          });
           continue;
         }
 
-        // Reserve this QBO transaction for this receipt
-        usedQboIds.add(bestMatch.Id);
-
-        // Summarise current categorisation
-        const currentLines = (bestMatch.Line || []).filter(
-          (l) => l.DetailType === 'AccountBasedExpenseLineDetail'
-        );
-        const currentCategories = [...new Set(
-          currentLines.map((l) => l.AccountBasedExpenseLineDetail?.AccountRef?.name).filter(Boolean)
-        )].join(', ');
-
-        previews.push({
-          receipt,
-          match: {
-            qbo_id:     bestMatch.Id,
-            txn_date:   bestMatch.TxnDate,
-            total:      bestMatch.TotalAmt,
-            vendor:     bestMatch.EntityRef?.name || '',
-            memo:       bestMatch.PrivateNote || '',
-            current_categories: currentCategories || 'Uncategorized',
-          },
-          confidence: bestDaysDiff === 0 ? 'high' : bestDaysDiff <= 2 ? 'medium' : 'low',
-          days_diff: bestDaysDiff,
-          amazon_data: hasAmazonData,
-          match_source: bestSource,
-        });
-      } catch (err) {
-        previews.push({ receipt, match: null, confidence: 'none', reason: err.message, amazon_data: hasAmazonData });
+        try {
+          const matches = await qboFindPurchases(
+            cId, payment_account_id, receipt.total, receipt.order_date, 5
+          );
+          const available = matches.filter((m) => !usedQboIds.has(m.Id));
+          if (!available.length) {
+            previews.push({
+              shipment_key: shipmentKey,
+              receipt, shipment: null, match: null, confidence: 'none',
+              reason: 'No unused QBO transaction found', amazon_data: false,
+              is_first_shipment: true, total_shipments: 1,
+            });
+            continue;
+          }
+          const best = available[0];
+          usedQboIds.add(best.Id);
+          const daysDiff = Math.abs(
+            (new Date(best.TxnDate) - new Date(receipt.order_date)) / 86400000
+          );
+          const currentLines = (best.Line || []).filter(
+            (l) => l.DetailType === 'AccountBasedExpenseLineDetail'
+          );
+          const currentCategories = [...new Set(
+            currentLines.map((l) => l.AccountBasedExpenseLineDetail?.AccountRef?.name).filter(Boolean)
+          )].join(', ');
+          previews.push({
+            shipment_key: shipmentKey,
+            receipt,
+            shipment: null,
+            match: {
+              qbo_id:   best.Id,
+              txn_date: best.TxnDate,
+              total:    best.TotalAmt,
+              vendor:   best.EntityRef?.name || '',
+              memo:     best.PrivateNote || '',
+              current_categories: currentCategories || 'Uncategorized',
+            },
+            confidence: daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low',
+            days_diff: daysDiff,
+            amazon_data: false,
+            is_first_shipment: true,
+            total_shipments: 1,
+          });
+        } catch (err) {
+          previews.push({
+            shipment_key: shipmentKey,
+            receipt, shipment: null, match: null, confidence: 'none',
+            reason: err.message, amazon_data: false,
+            is_first_shipment: true, total_shipments: 1,
+          });
+        }
       }
     }
 
@@ -682,8 +854,12 @@ router.post('/export/search', requireAuth, requireOwner, async (req, res) => {
 
 // ── POST /api/receipts/export/confirm ────────────────────────────────────────
 // Update selected QBO transactions with split line items.
-// Multiple receipts pointing to the same qbo_transaction_id are combined.
-// Body: { exports: [{ receipt_id, qbo_transaction_id }] }
+// Each export entry = one QBO transaction update (one shipment or one receipt).
+// Body: { exports: [{ receipt_id, qbo_transaction_id, line_items?, is_first_shipment? }] }
+//   line_items (optional): pre-computed from preview when Amazon data available.
+//     Each: { description, item_total, qbo_account_id, qbo_class_id }
+//   is_first_shipment: PDF attached only for first shipment of each receipt.
+//     Omit or true for non-Amazon receipts.
 router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
   const { exports } = req.body;
@@ -692,75 +868,85 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
     return res.status(400).json({ error: 'exports must be a non-empty array.' });
   }
 
-  // Group receipt_ids by qbo_transaction_id so combined receipts update once
-  const grouped = {};
-  for (const { receipt_id, qbo_transaction_id } of exports) {
-    if (!grouped[qbo_transaction_id]) grouped[qbo_transaction_id] = [];
-    grouped[qbo_transaction_id].push(receipt_id);
-  }
-
   const results = [];
+  // Track the first QBO transaction ID per receipt (for marking status)
+  const receiptPrimaryQboId = {};
 
-  for (const [qbo_transaction_id, receipt_ids] of Object.entries(grouped)) {
+  for (const exp of exports) {
+    const { receipt_id, qbo_transaction_id, line_items, is_first_shipment } = exp;
+    const attachPdf = is_first_shipment !== false; // default true for non-shipment exports
+
     try {
-      // Load accepted line items from ALL receipts mapping to this QBO transaction
-      const placeholders = receipt_ids.map((_, i) => `$${i + 1}`).join(',');
-      const itemsRes = await query(
-        `SELECT ri.description, ri.total, ri.qbo_account_id, ri.qbo_class_id
-         FROM receipt_items ri
-         WHERE ri.receipt_id IN (${placeholders})
-           AND ri.item_status = 'accepted'
-           AND ri.qbo_account_id IS NOT NULL
-         ORDER BY ri.receipt_id, ri.created_at`,
-        receipt_ids
-      );
+      let items;
 
-      if (!itemsRes.rows.length) {
-        for (const receipt_id of receipt_ids) {
-          results.push({ receipt_id, ok: false, error: 'No accepted items with an account assigned.' });
-        }
+      if (Array.isArray(line_items) && line_items.length > 0) {
+        // Use pre-computed shipment line items from the preview
+        items = line_items
+          .filter((li) => li.qbo_account_id)
+          .map((li) => ({
+            description: li.description,
+            total: li.item_total,
+            qbo_account_id: li.qbo_account_id,
+            qbo_class_id: li.qbo_class_id || null,
+          }));
+      } else {
+        // Fallback: load accepted items from receipt_items table
+        const itemsRes = await query(
+          `SELECT ri.description, ri.total, ri.qbo_account_id, ri.qbo_class_id
+           FROM receipt_items ri
+           WHERE ri.receipt_id = $1
+             AND ri.item_status = 'accepted'
+             AND ri.qbo_account_id IS NOT NULL
+           ORDER BY ri.created_at`,
+          [receipt_id]
+        );
+        items = itemsRes.rows;
+      }
+
+      if (!items.length) {
+        results.push({ receipt_id, qbo_transaction_id, ok: false, error: 'No categorized items to export.' });
         continue;
       }
 
-      // GET existing purchase (needs SyncToken)
+      // GET existing purchase (needs SyncToken for update)
       const existing = await qboGetPurchase(cId, qbo_transaction_id);
 
-      // Update with combined split lines from all receipts
-      await qboUpdatePurchase(cId, existing, itemsRes.rows);
+      // Update QBO transaction with the line items
+      await qboUpdatePurchase(cId, existing, items);
 
-      // Attach PDFs for each receipt (best effort — don't fail export if missing)
-      for (const receipt_id of receipt_ids) {
+      // Attach PDF only for the first shipment (or non-shipment receipts)
+      if (attachPdf) {
         const pdfPath = path.join(UPLOAD_DIR, `${receipt_id}.pdf`);
         try {
           const pdfBuffer = await fs.promises.readFile(pdfPath);
-          // Get the original filename for a friendlier attachment name
-          const fnRes = await query(`SELECT pdf_filename, order_number FROM receipts WHERE id = $1`, [receipt_id]);
+          const fnRes = await query(
+            `SELECT pdf_filename, order_number FROM receipts WHERE id = $1`, [receipt_id]
+          );
           const { pdf_filename, order_number } = fnRes.rows[0] || {};
           const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
           await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
-          // Clean up local copy now that it's in QBO
           await fs.promises.unlink(pdfPath).catch(() => {});
         } catch (attachErr) {
           console.error('[export] PDF attach failed for receipt', receipt_id, attachErr.message);
-          // Non-fatal
+          // Non-fatal — don't fail the whole export
         }
       }
 
-      // Mark all receipts as imported
-      for (const receipt_id of receipt_ids) {
+      // Mark receipt as imported using the FIRST shipment's QBO transaction ID
+      if (!receiptPrimaryQboId[receipt_id]) {
+        receiptPrimaryQboId[receipt_id] = qbo_transaction_id;
         await query(
           `UPDATE receipts
            SET status = 'imported', qbo_transaction_id = $2, exported_at = NOW()
            WHERE id = $1 AND company_id = $3`,
           [receipt_id, qbo_transaction_id, cId]
         );
-        results.push({ receipt_id, ok: true });
       }
+
+      results.push({ receipt_id, qbo_transaction_id, ok: true });
     } catch (err) {
       console.error('[export] failed for QBO txn', qbo_transaction_id, err.message);
-      for (const receipt_id of receipt_ids) {
-        results.push({ receipt_id, ok: false, error: err.message });
-      }
+      results.push({ receipt_id, qbo_transaction_id, ok: false, error: err.message });
     }
   }
 

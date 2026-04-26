@@ -449,3 +449,31 @@
   border-radius: 4px; padding: 0.1rem 0.45rem; white-space: nowrap;
   font-family: monospace;
 }
+
+/* ── Shipment rows in export preview ── */
+.qb-export-row.shipment-continuation td:first-child,
+.qb-export-row.shipment-continuation td:nth-child(2) {
+  /* Indent continuation rows visually */
+}
+.qb-shipment-label {
+  font-size: 0.75rem; color: #1565c0; font-weight: 500;
+  margin-top: 0.15rem; display: flex; align-items: center; gap: 0.3rem;
+}
+.qb-pdf-badge { font-size: 0.85rem; }
+.qb-shipment-items {
+  margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.2rem;
+}
+.qb-shipment-item {
+  display: flex; gap: 0.5rem; align-items: baseline;
+  font-size: 0.75rem; color: #555;
+}
+.qb-shipment-item-desc {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qb-shipment-item-acct {
+  color: #1976d2; white-space: nowrap; font-size: 0.72rem;
+  background: #e3f2fd; border-radius: 3px; padding: 0.05rem 0.3rem;
+}
+.qb-shipment-item-amt {
+  white-space: nowrap; font-weight: 500; color: #212121;
+}

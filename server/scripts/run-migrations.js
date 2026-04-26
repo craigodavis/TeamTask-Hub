@@ -205,6 +205,20 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_amazon_payments_company ON amazon_payments(company_id)`,
   `CREATE INDEX IF NOT EXISTS idx_amazon_payments_date ON amazon_payments(company_id, payment_date)`,
+  // 020: item-level data per shipment (enables Option C: split QBO updates by shipment)
+  `CREATE TABLE IF NOT EXISTS amazon_payment_items (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payment_id UUID NOT NULL REFERENCES amazon_payments(id) ON DELETE CASCADE,
+    order_id   VARCHAR(50) NOT NULL,
+    asin       VARCHAR(20),
+    title      TEXT NOT NULL,
+    item_subtotal  NUMERIC(10,2),
+    item_tax       NUMERIC(10,2),
+    item_total     NUMERIC(10,2),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payment_items_payment ON amazon_payment_items(payment_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payment_items_order ON amazon_payment_items(order_id)`,
 ];
 
 async function run() {
