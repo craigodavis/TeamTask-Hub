@@ -284,7 +284,6 @@ export function Quickbooks({ user }) {
 
   // ── Delete receipt ──
   const handleDeleteReceipt = async (receipt) => {
-    if (!window.confirm(`Remove "${receipt.order_number}" from the list? This cannot be undone.`)) return;
     try {
       await deleteReceipt(receipt.id);
       loadReceipts(activeTab);
