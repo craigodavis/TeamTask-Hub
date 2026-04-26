@@ -742,3 +742,32 @@ export async function reapplyRules(receiptId) {
   if (!res.ok) throw new Error(data.error || 'Failed to re-apply rules');
   return data;
 }
+
+// ── Amazon Order History ──────────────────────────────────────────────────────
+
+export async function uploadAmazonCSV(file) {
+  const formData = new FormData();
+  formData.append('csv', file);
+  const res = await fetch(`${API}/amazon-orders/upload`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${getToken()}` },
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+export async function getAmazonPayments() {
+  const res = await fetch(`${API}/amazon-orders`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load amazon orders');
+  return data;
+}
+
+export async function getAmazonStats() {
+  const res = await fetch(`${API}/amazon-orders/stats`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load stats');
+  return data;
+}

@@ -516,6 +516,8 @@ router.post('/export/payment-accounts', requireAuth, requireOwner, async (req, r
 
 // ── POST /api/receipts/export/preview ────────────────────────────────────────
 // For each reviewed (un-exported) receipt, search QBO for a matching Purchase.
+// If Amazon order history has been imported, uses the actual payment date/amount
+// instead of the order date/total for much more accurate QBO matching.
 // Body: { payment_account_id }
 router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
@@ -535,6 +537,25 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
       [cId]
     );
 
+    // Build a map of order_number → amazon payment(s) for all receipts at once
+    const orderNumbers = receiptsRes.rows.map((r) => r.order_number).filter(Boolean);
+    const amazonPaymentMap = new Map(); // order_number → { payment_date, payment_amount }[]
+    if (orderNumbers.length > 0) {
+      const apRes = await query(
+        `SELECT UNNEST(order_ids) AS order_id, payment_date, payment_amount
+         FROM amazon_payments
+         WHERE company_id = $1 AND order_ids && $2::text[]`,
+        [cId, orderNumbers]
+      );
+      for (const row of apRes.rows) {
+        if (!amazonPaymentMap.has(row.order_id)) amazonPaymentMap.set(row.order_id, []);
+        amazonPaymentMap.get(row.order_id).push({
+          payment_date: row.payment_date,
+          payment_amount: parseFloat(row.payment_amount),
+        });
+      }
+    }
+
     // Seed used IDs with QBO transaction IDs already stored on other receipts
     const usedRes = await query(
       `SELECT qbo_transaction_id FROM receipts
@@ -546,35 +567,56 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
     const previews = [];
 
     for (const receipt of receiptsRes.rows) {
-      if (!receipt.total || !receipt.order_date) {
-        previews.push({ receipt, match: null, confidence: 'none', reason: 'Missing total or date' });
+      // Determine the best search date and amount to use
+      // Priority: Amazon payment data > receipt data
+      const amazonPayments = amazonPaymentMap.get(receipt.order_number) || [];
+      const hasAmazonData = amazonPayments.length > 0;
+
+      // Use Amazon payment data if available, otherwise fall back to receipt fields
+      // If multiple shipments, try each one and pick the best QBO match
+      const searchCandidates = hasAmazonData
+        ? amazonPayments.map((ap) => ({ date: ap.payment_date, amount: ap.payment_amount, source: 'amazon' }))
+        : [{ date: receipt.order_date, amount: receipt.total ? parseFloat(receipt.total) : null, source: 'receipt' }];
+
+      if (!searchCandidates[0].date && !searchCandidates[0].amount) {
+        previews.push({ receipt, match: null, confidence: 'none', reason: 'Missing total or date', amazon_data: hasAmazonData });
         continue;
       }
 
       try {
-        const matches = await qboFindPurchases(
-          cId, payment_account_id, receipt.total, receipt.order_date
-        );
+        let bestMatch = null;
+        let bestDaysDiff = Infinity;
+        let bestSource = 'receipt';
 
-        // Skip any QBO transactions already claimed by another receipt in this batch
-        // or previously exported — ensures duplicate-amount receipts get distinct matches
-        const available = matches.filter((m) => !usedQboIds.has(m.Id));
+        for (const candidate of searchCandidates) {
+          if (!candidate.date) continue;
+          const matches = await qboFindPurchases(
+            cId, payment_account_id, candidate.amount, candidate.date, hasAmazonData ? 3 : 5
+          );
+          const available = matches.filter((m) => !usedQboIds.has(m.Id));
+          if (!available.length) continue;
 
-        if (!available.length) {
-          previews.push({ receipt, match: null, confidence: 'none', reason: 'No unused QBO transaction found' });
+          const best = available[0];
+          const daysDiff = Math.abs(
+            (new Date(best.TxnDate) - new Date(candidate.date)) / (1000 * 60 * 60 * 24)
+          );
+          if (daysDiff < bestDaysDiff) {
+            bestMatch = best;
+            bestDaysDiff = daysDiff;
+            bestSource = candidate.source;
+          }
+        }
+
+        if (!bestMatch) {
+          previews.push({ receipt, match: null, confidence: 'none', reason: 'No unused QBO transaction found', amazon_data: hasAmazonData });
           continue;
         }
 
-        const best = available[0];
         // Reserve this QBO transaction for this receipt
-        usedQboIds.add(best.Id);
-
-        const daysDiff = Math.abs(
-          (new Date(best.TxnDate) - new Date(receipt.order_date)) / (1000 * 60 * 60 * 24)
-        );
+        usedQboIds.add(bestMatch.Id);
 
         // Summarise current categorisation
-        const currentLines = (best.Line || []).filter(
+        const currentLines = (bestMatch.Line || []).filter(
           (l) => l.DetailType === 'AccountBasedExpenseLineDetail'
         );
         const currentCategories = [...new Set(
@@ -584,18 +626,20 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
         previews.push({
           receipt,
           match: {
-            qbo_id:     best.Id,
-            txn_date:   best.TxnDate,
-            total:      best.TotalAmt,
-            vendor:     best.EntityRef?.name || '',
-            memo:       best.PrivateNote || '',
+            qbo_id:     bestMatch.Id,
+            txn_date:   bestMatch.TxnDate,
+            total:      bestMatch.TotalAmt,
+            vendor:     bestMatch.EntityRef?.name || '',
+            memo:       bestMatch.PrivateNote || '',
             current_categories: currentCategories || 'Uncategorized',
           },
-          confidence: daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low',
-          days_diff: daysDiff,
+          confidence: bestDaysDiff === 0 ? 'high' : bestDaysDiff <= 2 ? 'medium' : 'low',
+          days_diff: bestDaysDiff,
+          amazon_data: hasAmazonData,
+          match_source: bestSource,
         });
       } catch (err) {
-        previews.push({ receipt, match: null, confidence: 'none', reason: err.message });
+        previews.push({ receipt, match: null, confidence: 'none', reason: err.message, amazon_data: hasAmazonData });
       }
     }
 

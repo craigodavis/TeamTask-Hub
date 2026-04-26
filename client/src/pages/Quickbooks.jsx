@@ -5,6 +5,7 @@ import {
   uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems, deleteReceipt,
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
   getRules, createRule, updateRule, deleteRule, reapplyRules,
+  uploadAmazonCSV, getAmazonPayments, getAmazonStats,
 } from '../api';
 import './Quickbooks.css';
 
@@ -64,6 +65,13 @@ export function Quickbooks({ user }) {
   // Re-apply rules
   const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
 
+  // Amazon order history
+  const [amazonPayments, setAmazonPayments] = useState([]);
+  const [amazonStats, setAmazonStats] = useState(null);
+  const [amazonUploading, setAmazonUploading] = useState(false);
+  const [amazonUploadResult, setAmazonUploadResult] = useState(null);
+  const amazonCsvRef = useRef();
+
   // Rules
   const [rules, setRules] = useState([]);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -99,7 +107,12 @@ export function Quickbooks({ user }) {
   // Reload when tab changes and clear selections
   useEffect(() => {
     if (!status?.connected) return;
-    loadReceipts(activeTab);
+    if (activeTab === 'amazon') {
+      getAmazonPayments().then((d) => setAmazonPayments(d.payments || [])).catch(() => {});
+      getAmazonStats().then(setAmazonStats).catch(() => {});
+    } else {
+      loadReceipts(activeTab);
+    }
     setSelectedIds(new Set());
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -118,6 +131,9 @@ export function Quickbooks({ user }) {
     getPaymentAccounts()
       .then((d) => { setPaymentAccounts(d.accounts || []); setDefaultAccountId(d.default_account_id || ''); })
       .catch((e) => setError(`Could not load payment accounts: ${e.message}`));
+    // Load Amazon order history stats
+    getAmazonPayments().then((d) => setAmazonPayments(d.payments || [])).catch(() => {});
+    getAmazonStats().then(setAmazonStats).catch(() => {});
   }, [status, loadReceipts, loadRules]);
 
   // ── Sync ──
@@ -337,6 +353,26 @@ export function Quickbooks({ user }) {
     catch (e) { setError(e.message); }
   };
 
+  const handleAmazonCSVUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAmazonUploading(true);
+    setAmazonUploadResult(null);
+    try {
+      const result = await uploadAmazonCSV(file);
+      setAmazonUploadResult({ ok: true, ...result });
+      // Refresh data
+      const [payments, stats] = await Promise.all([getAmazonPayments(), getAmazonStats()]);
+      setAmazonPayments(payments.payments || []);
+      setAmazonStats(stats);
+    } catch (err) {
+      setAmazonUploadResult({ ok: false, error: err.message });
+    } finally {
+      setAmazonUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const describeRule = (r) => {
     const conds = [];
     if (r.if_description_contains) conds.push(`description contains "${r.if_description_contains}"`);
@@ -423,6 +459,14 @@ export function Quickbooks({ user }) {
               <button type="button" className={`qb-tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>Pending</button>
               <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>Reviewed</button>
               <button type="button" className={`qb-tab ${activeTab === 'imported' ? 'active' : ''}`} onClick={() => setActiveTab('imported')}>Imported</button>
+              <button type="button" className={`qb-tab ${activeTab === 'amazon' ? 'active' : ''}`} onClick={() => setActiveTab('amazon')}>
+                Amazon
+                {amazonStats && amazonStats.receipts_total > 0 && (
+                  <span className={`qb-tab-badge ${amazonStats.receipts_covered === amazonStats.receipts_total ? 'badge-green' : 'badge-yellow'}`}>
+                    {amazonStats.receipts_covered}/{amazonStats.receipts_total}
+                  </span>
+                )}
+              </button>
             </div>
             {activeTab === 'reviewed' && (
               <div className="qb-export-bar">
@@ -446,7 +490,7 @@ export function Quickbooks({ user }) {
             )}
           </div>
 
-          {activeTab === 'pending' && receipts.length > 0 && (
+          {activeTab === 'pending' && activeTab !== 'amazon' && receipts.length > 0 && (
             <div className="qb-bulk-bar">
               <label className="qb-bulk-select-all">
                 <input
@@ -464,7 +508,100 @@ export function Quickbooks({ user }) {
             </div>
           )}
 
-          {receiptsLoading ? (
+          {activeTab === 'amazon' ? (
+            /* ── Amazon Order History Tab ── */
+            <div className="qb-amazon-section">
+              {amazonStats && (
+                <div className="qb-amazon-stats">
+                  <div className="qb-amazon-stat">
+                    <span className="qb-amazon-stat-value">{amazonStats.payments_imported}</span>
+                    <span className="qb-amazon-stat-label">payments imported</span>
+                  </div>
+                  <div className="qb-amazon-stat">
+                    <span className={`qb-amazon-stat-value ${amazonStats.receipts_covered === amazonStats.receipts_total && amazonStats.receipts_total > 0 ? 'stat-green' : 'stat-yellow'}`}>
+                      {amazonStats.receipts_covered}/{amazonStats.receipts_total}
+                    </span>
+                    <span className="qb-amazon-stat-label">receipts have payment data</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="qb-amazon-upload-row">
+                <div>
+                  <p className="qb-amazon-hint">
+                    Import your Amazon Business order history CSV to enable accurate QBO matching.
+                    Amazon charges by shipment, not by order — this data lets us find the exact
+                    transaction date and amount in QuickBooks.
+                  </p>
+                  <p className="qb-amazon-hint">
+                    In Amazon Business → Reports → Order History → download a CSV with date range set to cover your receipts.
+                  </p>
+                </div>
+                <div className="qb-amazon-upload-btn-group">
+                  <input
+                    ref={amazonCsvRef}
+                    type="file"
+                    accept=".csv"
+                    style={{ display: 'none' }}
+                    onChange={handleAmazonCSVUpload}
+                  />
+                  <button
+                    type="button"
+                    className="qb-btn-amazon-upload"
+                    onClick={() => amazonCsvRef.current?.click()}
+                    disabled={amazonUploading}
+                  >
+                    {amazonUploading ? 'Importing…' : '⬆ Import CSV'}
+                  </button>
+                </div>
+              </div>
+
+              {amazonUploadResult && (
+                <div className={`qb-amazon-upload-result ${amazonUploadResult.ok ? 'result-ok' : 'result-err'}`}>
+                  {amazonUploadResult.ok
+                    ? `✓ Imported ${amazonUploadResult.payments_imported} payments from ${amazonUploadResult.rows_parsed} rows`
+                    : `Error: ${amazonUploadResult.error}`}
+                </div>
+              )}
+
+              {amazonPayments.length > 0 && (
+                <div className="qb-amazon-table-wrap">
+                  <table className="qb-amazon-table">
+                    <thead>
+                      <tr>
+                        <th>Payment Date</th>
+                        <th>Amount</th>
+                        <th>Card</th>
+                        <th>Orders</th>
+                        <th>Imported</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {amazonPayments.map((p) => (
+                        <tr key={p.id}>
+                          <td>{p.payment_date ? new Date(p.payment_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+                          <td className="qb-amazon-amount">{p.payment_amount != null ? `$${parseFloat(p.payment_amount).toFixed(2)}` : '—'}</td>
+                          <td className="qb-amazon-card">
+                            {p.payment_instrument || ''}{p.card_last4 ? ` ····${p.card_last4}` : ''}
+                          </td>
+                          <td className="qb-amazon-orders">
+                            {(p.order_ids || []).map((id) => (
+                              <span key={id} className="qb-amazon-order-chip">{id}</span>
+                            ))}
+                          </td>
+                          <td className="qb-amazon-imported">{new Date(p.imported_at).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {amazonPayments.length === 0 && !amazonUploading && (
+                <p className="qb-empty">No Amazon payment data imported yet. Upload your order history CSV above.</p>
+              )}
+            </div>
+          ) : receiptsLoading ? (
             <p className="qb-loading">Loading receipts…</p>
           ) : receipts.length === 0 ? (
             <p className="qb-empty">

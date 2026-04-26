@@ -374,3 +374,78 @@
   cursor: pointer; line-height: 1;
 }
 .qb-btn-delete-receipt:hover { border-color: #e53935; color: #e53935; background: #fff8f8; }
+
+/* ── Tab badge ── */
+.qb-tab-badge {
+  display: inline-block; margin-left: 0.35rem;
+  font-size: 0.7rem; font-weight: 600; border-radius: 10px;
+  padding: 0.1rem 0.4rem; line-height: 1.4; vertical-align: middle;
+}
+.qb-tab-badge.badge-green { background: #c8e6c9; color: #2e7d32; }
+.qb-tab-badge.badge-yellow { background: #fff3e0; color: #e65100; }
+
+/* ── Amazon tab section ── */
+.qb-amazon-section {
+  display: flex; flex-direction: column; gap: 1rem;
+}
+
+.qb-amazon-stats {
+  display: flex; gap: 1.5rem; flex-wrap: wrap;
+  background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 0.85rem 1.25rem;
+}
+.qb-amazon-stat {
+  display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
+}
+.qb-amazon-stat-value {
+  font-size: 1.6rem; font-weight: 700; color: #1565c0; line-height: 1;
+}
+.qb-amazon-stat-value.stat-green { color: #2e7d32; }
+.qb-amazon-stat-value.stat-yellow { color: #e65100; }
+.qb-amazon-stat-label { font-size: 0.78rem; color: #666; }
+
+.qb-amazon-upload-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+  flex-wrap: wrap;
+}
+.qb-amazon-hint {
+  font-size: 0.83rem; color: #555; margin: 0 0 0.4rem;
+  max-width: 600px; line-height: 1.5;
+}
+.qb-amazon-upload-btn-group { flex-shrink: 0; padding-top: 0.25rem; }
+.qb-btn-amazon-upload {
+  background: #1565c0; color: #fff; border: none; border-radius: 6px;
+  padding: 0.5rem 1.1rem; font-size: 0.875rem; font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+}
+.qb-btn-amazon-upload:hover:not(:disabled) { background: #0d47a1; }
+.qb-btn-amazon-upload:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.qb-amazon-upload-result {
+  font-size: 0.875rem; padding: 0.6rem 1rem; border-radius: 6px;
+}
+.qb-amazon-upload-result.result-ok { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
+.qb-amazon-upload-result.result-err { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; }
+
+.qb-amazon-table-wrap { overflow-x: auto; }
+.qb-amazon-table {
+  width: 100%; border-collapse: collapse; font-size: 0.85rem;
+}
+.qb-amazon-table th {
+  text-align: left; padding: 0.5rem 0.75rem;
+  background: #f5f5f5; border-bottom: 2px solid #e0e0e0;
+  font-size: 0.78rem; font-weight: 600; text-transform: uppercase; color: #666;
+}
+.qb-amazon-table td {
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid #f0f0f0; vertical-align: top;
+}
+.qb-amazon-table tr:hover td { background: #fafafa; }
+.qb-amazon-amount { font-weight: 600; color: #212121; white-space: nowrap; }
+.qb-amazon-card { color: #555; white-space: nowrap; }
+.qb-amazon-imported { color: #999; white-space: nowrap; }
+.qb-amazon-orders { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.qb-amazon-order-chip {
+  font-size: 0.75rem; background: #e3f2fd; color: #1565c0;
+  border-radius: 4px; padding: 0.1rem 0.45rem; white-space: nowrap;
+  font-family: monospace;
+}

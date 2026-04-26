@@ -190,6 +190,21 @@ const MIGRATIONS = [
    ADD COLUMN IF NOT EXISTS exported_at TIMESTAMPTZ`,
   `ALTER TABLE company_integrations
    ADD COLUMN IF NOT EXISTS qbo_payment_account_id VARCHAR(50)`,
+  // 019: Amazon order history payments
+  `CREATE TABLE IF NOT EXISTS amazon_payments (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id           UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    payment_reference_id VARCHAR(100) NOT NULL,
+    payment_date         DATE,
+    payment_amount       NUMERIC(10,2),
+    payment_instrument   VARCHAR(50),
+    card_last4           VARCHAR(10),
+    order_ids            TEXT[] NOT NULL DEFAULT '{}',
+    imported_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, payment_reference_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payments_company ON amazon_payments(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payments_date ON amazon_payments(company_id, payment_date)`,
 ];
 
 async function run() {
