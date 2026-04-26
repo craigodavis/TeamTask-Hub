@@ -3,9 +3,16 @@ import multer from 'multer';
 import { createRequire } from 'module';
 import { query } from '../db.js';
 import { requireAuth, requireOwner } from '../middleware/auth.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
-import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase } from '../qboClient.js';
+import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile } from '../qboClient.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'receipts');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // pdf-parse v1 is CommonJS — use createRequire for ESM compatibility
 const require = createRequire(import.meta.url);
@@ -110,7 +117,15 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
       );
       const receiptId = receiptRes.rows[0].id;
 
-      // 7. Save line items
+      // 7. Save PDF to disk for later QBO attachment
+      try {
+        await fs.promises.writeFile(path.join(UPLOAD_DIR, `${receiptId}.pdf`), file.buffer);
+      } catch (fsErr) {
+        console.error('[receipts] failed to save PDF to disk:', fsErr.message);
+        // Non-fatal — continue without attachment capability
+      }
+
+      // 8. Save line items
       for (const item of categorized) {
         await query(
           `INSERT INTO receipt_items (receipt_id, description, quantity, unit_price, total, qbo_account_id, qbo_class_id, ai_confidence)
@@ -632,6 +647,22 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
 
       // Update with combined split lines from all receipts
       await qboUpdatePurchase(cId, existing, itemsRes.rows);
+
+      // Attach PDFs for each receipt (best effort — don't fail export if missing)
+      for (const receipt_id of receipt_ids) {
+        const pdfPath = path.join(UPLOAD_DIR, `${receipt_id}.pdf`);
+        try {
+          const pdfBuffer = await fs.promises.readFile(pdfPath);
+          // Get the original filename for a friendlier attachment name
+          const fnRes = await query(`SELECT pdf_filename, order_number FROM receipts WHERE id = $1`, [receipt_id]);
+          const { pdf_filename, order_number } = fnRes.rows[0] || {};
+          const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
+          await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
+        } catch (attachErr) {
+          console.error('[export] PDF attach failed for receipt', receipt_id, attachErr.message);
+          // Non-fatal
+        }
+      }
 
       // Mark all receipts as imported
       for (const receipt_id of receipt_ids) {
