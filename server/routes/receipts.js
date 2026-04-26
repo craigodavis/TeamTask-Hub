@@ -695,21 +695,12 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
             if (!shipment.payment_date) {
               reason = 'Shipment has no payment date';
             } else {
-              // Try with amount first (±7 days), then without amount if no match found.
+              // Search by exact amount within ±7 days.
               // Credit cards can post 1-3 days after Amazon's charge date.
-              let matches = await qboFindPurchases(
+              const matches = await qboFindPurchases(
                 cId, payment_account_id, shipment.payment_amount,
                 shipment.payment_date, 7
               );
-              let amountFiltered = true;
-              if (!matches.filter((m) => !usedQboIds.has(m.Id)).length) {
-                // Fallback: search by date only — lower confidence but lets user confirm
-                matches = await qboFindPurchases(
-                  cId, payment_account_id, null,
-                  shipment.payment_date, 7
-                );
-                amountFiltered = false;
-              }
               const available = matches.filter((m) => !usedQboIds.has(m.Id));
               if (available.length) {
                 const best = available[0];
@@ -730,13 +721,10 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
                   vendor:   best.EntityRef?.name || '',
                   memo:     best.PrivateNote || '',
                   current_categories: currentCategories || 'Uncategorized',
-                  amount_matched: amountFiltered,
                 };
-                // Lower confidence if we had to drop the amount filter
-                confidence = !amountFiltered ? 'low'
-                  : daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low';
+                confidence = daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low';
               } else {
-                reason = 'No QBO transaction found within ±7 days';
+                reason = `No QBO transaction for $${shipment.payment_amount.toFixed(2)} within ±7 days`;
               }
             }
           } catch (err) {
