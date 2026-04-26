@@ -43,6 +43,10 @@ export function Quickbooks({ user }) {
   // Tabs
   const [activeTab, setActiveTab] = useState('pending');
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkAccepting, setBulkAccepting] = useState(false);
+
   // Export
   const [paymentAccounts, setPaymentAccounts] = useState([]);
   const [defaultAccountId, setDefaultAccountId] = useState('');
@@ -92,10 +96,11 @@ export function Quickbooks({ user }) {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  // Reload when tab changes
+  // Reload when tab changes and clear selections
   useEffect(() => {
     if (!status?.connected) return;
     loadReceipts(activeTab);
+    setSelectedIds(new Set());
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -240,6 +245,41 @@ export function Quickbooks({ user }) {
       loadReceipts(activeTab);
     } catch (e) { setError(e.message); }
     finally { setAccepting(null); }
+  };
+
+  // ── Bulk accept ──
+  const handleBulkAccept = async () => {
+    if (!selectedIds.size) return;
+    setBulkAccepting(true); setError(''); setMessage('');
+    let accepted = 0;
+    for (const id of selectedIds) {
+      try {
+        const r = await acceptAllItems(id);
+        accepted += r.accepted;
+      } catch (e) {
+        console.error('bulk accept failed for', id, e.message);
+      }
+    }
+    setSelectedIds(new Set());
+    loadReceipts(activeTab);
+    setMessage(`Accepted ${accepted} items across ${selectedIds.size} receipts.`);
+    setBulkAccepting(false);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === receipts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(receipts.map((r) => r.id)));
+    }
   };
 
   // ── Delete receipt ──
@@ -407,6 +447,24 @@ export function Quickbooks({ user }) {
             )}
           </div>
 
+          {activeTab === 'pending' && receipts.length > 0 && (
+            <div className="qb-bulk-bar">
+              <label className="qb-bulk-select-all">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === receipts.length && receipts.length > 0}
+                  onChange={toggleSelectAll}
+                />
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+              </label>
+              {selectedIds.size > 0 && (
+                <button type="button" className="qb-btn-bulk-accept" onClick={handleBulkAccept} disabled={bulkAccepting}>
+                  {bulkAccepting ? 'Accepting…' : `✓ Accept Selected (${selectedIds.size})`}
+                </button>
+              )}
+            </div>
+          )}
+
           {receiptsLoading ? (
             <p className="qb-loading">Loading receipts…</p>
           ) : receipts.length === 0 ? (
@@ -418,7 +476,13 @@ export function Quickbooks({ user }) {
           ) : (
             <div className="qb-receipt-list">
               {receipts.map((r) => (
-                <div key={r.id} className="qb-receipt-row">
+                <div key={r.id} className={`qb-receipt-row ${selectedIds.has(r.id) ? 'selected' : ''}`}>
+                  {activeTab === 'pending' && (
+                    <input type="checkbox" className="qb-row-checkbox"
+                      checked={selectedIds.has(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                    />
+                  )}
                   <div className="qb-receipt-main">
                     <div className="qb-receipt-meta">
                       <span className="qb-receipt-order">{r.order_number}</span>

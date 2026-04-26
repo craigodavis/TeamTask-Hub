@@ -149,12 +149,30 @@
 .qb-receipts-header { margin: 1.5rem 0 0.75rem; }
 .qb-receipts-header h3 { font-size: 1.05rem; font-weight: 600; margin: 0; }
 
-.qb-receipt-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+.qb-bulk-bar {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.5rem 0.25rem; margin-top: 0.5rem;
+}
+.qb-bulk-select-all {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.85rem; color: #555; cursor: pointer; user-select: none;
+}
+.qb-btn-bulk-accept {
+  background: #4caf50; border: 1px solid #388e3c; color: #fff;
+  border-radius: 5px; padding: 0.3rem 1rem; font-size: 0.85rem;
+  cursor: pointer; font-weight: 500;
+}
+.qb-btn-bulk-accept:hover:not(:disabled) { background: #388e3c; }
+.qb-btn-bulk-accept:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.qb-receipt-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
 .qb-receipt-row {
   display: flex; align-items: center; justify-content: space-between;
   background: #fff; border: 1px solid #e0e0e0; border-radius: 7px;
   padding: 0.75rem 1rem; gap: 1rem; flex-wrap: wrap;
 }
+.qb-receipt-row.selected { border-color: #90caf9; background: #f5f9ff; }
+.qb-row-checkbox { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
 .qb-receipt-main { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
 .qb-receipt-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .qb-receipt-descs {
