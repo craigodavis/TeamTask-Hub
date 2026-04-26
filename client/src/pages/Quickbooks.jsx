@@ -440,18 +440,40 @@ export function Quickbooks({ user }) {
                             <tr key={item.id} className={`qb-item-row qb-item-${item.item_status}`}>
                               <td>
                                 <div className="qb-item-desc">{item.description}</div>
-                                {item.rule_applied && <div className="qb-item-rule">Rule: {item.rule_applied}</div>}
+                                {item.rule_applied && <div className="qb-item-rule">⚙ Rule: {item.rule_applied}</div>}
                                 {!item.rule_applied && item.ai_confidence != null && (
-                                  <div className="qb-item-confidence">AI confidence: {Math.round(item.ai_confidence * 100)}%</div>
+                                  <div className="qb-item-confidence">AI: {Math.round(item.ai_confidence * 100)}%</div>
                                 )}
                               </td>
                               <td className="qb-item-total">{item.total != null ? `$${parseFloat(item.total).toFixed(2)}` : '—'}</td>
-                              <td><div className="qb-item-account">{item.account_full_name || item.account_name || (item.qbo_account_id ? `ID: ${item.qbo_account_id}` : '—')}</div></td>
-                              <td>{item.class_name || '—'}</td>
+                              <td>
+                                <select
+                                  className="qb-item-select"
+                                  value={item.qbo_account_id || ''}
+                                  onChange={(e) => handleItemChange(item.id, 'qbo_account_id', e.target.value || null)}
+                                >
+                                  <option value="">— none —</option>
+                                  {accounts.filter((a) => a.active).map((a) => (
+                                    <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <select
+                                  className="qb-item-select"
+                                  value={item.qbo_class_id || ''}
+                                  onChange={(e) => handleItemChange(item.id, 'qbo_class_id', e.target.value || null)}
+                                >
+                                  <option value="">— none —</option>
+                                  {classes.filter((c) => c.active).map((c) => (
+                                    <option key={c.qbo_id} value={c.qbo_id}>{c.fully_qualified_name || c.name}</option>
+                                  ))}
+                                </select>
+                              </td>
                               <td>
                                 <div className="qb-decision-btns">
-                                  <button type="button" className={`qb-btn-accept ${item.item_status === 'accepted' ? 'active' : ''}`} onClick={() => handleItemChange(item.id, 'item_status', 'accepted')}>✓</button>
-                                  <button type="button" className={`qb-btn-reject ${item.item_status === 'rejected' ? 'active' : ''}`} onClick={() => handleItemChange(item.id, 'item_status', 'rejected')}>✕</button>
+                                  <button type="button" className={`qb-btn-accept ${item.item_status === 'accepted' ? 'active' : ''}`} onClick={() => handleItemChange(item.id, 'item_status', 'accepted')} title="Accept">✓</button>
+                                  <button type="button" className={`qb-btn-reject ${item.item_status === 'rejected' ? 'active' : ''}`} onClick={() => handleItemChange(item.id, 'item_status', 'rejected')} title="Reject">✕</button>
                                 </div>
                               </td>
                             </tr>

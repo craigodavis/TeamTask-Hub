@@ -153,6 +153,12 @@
 .qb-item-confidence { font-size: 0.75rem; color: #888; }
 .qb-item-total { font-weight: 500; white-space: nowrap; }
 .qb-item-account { font-size: 0.85rem; color: #333; }
+.qb-item-select {
+  font-size: 0.8rem; width: 100%; max-width: 220px;
+  padding: 0.3rem 0.4rem; border: 1px solid #d0d0d0; border-radius: 4px;
+  background: #fff; color: #333;
+}
+.qb-item-select:focus { outline: none; border-color: #2196F3; }
 
 .qb-decision-btns { display: flex; gap: 0.35rem; }
 .qb-btn-accept, .qb-btn-reject {
