@@ -328,17 +328,19 @@ export function Quickbooks({ user }) {
                   <div className="qb-receipt-right">
                     {r.total != null && <span className="qb-receipt-total">${parseFloat(r.total).toFixed(2)}</span>}
                     <span className="qb-receipt-items">{r.item_count} items</span>
-                    {activeTab === 'pending' && <>
+                    {activeTab === 'pending' &&
                       <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying || !!accepting} title="Re-apply categorization rules to pending items">
                         {reapplying === r.id ? '…' : '⚙'}
                       </button>
-                      <button type="button" className="qb-btn-accept-all" onClick={() => handleAcceptAll(r.id)} disabled={!!accepting || !!reapplying} title="Accept all suggested categorizations">
-                        {accepting === r.id ? '…' : '✓ Accept'}
-                      </button>
-                    </>}
+                    }
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
                       {activeTab === 'reviewed' ? 'View' : 'Review'}
                     </button>
+                    {activeTab === 'pending' &&
+                      <button type="button" className="qb-btn-accept-all" onClick={() => handleAcceptAll(r.id)} disabled={!!accepting || !!reapplying} title="Accept all suggested categorizations">
+                        {accepting === r.id ? '…' : 'Accept'}
+                      </button>
+                    }
                   </div>
                 </div>
               ))}
