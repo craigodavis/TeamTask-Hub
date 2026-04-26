@@ -155,31 +155,64 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
 });
 
 // ── GET /api/receipts ─────────────────────────────────────────────────────────
-// List all receipts for this company, newest first.
+// List receipts. status=excluded returns receipts where card maps to a personal_use card.
+// All other statuses automatically exclude personal-use-card receipts.
 router.get('/', requireAuth, requireOwner, async (req, res) => {
   try {
     const { status } = req.query;
-    const params = [req.companyId];
-    const where = status ? `AND r.status = $2` : '';
-    if (status) params.push(status);
+    const cId = req.companyId;
 
-    const r = await query(
-      `SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
-              r.pdf_filename, r.created_at,
-              COUNT(ri.id) AS item_count,
-              STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
-              STRING_AGG(DISTINCT qc.name, ', ') AS classes_used,
-              STRING_AGG(ri.description, ' · ' ORDER BY ri.created_at) AS descriptions
-       FROM receipts r
-       LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
-       LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
-       LEFT JOIN qbo_classes  qc ON qc.company_id = r.company_id AND qc.qbo_id = ri.qbo_class_id
-       WHERE r.company_id = $1 ${where}
-       GROUP BY r.id
-       ORDER BY r.created_at DESC
-       LIMIT 200`,
-      params
-    );
+    // Subquery that returns card_last4 values flagged as personal use for this company
+    const personalSubquery = `
+      SELECT card_last4 FROM card_account_mappings
+      WHERE company_id = $1 AND personal_use = true`;
+
+    let sql, params;
+
+    if (status === 'excluded') {
+      // Only receipts whose card is a personal-use card
+      sql = `
+        SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
+               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
+               COUNT(ri.id) AS item_count,
+               STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
+               STRING_AGG(DISTINCT qc.name, ', ') AS classes_used,
+               STRING_AGG(ri.description, ' · ' ORDER BY ri.created_at) AS descriptions
+        FROM receipts r
+        LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
+        LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
+        LEFT JOIN qbo_classes  qc ON qc.company_id = r.company_id AND qc.qbo_id = ri.qbo_class_id
+        WHERE r.company_id = $1
+          AND r.card_last4 IN (${personalSubquery})
+        GROUP BY r.id
+        ORDER BY r.created_at DESC
+        LIMIT 200`;
+      params = [cId];
+    } else {
+      // Normal tabs — exclude personal-use-card receipts
+      const where = status ? `AND r.status = $2` : '';
+      params = [cId];
+      if (status) params.push(status);
+
+      sql = `
+        SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
+               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
+               COUNT(ri.id) AS item_count,
+               STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
+               STRING_AGG(DISTINCT qc.name, ', ') AS classes_used,
+               STRING_AGG(ri.description, ' · ' ORDER BY ri.created_at) AS descriptions
+        FROM receipts r
+        LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
+        LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
+        LEFT JOIN qbo_classes  qc ON qc.company_id = r.company_id AND qc.qbo_id = ri.qbo_class_id
+        WHERE r.company_id = $1 ${where}
+          AND (r.card_last4 IS NULL OR r.card_last4 NOT IN (${personalSubquery}))
+        GROUP BY r.id
+        ORDER BY r.created_at DESC
+        LIMIT 200`;
+    }
+
+    const r = await query(sql, params);
     res.json(r.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -552,11 +585,15 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
   }
 
   try {
-    // All reviewed receipts not yet exported
+    // All reviewed receipts not yet exported, excluding personal-use cards
     const receiptsRes = await query(
       `SELECT id, order_number, order_date, vendor, total, card_last4, payment_instrument
        FROM receipts
        WHERE company_id = $1 AND status = 'reviewed' AND qbo_transaction_id IS NULL
+         AND (card_last4 IS NULL OR card_last4 NOT IN (
+           SELECT card_last4 FROM card_account_mappings
+           WHERE company_id = $1 AND personal_use = true
+         ))
        ORDER BY order_date DESC`,
       [cId]
     );

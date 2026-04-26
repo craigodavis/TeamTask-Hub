@@ -518,3 +518,35 @@
 
 .qb-settings-card-coverage { display: flex; flex-direction: column; gap: 0.4rem; }
 .qb-settings-card-coverage h4 { margin: 0; font-size: 0.875rem; font-weight: 600; color: #444; }
+
+/* ── Personal use / excluded ── */
+.qb-tab-excluded { color: #e65100; }
+.qb-tab-excluded.active { border-bottom-color: #e65100; color: #e65100; }
+
+.qb-personal-badge {
+  display: inline-flex; align-items: center;
+  font-size: 0.72rem; font-weight: 600;
+  background: #fff3e0; color: #e65100; border: 1px solid #ffcc80;
+  border-radius: 10px; padding: 0.1rem 0.55rem;
+  white-space: nowrap;
+}
+.qb-business-badge {
+  display: inline-flex; align-items: center;
+  font-size: 0.72rem; font-weight: 600;
+  background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7;
+  border-radius: 10px; padding: 0.1rem 0.55rem;
+  white-space: nowrap;
+}
+
+.qb-card-row-personal td { background: #fffde7; }
+.qb-card-row-personal:hover td { background: #fff8e1; }
+
+.qb-form-row-checkbox {
+  display: flex; align-items: center; padding-bottom: 0.15rem;
+  min-width: 0; flex: 0 0 auto;
+}
+.qb-checkbox-label {
+  display: flex; align-items: center; gap: 0.45rem;
+  font-size: 0.875rem; color: #444; cursor: pointer; white-space: nowrap;
+}
+.qb-checkbox-label input[type="checkbox"] { cursor: pointer; margin: 0; }

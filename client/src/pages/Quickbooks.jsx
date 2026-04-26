@@ -68,7 +68,7 @@ export function Quickbooks({ user }) {
 
   // Card mappings (Settings tab)
   const [cardMappings, setCardMappings] = useState([]);
-  const [cardForm, setCardForm] = useState({ card_last4: '', card_label: '', qbo_account_id: '' });
+  const [cardForm, setCardForm] = useState({ card_last4: '', card_label: '', qbo_account_id: '', personal_use: false });
   const [cardSaving, setCardSaving] = useState(false);
 
   // Amazon order history
@@ -119,7 +119,7 @@ export function Quickbooks({ user }) {
     } else if (activeTab === 'settings') {
       getCardMappings().then((d) => setCardMappings(d.mappings || [])).catch(() => {});
     } else {
-      loadReceipts(activeTab);
+      loadReceipts(activeTab); // works for pending/reviewed/imported/excluded
     }
     setSelectedIds(new Set());
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -377,7 +377,7 @@ export function Quickbooks({ user }) {
       await saveCardMapping(cardForm);
       const d = await getCardMappings();
       setCardMappings(d.mappings || []);
-      setCardForm({ card_last4: '', card_label: '', qbo_account_id: '' });
+      setCardForm({ card_last4: '', card_label: '', qbo_account_id: '', personal_use: false });
       setMessage('Card mapping saved.');
     } catch (err) { setError(err.message); }
     finally { setCardSaving(false); }
@@ -496,6 +496,7 @@ export function Quickbooks({ user }) {
               <button type="button" className={`qb-tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>Pending</button>
               <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>Reviewed</button>
               <button type="button" className={`qb-tab ${activeTab === 'imported' ? 'active' : ''}`} onClick={() => setActiveTab('imported')}>Imported</button>
+              <button type="button" className={`qb-tab qb-tab-excluded ${activeTab === 'excluded' ? 'active' : ''}`} onClick={() => setActiveTab('excluded')}>Excluded</button>
               <button type="button" className={`qb-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</button>
               <button type="button" className={`qb-tab ${activeTab === 'amazon' ? 'active' : ''}`} onClick={() => setActiveTab('amazon')}>
                 Amazon
@@ -564,15 +565,25 @@ export function Quickbooks({ user }) {
                       <th>Last 4</th>
                       <th>Label</th>
                       <th>QBO Payment Account</th>
+                      <th>Type</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {cardMappings.map((m) => (
-                      <tr key={m.id}>
+                      <tr key={m.id} className={m.personal_use ? 'qb-card-row-personal' : ''}>
                         <td className="qb-card-last4">····{m.card_last4}</td>
                         <td>{m.card_label || <span style={{ color: '#aaa' }}>—</span>}</td>
-                        <td className="qb-card-account">{m.account_full_name || m.account_name || m.qbo_account_id}</td>
+                        <td className="qb-card-account">
+                          {m.personal_use
+                            ? <span style={{ color: '#aaa' }}>—</span>
+                            : (m.account_full_name || m.account_name || m.qbo_account_id)}
+                        </td>
+                        <td>
+                          {m.personal_use
+                            ? <span className="qb-personal-badge">Personal</span>
+                            : <span className="qb-business-badge">Business</span>}
+                        </td>
                         <td>
                           <button type="button" className="qb-btn-rule-del" onClick={() => handleDeleteCardMapping(m.id)}>Delete</button>
                         </td>
@@ -602,19 +613,32 @@ export function Quickbooks({ user }) {
                       onChange={(e) => setCardForm((f) => ({ ...f, card_label: e.target.value }))}
                     />
                   </div>
-                  <div className="qb-form-row">
-                    <label>QBO Payment Account</label>
-                    <select
-                      value={cardForm.qbo_account_id}
-                      onChange={(e) => setCardForm((f) => ({ ...f, qbo_account_id: e.target.value }))}
-                    >
-                      <option value="">— select account —</option>
-                      {paymentAccounts.map((a) => (
-                        <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
-                      ))}
-                    </select>
+                  {!cardForm.personal_use && (
+                    <div className="qb-form-row">
+                      <label>QBO Payment Account</label>
+                      <select
+                        value={cardForm.qbo_account_id}
+                        onChange={(e) => setCardForm((f) => ({ ...f, qbo_account_id: e.target.value }))}
+                      >
+                        <option value="">— select account —</option>
+                        {paymentAccounts.map((a) => (
+                          <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="qb-form-row qb-form-row-checkbox">
+                    <label className="qb-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={cardForm.personal_use}
+                        onChange={(e) => setCardForm((f) => ({ ...f, personal_use: e.target.checked, qbo_account_id: e.target.checked ? '' : f.qbo_account_id }))}
+                      />
+                      Personal use — exclude from exports
+                    </label>
                   </div>
-                  <button type="submit" className="qb-btn-save" disabled={cardSaving || !cardForm.card_last4 || !cardForm.qbo_account_id}>
+                  <button type="submit" className="qb-btn-save"
+                    disabled={cardSaving || !cardForm.card_last4 || (!cardForm.personal_use && !cardForm.qbo_account_id)}>
                     {cardSaving ? 'Saving…' : 'Add'}
                   </button>
                 </div>
@@ -729,6 +753,7 @@ export function Quickbooks({ user }) {
               {activeTab === 'pending'  && 'No pending receipts. Upload a PDF above or check the Reviewed tab.'}
               {activeTab === 'reviewed' && 'No reviewed receipts. Accept some from the Pending tab.'}
               {activeTab === 'imported' && 'No receipts exported to QuickBooks yet.'}
+              {activeTab === 'excluded' && 'No excluded receipts. Mark a card as "Personal use" in Settings to exclude its receipts.'}
             </p>
           ) : (
             <div className="qb-receipt-list">
@@ -745,6 +770,11 @@ export function Quickbooks({ user }) {
                       <span className="qb-receipt-order">{r.order_number}</span>
                       <span className="qb-receipt-vendor">{r.vendor}</span>
                       {r.order_date && <span className="qb-receipt-date">{new Date(String(r.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
+                      {activeTab === 'excluded' && r.card_last4 && (
+                        <span className="qb-personal-badge" title="This card is marked personal use">
+                          Personal ····{r.card_last4}
+                        </span>
+                      )}
                     </div>
                     {r.descriptions && (
                       <div className="qb-receipt-descs">{r.descriptions}</div>
@@ -764,13 +794,13 @@ export function Quickbooks({ user }) {
                         {reapplying === r.id ? '…' : '⚙'}
                       </button>
                     </>}
-                    {(activeTab === 'pending' || activeTab === 'reviewed') &&
+                    {(activeTab === 'pending' || activeTab === 'reviewed' || activeTab === 'excluded') &&
                       <button type="button" className="qb-btn-delete-receipt" onClick={() => handleDeleteReceipt(r)} title="Remove this receipt">
                         ✕
                       </button>
                     }
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
-                      {activeTab === 'reviewed' ? 'View' : 'Review'}
+                      {activeTab === 'reviewed' || activeTab === 'excluded' ? 'View' : 'Review'}
                     </button>
                     {activeTab === 'pending' &&
                       <button type="button" className="qb-btn-accept-all" onClick={() => handleAcceptAll(r.id)} disabled={!!accepting || !!reapplying} title="Accept all suggested categorizations">

@@ -14,7 +14,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
   try {
     const result = await query(
-      `SELECT cm.id, cm.card_last4, cm.card_label, cm.qbo_account_id,
+      `SELECT cm.id, cm.card_last4, cm.card_label, cm.qbo_account_id, cm.personal_use,
               qa.name AS account_name, qa.fully_qualified_name AS account_full_name,
               cm.created_at, cm.updated_at
        FROM card_account_mappings cm
@@ -32,10 +32,13 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
 // POST /api/card-mappings — create or update a mapping (upsert by card_last4)
 router.post('/', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
-  const { card_last4, card_label, qbo_account_id } = req.body;
+  const { card_last4, card_label, qbo_account_id, personal_use = false } = req.body;
 
-  if (!card_last4 || !qbo_account_id) {
-    return res.status(400).json({ error: 'card_last4 and qbo_account_id are required.' });
+  if (!card_last4) {
+    return res.status(400).json({ error: 'card_last4 is required.' });
+  }
+  if (!personal_use && !qbo_account_id) {
+    return res.status(400).json({ error: 'qbo_account_id is required unless marking as personal use.' });
   }
   const clean = card_last4.replace(/\D/g, '').slice(-4);
   if (clean.length !== 4) {
@@ -44,14 +47,15 @@ router.post('/', requireAuth, requireOwner, async (req, res) => {
 
   try {
     const result = await query(
-      `INSERT INTO card_account_mappings (company_id, card_last4, card_label, qbo_account_id)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO card_account_mappings (company_id, card_last4, card_label, qbo_account_id, personal_use)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (company_id, card_last4) DO UPDATE SET
          card_label     = EXCLUDED.card_label,
          qbo_account_id = EXCLUDED.qbo_account_id,
+         personal_use   = EXCLUDED.personal_use,
          updated_at     = NOW()
        RETURNING *`,
-      [cId, clean, card_label?.trim() || null, qbo_account_id]
+      [cId, clean, card_label?.trim() || null, qbo_account_id || null, !!personal_use]
     );
     res.json({ mapping: result.rows[0] });
   } catch (err) {

@@ -235,6 +235,9 @@ const MIGRATIONS = [
     UNIQUE(company_id, card_last4)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_card_mappings_company ON card_account_mappings(company_id)`,
+  // 047: personal_use flag on card_account_mappings
+  `ALTER TABLE card_account_mappings
+   ADD COLUMN IF NOT EXISTS personal_use BOOLEAN NOT NULL DEFAULT FALSE`,
 ];
 
 async function run() {
