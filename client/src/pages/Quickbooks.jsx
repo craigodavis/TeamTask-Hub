@@ -371,7 +371,7 @@ export function Quickbooks({ user }) {
 
   const handleSaveCardMapping = async (e) => {
     e.preventDefault();
-    if (!cardForm.card_last4 || !cardForm.qbo_account_id) return;
+    if (!cardForm.card_last4 || (!cardForm.personal_use && !cardForm.qbo_account_id)) return;
     setCardSaving(true);
     try {
       await saveCardMapping(cardForm);
