@@ -121,11 +121,13 @@ ${classList}
 Line items to categorize:
 ${itemList}
 
+IMPORTANT: Always assign the best-matching account for every item — never return null for qbo_account_id unless the account list above is completely empty. When unsure, pick the most plausible Expense account and set confidence low (0.2-0.4). A low-confidence suggestion is always more useful than null because the user can correct it.
+
 Return ONLY a JSON array (no markdown) with one object per line item in the same order:
 [
   {
-    "qbo_account_id": "account id string or null if unsure",
-    "qbo_class_id": "class id string or null",
+    "qbo_account_id": "account id string — always provide a best guess; null only if no accounts exist",
+    "qbo_class_id": "class id string or null if no good match",
     "confidence": 0.0-1.0,
     "reasoning": "one short sentence"
   }

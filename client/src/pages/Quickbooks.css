@@ -550,3 +550,15 @@
   font-size: 0.875rem; color: #444; cursor: pointer; white-space: nowrap;
 }
 .qb-checkbox-label input[type="checkbox"] { cursor: pointer; margin: 0; }
+
+/* ── Missing account warnings ── */
+.qb-uncategorized-warning {
+  font-size: 0.78rem; color: #e65100; font-weight: 500; margin-top: 0.2rem;
+}
+.qb-item-no-account {
+  background: #fff8e1;
+}
+.qb-item-no-account:hover td { background: #fff3e0; }
+.qb-item-no-acct-label {
+  font-size: 0.8rem; color: #e65100; font-weight: 600;
+}

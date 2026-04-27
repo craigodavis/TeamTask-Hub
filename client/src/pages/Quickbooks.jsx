@@ -792,6 +792,11 @@ export function Quickbooks({ user }) {
                     {r.descriptions && (
                       <div className="qb-receipt-descs">{r.descriptions}</div>
                     )}
+                    {parseInt(r.uncategorized_count) > 0 && (
+                      <div className="qb-uncategorized-warning">
+                        ⚠ {r.uncategorized_count} item{r.uncategorized_count > 1 ? 's' : ''} missing account
+                      </div>
+                    )}
                     {(r.accounts_used || r.classes_used) && (
                       <div className="qb-receipt-cats">
                         {r.accounts_used && <span className="qb-receipt-accounts">📂 {r.accounts_used}</span>}
@@ -1159,7 +1164,7 @@ export function Quickbooks({ user }) {
                         </thead>
                         <tbody>
                           {reviewing.items.map((item) => (
-                            <tr key={item.id} className={`qb-item-row qb-item-${item.item_status}`}>
+                            <tr key={item.id} className={`qb-item-row qb-item-${item.item_status}${!item.qbo_account_id ? ' qb-item-no-account' : ''}`}>
                               <td>
                                 <div className="qb-item-desc">{item.description}</div>
                                 {item.rule_applied && <div className="qb-item-rule">Rule: {item.rule_applied}</div>}
@@ -1168,7 +1173,11 @@ export function Quickbooks({ user }) {
                                 )}
                               </td>
                               <td className="qb-item-total">{item.total != null ? `$${parseFloat(item.total).toFixed(2)}` : '—'}</td>
-                              <td><div className="qb-item-account">{item.account_full_name || item.account_name || (item.qbo_account_id ? `ID: ${item.qbo_account_id}` : '—')}</div></td>
+                              <td>
+                                {item.qbo_account_id
+                                  ? <div className="qb-item-account">{item.account_full_name || item.account_name || `ID: ${item.qbo_account_id}`}</div>
+                                  : <div className="qb-item-no-acct-label">⚠ No account — please assign</div>}
+                              </td>
                               <td>{item.class_name || '—'}</td>
                               <td>
                                 <div className="qb-decision-btns">

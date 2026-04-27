@@ -174,6 +174,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
         SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
                r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
                COUNT(ri.id) AS item_count,
+               COUNT(ri.id) FILTER (WHERE ri.qbo_account_id IS NULL) AS uncategorized_count,
                STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
                STRING_AGG(DISTINCT qc.name, ', ') AS classes_used,
                STRING_AGG(ri.description, ' · ' ORDER BY ri.created_at) AS descriptions
@@ -197,6 +198,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
         SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
                r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
                COUNT(ri.id) AS item_count,
+               COUNT(ri.id) FILTER (WHERE ri.qbo_account_id IS NULL) AS uncategorized_count,
                STRING_AGG(DISTINCT qa.name, ', ') AS accounts_used,
                STRING_AGG(DISTINCT qc.name, ', ') AS classes_used,
                STRING_AGG(ri.description, ' · ' ORDER BY ri.created_at) AS descriptions
