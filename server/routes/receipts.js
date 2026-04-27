@@ -415,8 +415,8 @@ router.post('/:id/reapply-rules', requireAuth, requireOwner, async (req, res) =>
       const override = applyRules(item, vendor, rules, accounts);
       if (override.rule_applied || override.qbo_account_id !== item.qbo_account_id || override.qbo_class_id !== item.qbo_class_id) {
         await query(
-          `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3 WHERE id = $1`,
-          [item.id, override.qbo_account_id, override.qbo_class_id]
+          `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3, rule_applied = $4 WHERE id = $1`,
+          [item.id, override.qbo_account_id, override.qbo_class_id, override.rule_applied || null]
         );
         updated++;
       }
