@@ -896,9 +896,28 @@ export function Quickbooks({ user }) {
                     <label>Use account</label>
                     <select value={ruleForm.then_account_id} onChange={(e) => handleRuleFormChange('then_account_id', e.target.value)}>
                       <option value="">— no override —</option>
-                      {accounts.filter((a) => a.active).map((a) => (
-                        <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
-                      ))}
+                      {['Revenue', 'Expense', 'Cost of Goods Sold', 'Asset', 'Liability', 'Equity'].map((cls) => {
+                        const group = accounts.filter((a) => a.active && a.classification === cls);
+                        if (!group.length) return null;
+                        return (
+                          <optgroup key={cls} label={cls}>
+                            {group.map((a) => (
+                              <option key={a.qbo_id} value={a.qbo_id}>
+                                {a.fully_qualified_name || a.name}
+                                {a.account_type && a.account_type !== cls ? ` · ${a.account_type}` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                      {/* Fallback for accounts with no classification (pre-sync) */}
+                      {accounts.filter((a) => a.active && !a.classification).length > 0 && (
+                        <optgroup label="Other">
+                          {accounts.filter((a) => a.active && !a.classification).map((a) => (
+                            <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                   <div className="qb-form-row">

@@ -72,10 +72,19 @@ export async function categorizeLineItems(items, accounts, classes, memory, rule
 
   const client = getClient();
 
-  // Build compact references to keep the prompt small
+  // Build compact references to keep the prompt small.
+  // Format: id: Name [Classification > AccountType > SubType]
+  // e.g.  123: Equipment [Asset > Fixed Asset > Other Fixed Assets]
+  //        456: Equipment Rental [Expense > Expense > Other Misc Expense]
   const accountList = accounts
     .filter((a) => a.active)
-    .map((a) => `${a.qbo_id}: ${a.fully_qualified_name || a.name} (${a.account_type || ''})`)
+    .map((a) => {
+      const parts = [a.classification, a.account_type, a.account_sub_type]
+        .filter(Boolean)
+        .map((s) => s.replace(/([A-Z])/g, ' $1').trim()); // CamelCase → words
+      const typeTag = parts.length ? ` [${parts.join(' > ')}]` : '';
+      return `${a.qbo_id}: ${a.fully_qualified_name || a.name}${typeTag}`;
+    })
     .join('\n');
 
   const classList = classes
@@ -100,7 +109,10 @@ export async function categorizeLineItems(items, accounts, classes, memory, rule
 ${rulesPrompt}
 ${memoryContext}
 
-Available QBO Accounts (id: name):
+Available QBO Accounts (id: name [Classification > AccountType > SubType]):
+Classification tells you whether an account hits the P&L (Revenue, Expense, Cost of Goods Sold) or the balance sheet (Asset, Liability, Equity).
+Prefer Expense/COGS accounts for consumables, supplies, and small purchases.
+Use Asset accounts only for capitalized equipment with a multi-year useful life.
 ${accountList}
 
 Available QBO Classes (id: name):

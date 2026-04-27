@@ -40,7 +40,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
 
   // Load QBO reference data, product memory, and rules once for all files
   const [accountsRes, classesRes, memoryRes, rulesRes] = await Promise.all([
-    query(`SELECT qbo_id, name, fully_qualified_name, account_type, active FROM qbo_accounts WHERE company_id = $1`, [cId]),
+    query(`SELECT qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active FROM qbo_accounts WHERE company_id = $1`, [cId]),
     query(`SELECT qbo_id, name, fully_qualified_name, active FROM qbo_classes WHERE company_id = $1`, [cId]),
     query(`SELECT product_pattern, qbo_account_id, qbo_class_id FROM product_memory WHERE company_id = $1`, [cId]),
     query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),

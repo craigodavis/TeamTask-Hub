@@ -186,12 +186,12 @@ router.post('/sync', requireAuth, requireOwner, async (req, res) => {
     const accounts = await qboQueryAll(cId, 'SELECT * FROM Account');
     for (const a of accounts) {
       await query(
-        `INSERT INTO qbo_accounts (company_id, qbo_id, name, fully_qualified_name, account_type, account_sub_type, active, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+        `INSERT INTO qbo_accounts (company_id, qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
          ON CONFLICT (company_id, qbo_id) DO UPDATE SET
            name = $3, fully_qualified_name = $4, account_type = $5,
-           account_sub_type = $6, active = $7, synced_at = NOW()`,
-        [cId, a.Id, a.Name, a.FullyQualifiedName || a.Name, a.AccountType, a.AccountSubType, a.Active !== false]
+           account_sub_type = $6, classification = $7, active = $8, synced_at = NOW()`,
+        [cId, a.Id, a.Name, a.FullyQualifiedName || a.Name, a.AccountType, a.AccountSubType || null, a.Classification || null, a.Active !== false]
       );
     }
 
@@ -223,7 +223,7 @@ router.post('/sync', requireAuth, requireOwner, async (req, res) => {
 router.get('/reference', requireAuth, async (req, res) => {
   try {
     const [a, c] = await Promise.all([
-      query(`SELECT qbo_id, name, fully_qualified_name, account_type, active FROM qbo_accounts WHERE company_id = $1 ORDER BY fully_qualified_name`, [req.companyId]),
+      query(`SELECT qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active FROM qbo_accounts WHERE company_id = $1 ORDER BY classification, account_type, fully_qualified_name`, [req.companyId]),
       query(`SELECT qbo_id, name, fully_qualified_name, active FROM qbo_classes WHERE company_id = $1 ORDER BY fully_qualified_name`, [req.companyId]),
     ]);
     res.json({ accounts: a.rows, classes: c.rows });

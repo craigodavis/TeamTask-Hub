@@ -241,6 +241,9 @@ const MIGRATIONS = [
   // 048: allow null qbo_account_id for personal-use cards
   `ALTER TABLE card_account_mappings
    ALTER COLUMN qbo_account_id DROP NOT NULL`,
+  // 049: classification (Asset/Liability/Equity/Revenue/Expense) on qbo_accounts
+  `ALTER TABLE qbo_accounts
+   ADD COLUMN IF NOT EXISTS classification VARCHAR(50)`,
 ];
 
 async function run() {
