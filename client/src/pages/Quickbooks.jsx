@@ -158,16 +158,27 @@ export function Quickbooks({ user }) {
   };
 
   // ── Upload ──
+  const [uploadProgress, setUploadProgress] = useState(null); // null | { done, total }
+
   const handleFileChange = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setUploading(true); setUploadResults(null); setError(''); setMessage('');
+    setUploadProgress({ done: 0, total: files.length });
+
+    const BATCH = 25;
+    const allResults = [];
     try {
-      const result = await uploadReceipts(files);
-      setUploadResults(result.results);
+      for (let i = 0; i < files.length; i += BATCH) {
+        const batch = files.slice(i, i + BATCH);
+        const result = await uploadReceipts(batch);
+        allResults.push(...result.results);
+        setUploadProgress({ done: Math.min(i + BATCH, files.length), total: files.length });
+      }
+      setUploadResults(allResults);
       loadReceipts();
     } catch (e) { setError(e.message); }
-    finally { setUploading(false); fileInputRef.current.value = ''; }
+    finally { setUploading(false); setUploadProgress(null); fileInputRef.current.value = ''; }
   };
 
   // ── Review ──
@@ -473,7 +484,11 @@ export function Quickbooks({ user }) {
             <input ref={fileInputRef} type="file" accept="application/pdf" multiple id="pdf-upload"
               className="qb-file-input" onChange={handleFileChange} disabled={uploading} />
             <label htmlFor="pdf-upload" className={`qb-upload-label ${uploading ? 'uploading' : ''}`}>
-              {uploading ? <>⏳ Processing PDFs…</> : <>📄 Click to upload Amazon order PDFs</>}
+              {uploading
+                ? uploadProgress && uploadProgress.total > 25
+                  ? <>⏳ Processing… {uploadProgress.done} of {uploadProgress.total}</>
+                  : <>⏳ Processing PDFs…</>
+                : <>📄 Click to upload Amazon order PDFs (up to 100 at a time)</>}
             </label>
           </div>
 

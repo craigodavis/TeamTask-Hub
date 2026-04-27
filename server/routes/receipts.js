@@ -23,16 +23,30 @@ const router = express.Router();
 // Store uploaded files in memory (Buffer) — no disk writes needed
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per file
   fileFilter: (_req, file, cb) => {
     if (file.mimetype === 'application/pdf') cb(null, true);
     else cb(new Error('Only PDF files are accepted.'));
   },
 });
 
+// Process an array of async tasks with a max concurrency limit.
+async function withConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // ── POST /api/receipts/upload ─────────────────────────────────────────────────
-// Accept one or more PDFs, parse, categorize, store as pending.
-router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), async (req, res) => {
+// Accept up to 100 PDFs, parse and categorize in parallel (5 at a time).
+router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), async (req, res) => {
   const cId = req.companyId;
   if (!req.files?.length) {
     return res.status(400).json({ error: 'No PDF files received.' });
@@ -51,11 +65,9 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
   const rules = rulesRes.rows;
   const rulesPrompt = buildRulesPrompt(rules);
 
-  const results = [];
-
-  for (const file of req.files) {
+  // Process up to 5 files concurrently to stay within Claude API rate limits
+  const results = await withConcurrency(req.files, 5, async (file) => {
     const filename = file.originalname;
-
     try {
       // 1. Extract text from PDF
       const parsed = await pdfParse(file.buffer);
@@ -66,15 +78,13 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
       try {
         receiptData = await extractReceiptData(pdfText);
       } catch (aiErr) {
-        results.push({ filename, error: `AI extraction failed: ${aiErr.message}` });
-        continue;
+        return { filename, error: `AI extraction failed: ${aiErr.message}` };
       }
 
       const { order_number, order_date, vendor, subtotal, tax, total, items, card_last4, payment_instrument } = receiptData;
 
       if (!order_number) {
-        results.push({ filename, error: 'Could not extract order number from PDF.' });
-        continue;
+        return { filename, error: 'Could not extract order number from PDF.' };
       }
 
       // 3. Duplicate check
@@ -83,8 +93,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
         [cId, order_number]
       );
       if (dupCheck.rows.length) {
-        results.push({ filename, order_number, skipped: true, reason: 'duplicate', existing_status: dupCheck.rows[0].status });
-        continue;
+        return { filename, order_number, skipped: true, reason: 'duplicate', existing_status: dupCheck.rows[0].status };
       }
 
       // 4. AI categorization
@@ -94,7 +103,6 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
           categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt);
         } catch (catErr) {
           console.error('[receipts] categorization failed:', catErr.message);
-          // Continue without AI suggestions — user can categorize manually
           categorized = (items || []).map((it) => ({ ...it, qbo_account_id: null, qbo_class_id: null, confidence: 0, reasoning: '' }));
         }
       } else {
@@ -123,7 +131,6 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
         await fs.promises.writeFile(path.join(UPLOAD_DIR, `${receiptId}.pdf`), file.buffer);
       } catch (fsErr) {
         console.error('[receipts] failed to save PDF to disk:', fsErr.message);
-        // Non-fatal — continue without attachment capability
       }
 
       // 8. Save line items
@@ -131,25 +138,17 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 20), asyn
         await query(
           `INSERT INTO receipt_items (receipt_id, description, quantity, unit_price, total, qbo_account_id, qbo_class_id, ai_confidence)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            receiptId,
-            item.description,
-            item.quantity ?? 1,
-            item.unit_price ?? null,
-            item.total ?? null,
-            item.qbo_account_id || null,
-            item.qbo_class_id || null,
-            item.confidence ?? null,
-          ]
+          [receiptId, item.description, item.quantity ?? 1, item.unit_price ?? null,
+           item.total ?? null, item.qbo_account_id || null, item.qbo_class_id || null, item.confidence ?? null]
         );
       }
 
-      results.push({ filename, order_number, order_date, vendor: vendor || 'Amazon', total, items: categorized.length, receipt_id: receiptId });
+      return { filename, order_number, order_date, vendor: vendor || 'Amazon', total, items: categorized.length, receipt_id: receiptId };
     } catch (err) {
       console.error('[receipts] error processing', filename, err);
-      results.push({ filename, error: err.message });
+      return { filename, error: err.message };
     }
-  }
+  });
 
   res.json({ results });
 });
