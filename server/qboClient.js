@@ -157,15 +157,20 @@ export async function qboFindPurchases(companyId, accountId, totalAmt, startDate
 
   const target = totalAmt != null ? parseFloat(totalAmt) : null;
 
-  // Filter client-side by account and (optionally) amount within $0.01
+  // Filter client-side by amount only — do NOT filter by account.
+  // Bank-synced transactions frequently land on a different QBO account than the
+  // one configured in card mappings (e.g., Chase Visa vs. Checking). Filtering by
+  // account here silently drops valid matches. Callers that want account-preferred
+  // ordering should sort on accountId themselves.
   const matches = purchases.filter((p) => {
-    const amountMatch = target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
-    const accountMatch = !accountId || p.AccountRef?.value === accountId;
-    return amountMatch && accountMatch;
+    return target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
   });
 
-  // Sort by date proximity to anchor (ascending — closest post date wins)
+  // Sort: exact account match first, then by date proximity to anchor
   return matches.sort((a, b) => {
+    const aOnAccount = accountId ? (a.AccountRef?.value === accountId ? 0 : 1) : 0;
+    const bOnAccount = accountId ? (b.AccountRef?.value === accountId ? 0 : 1) : 0;
+    if (aOnAccount !== bOnAccount) return aOnAccount - bOnAccount;
     const da = Math.abs(new Date(a.TxnDate) - anchor);
     const db = Math.abs(new Date(b.TxnDate) - anchor);
     return da - db;

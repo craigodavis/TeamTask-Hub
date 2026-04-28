@@ -581,6 +581,72 @@
 .qb-item-select:focus { outline: none; border-color: #1976d2; }
 .qb-item-select-warn { border-color: #ff9800; background: #fff8e1; color: #e65100; }
 
+/* ── Searchable AccountSelect component ── */
+.acct-select-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 260px;
+}
+.acct-select-wrap.acct-select-warn .acct-select-btn {
+  border-color: #ff9800;
+  background: #fff8e1;
+}
+.acct-select-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 0.25rem 0.5rem;
+  font-size: 0.8rem; text-align: left;
+  border: 1px solid #e0e0e0; border-radius: 4px;
+  background: #fff; color: #212121;
+  cursor: pointer;
+}
+.acct-select-btn:hover { border-color: #1976d2; }
+.acct-select-btn-empty { color: #e65100; }
+.acct-select-placeholder { color: #e65100; }
+.acct-select-btn-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.acct-select-caret { margin-left: 4px; font-size: 0.65rem; opacity: 0.6; flex-shrink: 0; }
+.acct-select-dropdown {
+  position: absolute; top: calc(100% + 2px); left: 0;
+  min-width: 100%; width: max-content; max-width: 340px;
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid #ccc; border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  font-size: 0.8rem;
+}
+.acct-select-search-wrap {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+  position: sticky; top: 0; z-index: 1;
+}
+.acct-select-search {
+  width: 100%; padding: 0.25rem 0.4rem;
+  font-size: 0.8rem;
+  border: 1px solid #1976d2; border-radius: 3px;
+  outline: none; box-sizing: border-box;
+}
+.acct-select-list {
+  max-height: 240px; overflow-y: auto;
+}
+.acct-select-group-label {
+  padding: 0.3rem 0.6rem 0.15rem;
+  font-size: 0.7rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: #888; background: #f5f5f5;
+  border-top: 1px solid #eee;
+}
+.acct-select-option {
+  padding: 0.3rem 0.75rem;
+  cursor: pointer; color: #212121;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.acct-select-option:hover { background: #e3f2fd; }
+.acct-select-active { background: #bbdefb; font-weight: 600; }
+.acct-select-none { color: #e65100; font-style: italic; border-bottom: 1px solid #eee; }
+.acct-select-empty { padding: 0.5rem 0.75rem; color: #999; font-style: italic; }
+
 /* ── Rule suggestions panel ── */
 .qb-rule-suggestion-banner {
   background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 6px;

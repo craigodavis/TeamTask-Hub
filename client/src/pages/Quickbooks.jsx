@@ -10,6 +10,136 @@ import {
 } from '../api';
 import './Quickbooks.css';
 
+// Classifications relevant to purchase categorization — exclude Revenue, Liability, Equity
+const EXPENSE_CLASSIFICATIONS = ['Expense', 'Cost of Goods Sold', 'Asset'];
+
+/**
+ * Searchable account picker. Filters by any substring of the account name.
+ * Only shows Expense / COGS / Asset accounts (plus unclassified as fallback).
+ */
+function AccountSelect({ value, onChange, accounts, placeholder = 'Search accounts…', warn = false, emptyLabel = null }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Build the display label for the currently selected account
+  const selected = accounts.find((a) => a.qbo_id === value);
+  const displayLabel = selected ? (selected.fully_qualified_name || selected.name) : '';
+
+  // Filter to only expense-relevant accounts, then by search term
+  const eligible = accounts.filter(
+    (a) => a.active && (EXPENSE_CLASSIFICATIONS.includes(a.classification) || !a.classification)
+  );
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? eligible.filter((a) => (a.fully_qualified_name || a.name).toLowerCase().includes(q))
+    : eligible;
+
+  // Group filtered results by classification for display
+  const grouped = EXPENSE_CLASSIFICATIONS.map((cls) => ({
+    cls,
+    items: filtered.filter((a) => a.classification === cls),
+  })).filter((g) => g.items.length > 0);
+  const unclassified = filtered.filter((a) => !a.classification);
+
+  // Focus the search input when dropdown opens
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [open]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const handleSelect = (qboId) => {
+    onChange(qboId || null);
+    setOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div className={`acct-select-wrap${warn ? ' acct-select-warn' : ''}`} ref={containerRef}>
+      {/* Trigger button — always visible, shows current selection */}
+      <button
+        type="button"
+        className={`acct-select-btn${!value ? ' acct-select-btn-empty' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="acct-select-btn-label">
+          {displayLabel || <span className="acct-select-placeholder">{emptyLabel ?? '⚠ No account'}</span>}
+        </span>
+        <span className="acct-select-caret">{open ? '▴' : '▾'}</span>
+      </button>
+
+      {/* Dropdown — search box at top, filtered list below */}
+      {open && (
+        <div className="acct-select-dropdown">
+          <div className="acct-select-search-wrap">
+            <input
+              ref={inputRef}
+              className="acct-select-search"
+              placeholder={placeholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="acct-select-list">
+            <div
+              className="acct-select-option acct-select-none"
+              onMouseDown={() => handleSelect(null)}
+            >
+              {emptyLabel ?? '⚠ No account'}
+            </div>
+            {grouped.map(({ cls, items }) => (
+              <div key={cls}>
+                <div className="acct-select-group-label">{cls}</div>
+                {items.map((a) => (
+                  <div
+                    key={a.qbo_id}
+                    className={`acct-select-option${a.qbo_id === value ? ' acct-select-active' : ''}`}
+                    onMouseDown={() => handleSelect(a.qbo_id)}
+                  >
+                    {a.fully_qualified_name || a.name}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {unclassified.length > 0 && (
+              <div>
+                <div className="acct-select-group-label">Other</div>
+                {unclassified.map((a) => (
+                  <div
+                    key={a.qbo_id}
+                    className={`acct-select-option${a.qbo_id === value ? ' acct-select-active' : ''}`}
+                    onMouseDown={() => handleSelect(a.qbo_id)}
+                  >
+                    {a.fully_qualified_name || a.name}
+                  </div>
+                ))}
+              </div>
+            )}
+            {filtered.length === 0 && (
+              <div className="acct-select-empty">No accounts match "{search}"</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const BLANK_RULE = {
   name: '', priority: 100,
   if_description_contains: '', if_vendor: '', if_account_type_contains: '',
@@ -241,9 +371,15 @@ export function Quickbooks({ user }) {
         setSuggestingRules(true);
         try {
           const { suggestions } = await suggestRule(corrections);
-          if (suggestions?.length) setRuleSuggestions(suggestions);
-        } catch { /* non-fatal */ }
-        finally { setSuggestingRules(false); }
+          if (suggestions?.length) {
+            setRuleSuggestions(suggestions);
+          } else {
+            setMessage('Receipt review saved. (No rule suggestions generated for these changes.)');
+          }
+        } catch (err) {
+          console.error('Rule suggestion failed:', err);
+          setMessage('Receipt review saved. (Rule suggestion unavailable — check console for details.)');
+        } finally { setSuggestingRules(false); }
       }
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
@@ -1017,31 +1153,13 @@ export function Quickbooks({ user }) {
                   </div>
                   <div className="qb-form-row">
                     <label>Use account</label>
-                    <select value={ruleForm.then_account_id} onChange={(e) => handleRuleFormChange('then_account_id', e.target.value)}>
-                      <option value="">— no override —</option>
-                      {['Revenue', 'Expense', 'Cost of Goods Sold', 'Asset', 'Liability', 'Equity'].map((cls) => {
-                        const group = accounts.filter((a) => a.active && a.classification === cls);
-                        if (!group.length) return null;
-                        return (
-                          <optgroup key={cls} label={cls}>
-                            {group.map((a) => (
-                              <option key={a.qbo_id} value={a.qbo_id}>
-                                {a.fully_qualified_name || a.name}
-                                {a.account_type && a.account_type !== cls ? ` · ${a.account_type}` : ''}
-                              </option>
-                            ))}
-                          </optgroup>
-                        );
-                      })}
-                      {/* Fallback for accounts with no classification (pre-sync) */}
-                      {accounts.filter((a) => a.active && !a.classification).length > 0 && (
-                        <optgroup label="Other">
-                          {accounts.filter((a) => a.active && !a.classification).map((a) => (
-                            <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
+                    <AccountSelect
+                      value={ruleForm.then_account_id || null}
+                      onChange={(v) => handleRuleFormChange('then_account_id', v || '')}
+                      accounts={accounts}
+                      placeholder="Search accounts…"
+                      emptyLabel="— no override —"
+                    />
                   </div>
                   <div className="qb-form-row">
                     <label>Use class</label>
@@ -1162,6 +1280,11 @@ export function Quickbooks({ user }) {
                                     <span style={{ marginLeft: 6, fontWeight: 600 }}>${parseFloat(p.match.total || 0).toFixed(2)}</span>
                                   </div>
                                   {p.match.vendor && <div style={{ color: '#777', fontSize: '0.78rem' }}>{p.match.vendor}</div>}
+                                  {p.match.account_match === false && p.match.qbo_account_name && (
+                                    <div style={{ color: '#e65100', fontSize: '0.75rem', marginTop: 2 }}>
+                                      ⚠ In QBO account: {p.match.qbo_account_name}
+                                    </div>
+                                  )}
                                 </>
                               ) : (() => {
                                 const sel = ml?.selectedQboId;
@@ -1175,6 +1298,9 @@ export function Quickbooks({ user }) {
                                   <div>
                                     <span className="qb-no-match-label">No match found</span>
                                     {p.reason && <div style={{ fontSize: '0.75rem', color: '#999' }}>{p.reason}</div>}
+                                    <div style={{ fontSize: '0.72rem', color: '#b26a00', marginTop: 3 }}>
+                                      Tip: if the transaction is still "For Review" in QBO, accept it there first — the API only returns posted transactions.
+                                    </div>
                                     <button
                                       type="button" className="qb-btn-manual-link"
                                       onClick={() => handleManualSearch(key, searchDate)}
@@ -1277,27 +1403,12 @@ export function Quickbooks({ user }) {
                               </td>
                               <td className="qb-item-total">{item.total != null ? `$${parseFloat(item.total).toFixed(2)}` : '—'}</td>
                               <td>
-                                <select
-                                  className={`qb-item-select${!item.qbo_account_id ? ' qb-item-select-warn' : ''}`}
-                                  value={item.qbo_account_id || ''}
-                                  onChange={(e) => handleItemChange(item.id, 'qbo_account_id', e.target.value || null)}
-                                >
-                                  <option value="">⚠ No account</option>
-                                  {['Revenue', 'Expense', 'Cost of Goods Sold', 'Asset', 'Liability', 'Equity'].map((cls) => {
-                                    const grp = accounts.filter((a) => a.active && a.classification === cls);
-                                    if (!grp.length) return null;
-                                    return (
-                                      <optgroup key={cls} label={cls}>
-                                        {grp.map((a) => (
-                                          <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
-                                        ))}
-                                      </optgroup>
-                                    );
-                                  })}
-                                  {accounts.filter((a) => a.active && !a.classification).map((a) => (
-                                    <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
-                                  ))}
-                                </select>
+                                <AccountSelect
+                                  value={item.qbo_account_id}
+                                  onChange={(v) => handleItemChange(item.id, 'qbo_account_id', v)}
+                                  accounts={accounts}
+                                  warn={!item.qbo_account_id}
+                                />
                               </td>
                               <td>
                                 <select

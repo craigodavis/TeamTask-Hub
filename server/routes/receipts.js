@@ -828,7 +828,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
               // (bank posts 1-4 days later), so we never look backwards.
               const matches = await qboFindPurchases(
                 cId, accountId, shipment.payment_amount,
-                shipment.payment_date, 7, true
+                shipment.payment_date, 10, true
               );
               const available = matches.filter((m) => !usedQboIds.has(m.Id));
               if (available.length) {
@@ -844,16 +844,19 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
                   currentLines.map((l) => l.AccountBasedExpenseLineDetail?.AccountRef?.name).filter(Boolean)
                 )].join(', ');
                 match = {
-                  qbo_id:   best.Id,
-                  txn_date: best.TxnDate,
-                  total:    best.TotalAmt,
-                  vendor:   best.EntityRef?.name || '',
-                  memo:     best.PrivateNote || '',
+                  qbo_id:        best.Id,
+                  txn_date:      best.TxnDate,
+                  total:         best.TotalAmt,
+                  vendor:        best.EntityRef?.name || '',
+                  memo:          best.PrivateNote || '',
                   current_categories: currentCategories || 'Uncategorized',
+                  qbo_account_id:   best.AccountRef?.value || null,
+                  qbo_account_name: best.AccountRef?.name || null,
+                  account_match: !accountId || best.AccountRef?.value === accountId,
                 };
                 confidence = daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low';
               } else {
-                reason = `No QBO transaction for $${shipment.payment_amount.toFixed(2)} within ±7 days`;
+                reason = `No QBO transaction for $${shipment.payment_amount.toFixed(2)} within 10 days of ${shipment.payment_date} — try manual search`;
               }
             }
           } catch (err) {
@@ -899,7 +902,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
           const accountId = (receipt.card_last4 && cardAccountMap.get(receipt.card_last4))
             || payment_account_id;
           const matches = await qboFindPurchases(
-            cId, accountId, receipt.total, receipt.order_date, 5
+            cId, accountId, receipt.total, receipt.order_date, 7
           );
           const available = matches.filter((m) => !usedQboIds.has(m.Id));
           if (!available.length) {
@@ -927,12 +930,15 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
             receipt,
             shipment: null,
             match: {
-              qbo_id:   best.Id,
-              txn_date: best.TxnDate,
-              total:    best.TotalAmt,
-              vendor:   best.EntityRef?.name || '',
-              memo:     best.PrivateNote || '',
+              qbo_id:        best.Id,
+              txn_date:      best.TxnDate,
+              total:         best.TotalAmt,
+              vendor:        best.EntityRef?.name || '',
+              memo:          best.PrivateNote || '',
               current_categories: currentCategories || 'Uncategorized',
+              qbo_account_id:   best.AccountRef?.value || null,
+              qbo_account_name: best.AccountRef?.name || null,
+              account_match: !accountId || best.AccountRef?.value === accountId,
             },
             confidence: daysDiff === 0 ? 'high' : daysDiff <= 2 ? 'medium' : 'low',
             days_diff: daysDiff,

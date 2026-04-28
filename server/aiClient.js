@@ -84,7 +84,9 @@ export async function suggestRulesFromCorrections(corrections, accounts) {
   const correctionLines = corrections.map((c, i) => {
     const oldName = c.old_account_id ? (accountMap.get(c.old_account_id) || c.old_account_id) : 'no account';
     const newName = c.new_account_id ? (accountMap.get(c.new_account_id) || c.new_account_id) : 'none';
-    return `${i + 1}. "${c.description}"${c.total ? ` ($${c.total})` : ''}: was "${oldName}" → changed to "${newName}"${c.new_class_id ? ` / class ${c.new_class_id}` : ''}`;
+    const accountIdTag = c.new_account_id ? ` [USE account_id="${c.new_account_id}"]` : '';
+    const classIdTag = c.new_class_id ? ` [USE class_id="${c.new_class_id}"]` : '';
+    return `${i + 1}. "${c.description}"${c.total ? ` ($${c.total})` : ''}: was "${oldName}" → changed to "${newName}"${accountIdTag}${classIdTag}`;
   }).join('\n');
 
   const message = await client.messages.create({
@@ -106,14 +108,14 @@ CRITICAL RULE-WRITING GUIDELINES:
 - Use OR to cover synonyms: "printer OR copier OR scanner"
 - if_description_contains should match a wide range of similar products, not just the exact item corrected.
 - Group corrections targeting the same account into a single rule when they share a product category.
-- Use the EXACT account id strings from the corrections above.
+- Use the EXACT account_id and class_id values marked with [USE account_id="..."] and [USE class_id="..."] in the corrections above.
 
 Return ONLY a valid JSON array (no markdown). Each element:
 {
   "name": "short category-level rule name (e.g. 'Printers & Scanners', not 'Epson ET-2803')",
   "if_description_contains": "generic category keyword(s) — e.g. 'printer OR scanner OR copier'",
-  "then_account_id": "exact account id string from corrections",
-  "then_class_id": "class id string or null",
+  "then_account_id": "copy the account_id value from [USE account_id=...] exactly as written",
+  "then_class_id": "copy the class_id value from [USE class_id=...] exactly as written, or null",
   "priority": 50,
   "notes": "one sentence explaining the category this rule covers"
 }
