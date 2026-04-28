@@ -244,6 +244,9 @@ const MIGRATIONS = [
   // 049: classification (Asset/Liability/Equity/Revenue/Expense) on qbo_accounts
   `ALTER TABLE qbo_accounts
    ADD COLUMN IF NOT EXISTS classification VARCHAR(50)`,
+  // 050: rule_applied label on receipt_items
+  `ALTER TABLE receipt_items
+   ADD COLUMN IF NOT EXISTS rule_applied VARCHAR(255)`,
 ];
 
 async function run() {
