@@ -591,7 +591,7 @@
 .acct-select-wrap {
   position: relative;
   width: 100%;
-  max-width: 260px;
+  max-width: 240px;
 }
 .acct-select-wrap.acct-select-warn .acct-select-btn {
   border-color: #ff9800;
@@ -599,52 +599,52 @@
 }
 .acct-select-btn {
   display: flex; align-items: center; justify-content: space-between;
-  width: 100%; padding: 0.25rem 0.5rem;
-  font-size: 0.8rem; text-align: left;
-  border: 1px solid #e0e0e0; border-radius: 4px;
+  width: 100%; padding: 0.2rem 0.4rem;
+  font-size: 0.78rem; text-align: left;
+  border: 1px solid #d0d0d0; border-radius: 4px;
   background: #fff; color: #212121;
-  cursor: pointer;
+  cursor: pointer; min-height: 26px;
 }
 .acct-select-btn:hover { border-color: #1976d2; }
 .acct-select-btn-empty { color: #e65100; }
-.acct-select-placeholder { color: #e65100; }
+.acct-select-placeholder { color: #e65100; font-style: italic; }
 .acct-select-btn-label {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
 }
-.acct-select-caret { margin-left: 4px; font-size: 0.65rem; opacity: 0.6; flex-shrink: 0; }
+.acct-select-caret { margin-left: 4px; font-size: 0.6rem; opacity: 0.5; flex-shrink: 0; }
+
+/* Dropdown renders via portal into document.body — position: fixed set inline */
 .acct-select-dropdown {
-  position: absolute; top: calc(100% + 2px); left: 0;
-  min-width: 100%; width: max-content; max-width: 340px;
-  z-index: 1000;
   background: #fff;
-  border: 1px solid #ccc; border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  font-size: 0.8rem;
+  border: 1px solid #bbb; border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+  font-size: 0.82rem;
+  overflow: hidden;
 }
 .acct-select-search-wrap {
   padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid #e0e0e0;
-  background: #fafafa;
-  position: sticky; top: 0; z-index: 1;
+  border-bottom: 1px solid #e8e8e8;
+  background: #f8f8f8;
 }
 .acct-select-search {
-  width: 100%; padding: 0.25rem 0.4rem;
-  font-size: 0.8rem;
-  border: 1px solid #1976d2; border-radius: 3px;
+  width: 100%; padding: 0.3rem 0.5rem;
+  font-size: 0.82rem;
+  border: 1px solid #1976d2; border-radius: 4px;
   outline: none; box-sizing: border-box;
+  font-family: inherit;
 }
 .acct-select-list {
-  max-height: 240px; overflow-y: auto;
+  max-height: 220px; overflow-y: auto;
 }
 .acct-select-group-label {
-  padding: 0.3rem 0.6rem 0.15rem;
-  font-size: 0.7rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  color: #888; background: #f5f5f5;
+  padding: 0.25rem 0.6rem 0.1rem;
+  font-size: 0.68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: #999; background: #f5f5f5;
   border-top: 1px solid #eee;
 }
 .acct-select-option {
-  padding: 0.3rem 0.75rem;
+  padding: 0.28rem 0.75rem;
   cursor: pointer; color: #212121;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

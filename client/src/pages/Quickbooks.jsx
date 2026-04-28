@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
@@ -20,47 +21,76 @@ const EXPENSE_CLASSIFICATIONS = ['Expense', 'Cost of Goods Sold', 'Asset'];
 function AccountSelect({ value, onChange, accounts, placeholder = 'Search accounts…', warn = false, emptyLabel = null }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const containerRef = useRef(null);
+  const [dropdownStyle, setDropdownStyle] = useState({});
+  const btnRef = useRef(null);
   const inputRef = useRef(null);
 
   // Build the display label for the currently selected account
   const selected = accounts.find((a) => a.qbo_id === value);
   const displayLabel = selected ? (selected.fully_qualified_name || selected.name) : '';
 
-  // Filter to only expense-relevant accounts, then by search term
-  const eligible = accounts.filter(
-    (a) => a.active && (EXPENSE_CLASSIFICATIONS.includes(a.classification) || !a.classification)
+  // All active accounts, expense-relevant ones first
+  const expenseAccounts = accounts.filter(
+    (a) => a.active && EXPENSE_CLASSIFICATIONS.includes(a.classification)
   );
-  const q = search.trim().toLowerCase();
-  const filtered = q
-    ? eligible.filter((a) => (a.fully_qualified_name || a.name).toLowerCase().includes(q))
-    : eligible;
+  const otherAccounts = accounts.filter(
+    (a) => a.active && !EXPENSE_CLASSIFICATIONS.includes(a.classification)
+  );
 
-  // Group filtered results by classification for display
+  const q = search.trim().toLowerCase();
+  const filterFn = (a) => !q || (a.fully_qualified_name || a.name).toLowerCase().includes(q);
+
+  const filteredExpense = expenseAccounts.filter(filterFn);
+  const filteredOther = otherAccounts.filter(filterFn);
+
+  // Group expense accounts by classification
   const grouped = EXPENSE_CLASSIFICATIONS.map((cls) => ({
     cls,
-    items: filtered.filter((a) => a.classification === cls),
+    items: filteredExpense.filter((a) => a.classification === cls),
   })).filter((g) => g.items.length > 0);
-  const unclassified = filtered.filter((a) => !a.classification);
+
+  // Unclassified expense accounts + non-expense accounts go in "Other"
+  const unclassifiedExpense = filteredExpense.filter((a) => !a.classification);
+  const otherGroupItems = [...unclassifiedExpense, ...filteredOther];
+
+  const openDropdown = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      // Position below the button; if too close to bottom, open upward
+      const spaceBelow = window.innerHeight - r.bottom;
+      const dropH = Math.min(300, window.innerHeight * 0.5);
+      const top = spaceBelow >= dropH ? r.bottom + 2 : r.top - dropH - 2;
+      setDropdownStyle({
+        position: 'fixed',
+        top,
+        left: r.left,
+        width: Math.max(r.width, 280),
+        zIndex: 9999,
+      });
+    }
+    setOpen(true);
+  };
 
   // Focus the search input when dropdown opens
   useEffect(() => {
-    if (open && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
 
-  // Close on outside click
+  // Close on outside click or scroll
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+    const close = (e) => {
+      if (btnRef.current && !btnRef.current.contains(e.target)) {
         setOpen(false);
         setSearch('');
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('mousedown', close);
+    document.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('scroll', close, true);
+    };
   }, [open]);
 
   const handleSelect = (qboId) => {
@@ -69,73 +99,71 @@ function AccountSelect({ value, onChange, accounts, placeholder = 'Search accoun
     setSearch('');
   };
 
+  const dropdown = open && createPortal(
+    <div className="acct-select-dropdown" style={dropdownStyle}>
+      <div className="acct-select-search-wrap">
+        <input
+          ref={inputRef}
+          className="acct-select-search"
+          placeholder={placeholder}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+      <div className="acct-select-list">
+        <div className="acct-select-option acct-select-none" onMouseDown={() => handleSelect(null)}>
+          {emptyLabel ?? '⚠ No account'}
+        </div>
+        {grouped.map(({ cls, items }) => (
+          <div key={cls}>
+            <div className="acct-select-group-label">{cls}</div>
+            {items.map((a) => (
+              <div
+                key={a.qbo_id}
+                className={`acct-select-option${a.qbo_id === value ? ' acct-select-active' : ''}`}
+                onMouseDown={() => handleSelect(a.qbo_id)}
+              >
+                {a.fully_qualified_name || a.name}
+              </div>
+            ))}
+          </div>
+        ))}
+        {otherGroupItems.length > 0 && (
+          <div>
+            <div className="acct-select-group-label">Other</div>
+            {otherGroupItems.map((a) => (
+              <div
+                key={a.qbo_id}
+                className={`acct-select-option${a.qbo_id === value ? ' acct-select-active' : ''}`}
+                onMouseDown={() => handleSelect(a.qbo_id)}
+              >
+                {a.fully_qualified_name || a.name}
+              </div>
+            ))}
+          </div>
+        )}
+        {filteredExpense.length === 0 && filteredOther.length === 0 && (
+          <div className="acct-select-empty">No accounts match "{search}"</div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+
   return (
-    <div className={`acct-select-wrap${warn ? ' acct-select-warn' : ''}`} ref={containerRef}>
-      {/* Trigger button — always visible, shows current selection */}
+    <div className={`acct-select-wrap${warn ? ' acct-select-warn' : ''}`}>
       <button
+        ref={btnRef}
         type="button"
         className={`acct-select-btn${!value ? ' acct-select-btn-empty' : ''}`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => open ? (setOpen(false), setSearch('')) : openDropdown()}
       >
         <span className="acct-select-btn-label">
           {displayLabel || <span className="acct-select-placeholder">{emptyLabel ?? '⚠ No account'}</span>}
         </span>
         <span className="acct-select-caret">{open ? '▴' : '▾'}</span>
       </button>
-
-      {/* Dropdown — search box at top, filtered list below */}
-      {open && (
-        <div className="acct-select-dropdown">
-          <div className="acct-select-search-wrap">
-            <input
-              ref={inputRef}
-              className="acct-select-search"
-              placeholder={placeholder}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="acct-select-list">
-            <div
-              className="acct-select-option acct-select-none"
-              onMouseDown={() => handleSelect(null)}
-            >
-              {emptyLabel ?? '⚠ No account'}
-            </div>
-            {grouped.map(({ cls, items }) => (
-              <div key={cls}>
-                <div className="acct-select-group-label">{cls}</div>
-                {items.map((a) => (
-                  <div
-                    key={a.qbo_id}
-                    className={`acct-select-option${a.qbo_id === value ? ' acct-select-active' : ''}`}
-                    onMouseDown={() => handleSelect(a.qbo_id)}
-                  >
-                    {a.fully_qualified_name || a.name}
-                  </div>
-                ))}
-              </div>
-            ))}
-            {unclassified.length > 0 && (
-              <div>
-                <div className="acct-select-group-label">Other</div>
-                {unclassified.map((a) => (
-                  <div
-                    key={a.qbo_id}
-                    className={`acct-select-option${a.qbo_id === value ? ' acct-select-active' : ''}`}
-                    onMouseDown={() => handleSelect(a.qbo_id)}
-                  >
-                    {a.fully_qualified_name || a.name}
-                  </div>
-                ))}
-              </div>
-            )}
-            {filtered.length === 0 && (
-              <div className="acct-select-empty">No accounts match "{search}"</div>
-            )}
-          </div>
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }
