@@ -131,10 +131,21 @@ export async function qboFindVendor(companyId, nameContains) {
  * amount and account filtering is done client-side after fetching.
  * Returns array of matches sorted by date proximity.
  */
-export async function qboFindPurchases(companyId, accountId, totalAmt, centerDate, dayWindow = 5) {
-  const center = new Date(centerDate);
-  const start = new Date(center); start.setDate(start.getDate() - dayWindow);
-  const end   = new Date(center); end.setDate(end.getDate()   + dayWindow);
+/**
+ * @param {string} companyId
+ * @param {string|null} accountId   - filter by payment account
+ * @param {number|null} totalAmt    - filter by exact amount (within $0.01), or null for any
+ * @param {string} startDate        - search start date (YYYY-MM-DD or ISO)
+ * @param {number} dayWindow        - number of days forward from startDate to search
+ * @param {boolean} forwardOnly     - if true, search startDate → startDate+dayWindow only
+ *                                    (use for Amazon: charge date is always before bank post date)
+ *                                    if false, search symmetrically ±dayWindow around startDate
+ */
+export async function qboFindPurchases(companyId, accountId, totalAmt, startDate, dayWindow = 5, forwardOnly = false) {
+  const anchor = new Date(startDate);
+  const start = forwardOnly ? anchor : new Date(anchor);
+  if (!forwardOnly) start.setDate(start.getDate() - dayWindow);
+  const end = new Date(anchor); end.setDate(end.getDate() + dayWindow);
   const fmt = (d) => d.toISOString().slice(0, 10);
 
   const data = await qboRequest(companyId, 'GET', 'query', {
@@ -146,17 +157,22 @@ export async function qboFindPurchases(companyId, accountId, totalAmt, centerDat
 
   const target = totalAmt != null ? parseFloat(totalAmt) : null;
 
-  // Filter client-side by account and (optionally) amount within $0.01
+  // Filter client-side by amount only — do NOT filter by account.
+  // Bank-synced transactions frequently land on a different QBO account than the
+  // one configured in card mappings (e.g., Chase Visa vs. Checking). Filtering by
+  // account here silently drops valid matches. Callers that want account-preferred
+  // ordering should sort on accountId themselves.
   const matches = purchases.filter((p) => {
-    const amountMatch = target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
-    const accountMatch = !accountId || p.AccountRef?.value === accountId;
-    return amountMatch && accountMatch;
+    return target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
   });
 
-  // Sort by date proximity to the center date
+  // Sort: exact account match first, then by date proximity to anchor
   return matches.sort((a, b) => {
-    const da = Math.abs(new Date(a.TxnDate) - center);
-    const db = Math.abs(new Date(b.TxnDate) - center);
+    const aOnAccount = accountId ? (a.AccountRef?.value === accountId ? 0 : 1) : 0;
+    const bOnAccount = accountId ? (b.AccountRef?.value === accountId ? 0 : 1) : 0;
+    if (aOnAccount !== bOnAccount) return aOnAccount - bOnAccount;
+    const da = Math.abs(new Date(a.TxnDate) - anchor);
+    const db = Math.abs(new Date(b.TxnDate) - anchor);
     return da - db;
   });
 }

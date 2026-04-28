@@ -190,6 +190,63 @@ const MIGRATIONS = [
    ADD COLUMN IF NOT EXISTS exported_at TIMESTAMPTZ`,
   `ALTER TABLE company_integrations
    ADD COLUMN IF NOT EXISTS qbo_payment_account_id VARCHAR(50)`,
+  // 019: Amazon order history payments
+  `CREATE TABLE IF NOT EXISTS amazon_payments (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id           UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    payment_reference_id VARCHAR(100) NOT NULL,
+    payment_date         DATE,
+    payment_amount       NUMERIC(10,2),
+    payment_instrument   VARCHAR(50),
+    card_last4           VARCHAR(10),
+    order_ids            TEXT[] NOT NULL DEFAULT '{}',
+    imported_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, payment_reference_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payments_company ON amazon_payments(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payments_date ON amazon_payments(company_id, payment_date)`,
+  // 020: item-level data per shipment (enables Option C: split QBO updates by shipment)
+  `CREATE TABLE IF NOT EXISTS amazon_payment_items (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payment_id UUID NOT NULL REFERENCES amazon_payments(id) ON DELETE CASCADE,
+    order_id   VARCHAR(50) NOT NULL,
+    asin       VARCHAR(20),
+    title      TEXT NOT NULL,
+    item_subtotal  NUMERIC(10,2),
+    item_tax       NUMERIC(10,2),
+    item_total     NUMERIC(10,2),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payment_items_payment ON amazon_payment_items(payment_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_amazon_payment_items_order ON amazon_payment_items(order_id)`,
+  // 021: card last4 on receipts (extracted from PDF)
+  `ALTER TABLE receipts
+   ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(10),
+   ADD COLUMN IF NOT EXISTS payment_instrument VARCHAR(50)`,
+  // 022: card → QBO payment account mappings
+  `CREATE TABLE IF NOT EXISTS card_account_mappings (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    card_last4     VARCHAR(10) NOT NULL,
+    card_label     VARCHAR(100),
+    qbo_account_id VARCHAR(50) NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, card_last4)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_card_mappings_company ON card_account_mappings(company_id)`,
+  // 047: personal_use flag on card_account_mappings
+  `ALTER TABLE card_account_mappings
+   ADD COLUMN IF NOT EXISTS personal_use BOOLEAN NOT NULL DEFAULT FALSE`,
+  // 048: allow null qbo_account_id for personal-use cards
+  `ALTER TABLE card_account_mappings
+   ALTER COLUMN qbo_account_id DROP NOT NULL`,
+  // 049: classification (Asset/Liability/Equity/Revenue/Expense) on qbo_accounts
+  `ALTER TABLE qbo_accounts
+   ADD COLUMN IF NOT EXISTS classification VARCHAR(50)`,
+  // 050: rule_applied label on receipt_items
+  `ALTER TABLE receipt_items
+   ADD COLUMN IF NOT EXISTS rule_applied VARCHAR(255)`,
 ];
 
 async function run() {

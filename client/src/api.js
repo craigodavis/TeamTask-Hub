@@ -742,3 +742,73 @@ export async function reapplyRules(receiptId) {
   if (!res.ok) throw new Error(data.error || 'Failed to re-apply rules');
   return data;
 }
+
+export async function reapplyAllRules() {
+  const res = await fetch(`${API}/receipts/reapply-all-rules`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to re-apply rules');
+  return data;
+}
+
+export async function suggestRule(corrections) {
+  const res = await fetch(`${API}/receipts/suggest-rule`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ corrections }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to suggest rule');
+  return data;
+}
+
+// ── Amazon Order History ──────────────────────────────────────────────────────
+
+export async function uploadAmazonCSV(file) {
+  const formData = new FormData();
+  formData.append('csv', file);
+  const res = await fetch(`${API}/amazon-orders/upload`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${getToken()}` },
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+export async function getAmazonPayments() {
+  const res = await fetch(`${API}/amazon-orders`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load amazon orders');
+  return data;
+}
+
+export async function getAmazonStats() {
+  const res = await fetch(`${API}/amazon-orders/stats`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load stats');
+  return data;
+}
+
+// ── Card → QBO Account Mappings ───────────────────────────────────────────────
+
+export async function getCardMappings() {
+  const res = await fetch(`${API}/card-mappings`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load card mappings');
+  return data;
+}
+
+export async function saveCardMapping(mapping) {
+  const res = await fetch(`${API}/card-mappings`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(mapping),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save card mapping');
+  return data;
+}
+
+export async function deleteCardMapping(id) {
+  const res = await fetch(`${API}/card-mappings/${id}`, { method: 'DELETE', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete mapping');
+  return data;
+}

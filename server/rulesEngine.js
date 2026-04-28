@@ -133,9 +133,9 @@ export function applyRules(item, vendor, rules, accounts) {
       if (!matchesExpr(rule.if_description_contains, item.description || '')) matches = false;
     }
 
-    // IF vendor is
+    // IF vendor is — substring match so "Amazon" matches "Amazon Business", "Amazon.com", etc.
     if (matches && rule.if_vendor) {
-      if (vendorLower !== rule.if_vendor.toLowerCase()) matches = false;
+      if (!vendorLower.includes(rule.if_vendor.toLowerCase())) matches = false;
     }
 
     // IF AI-suggested account type contains
