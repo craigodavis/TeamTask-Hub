@@ -92,24 +92,33 @@ export async function suggestRulesFromCorrections(corrections, accounts) {
     max_tokens: 2048,
     messages: [{
       role: 'user',
-      content: `A user manually corrected account categorizations for Amazon purchase line items. Analyze the corrections and suggest categorization rules so similar items are handled automatically in the future.
+      content: `A user manually corrected account categorizations for Amazon purchase line items. Suggest categorization rules that will catch similar items automatically in the future.
 
 Corrections made:
 ${correctionLines}
 
-Group similar corrections into a single rule when they share the same target account and a clear description pattern. Use the EXACT account id strings from the corrections above.
+CRITICAL RULE-WRITING GUIDELINES:
+- Write rules based on the PRODUCT CATEGORY, not the specific brand or model.
+  Good: "printer" catches any printer. Bad: "Epson ET-2803" only catches that one model.
+- Strip out model numbers, SKUs, version numbers, and dimensions entirely.
+- Brand names are OK only when the brand itself defines the category (e.g. "Epson" for printers is borderline — prefer the generic term).
+- Use broad category keywords: "printer", "ink", "luggage", "headphones", "cable", "cleaning supply", etc.
+- Use OR to cover synonyms: "printer OR copier OR scanner"
+- if_description_contains should match a wide range of similar products, not just the exact item corrected.
+- Group corrections targeting the same account into a single rule when they share a product category.
+- Use the EXACT account id strings from the corrections above.
 
 Return ONLY a valid JSON array (no markdown). Each element:
 {
-  "name": "short descriptive rule name",
-  "if_description_contains": "keyword1 OR keyword2 — use OR for synonyms; space-separated words are AND-ed",
-  "then_account_id": "exact account id string",
+  "name": "short category-level rule name (e.g. 'Printers & Scanners', not 'Epson ET-2803')",
+  "if_description_contains": "generic category keyword(s) — e.g. 'printer OR scanner OR copier'",
+  "then_account_id": "exact account id string from corrections",
   "then_class_id": "class id string or null",
   "priority": 50,
-  "notes": "one sentence explaining why this rule makes sense"
+  "notes": "one sentence explaining the category this rule covers"
 }
 
-Return [] if no clear repeatable pattern can be inferred.`,
+Return [] if no clear category pattern can be inferred.`,
     }],
   });
 

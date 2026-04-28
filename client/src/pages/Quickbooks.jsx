@@ -212,12 +212,16 @@ export function Quickbooks({ user }) {
     try {
       await saveReceiptItems(reviewing.id, reviewing.items);
 
-      // Detect items where the user changed the account from the original AI suggestion
+      // Detect any item where the user assigned or changed the account
+      // (regardless of item_status — pending items manually edited count too)
       const corrections = reviewing.items
-        .filter((it) => it.item_status === 'accepted')
         .map((it) => {
           const orig = reviewingOriginal?.find((o) => o.id === it.id);
-          if (!orig || orig.qbo_account_id === it.qbo_account_id) return null;
+          if (!orig) return null;
+          const accountChanged = orig.qbo_account_id !== it.qbo_account_id;
+          const classChanged = orig.qbo_class_id !== it.qbo_class_id;
+          if (!accountChanged && !classChanged) return null;
+          if (!it.qbo_account_id) return null; // user cleared the account — no rule to make
           return {
             description: it.description,
             total: it.total,
