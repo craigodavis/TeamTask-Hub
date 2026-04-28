@@ -4,7 +4,7 @@ import {
   getQBOStatus, syncQBO,
   uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems, deleteReceipt,
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
-  getRules, createRule, updateRule, deleteRule, reapplyRules,
+  getRules, createRule, updateRule, deleteRule, reapplyRules, reapplyAllRules, suggestRule,
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
   getCardMappings, saveCardMapping, deleteCardMapping,
 } from '../api';
@@ -65,6 +65,11 @@ export function Quickbooks({ user }) {
 
   // Re-apply rules
   const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
+  const [reapplyingAll, setReapplyingAll] = useState(false);
+
+  // Rule suggestions (generated after user corrects categories)
+  const [ruleSuggestions, setRuleSuggestions] = useState([]); // [{name, if_description_contains, then_account_id, ...}]
+  const [suggestingRules, setSuggestingRules] = useState(false);
 
   // Card mappings (Settings tab)
   const [cardMappings, setCardMappings] = useState([]);
@@ -182,9 +187,15 @@ export function Quickbooks({ user }) {
   };
 
   // ── Review ──
+  const [reviewingOriginal, setReviewingOriginal] = useState(null); // snapshot of items at open time
+
   const openReview = async (receiptId) => {
-    setReviewLoading(true); setReviewing(null);
-    try { const r = await getReceipt(receiptId); setReviewing(r); }
+    setReviewLoading(true); setReviewing(null); setReviewingOriginal(null);
+    try {
+      const r = await getReceipt(receiptId);
+      setReviewing(r);
+      setReviewingOriginal(r.items.map((it) => ({ id: it.id, qbo_account_id: it.qbo_account_id, qbo_class_id: it.qbo_class_id })));
+    }
     catch (e) { setError(e.message); }
     finally { setReviewLoading(false); }
   };
@@ -200,9 +211,36 @@ export function Quickbooks({ user }) {
     setSaving(true);
     try {
       await saveReceiptItems(reviewing.id, reviewing.items);
+
+      // Detect items where the user changed the account from the original AI suggestion
+      const corrections = reviewing.items
+        .filter((it) => it.item_status === 'accepted')
+        .map((it) => {
+          const orig = reviewingOriginal?.find((o) => o.id === it.id);
+          if (!orig || orig.qbo_account_id === it.qbo_account_id) return null;
+          return {
+            description: it.description,
+            total: it.total,
+            old_account_id: orig.qbo_account_id,
+            new_account_id: it.qbo_account_id,
+            new_class_id: it.qbo_class_id || null,
+          };
+        })
+        .filter(Boolean);
+
       setReviewing(null);
       loadReceipts(activeTab);
       setMessage('Receipt review saved.');
+
+      // If the user changed any categories, ask the AI to suggest rules
+      if (corrections.length > 0) {
+        setSuggestingRules(true);
+        try {
+          const { suggestions } = await suggestRule(corrections);
+          if (suggestions?.length) setRuleSuggestions(suggestions);
+        } catch { /* non-fatal */ }
+        finally { setSuggestingRules(false); }
+      }
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   };
@@ -332,6 +370,17 @@ export function Quickbooks({ user }) {
       loadReceipts(activeTab);
       setMessage(`Receipt ${receipt.order_number} removed.`);
     } catch (e) { setError(e.message); }
+  };
+
+  // ── Bulk reapply all rules ──
+  const handleReapplyAllRules = async () => {
+    setReapplyingAll(true); setError(''); setMessage('');
+    try {
+      const r = await reapplyAllRules();
+      setMessage(`Rules re-applied across ${r.receipts_checked} receipts — ${r.items_updated} item${r.items_updated !== 1 ? 's' : ''} updated across ${r.receipts_affected} receipt${r.receipts_affected !== 1 ? 's' : ''}.`);
+      loadReceipts(activeTab);
+    } catch (e) { setError(e.message); }
+    finally { setReapplyingAll(false); }
   };
 
   // ── Rules ──
@@ -544,21 +593,26 @@ export function Quickbooks({ user }) {
             )}
           </div>
 
-          {activeTab === 'pending' && activeTab !== 'amazon' && receipts.length > 0 && (
+          {activeTab === 'pending' && (
             <div className="qb-bulk-bar">
-              <label className="qb-bulk-select-all">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.size === receipts.length && receipts.length > 0}
-                  onChange={toggleSelectAll}
-                />
-                {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
-              </label>
+              {receipts.length > 0 && (
+                <label className="qb-bulk-select-all">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === receipts.length && receipts.length > 0}
+                    onChange={toggleSelectAll}
+                  />
+                  {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+                </label>
+              )}
               {selectedIds.size > 0 && (
                 <button type="button" className="qb-btn-bulk-accept" onClick={handleBulkAccept} disabled={bulkAccepting}>
                   {bulkAccepting ? 'Accepting…' : `✓ Accept Selected (${selectedIds.size})`}
                 </button>
               )}
+              <button type="button" className="qb-btn-reapply-all" onClick={handleReapplyAllRules} disabled={reapplyingAll}>
+                {reapplyingAll ? 'Re-applying…' : '⚙ Reapply All Rules'}
+              </button>
             </div>
           )}
 
@@ -826,6 +880,51 @@ export function Quickbooks({ user }) {
                       </button>
                     }
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Rule suggestions from corrections ── */}
+          {suggestingRules && (
+            <div className="qb-rule-suggestion-banner">
+              ✨ Analyzing your corrections to suggest rules…
+            </div>
+          )}
+          {ruleSuggestions.length > 0 && (
+            <div className="qb-rule-suggestions">
+              <div className="qb-rule-suggestions-header">
+                <div>
+                  <strong>💡 Suggested rules based on your corrections</strong>
+                  <span className="qb-rule-suggestions-sub"> — review and add any that look right</span>
+                </div>
+                <button type="button" className="qb-btn-dismiss" onClick={() => setRuleSuggestions([])}>Dismiss</button>
+              </div>
+              {ruleSuggestions.map((s, i) => (
+                <div key={i} className="qb-rule-suggestion-row">
+                  <div className="qb-rule-suggestion-details">
+                    <div className="qb-rule-suggestion-name">{s.name}</div>
+                    <div className="qb-rule-suggestion-desc">
+                      IF description contains <code>{s.if_description_contains}</code>
+                      {s.then_account_id && (
+                        <> → <strong>{accounts.find((a) => a.qbo_id === s.then_account_id)?.fully_qualified_name || s.then_account_id}</strong></>
+                      )}
+                    </div>
+                    {s.notes && <div className="qb-rule-suggestion-notes">{s.notes}</div>}
+                  </div>
+                  <button
+                    type="button" className="qb-btn-add-suggestion"
+                    onClick={async () => {
+                      try {
+                        await createRule({ ...s, active: true });
+                        setRuleSuggestions((prev) => prev.filter((_, j) => j !== i));
+                        loadRules();
+                        setMessage(`Rule "${s.name}" added.`);
+                      } catch (e) { setError(e.message); }
+                    }}
+                  >
+                    + Add Rule
+                  </button>
                 </div>
               ))}
             </div>
@@ -1174,11 +1273,40 @@ export function Quickbooks({ user }) {
                               </td>
                               <td className="qb-item-total">{item.total != null ? `$${parseFloat(item.total).toFixed(2)}` : '—'}</td>
                               <td>
-                                {item.qbo_account_id
-                                  ? <div className="qb-item-account">{item.account_full_name || item.account_name || `ID: ${item.qbo_account_id}`}</div>
-                                  : <div className="qb-item-no-acct-label">⚠ No account — please assign</div>}
+                                <select
+                                  className={`qb-item-select${!item.qbo_account_id ? ' qb-item-select-warn' : ''}`}
+                                  value={item.qbo_account_id || ''}
+                                  onChange={(e) => handleItemChange(item.id, 'qbo_account_id', e.target.value || null)}
+                                >
+                                  <option value="">⚠ No account</option>
+                                  {['Revenue', 'Expense', 'Cost of Goods Sold', 'Asset', 'Liability', 'Equity'].map((cls) => {
+                                    const grp = accounts.filter((a) => a.active && a.classification === cls);
+                                    if (!grp.length) return null;
+                                    return (
+                                      <optgroup key={cls} label={cls}>
+                                        {grp.map((a) => (
+                                          <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                                        ))}
+                                      </optgroup>
+                                    );
+                                  })}
+                                  {accounts.filter((a) => a.active && !a.classification).map((a) => (
+                                    <option key={a.qbo_id} value={a.qbo_id}>{a.fully_qualified_name || a.name}</option>
+                                  ))}
+                                </select>
                               </td>
-                              <td>{item.class_name || '—'}</td>
+                              <td>
+                                <select
+                                  className="qb-item-select"
+                                  value={item.qbo_class_id || ''}
+                                  onChange={(e) => handleItemChange(item.id, 'qbo_class_id', e.target.value || null)}
+                                >
+                                  <option value="">— no class —</option>
+                                  {classes.filter((c) => c.active).map((c) => (
+                                    <option key={c.qbo_id} value={c.qbo_id}>{c.fully_qualified_name || c.name}</option>
+                                  ))}
+                                </select>
+                              </td>
                               <td>
                                 <div className="qb-decision-btns">
                                   <button type="button" className={`qb-btn-accept ${item.item_status === 'accepted' ? 'active' : ''}`} onClick={() => handleItemChange(item.id, 'item_status', 'accepted')}>✓</button>

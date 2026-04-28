@@ -6,7 +6,7 @@ import { requireAuth, requireOwner } from '../middleware/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
+import { extractReceiptData, categorizeLineItems, suggestRulesFromCorrections } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
 import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile } from '../qboClient.js';
 
@@ -320,6 +320,66 @@ router.delete('/rules/:id', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── POST /api/receipts/reapply-all-rules ─────────────────────────────────────
+// Re-run active rules against ALL pending items across ALL pending receipts.
+router.post('/reapply-all-rules', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  try {
+    const [receiptsRes, accountsRes, rulesRes] = await Promise.all([
+      query(`SELECT id, vendor FROM receipts WHERE company_id = $1 AND status = 'pending'`, [cId]),
+      query(`SELECT qbo_id, name, account_type FROM qbo_accounts WHERE company_id = $1`, [cId]),
+      query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
+    ]);
+    const accounts = accountsRes.rows;
+    const rules = rulesRes.rows;
+    let itemsUpdated = 0;
+    let receiptsAffected = 0;
+
+    for (const receipt of receiptsRes.rows) {
+      const itemsRes = await query(
+        `SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`,
+        [receipt.id]
+      );
+      let changed = 0;
+      for (const item of itemsRes.rows) {
+        const override = applyRules(item, receipt.vendor, rules, accounts);
+        if (override.rule_applied || override.qbo_account_id !== item.qbo_account_id || override.qbo_class_id !== item.qbo_class_id) {
+          await query(
+            `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3, rule_applied = $4 WHERE id = $1`,
+            [item.id, override.qbo_account_id, override.qbo_class_id, override.rule_applied || null]
+          );
+          changed++;
+        }
+      }
+      if (changed > 0) { itemsUpdated += changed; receiptsAffected++; }
+    }
+
+    res.json({ ok: true, items_updated: itemsUpdated, receipts_affected: receiptsAffected, receipts_checked: receiptsRes.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/suggest-rule ──────────────────────────────────────────
+// AI suggests categorization rules based on user corrections.
+// Body: { corrections: [{ description, total, old_account_id, new_account_id, new_class_id }] }
+router.post('/suggest-rule', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { corrections } = req.body;
+  if (!Array.isArray(corrections) || !corrections.length) return res.json({ suggestions: [] });
+  try {
+    const accountsRes = await query(
+      `SELECT qbo_id, name, fully_qualified_name, account_type, classification FROM qbo_accounts WHERE company_id = $1`,
+      [cId]
+    );
+    const suggestions = await suggestRulesFromCorrections(corrections, accountsRes.rows);
+    res.json({ suggestions });
+  } catch (err) {
+    console.error('[suggest-rule]', err.message);
+    res.json({ suggestions: [] }); // non-fatal
+  }
+});
+
 // ── GET /api/receipts/:id ─────────────────────────────────────────────────────
 // Single receipt with all line items + account/class names.
 router.get('/:id', requireAuth, requireOwner, async (req, res) => {
@@ -352,12 +412,30 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
 
 // ── POST /api/receipts/:id/accept-all ────────────────────────────────────────
 // Accept all pending items on this receipt and mark it reviewed.
+// Rules are applied immediately before accepting so the latest rules take effect.
 router.post('/:id/accept-all', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
   const { id } = req.params;
   try {
-    const rr = await query(`SELECT id FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
+    const rr = await query(`SELECT id, vendor FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
     if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+    const vendor = rr.rows[0].vendor;
+
+    // Apply rules to all pending items before accepting
+    const [pendingRes, accountsRes, rulesRes] = await Promise.all([
+      query(`SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`, [id]),
+      query(`SELECT qbo_id, name, account_type FROM qbo_accounts WHERE company_id = $1`, [cId]),
+      query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
+    ]);
+    for (const item of pendingRes.rows) {
+      const override = applyRules(item, vendor, rulesRes.rows, accountsRes.rows);
+      if (override.rule_applied || override.qbo_account_id !== item.qbo_account_id || override.qbo_class_id !== item.qbo_class_id) {
+        await query(
+          `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3, rule_applied = $4 WHERE id = $1`,
+          [item.id, override.qbo_account_id, override.qbo_class_id, override.rule_applied || null]
+        );
+      }
+    }
 
     // Accept all pending items
     const updated = await query(

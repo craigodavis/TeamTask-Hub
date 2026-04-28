@@ -67,6 +67,57 @@ ${pdfText}`,
  * @param {Array} memory       - Array of { product_pattern, qbo_account_id, qbo_class_id }
  * @returns {Array}            - Array of { description, qbo_account_id, qbo_class_id, confidence, reasoning }
  */
+/**
+ * Analyze user-made corrections to item categorizations and suggest rules.
+ * @param {Array} corrections  [{description, total, old_account_id, new_account_id, new_class_id}]
+ * @param {Array} accounts     All qbo_accounts for the company
+ * @returns {Array}            Suggested rule objects (name, if_description_contains, then_account_id, ...)
+ */
+export async function suggestRulesFromCorrections(corrections, accounts) {
+  if (!corrections.length) return [];
+  const client = getClient();
+
+  const accountMap = new Map(
+    accounts.map((a) => [a.qbo_id, `${a.fully_qualified_name || a.name} [${a.classification || a.account_type || ''}]`])
+  );
+
+  const correctionLines = corrections.map((c, i) => {
+    const oldName = c.old_account_id ? (accountMap.get(c.old_account_id) || c.old_account_id) : 'no account';
+    const newName = c.new_account_id ? (accountMap.get(c.new_account_id) || c.new_account_id) : 'none';
+    return `${i + 1}. "${c.description}"${c.total ? ` ($${c.total})` : ''}: was "${oldName}" → changed to "${newName}"${c.new_class_id ? ` / class ${c.new_class_id}` : ''}`;
+  }).join('\n');
+
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 2048,
+    messages: [{
+      role: 'user',
+      content: `A user manually corrected account categorizations for Amazon purchase line items. Analyze the corrections and suggest categorization rules so similar items are handled automatically in the future.
+
+Corrections made:
+${correctionLines}
+
+Group similar corrections into a single rule when they share the same target account and a clear description pattern. Use the EXACT account id strings from the corrections above.
+
+Return ONLY a valid JSON array (no markdown). Each element:
+{
+  "name": "short descriptive rule name",
+  "if_description_contains": "keyword1 OR keyword2 — use OR for synonyms; space-separated words are AND-ed",
+  "then_account_id": "exact account id string",
+  "then_class_id": "class id string or null",
+  "priority": 50,
+  "notes": "one sentence explaining why this rule makes sense"
+}
+
+Return [] if no clear repeatable pattern can be inferred.`,
+    }],
+  });
+
+  const raw = message.content[0].text.trim();
+  const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+  try { return JSON.parse(json); } catch { return []; }
+}
+
 export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '') {
   if (!items.length) return [];
 

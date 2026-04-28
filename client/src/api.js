@@ -743,6 +743,22 @@ export async function reapplyRules(receiptId) {
   return data;
 }
 
+export async function reapplyAllRules() {
+  const res = await fetch(`${API}/receipts/reapply-all-rules`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to re-apply rules');
+  return data;
+}
+
+export async function suggestRule(corrections) {
+  const res = await fetch(`${API}/receipts/suggest-rule`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ corrections }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to suggest rule');
+  return data;
+}
+
 // ── Amazon Order History ──────────────────────────────────────────────────────
 
 export async function uploadAmazonCSV(file) {
