@@ -119,9 +119,38 @@
 .qb-btn-export:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Export preview modal ── */
-.qb-export-modal { max-width: 1000px; }
+.qb-export-modal { max-width: 1100px; }
+.qb-export-table-wrap { overflow-x: auto; max-height: 60vh; overflow-y: auto; }
+.qb-export-table {
+  width: 100%; border-collapse: collapse; font-size: 0.82rem;
+  table-layout: fixed;
+}
+.qb-export-table th {
+  background: #f5f5f5; padding: 0.5rem 0.6rem; text-align: left;
+  font-weight: 600; font-size: 0.75rem; color: #555;
+  border-bottom: 1px solid #e0e0e0; white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
+}
+.qb-export-table td {
+  padding: 0.55rem 0.6rem; border-bottom: 1px solid #f0f0f0;
+  vertical-align: top; overflow: hidden;
+}
+/* Column widths */
+.qb-export-table col.col-check  { width: 36px; }
+.qb-export-table col.col-receipt { width: 28%; }
+.qb-export-table col.col-date   { width: 80px; }
+.qb-export-table col.col-total  { width: 70px; }
+.qb-export-table col.col-match  { width: 22%; }
+.qb-export-table col.col-cat    { width: 22%; }
+.qb-export-table col.col-conf   { width: 80px; }
+
 .qb-export-row.no-match { background: #fff8f8; }
 .qb-no-match-label { color: #c62828; font-size: 0.82rem; }
+/* Truncate long text in match / category cells */
+.qb-export-cell-truncate {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: block; max-width: 100%;
+}
 .qb-confidence {
   display: inline-block; font-size: 0.75rem; font-weight: 600;
   padding: 0.15rem 0.5rem; border-radius: 10px; text-transform: capitalize;

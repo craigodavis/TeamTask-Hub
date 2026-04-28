@@ -1226,15 +1226,24 @@ export function Quickbooks({ user }) {
                   <button type="button" className="qb-modal-close" onClick={() => setExportPreviewing(false)}>✕</button>
                 </div>
 
-                <div className="qb-review-table-wrap">
-                  <table className="qb-review-table">
+                <div className="qb-export-table-wrap">
+                  <table className="qb-export-table">
+                    <colgroup>
+                      <col className="col-check" />
+                      <col className="col-receipt" />
+                      <col className="col-date" />
+                      <col className="col-total" />
+                      <col className="col-match" />
+                      <col className="col-cat" />
+                      <col className="col-conf" />
+                    </colgroup>
                     <thead>
                       <tr>
-                        <th style={{ width: 32 }}></th>
+                        <th></th>
                         <th>Receipt</th>
                         <th>Date</th>
                         <th>Total</th>
-                        <th>QBO Transaction Found</th>
+                        <th>QBO Match</th>
                         <th>Current Category</th>
                         <th>Confidence</th>
                       </tr>
@@ -1307,7 +1316,7 @@ export function Quickbooks({ user }) {
                                     {p.days_diff > 0 && <span style={{ color: '#888', marginLeft: 4 }}>({p.days_diff}d off)</span>}
                                     <span style={{ marginLeft: 6, fontWeight: 600 }}>${parseFloat(p.match.total || 0).toFixed(2)}</span>
                                   </div>
-                                  {p.match.vendor && <div style={{ color: '#777', fontSize: '0.78rem' }}>{p.match.vendor}</div>}
+                                  {p.match.vendor && <div className="qb-export-cell-truncate" style={{ color: '#777', fontSize: '0.78rem' }} title={p.match.vendor}>{p.match.vendor}</div>}
                                   {p.match.account_match === false && p.match.qbo_account_name && (
                                     <div style={{ color: '#e65100', fontSize: '0.75rem', marginTop: 2 }}>
                                       ⚠ In QBO account: {p.match.qbo_account_name}
@@ -1327,7 +1336,7 @@ export function Quickbooks({ user }) {
                                     <span className="qb-no-match-label">No match found</span>
                                     {p.reason && <div style={{ fontSize: '0.75rem', color: '#999' }}>{p.reason}</div>}
                                     <div style={{ fontSize: '0.72rem', color: '#b26a00', marginTop: 3 }}>
-                                      Tip: if the transaction is still "For Review" in QBO, accept it there first — the API only returns posted transactions.
+                                      Tip: accept "For Review" transactions in QBO first.
                                     </div>
                                     <button
                                       type="button" className="qb-btn-manual-link"
@@ -1355,11 +1364,14 @@ export function Quickbooks({ user }) {
                                 );
                               })()}
                             </td>
-                            <td style={{ fontSize: '0.85rem', color: '#555' }}>
-                              {hasMatch ? p.match.current_categories
-                                : (ml?.selectedQboId
-                                    ? ml.results?.find(r => r.qbo_id === ml.selectedQboId)?.current_categories || '—'
-                                    : '—')}
+                            <td>
+                              {(() => {
+                                const cat = hasMatch ? p.match.current_categories
+                                  : (ml?.selectedQboId
+                                      ? ml.results?.find(r => r.qbo_id === ml.selectedQboId)?.current_categories || '—'
+                                      : '—');
+                                return <span className="qb-export-cell-truncate" style={{ fontSize: '0.8rem', color: '#555' }} title={cat}>{cat}</span>;
+                              })()}
                             </td>
                             <td>
                               {hasMatch ? (
