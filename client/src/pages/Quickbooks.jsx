@@ -377,7 +377,7 @@ export function Quickbooks({ user }) {
     setReapplyingAll(true); setError(''); setMessage('');
     try {
       const r = await reapplyAllRules();
-      setMessage(`Rules re-applied across ${r.receipts_checked} receipts — ${r.items_updated} item${r.items_updated !== 1 ? 's' : ''} updated across ${r.receipts_affected} receipt${r.receipts_affected !== 1 ? 's' : ''}.`);
+      setMessage(`Rules re-applied across all receipts — ${r.items_updated} item${r.items_updated !== 1 ? 's' : ''} updated across ${r.receipts_affected} receipt${r.receipts_affected !== 1 ? 's' : ''} (${r.receipts_checked} checked).`);
       loadReceipts(activeTab);
     } catch (e) { setError(e.message); }
     finally { setReapplyingAll(false); }
@@ -861,11 +861,11 @@ export function Quickbooks({ user }) {
                   <div className="qb-receipt-right">
                     {r.total != null && <span className="qb-receipt-total">${parseFloat(r.total).toFixed(2)}</span>}
                     <span className="qb-receipt-items">{r.item_count} items</span>
-                    {activeTab === 'pending' && <>
-                      <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying || !!accepting} title="Re-apply categorization rules to pending items">
+                    {(activeTab === 'pending' || activeTab === 'reviewed' || activeTab === 'imported') && (
+                      <button type="button" className="qb-btn-reapply" onClick={() => handleReapplyRules(r.id)} disabled={!!reapplying || !!accepting} title="Re-apply categorization rules to all items on this receipt">
                         {reapplying === r.id ? '…' : '⚙'}
                       </button>
-                    </>}
+                    )}
                     {(activeTab === 'pending' || activeTab === 'reviewed' || activeTab === 'excluded') &&
                       <button type="button" className="qb-btn-delete-receipt" onClick={() => handleDeleteReceipt(r)} title="Remove this receipt">
                         ✕

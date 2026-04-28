@@ -326,7 +326,7 @@ router.post('/reapply-all-rules', requireAuth, requireOwner, async (req, res) =>
   const cId = req.companyId;
   try {
     const [receiptsRes, accountsRes, rulesRes] = await Promise.all([
-      query(`SELECT id, vendor FROM receipts WHERE company_id = $1 AND status = 'pending'`, [cId]),
+      query(`SELECT id, vendor FROM receipts WHERE company_id = $1 AND status IN ('pending','reviewed','imported')`, [cId]),
       query(`SELECT qbo_id, name, account_type FROM qbo_accounts WHERE company_id = $1`, [cId]),
       query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
     ]);
@@ -337,7 +337,7 @@ router.post('/reapply-all-rules', requireAuth, requireOwner, async (req, res) =>
 
     for (const receipt of receiptsRes.rows) {
       const itemsRes = await query(
-        `SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`,
+        `SELECT * FROM receipt_items WHERE receipt_id = $1`,
         [receipt.id]
       );
       let changed = 0;
@@ -481,7 +481,7 @@ router.post('/:id/reapply-rules', requireAuth, requireOwner, async (req, res) =>
     const vendor = rr.rows[0].vendor;
 
     const [itemsRes, accountsRes, rulesRes] = await Promise.all([
-      query(`SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`, [id]),
+      query(`SELECT * FROM receipt_items WHERE receipt_id = $1`, [id]),
       query(`SELECT qbo_id, name, account_type FROM qbo_accounts WHERE company_id = $1`, [cId]),
       query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
     ]);
