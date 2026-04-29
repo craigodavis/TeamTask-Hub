@@ -92,7 +92,7 @@ function App() {
           <Route
             path="/quickbooks"
             element={
-              user?.role === 'owner' ? (
+              user?.role === 'owner' || user?.role === 'manager' ? (
                 <Quickbooks user={user} />
               ) : (
                 <Navigate to="/" replace />

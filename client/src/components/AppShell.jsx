@@ -76,7 +76,7 @@ export function AppShell({ user, onLogout, children }) {
           >
             <span>Food</span>
           </NavLink>
-          {isOwner && (
+          {isManager && (
             <NavLink
               to="/quickbooks"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
