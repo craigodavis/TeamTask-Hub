@@ -11,7 +11,7 @@ import { companiesRouter } from './routes/companies.js';
 import { taskListsRouter } from './routes/taskLists.js';
 import { announcementsRouter } from './routes/announcements.js';
 import { foodWasteRouter } from './routes/foodWaste.js';
-import { integrationsRouter } from './routes/integrations.js';
+import { integrationsRouter, startDailySquareAutoSync } from './routes/integrations.js';
 import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager } from './middleware/auth.js';
 import { settingsRouter } from './routes/settings.js';
@@ -71,7 +71,9 @@ app.listen(PORT, () => {
 ensureLocationsTables()
   .then(() => {
     console.log('Schema checks (locations / migration 008) finished.');
+    startDailySquareAutoSync();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
+    startDailySquareAutoSync();
   });

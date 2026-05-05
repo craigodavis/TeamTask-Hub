@@ -509,6 +509,17 @@ export async function squareSyncUsers() {
   return data;
 }
 
+export async function setSquareUserExcluded(square_team_member_id, excluded) {
+  const res = await fetch(`${API}/integrations/square/exclusions`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ square_team_member_id, excluded }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update exclusion');
+  return data;
+}
+
 export async function sendSms(user_ids, message_body) {
   const res = await fetch(`${API}/integrations/twilio/send`, {
     method: 'POST',

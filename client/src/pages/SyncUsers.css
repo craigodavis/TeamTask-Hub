@@ -73,6 +73,21 @@
   min-width: 0;
 }
 
+.square-team-badge-excluded {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: #8a3a00;
+  background: #ffe9d6;
+  border: 1px solid #ffc79b;
+  vertical-align: middle;
+}
+
 .square-team-status {
   color: var(--text-muted);
   font-size: 0.85rem;
