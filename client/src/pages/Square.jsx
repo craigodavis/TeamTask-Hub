@@ -99,6 +99,13 @@ function formatCell(field, value) {
     const n = parseFloat(value);
     if (!isNaN(n)) return Math.round(n).toLocaleString();
   }
+  // Format date/timestamp columns as mm/dd/yyyy
+  if (field.endsWith('_at') || field.endsWith('_date') || field === 'date' || field.startsWith('date_')) {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) {
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    }
+  }
   return String(value);
 }
 
