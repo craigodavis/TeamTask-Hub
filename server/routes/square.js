@@ -142,6 +142,13 @@ When asked about wine by type, use your grape knowledge + ILIKE patterns. Exampl
       OR oli.name ILIKE '%Syrah%' OR oli.name ILIKE '%Petit Verdot%'
       OR oli.name ILIKE '%Malbec%' OR oli.name ILIKE '%Pinot Noir%')
 
+CRITICAL: When filtering by wine type using ILIKE name patterns, do NOT also filter
+by category (e.g. do NOT add COALESCE(cc.name, cmap.category_name) = '750ml Bottle').
+The ILIKE name patterns are specific enough — adding a category filter causes most wines
+to be silently excluded due to catalog data inconsistencies (missing or duplicate category
+links). Only join the category tables if the user specifically asks to break down by
+format (bottle vs glass pour vs flight).
+
 ── BUSINESS KNOWLEDGE: USE FOR KINDRED-SPECIFIC FACTS ──
 The BUSINESS KNOWLEDGE section holds facts specific to Kindred that you cannot know from
 general training — exact product names, staff names, hours, business rules, etc.
