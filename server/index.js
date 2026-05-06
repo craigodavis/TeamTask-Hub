@@ -20,6 +20,7 @@ import { debtRouter } from './routes/debt.js';
 import { receiptsRouter } from './routes/receipts.js';
 import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
+import { squareRouter } from './routes/square.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
@@ -50,6 +51,7 @@ app.use('/api/debt', requireAuth, debtRouter);
 app.use('/api/receipts', requireAuth, receiptsRouter);
 app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
+app.use('/api/square', requireAuth, requireManager, squareRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });

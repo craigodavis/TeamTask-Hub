@@ -86,6 +86,16 @@ export function AppShell({ user, onLogout, children }) {
               <span>QuickBooks</span>
             </NavLink>
           )}
+          {isManager && (
+            <NavLink
+              to="/square"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="◼"
+              title="Square"
+            >
+              <span>Square</span>
+            </NavLink>
+          )}
           {managerLinks.map((item) => (
             <NavLink
               key={item.to}
