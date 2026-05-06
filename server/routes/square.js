@@ -148,14 +148,13 @@ router.post('/ask', async (req, res) => {
     });
     aiMessage = response.content[0]?.text?.trim() || '';
 
-    // Strip markdown code fences (```sql ... ``` or ``` ... ```)
-    sql = aiMessage
-      .replace(/^```(?:sql)?\s*/i, '')
-      .replace(/\s*```\s*$/, '')
-      .trim();
+    // Extract SQL: find the first SELECT or WITH keyword anywhere in the response
+    // This handles markdown fences, preamble text, explanations, etc.
+    const sqlMatch = aiMessage.match(/((?:WITH|SELECT)\s[\s\S]+)/i);
+    sql = sqlMatch ? sqlMatch[1].trim() : aiMessage.trim();
 
-    // Strip any trailing semicolons
-    sql = sql.replace(/;\s*$/, '').trim();
+    // Strip trailing markdown fences and semicolons
+    sql = sql.replace(/\s*```[\s\S]*$/, '').replace(/;\s*$/, '').trim();
   } catch (err) {
     console.error('[square/ask] AI error:', err.message);
     return res.status(500).json({ error: 'AI request failed', details: err.message });
