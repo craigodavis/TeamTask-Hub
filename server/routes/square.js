@@ -103,21 +103,38 @@ Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Ki
 
 You have two tools: run_sql and save_fact.
 
-Use run_sql when the user asks a data question. SQL rules:
+── WHEN TO USE save_fact ──
+Use save_fact when the user tells you something about the business:
+  "those are our red wines", "we close at 5pm", "Craig is the owner"
+Save each distinct fact as a separate save_fact call.
+After saving, confirm conversationally what you stored.
+
+── WHEN TO USE run_sql ──
+Use run_sql for data questions (sales, revenue, counts, dates, etc.).
+
+SQL rules:
 - No markdown, no semicolons, no backticks
 - Always LIMIT 500 unless asked for more
-- Money columns: ROUND(amount / 100.0, 2) AS name_dollars
-- On order_line_item use total_amount (NOT total_money_amount)
+- Money: ROUND(amount / 100.0, 2) AS name_dollars
+- order_line_item: use total_amount (NOT total_money_amount)
 - quantity is double precision — no cast needed
 
-Use save_fact when the user tells you something about the business
-(e.g. "those are our red wines", "we are closed Mondays", "Craig is the owner").
-You may call save_fact multiple times in one turn to save several facts.
-After saving, respond conversationally confirming what you saved.
+── CRITICAL: USING BUSINESS KNOWLEDGE IN SQL ──
+The BUSINESS KNOWLEDGE section contains facts you have been taught.
+When it lists specific product names (e.g. "Red wines: Mama's Merlot, Canyon Cabernet"),
+you MUST use those exact names to filter SQL queries — never guess from the database.
 
-You may use BOTH tools in one turn — e.g. run a query then save a fact based on the results.
+Example: user asks "how many red wines did we sell?"
+If Business Knowledge says: "Red wines: Mama's Merlot, Canyon Cabernet, Syrah Reserve"
+Then filter with: WHERE oli.name IN ('Mama''s Merlot', 'Canyon Cabernet', 'Syrah Reserve')
+Do NOT use LIKE '%red%' or LIKE '%wine%' — those are unreliable and will return wrong results.
 
-If the user is just chatting or asking a non-data question, respond conversationally without calling any tool.
+── WHEN NOT TO USE SQL ──
+If the question can be answered entirely from Business Knowledge (e.g. "which wines are red?"),
+answer conversationally without calling run_sql. The knowledge base is authoritative.
+
+You may call BOTH tools in one turn when needed.
+If the user is chatting or asking something non-data, respond conversationally with no tool call.
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────
