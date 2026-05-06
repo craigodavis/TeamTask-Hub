@@ -71,6 +71,21 @@ Order line item → category (ALWAYS use this pattern for category queries):
   LEFT JOIN teamtask_hub.square_catalog_category_map cmap ON cmap.catalog_item_id = civ.item_id
   -- Effective category: COALESCE(cc.name, cmap.category_name)
 
+Order → location:
+  JOIN square.location loc ON loc.id = o.location_id
+
+=== LOCATIONS ===
+
+There are two Square locations. Use these exact name strings when filtering by location:
+  'Kindred Vineyards, LLC'  — the main winery/tasting room
+  'Kindred by the Creek'    — the creek location
+
+Location name synonyms (map user language to the exact loc.name above):
+  'Kindred Vineyards, LLC'  → "kindred", "the winery", "the vineyard", "vineyard", "winery"
+  'Kindred by the Creek'    → "the creek", "creek", "by the creek"
+
+Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Kindred by the Creek'
+
 === IMPORTANT FACTS ===
 
 - All money amounts are stored in CENTS — divide by 100.0 for dollars
