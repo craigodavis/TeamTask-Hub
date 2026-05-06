@@ -91,7 +91,7 @@ Return ONLY raw SQL. Rules:
 - No semicolons
 - Start your response with SELECT or WITH — nothing else
 - Limit results to 500 rows unless asked for more
-- Always alias money columns as dollars (e.g. o.total_money_amount / 100.0 AS total_dollars, oli.total_amount / 100.0 AS line_total_dollars)
+- Always alias money columns as dollars using ROUND(.../ 100.0, 2) (e.g. ROUND(o.total_money_amount / 100.0, 2) AS total_dollars, ROUND(oli.total_amount / 100.0, 2) AS line_total_dollars)
 - On order_line_item use total_amount — NOT total_money_amount (that column does not exist on that table)
 `;
 

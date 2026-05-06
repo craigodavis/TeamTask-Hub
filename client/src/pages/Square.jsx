@@ -87,6 +87,16 @@ const SUGGESTED = [
   'What is the average order value by month this year?',
 ];
 
+function formatCell(field, value) {
+  if (value == null) return <span className="sq-null">null</span>;
+  // Format dollar columns to 2 decimal places
+  if (field.endsWith('_dollars') || field.endsWith('_amount') && !field.includes('currency')) {
+    const n = parseFloat(value);
+    if (!isNaN(n)) return `$${n.toFixed(2)}`;
+  }
+  return String(value);
+}
+
 function ResultTable({ fields, rows }) {
   if (!rows?.length) return <p className="sq-no-results">No results returned.</p>;
   return (
@@ -98,7 +108,7 @@ function ResultTable({ fields, rows }) {
         <tbody>
           {rows.map((row, i) => (
             <tr key={i}>
-              {fields.map((f) => <td key={f}>{row[f] == null ? <span className="sq-null">null</span> : String(row[f])}</td>)}
+              {fields.map((f) => <td key={f}>{formatCell(f, row[f])}</td>)}
             </tr>
           ))}
         </tbody>
