@@ -123,11 +123,52 @@ function ResultTable({ fields, rows }) {
   );
 }
 
+// ── Voice input hook ─────────────────────────────────────────────────────────
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function useSpeech({ onResult, onError }) {
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef(null);
+
+  const supported = !!SpeechRecognition;
+
+  const start = useCallback(() => {
+    if (!supported || listening) return;
+    const recog = new SpeechRecognition();
+    recog.lang = 'en-US';
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    recog.continuous = false;
+
+    recog.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      onResult(transcript);
+    };
+    recog.onerror = (e) => {
+      if (e.error !== 'no-speech') onError(e.error);
+      setListening(false);
+    };
+    recog.onend = () => setListening(false);
+
+    recogRef.current = recog;
+    recog.start();
+    setListening(true);
+  }, [supported, listening, onResult, onError]);
+
+  const stop = useCallback(() => {
+    recogRef.current?.stop();
+    setListening(false);
+  }, []);
+
+  return { supported, listening, start, stop };
+}
+
 function AskTab({ token }) {
   const [messages, setMessages] = useState([]); // { role, content, sql, rows, fields, error }
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [showSql, setShowSql]   = useState({});
+  const [micError, setMicError] = useState('');
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -177,6 +218,30 @@ function AskTab({ token }) {
 
   const toggleSql = (i) => setShowSql((prev) => ({ ...prev, [i]: !prev[i] }));
 
+  const onSpeechResult = useCallback((transcript) => {
+    setMicError('');
+    setInput(transcript);
+  }, []);
+
+  const onSpeechError = useCallback((err) => {
+    if (err === 'not-allowed') {
+      setMicError('Microphone access denied. Allow mic access in your browser settings.');
+    } else {
+      setMicError(`Mic error: ${err}`);
+    }
+  }, []);
+
+  const { supported: micSupported, listening, start: startListening, stop: stopListening } = useSpeech({
+    onResult: onSpeechResult,
+    onError: onSpeechError,
+  });
+
+  const handleMic = () => {
+    setMicError('');
+    if (listening) stopListening();
+    else startListening();
+  };
+
   return (
     <div className="sq-ask-wrap">
       {/* Suggestions (shown when no messages) */}
@@ -220,17 +285,30 @@ function AskTab({ token }) {
         <div ref={bottomRef} />
       </div>
 
+      {/* Mic error */}
+      {micError && <p className="sq-mic-error">{micError}</p>}
+
       {/* Input */}
       <div className="sq-input-row">
         <textarea
-          className="sq-input"
+          className={`sq-input${listening ? ' sq-input-listening' : ''}`}
           rows={2}
-          placeholder="Ask anything about your Square data…"
+          placeholder={listening ? 'Listening…' : 'Ask anything about your Square data…'}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
           disabled={loading}
         />
+        {micSupported && (
+          <button
+            className={`sq-mic-btn${listening ? ' sq-mic-btn-active' : ''}`}
+            onClick={handleMic}
+            disabled={loading}
+            title={listening ? 'Stop listening' : 'Speak your question'}
+          >
+            {listening ? '🔴' : '🎤'}
+          </button>
+        )}
         <button
           className="sq-send-btn"
           onClick={() => handleAsk()}
