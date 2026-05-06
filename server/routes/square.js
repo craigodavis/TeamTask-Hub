@@ -1,9 +1,93 @@
 import express from 'express';
-import { pool } from '../db.js';
+import Anthropic from '@anthropic-ai/sdk';
+import { pool, query } from '../db.js';
 
 const router = express.Router();
 
-// GET /api/square/tables — list square schema tables with row estimates
+// ── Schema context for AI ────────────────────────────────────────────────────
+const SQUARE_SCHEMA_CONTEXT = `
+You are a SQL analyst for Kindred Vineyards, a winery and tasting room in Sunnyslope, Idaho.
+You query a PostgreSQL database with Square POS data and a custom correction table.
+
+=== KEY TABLES ===
+
+square.order
+  id, state ('COMPLETED'|'OPEN'|'CANCELED'), created_at, updated_at,
+  total_money_amount (CENTS), total_tax_money_amount (CENTS),
+  total_discount_money_amount (CENTS), location_id, customer_id, source_name
+
+square.order_line_item
+  id, order_id, name, variation_name, catalog_object_id,
+  quantity (text, cast to numeric), base_price_money_amount (CENTS),
+  total_money_amount (CENTS), total_tax_money_amount (CENTS),
+  total_discount_money_amount (CENTS)
+
+square.catalog_item
+  id, name, description, is_deleted
+
+square.catalog_item_variation
+  id, item_id, name (variation name), price_money_amount (CENTS), pricing_type
+
+square.catalog_category
+  id, name  (e.g. '750ml Bottle', 'Glass Pour', '5 Flight Tasting', 'Pizza', 'Beer')
+
+square.catalog_item_category
+  catalog_item_id, id (this column IS the category_id), ordinal
+  NOTE: join square.catalog_category ON cc.id = cic.id
+
+square.payment
+  id, order_id, amount_money_amount (CENTS), status, created_at,
+  customer_id, card_details_card_last_4, source_type
+
+square.customer
+  id, given_name, family_name, email_address, phone_number,
+  created_at, note, reference_id
+
+square.location
+  id, name, address_address_line_1, address_city, address_state
+
+square.shift  (employee time clock)
+  id, employee_id, location_id, start_at, end_at, status,
+  regular_hours_worked (NUMERIC), overtime_hours_worked (NUMERIC)
+
+square.employee
+  id, first_name, last_name, email, status
+
+teamtask_hub.square_catalog_category_map  ← CUSTOM CORRECTION TABLE
+  id, catalog_item_id, item_name, category_name, category_id, notes, created_at
+  PURPOSE: Corrects pre-2023 catalog items that were categorized under year-based
+  categories ('Main Creek Menu', 'Main Vineyard Menu', vintage years) instead of
+  the current format-based categories ('750ml Bottle', 'Glass Pour', etc.)
+
+=== CRITICAL JOINS ===
+
+Order line item → category (ALWAYS use this pattern for category queries):
+  JOIN square.catalog_item_variation civ ON civ.id = oli.catalog_object_id
+  LEFT JOIN square.catalog_item_category cic ON cic.catalog_item_id = civ.item_id
+  LEFT JOIN square.catalog_category cc ON cc.id = cic.id
+  LEFT JOIN teamtask_hub.square_catalog_category_map cmap ON cmap.catalog_item_id = civ.item_id
+  -- Effective category: COALESCE(cc.name, cmap.category_name)
+
+=== IMPORTANT FACTS ===
+
+- All money amounts are stored in CENTS — divide by 100.0 for dollars
+- quantity is stored as TEXT — cast with quantity::numeric when computing
+- Pre-2023 orders (before 2023-03-05) used 'Main Creek Menu' / 'Main Vineyard Menu' categories
+- 2023+ orders use '750ml Bottle', 'Glass Pour', '5 Flight Tasting', etc.
+- The mapping table bridges this gap — always COALESCE(cc.name, cmap.category_name)
+- Kindred Vineyards sells wine (750ml bottles and glass pours), wine flights, food (pizza, etc.), beer, and boutique items
+- Only query COMPLETED orders unless explicitly asked otherwise: WHERE o.state = 'COMPLETED'
+- The database also has fivetran_metadata, metabase, cellarpilot, wine, club_steward schemas — ignore these unless asked
+- There are duplicate catalog_category rows for the same name (Fivetran artifact from multiple locations) — use DISTINCT or filter carefully
+
+=== OUTPUT FORMAT ===
+
+Return ONLY a valid SQL SELECT query. No markdown, no explanation, no semicolons, no trailing text.
+The query will be executed directly. Limit results to 500 rows unless asked for more.
+Always alias money columns with their dollar value, e.g. total_money_amount / 100.0 AS total_dollars.
+`;
+
+// ── GET /api/square/tables ───────────────────────────────────────────────────
 router.get('/tables', async (req, res) => {
   try {
     const client = await pool.connect();
@@ -26,6 +110,181 @@ router.get('/tables', async (req, res) => {
   } catch (err) {
     console.error('[square] tables error:', err.message);
     res.status(500).json({ error: 'Failed to load Square tables' });
+  }
+});
+
+// ── POST /api/square/ask ─────────────────────────────────────────────────────
+router.post('/ask', async (req, res) => {
+  const { question, history = [] } = req.body;
+  if (!question?.trim()) return res.status(400).json({ error: 'Question is required' });
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+
+  const client = new Anthropic({ apiKey });
+
+  // Build message history for multi-turn context
+  const messages = [
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user', content: question },
+  ];
+
+  let sql;
+  let aiMessage;
+  try {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1024,
+      system: SQUARE_SCHEMA_CONTEXT,
+      messages,
+    });
+    aiMessage = response.content[0]?.text?.trim() || '';
+    sql = aiMessage;
+  } catch (err) {
+    console.error('[square/ask] AI error:', err.message);
+    return res.status(500).json({ error: 'AI request failed', details: err.message });
+  }
+
+  // Safety: only allow SELECT / WITH (CTEs)
+  const normalised = sql.replace(/\s+/g, ' ').trim().toUpperCase();
+  if (!normalised.startsWith('SELECT') && !normalised.startsWith('WITH')) {
+    return res.status(400).json({
+      error: 'AI generated a non-SELECT query — refusing to execute.',
+      sql,
+    });
+  }
+
+  // Execute with row cap and timeout
+  let rows, fields;
+  try {
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('SET statement_timeout = 15000'); // 15s max
+      const result = await dbClient.query(`${sql} LIMIT 500`);
+      rows = result.rows;
+      fields = result.fields.map((f) => f.name);
+    } finally {
+      dbClient.release();
+    }
+  } catch (err) {
+    console.error('[square/ask] query error:', err.message);
+    return res.status(400).json({ error: 'Query failed', details: err.message, sql });
+  }
+
+  res.json({ sql, rows, fields, count: rows.length });
+});
+
+// ── GET /api/square/mappings ─────────────────────────────────────────────────
+router.get('/mappings', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, catalog_item_id, item_name, category_name, category_id, notes, created_at
+       FROM square_catalog_category_map
+       ORDER BY category_name, item_name`
+    );
+    res.json({ mappings: result.rows });
+  } catch (err) {
+    console.error('[square] mappings error:', err.message);
+    res.status(500).json({ error: 'Failed to load mappings' });
+  }
+});
+
+// ── POST /api/square/mappings/seed ───────────────────────────────────────────
+// Auto-populate confident 750ml Bottle matches from pre-2023 catalog items
+router.post('/mappings/seed', async (req, res) => {
+  try {
+    const dbClient = await pool.connect();
+    let inserted = 0;
+    try {
+      // Find catalog items that:
+      // 1. Appear in orders before March 2023 (before new category was introduced)
+      // 2. Are currently NOT in the 750ml Bottle category
+      // 3. Have names matching wine bottle patterns
+      const candidates = await dbClient.query(`
+        SELECT DISTINCT ci.id AS catalog_item_id, ci.name AS item_name
+        FROM square.order o
+        JOIN square.order_line_item oli ON oli.order_id = o.id
+        JOIN square.catalog_item_variation civ ON civ.id = oli.catalog_object_id
+        JOIN square.catalog_item ci ON ci.id = civ.item_id
+        WHERE o.created_at < '2023-03-05'
+          AND (
+            LOWER(ci.name) LIKE '%bottle%'
+            OR (
+              ci.name ~ '^[0-9]{2}\\s'
+              AND LOWER(ci.name) NOT LIKE '%glass%'
+              AND LOWER(ci.name) NOT LIKE '%flight%'
+              AND LOWER(ci.name) NOT LIKE '%tasting%'
+              AND LOWER(ci.name) NOT LIKE '%pizza%'
+              AND LOWER(ci.name) NOT LIKE '%beer%'
+              AND LOWER(ci.name) NOT LIKE '%soda%'
+              AND LOWER(ci.name) NOT LIKE '%cider%'
+              AND LOWER(ci.name) NOT LIKE '%coffee%'
+              AND LOWER(ci.name) NOT LIKE '%water%'
+              AND LOWER(ci.name) NOT LIKE '%event%'
+              AND LOWER(ci.name) NOT LIKE '%ticket%'
+              AND LOWER(ci.name) NOT LIKE '%club%'
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM square.catalog_item_category cic2
+            JOIN square.catalog_category cc2 ON cc2.id = cic2.id
+            WHERE cic2.catalog_item_id = ci.id AND cc2.name = '750ml Bottle'
+          )
+        ORDER BY ci.name
+      `);
+
+      for (const row of candidates.rows) {
+        await query(
+          `INSERT INTO square_catalog_category_map (catalog_item_id, item_name, category_name, category_id, notes)
+           VALUES ($1, $2, '750ml Bottle', 'Q5QLZSCBNSDE55ME7UK4PTW6', 'Auto-seeded: pre-2023 wine bottle item')
+           ON CONFLICT (catalog_item_id) DO NOTHING`,
+          [row.catalog_item_id, row.item_name]
+        );
+        inserted++;
+      }
+    } finally {
+      dbClient.release();
+    }
+    res.json({ inserted, message: `Seeded ${inserted} catalog item mappings` });
+  } catch (err) {
+    console.error('[square] seed error:', err.message);
+    res.status(500).json({ error: 'Seed failed', details: err.message });
+  }
+});
+
+// ── POST /api/square/mappings ────────────────────────────────────────────────
+router.post('/mappings', async (req, res) => {
+  const { catalog_item_id, item_name, category_name, category_id, notes } = req.body;
+  if (!catalog_item_id || !category_name) {
+    return res.status(400).json({ error: 'catalog_item_id and category_name are required' });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO square_catalog_category_map (catalog_item_id, item_name, category_name, category_id, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (catalog_item_id) DO UPDATE
+         SET category_name = EXCLUDED.category_name,
+             category_id   = EXCLUDED.category_id,
+             item_name     = EXCLUDED.item_name,
+             notes         = EXCLUDED.notes
+       RETURNING *`,
+      [catalog_item_id, item_name || null, category_name, category_id || null, notes || null, req.user?.id || null]
+    );
+    res.json({ mapping: result.rows[0] });
+  } catch (err) {
+    console.error('[square] mapping insert error:', err.message);
+    res.status(500).json({ error: 'Failed to save mapping' });
+  }
+});
+
+// ── DELETE /api/square/mappings/:id ─────────────────────────────────────────
+router.delete('/mappings/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM square_catalog_category_map WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[square] mapping delete error:', err.message);
+    res.status(500).json({ error: 'Failed to delete mapping' });
   }
 });
 

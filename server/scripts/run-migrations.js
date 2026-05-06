@@ -256,6 +256,18 @@ const MIGRATIONS = [
     PRIMARY KEY (company_id, square_team_member_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_square_user_exclusions_company ON square_user_exclusions(company_id)`,
+  // 052: square catalog category correction map (pre-2023 items categorized differently)
+  `CREATE TABLE IF NOT EXISTS square_catalog_category_map (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    catalog_item_id VARCHAR(256) NOT NULL UNIQUE,
+    item_name       VARCHAR(500),
+    category_name   VARCHAR(256) NOT NULL,
+    category_id     VARCHAR(256),
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by      UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_square_catalog_category_map_item ON square_catalog_category_map(catalog_item_id)`,
 ];
 
 async function run() {
