@@ -82,9 +82,13 @@ Order line item → category (ALWAYS use this pattern for category queries):
 
 === OUTPUT FORMAT ===
 
-Return ONLY a valid SQL SELECT query. No markdown, no explanation, no semicolons, no trailing text.
-The query will be executed directly. Limit results to 500 rows unless asked for more.
-Always alias money columns with their dollar value, e.g. total_money_amount / 100.0 AS total_dollars.
+Return ONLY raw SQL. Rules:
+- No markdown code fences (no backticks, no \`\`\`sql)
+- No explanations before or after the SQL
+- No semicolons
+- Start your response with SELECT or WITH — nothing else
+- Limit results to 500 rows unless asked for more
+- Always alias money columns as dollars: total_money_amount / 100.0 AS total_dollars
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────
@@ -139,7 +143,15 @@ router.post('/ask', async (req, res) => {
       messages,
     });
     aiMessage = response.content[0]?.text?.trim() || '';
-    sql = aiMessage;
+
+    // Strip markdown code fences (```sql ... ``` or ``` ... ```)
+    sql = aiMessage
+      .replace(/^```(?:sql)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim();
+
+    // Strip any trailing semicolons
+    sql = sql.replace(/;\s*$/, '').trim();
   } catch (err) {
     console.error('[square/ask] AI error:', err.message);
     return res.status(500).json({ error: 'AI request failed', details: err.message });
@@ -151,16 +163,21 @@ router.post('/ask', async (req, res) => {
     return res.status(400).json({
       error: 'AI generated a non-SELECT query — refusing to execute.',
       sql,
+      raw: aiMessage,
     });
   }
 
-  // Execute with row cap and timeout
+  // Don't double-add LIMIT if the query already has one
+  const hasLimit = /\bLIMIT\s+\d+\b/i.test(sql);
+  const finalSql = hasLimit ? sql : `${sql} LIMIT 500`;
+
+  // Execute with timeout
   let rows, fields;
   try {
     const dbClient = await pool.connect();
     try {
       await dbClient.query('SET statement_timeout = 15000'); // 15s max
-      const result = await dbClient.query(`${sql} LIMIT 500`);
+      const result = await dbClient.query(finalSql);
       rows = result.rows;
       fields = result.fields.map((f) => f.name);
     } finally {
@@ -168,7 +185,7 @@ router.post('/ask', async (req, res) => {
     }
   } catch (err) {
     console.error('[square/ask] query error:', err.message);
-    return res.status(400).json({ error: 'Query failed', details: err.message, sql });
+    return res.status(400).json({ error: 'Query failed', details: err.message, sql: finalSql });
   }
 
   res.json({ sql, rows, fields, count: rows.length });
