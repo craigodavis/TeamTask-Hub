@@ -90,9 +90,14 @@ const SUGGESTED = [
 function formatCell(field, value) {
   if (value == null) return <span className="sq-null">null</span>;
   // Format dollar columns to 2 decimal places
-  if (field.endsWith('_dollars') || field.endsWith('_amount') && !field.includes('currency')) {
+  if (field.endsWith('_dollars') || (field.endsWith('_amount') && !field.includes('currency'))) {
     const n = parseFloat(value);
     if (!isNaN(n)) return `$${n.toFixed(2)}`;
+  }
+  // Format quantity columns as whole numbers
+  if (field === 'quantity' || field.startsWith('quantity') || field.endsWith('_qty') || field.endsWith('_count') || field.endsWith('_quantity')) {
+    const n = parseFloat(value);
+    if (!isNaN(n)) return Math.round(n).toLocaleString();
   }
   return String(value);
 }
