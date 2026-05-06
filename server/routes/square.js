@@ -12,21 +12,22 @@ You query a PostgreSQL database with Square POS data and a custom correction tab
 === KEY TABLES ===
 
 square.order
-  id, state ('COMPLETED'|'OPEN'|'CANCELED'), created_at, updated_at,
-  total_money_amount (CENTS), total_tax_money_amount (CENTS),
-  total_discount_money_amount (CENTS), location_id, customer_id, source_name
+  id, state ('COMPLETED'|'OPEN'|'CANCELED'), created_at, updated_at, closed_at,
+  total_money_amount (CENTS), total_tax_amount (CENTS), total_discount_amount (CENTS),
+  total_service_charge_amount (CENTS), location_id, customer_id, order_source_name
 
 square.order_line_item
-  id, order_id, name, variation_name, catalog_object_id,
-  quantity (text, cast to numeric), base_price_money_amount (CENTS),
-  total_money_amount (CENTS), total_tax_money_amount (CENTS),
-  total_discount_money_amount (CENTS)
+  uid (PK), order_id, name, variation_name, catalog_object_id,
+  quantity (double precision — no cast needed),
+  base_price_amount (CENTS), gross_sales_amount (CENTS),
+  total_amount (CENTS), total_tax_amount (CENTS), total_discount_amount (CENTS)
 
 square.catalog_item
   id, name, description, is_deleted
 
 square.catalog_item_variation
-  id, item_id, name (variation name), price_money_amount (CENTS), pricing_type
+  id, item_id, name (variation name), sku, price_money_amount (CENTS), pricing_type,
+  track_inventory, inventory_alert_threshold
 
 square.catalog_category
   id, name  (e.g. '750ml Bottle', 'Glass Pour', '5 Flight Tasting', 'Pizza', 'Beer')
@@ -36,8 +37,10 @@ square.catalog_item_category
   NOTE: join square.catalog_category ON cc.id = cic.id
 
 square.payment
-  id, order_id, amount_money_amount (CENTS), status, created_at,
-  customer_id, card_details_card_last_4, source_type
+  id, order_id, customer_id, created_at, status, source_type,
+  amount_money_amount (CENTS), total_money_amount (CENTS),
+  tip_money_amount (CENTS), refunded_money_amount (CENTS),
+  employee_id, buyer_email_address, receipt_number
 
 square.customer
   id, given_name, family_name, email_address, phone_number,
@@ -88,7 +91,8 @@ Return ONLY raw SQL. Rules:
 - No semicolons
 - Start your response with SELECT or WITH — nothing else
 - Limit results to 500 rows unless asked for more
-- Always alias money columns as dollars: total_money_amount / 100.0 AS total_dollars
+- Always alias money columns as dollars (e.g. o.total_money_amount / 100.0 AS total_dollars, oli.total_amount / 100.0 AS line_total_dollars)
+- On order_line_item use total_amount — NOT total_money_amount (that column does not exist on that table)
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────
