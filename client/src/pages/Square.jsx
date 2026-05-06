@@ -468,6 +468,165 @@ function MappingsTab({ token }) {
   );
 }
 
+// ── Journal Tab ──────────────────────────────────────────────────────────────
+function JournalTab({ token }) {
+  const [entries, setEntries] = useState([]);
+  const [total, setTotal]     = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [offset, setOffset]   = useState(0);
+  const [expandSql, setExpandSql] = useState({});
+  const [editNotes, setEditNotes] = useState({}); // id → draft string
+  const LIMIT = 50;
+
+  const load = useCallback((off = 0) => {
+    setLoading(true);
+    fetch(`/api/square/journal?limit=${LIMIT}&offset=${off}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        setEntries(d.entries || []);
+        setTotal(d.total || 0);
+        setOffset(off);
+      })
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => { load(0); }, [load]);
+
+  const patch = async (id, body) => {
+    const r = await fetch(`/api/square/journal/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      setEntries((prev) => prev.map((e) => (e.id === id ? d.entry : e)));
+    }
+  };
+
+  const toggleThumb = (entry, val) => {
+    // Toggle: clicking same thumb again clears it
+    patch(entry.id, { thumbs_up: entry.thumbs_up === val ? null : val });
+  };
+
+  const saveNotes = (id) => {
+    const notes = editNotes[id] ?? '';
+    patch(id, { notes });
+    setEditNotes((prev) => { const n = { ...prev }; delete n[id]; return n; });
+  };
+
+  const toggleSql = (id) => setExpandSql((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const totalPages = Math.ceil(total / LIMIT);
+  const currentPage = Math.floor(offset / LIMIT) + 1;
+
+  return (
+    <div className="sq-journal-wrap">
+      <div className="sq-journal-header">
+        <p className="sq-journal-desc">
+          Every query is logged here. Use 👍/👎 to rate responses, and add notes to teach the AI how to improve.
+          Notes and failures are automatically injected into future queries.
+        </p>
+        {total > 0 && <span className="sq-journal-total">{total} total entries</span>}
+      </div>
+
+      {loading && <div className="sq-state">Loading journal…</div>}
+
+      {!loading && entries.length === 0 && (
+        <div className="sq-state">No journal entries yet. Ask a question in the Ask tab to get started.</div>
+      )}
+
+      {!loading && entries.length > 0 && (
+        <>
+          <div className="sq-journal-list">
+            {entries.map((entry) => {
+              const noteDraft = editNotes[entry.id];
+              const noteValue = noteDraft !== undefined ? noteDraft : (entry.notes || '');
+              const isEditing = noteDraft !== undefined;
+              const ts = new Date(entry.created_at).toLocaleString();
+
+              return (
+                <div key={entry.id} className={`sq-journal-entry ${entry.success ? 'sq-j-ok' : 'sq-j-fail'}`}>
+                  <div className="sq-j-top">
+                    <span className={`sq-j-badge ${entry.success ? 'sq-j-badge-ok' : 'sq-j-badge-fail'}`}>
+                      {entry.success ? '✓' : '✕'}
+                    </span>
+                    <span className="sq-j-question">{entry.question}</span>
+                    <span className="sq-j-meta">
+                      {entry.success && entry.row_count != null && (
+                        <span className="sq-j-rows">{entry.row_count} rows</span>
+                      )}
+                      <span className="sq-j-ts">{ts}</span>
+                    </span>
+                  </div>
+
+                  {entry.error_message && (
+                    <p className="sq-j-error">{entry.error_message}</p>
+                  )}
+
+                  {entry.generated_sql && (
+                    <div className="sq-sql-block">
+                      <button className="sq-sql-toggle" onClick={() => toggleSql(entry.id)}>
+                        {expandSql[entry.id] ? '▲ Hide SQL' : '▼ Show SQL'}
+                      </button>
+                      {expandSql[entry.id] && <pre className="sq-sql-pre">{entry.generated_sql}</pre>}
+                    </div>
+                  )}
+
+                  <div className="sq-j-bottom">
+                    <div className="sq-j-thumbs">
+                      <button
+                        className={`sq-thumb-btn ${entry.thumbs_up === true ? 'sq-thumb-active-up' : ''}`}
+                        onClick={() => toggleThumb(entry, true)}
+                        title="Good response"
+                      >👍</button>
+                      <button
+                        className={`sq-thumb-btn ${entry.thumbs_up === false ? 'sq-thumb-active-down' : ''}`}
+                        onClick={() => toggleThumb(entry, false)}
+                        title="Bad response"
+                      >👎</button>
+                    </div>
+                    <div className="sq-j-notes-area">
+                      <textarea
+                        className="sq-j-notes"
+                        rows={2}
+                        placeholder="Add a note to help the AI learn (e.g. 'Should use COALESCE for category')…"
+                        value={noteValue}
+                        onChange={(e) => setEditNotes((prev) => ({ ...prev, [entry.id]: e.target.value }))}
+                      />
+                      {isEditing && (
+                        <button className="sq-j-save-btn" onClick={() => saveNotes(entry.id)}>Save note</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="sq-j-pagination">
+              <button
+                className="sq-j-page-btn"
+                disabled={offset === 0}
+                onClick={() => load(Math.max(0, offset - LIMIT))}
+              >← Prev</button>
+              <span className="sq-j-page-info">Page {currentPage} of {totalPages}</span>
+              <button
+                className="sq-j-page-btn"
+                disabled={offset + LIMIT >= total}
+                onClick={() => load(offset + LIMIT)}
+              >Next →</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Square Page ─────────────────────────────────────────────────────────
 export function Square() {
   const token = localStorage.getItem('teamtask_token');
@@ -477,6 +636,7 @@ export function Square() {
     { id: 'ask',      label: '✦ Ask Square' },
     { id: 'tables',   label: '⬡ Tables' },
     { id: 'mappings', label: '⟳ Mappings' },
+    { id: 'journal',  label: '📓 Journal' },
   ];
 
   return (
@@ -506,6 +666,7 @@ export function Square() {
         {tab === 'ask'      && <AskTab      token={token} />}
         {tab === 'tables'   && <TablesTab   token={token} />}
         {tab === 'mappings' && <MappingsTab token={token} />}
+        {tab === 'journal'  && <JournalTab  token={token} />}
       </div>
     </div>
   );

@@ -268,6 +268,20 @@ const MIGRATIONS = [
     created_by      UUID REFERENCES users(id) ON DELETE SET NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_square_catalog_category_map_item ON square_catalog_category_map(catalog_item_id)`,
+  // 053: Square AI journal — logs every Ask query for learning and debugging
+  `CREATE TABLE IF NOT EXISTS square_ai_journal (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    question     TEXT NOT NULL,
+    generated_sql TEXT,
+    success      BOOLEAN NOT NULL DEFAULT false,
+    error_message TEXT,
+    row_count    INTEGER,
+    thumbs_up    BOOLEAN,
+    notes        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_square_ai_journal_created ON square_ai_journal(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_square_ai_journal_success ON square_ai_journal(success, created_at DESC)`,
 ];
 
 async function run() {

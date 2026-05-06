@@ -121,6 +121,44 @@ router.get('/tables', async (req, res) => {
   }
 });
 
+// ── Helper: build lessons block from journal ─────────────────────────────────
+async function buildLessonsBlock() {
+  try {
+    const result = await query(`
+      SELECT question, generated_sql, success, error_message, notes
+      FROM square_ai_journal
+      WHERE notes IS NOT NULL OR success = false
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
+    if (!result.rows.length) return '';
+
+    const lines = result.rows.map((r) => {
+      if (r.notes) {
+        return `- Q: "${r.question.slice(0, 80)}" → NOTE: ${r.notes}`;
+      }
+      return `- Q: "${r.question.slice(0, 80)}" → FAILED: ${(r.error_message || '').slice(0, 120)}`;
+    });
+
+    return `\n=== LESSONS LEARNED (from past queries — apply these corrections) ===\n${lines.join('\n')}\n`;
+  } catch {
+    return '';
+  }
+}
+
+// ── Helper: log to journal ───────────────────────────────────────────────────
+async function logJournal({ question, generated_sql, success, error_message, row_count }) {
+  try {
+    await query(
+      `INSERT INTO square_ai_journal (question, generated_sql, success, error_message, row_count)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [question, generated_sql || null, success, error_message || null, row_count ?? null]
+    );
+  } catch (err) {
+    console.error('[square/journal] log error:', err.message);
+  }
+}
+
 // ── POST /api/square/ask ─────────────────────────────────────────────────────
 router.post('/ask', async (req, res) => {
   const { question, history = [] } = req.body;
@@ -130,6 +168,10 @@ router.post('/ask', async (req, res) => {
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
 
   const client = new Anthropic({ apiKey });
+
+  // Inject lessons learned from journal into system prompt
+  const lessons = await buildLessonsBlock();
+  const systemPrompt = SQUARE_SCHEMA_CONTEXT + lessons;
 
   // Build message history for multi-turn context
   const messages = [
@@ -143,13 +185,12 @@ router.post('/ask', async (req, res) => {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5',
       max_tokens: 1024,
-      system: SQUARE_SCHEMA_CONTEXT,
+      system: systemPrompt,
       messages,
     });
     aiMessage = response.content[0]?.text?.trim() || '';
 
     // Extract SQL: find the first SELECT or WITH keyword anywhere in the response
-    // This handles markdown fences, preamble text, explanations, etc.
     const sqlMatch = aiMessage.match(/((?:WITH|SELECT)\s[\s\S]+)/i);
     sql = sqlMatch ? sqlMatch[1].trim() : aiMessage.trim();
 
@@ -163,6 +204,7 @@ router.post('/ask', async (req, res) => {
   // Safety: only allow SELECT / WITH (CTEs)
   const normalised = sql.replace(/\s+/g, ' ').trim().toUpperCase();
   if (!normalised.startsWith('SELECT') && !normalised.startsWith('WITH')) {
+    await logJournal({ question, generated_sql: sql, success: false, error_message: 'Non-SELECT query generated' });
     return res.status(400).json({
       error: 'AI generated a non-SELECT query — refusing to execute.',
       sql,
@@ -188,9 +230,11 @@ router.post('/ask', async (req, res) => {
     }
   } catch (err) {
     console.error('[square/ask] query error:', err.message);
+    await logJournal({ question, generated_sql: finalSql, success: false, error_message: err.message });
     return res.status(400).json({ error: 'Query failed', details: err.message, sql: finalSql });
   }
 
+  await logJournal({ question, generated_sql: finalSql, success: true, row_count: rows.length });
   res.json({ sql, rows, fields, count: rows.length });
 });
 
@@ -305,6 +349,49 @@ router.delete('/mappings/:id', async (req, res) => {
   } catch (err) {
     console.error('[square] mapping delete error:', err.message);
     res.status(500).json({ error: 'Failed to delete mapping' });
+  }
+});
+
+// ── GET /api/square/journal ──────────────────────────────────────────────────
+router.get('/journal', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = parseInt(req.query.offset) || 0;
+  try {
+    const result = await query(
+      `SELECT id, question, generated_sql, success, error_message, row_count,
+              thumbs_up, notes, created_at
+       FROM square_ai_journal
+       ORDER BY created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+    const total = await query(`SELECT COUNT(*) AS n FROM square_ai_journal`);
+    res.json({ entries: result.rows, total: parseInt(total.rows[0].n), limit, offset });
+  } catch (err) {
+    console.error('[square] journal error:', err.message);
+    res.status(500).json({ error: 'Failed to load journal' });
+  }
+});
+
+// ── PATCH /api/square/journal/:id ───────────────────────────────────────────
+router.patch('/journal/:id', async (req, res) => {
+  const { thumbs_up, notes } = req.body;
+  const fields = [];
+  const vals = [];
+  if (thumbs_up !== undefined) { fields.push(`thumbs_up = $${vals.length + 1}`); vals.push(thumbs_up); }
+  if (notes !== undefined)     { fields.push(`notes = $${vals.length + 1}`);     vals.push(notes); }
+  if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
+  vals.push(req.params.id);
+  try {
+    const result = await query(
+      `UPDATE square_ai_journal SET ${fields.join(', ')} WHERE id = $${vals.length} RETURNING *`,
+      vals
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Entry not found' });
+    res.json({ entry: result.rows[0] });
+  } catch (err) {
+    console.error('[square] journal patch error:', err.message);
+    res.status(500).json({ error: 'Failed to update journal entry' });
   }
 });
 
