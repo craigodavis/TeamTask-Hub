@@ -282,6 +282,27 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_square_ai_journal_created ON square_ai_journal(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_square_ai_journal_success ON square_ai_journal(success, created_at DESC)`,
+  // 054: Square AI facts — permanent business knowledge always injected into system prompt
+  `CREATE TABLE IF NOT EXISTS square_ai_facts (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category   VARCHAR(100) NOT NULL DEFAULT 'General',
+    content    TEXT NOT NULL,
+    active     BOOLEAN NOT NULL DEFAULT true,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_square_ai_facts_active ON square_ai_facts(active, sort_order)`,
+  // 055: Square AI lessons — curated corrections promoted from journal
+  `CREATE TABLE IF NOT EXISTS square_ai_lessons (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content    TEXT NOT NULL,
+    journal_id UUID REFERENCES square_ai_journal(id) ON DELETE SET NULL,
+    active     BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_square_ai_lessons_active ON square_ai_lessons(active, created_at)`,
 ];
 
 async function run() {

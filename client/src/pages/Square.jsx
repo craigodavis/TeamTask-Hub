@@ -548,12 +548,14 @@ function MappingsTab({ token }) {
 
 // ── Journal Tab ──────────────────────────────────────────────────────────────
 function JournalTab({ token }) {
-  const [entries, setEntries] = useState([]);
-  const [total, setTotal]     = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [offset, setOffset]   = useState(0);
-  const [expandSql, setExpandSql] = useState({});
-  const [editNotes, setEditNotes] = useState({}); // id → draft string
+  const [entries, setEntries]   = useState([]);
+  const [total, setTotal]       = useState(0);
+  const [loading, setLoading]   = useState(true);
+  const [offset, setOffset]     = useState(0);
+  const [expandSql, setExpandSql]   = useState({});
+  const [editNotes, setEditNotes]   = useState({}); // id → draft string
+  const [promoting, setPromoting]   = useState({}); // id → bool
+  const [promoted, setPromoted]     = useState({}); // id → bool (done)
   const LIMIT = 50;
 
   const load = useCallback((off = 0) => {
@@ -597,6 +599,22 @@ function JournalTab({ token }) {
 
   const toggleSql = (id) => setExpandSql((prev) => ({ ...prev, [id]: !prev[id] }));
 
+  const promoteToLesson = async (entry) => {
+    const content = entry.notes?.trim();
+    if (!content) return;
+    setPromoting((prev) => ({ ...prev, [entry.id]: true }));
+    try {
+      const r = await fetch('/api/square/lessons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content, journal_id: entry.id }),
+      });
+      if (r.ok) setPromoted((prev) => ({ ...prev, [entry.id]: true }));
+    } finally {
+      setPromoting((prev) => ({ ...prev, [entry.id]: false }));
+    }
+  };
+
   const totalPages = Math.ceil(total / LIMIT);
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
@@ -604,8 +622,7 @@ function JournalTab({ token }) {
     <div className="sq-journal-wrap">
       <div className="sq-journal-header">
         <p className="sq-journal-desc">
-          Every query is logged here. Use 👍/👎 to rate responses, and add notes to teach the AI how to improve.
-          Notes and failures are automatically injected into future queries.
+          Every query is logged here. Use 👍/👎 to rate responses. Add a correction note then hit <strong>⬆ Promote to lesson</strong> to save it permanently to the AI's memory.
         </p>
         {total > 0 && <span className="sq-journal-total">{total} total entries</span>}
       </div>
@@ -670,13 +687,28 @@ function JournalTab({ token }) {
                       <textarea
                         className="sq-j-notes"
                         rows={2}
-                        placeholder="Add a note to help the AI learn (e.g. 'Should use COALESCE for category')…"
+                        placeholder="Add a correction note, then click Promote to save it permanently to the AI's memory…"
                         value={noteValue}
                         onChange={(e) => setEditNotes((prev) => ({ ...prev, [entry.id]: e.target.value }))}
                       />
-                      {isEditing && (
-                        <button className="sq-j-save-btn" onClick={() => saveNotes(entry.id)}>Save note</button>
-                      )}
+                      <div className="sq-j-note-actions">
+                        {isEditing && (
+                          <button className="sq-j-save-btn" onClick={() => saveNotes(entry.id)}>Save</button>
+                        )}
+                        {entry.notes && !promoted[entry.id] && (
+                          <button
+                            className="sq-j-promote-btn"
+                            onClick={() => promoteToLesson(entry)}
+                            disabled={promoting[entry.id]}
+                            title="Add this note as a permanent lesson in the Knowledge tab"
+                          >
+                            {promoting[entry.id] ? '…' : '⬆ Promote to lesson'}
+                          </button>
+                        )}
+                        {promoted[entry.id] && (
+                          <span className="sq-j-promoted-badge">✓ Promoted</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -705,16 +737,246 @@ function JournalTab({ token }) {
   );
 }
 
+// ── Knowledge Tab ────────────────────────────────────────────────────────────
+const FACT_CATEGORIES = ['Products', 'Locations', 'Team', 'Seasons & Hours', 'Business Rules', 'General'];
+
+function KnowledgeTab({ token }) {
+  const [facts, setFacts]       = useState([]);
+  const [lessons, setLessons]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [newCategory, setNewCategory] = useState('Products');
+  const [newContent, setNewContent]   = useState('');
+  const [adding, setAdding]     = useState(false);
+  const [editId, setEditId]     = useState(null);
+  const [editContent, setEditContent] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      fetch('/api/square/facts',   { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+      fetch('/api/square/lessons', { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+    ]).then(([fd, ld]) => {
+      setFacts(fd.facts || []);
+      setLessons(ld.lessons || []);
+    }).finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addFact = async () => {
+    if (!newContent.trim()) return;
+    setAdding(true);
+    try {
+      const r = await fetch('/api/square/facts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ category: newCategory, content: newContent.trim() }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setFacts((prev) => [...prev, d.fact]);
+        setNewContent('');
+      }
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const toggleFact = async (fact) => {
+    const r = await fetch(`/api/square/facts/${fact.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ active: !fact.active }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      setFacts((prev) => prev.map((f) => (f.id === fact.id ? d.fact : f)));
+    }
+  };
+
+  const deleteFact = async (id) => {
+    await fetch(`/api/square/facts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    setFacts((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const saveEditFact = async (id) => {
+    const r = await fetch(`/api/square/facts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ content: editContent }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      setFacts((prev) => prev.map((f) => (f.id === id ? d.fact : f)));
+    }
+    setEditId(null);
+  };
+
+  const toggleLesson = async (lesson) => {
+    const r = await fetch(`/api/square/lessons/${lesson.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ active: !lesson.active }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      setLessons((prev) => prev.map((l) => (l.id === lesson.id ? d.lesson : l)));
+    }
+  };
+
+  const deleteLesson = async (id) => {
+    await fetch(`/api/square/lessons/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    setLessons((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  // Group facts by category
+  const grouped = React.useMemo(() => {
+    const map = {};
+    facts.forEach((f) => {
+      if (!map[f.category]) map[f.category] = [];
+      map[f.category].push(f);
+    });
+    return map;
+  }, [facts]);
+
+  const activeFacts   = facts.filter((f) => f.active).length;
+  const activeLessons = lessons.filter((l) => l.active).length;
+
+  return (
+    <div className="sq-knowledge-wrap">
+
+      {/* ── Add fact ── */}
+      <div className="sq-knowledge-add">
+        <div className="sq-knowledge-add-title">
+          <span className="sq-knowledge-brain">🧠</span>
+          <div>
+            <h3>Business Knowledge</h3>
+            <p>Facts added here are <strong>always</strong> in the AI's context — it will never forget them.</p>
+          </div>
+        </div>
+        <div className="sq-knowledge-form">
+          <select
+            className="sq-knowledge-cat-select"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+          >
+            {FACT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <textarea
+            className="sq-knowledge-input"
+            rows={2}
+            placeholder='e.g. "Red wines: Mama\'s Merlot, Canyon Cabernet, Syrah Reserve, Petit Verdot"'
+            value={newContent}
+            onChange={(e) => setNewContent(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addFact(); }}
+          />
+          <button
+            className="sq-knowledge-add-btn"
+            onClick={addFact}
+            disabled={adding || !newContent.trim()}
+          >
+            {adding ? 'Adding…' : '+ Add'}
+          </button>
+        </div>
+      </div>
+
+      {loading && <div className="sq-state">Loading…</div>}
+
+      {!loading && (
+        <div className="sq-knowledge-body">
+
+          {/* ── Facts list ── */}
+          <div className="sq-knowledge-section">
+            <div className="sq-knowledge-section-header">
+              <span className="sq-knowledge-section-title">Facts</span>
+              <span className="sq-knowledge-section-count">{activeFacts} active / {facts.length} total</span>
+            </div>
+
+            {facts.length === 0 && (
+              <p className="sq-knowledge-empty">No facts yet. Add one above to get started.</p>
+            )}
+
+            {Object.entries(grouped).map(([cat, items]) => (
+              <div key={cat} className="sq-knowledge-group">
+                <div className="sq-knowledge-group-label">{cat}</div>
+                {items.map((f) => (
+                  <div key={f.id} className={`sq-knowledge-row ${!f.active ? 'sq-knowledge-row-inactive' : ''}`}>
+                    {editId === f.id ? (
+                      <>
+                        <textarea
+                          className="sq-knowledge-edit-input"
+                          rows={2}
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="sq-knowledge-row-actions">
+                          <button className="sq-knowledge-save-btn" onClick={() => saveEditFact(f.id)}>Save</button>
+                          <button className="sq-knowledge-cancel-btn" onClick={() => setEditId(null)}>Cancel</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className={`sq-knowledge-active-dot ${f.active ? 'sq-dot-on' : 'sq-dot-off'}`} title={f.active ? 'Active' : 'Disabled'} />
+                        <span className="sq-knowledge-content">{f.content}</span>
+                        <div className="sq-knowledge-row-actions">
+                          <button className="sq-knowledge-icon-btn" onClick={() => { setEditId(f.id); setEditContent(f.content); }} title="Edit">✎</button>
+                          <button className="sq-knowledge-icon-btn" onClick={() => toggleFact(f)} title={f.active ? 'Disable' : 'Enable'}>
+                            {f.active ? '○' : '●'}
+                          </button>
+                          <button className="sq-knowledge-icon-btn sq-knowledge-delete-btn" onClick={() => deleteFact(f.id)} title="Delete">✕</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* ── Lessons list ── */}
+          {lessons.length > 0 && (
+            <div className="sq-knowledge-section">
+              <div className="sq-knowledge-section-header">
+                <span className="sq-knowledge-section-title">Curated Lessons</span>
+                <span className="sq-knowledge-section-count">{activeLessons} active / {lessons.length} total · promoted from Journal</span>
+              </div>
+              {lessons.map((l) => (
+                <div key={l.id} className={`sq-knowledge-row ${!l.active ? 'sq-knowledge-row-inactive' : ''}`}>
+                  <span className={`sq-knowledge-active-dot ${l.active ? 'sq-dot-on' : 'sq-dot-off'}`} />
+                  <div className="sq-knowledge-lesson-body">
+                    <span className="sq-knowledge-content">{l.content}</span>
+                    {l.source_question && (
+                      <span className="sq-knowledge-lesson-source">from: "{l.source_question.slice(0, 80)}"</span>
+                    )}
+                  </div>
+                  <div className="sq-knowledge-row-actions">
+                    <button className="sq-knowledge-icon-btn" onClick={() => toggleLesson(l)} title={l.active ? 'Disable' : 'Enable'}>
+                      {l.active ? '○' : '●'}
+                    </button>
+                    <button className="sq-knowledge-icon-btn sq-knowledge-delete-btn" onClick={() => deleteLesson(l.id)} title="Delete">✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Square Page ─────────────────────────────────────────────────────────
 export function Square() {
   const token = localStorage.getItem('teamtask_token');
   const [tab, setTab] = useState('ask');
 
   const TABS = [
-    { id: 'ask',      label: '✦ Ask Square' },
-    { id: 'tables',   label: '⬡ Tables' },
-    { id: 'mappings', label: '⟳ Mappings' },
-    { id: 'journal',  label: '📓 Journal' },
+    { id: 'ask',       label: '✦ Ask Square' },
+    { id: 'knowledge', label: '🧠 Knowledge' },
+    { id: 'tables',    label: '⬡ Tables' },
+    { id: 'mappings',  label: '⟳ Mappings' },
+    { id: 'journal',   label: '📓 Journal' },
   ];
 
   return (
@@ -741,10 +1003,11 @@ export function Square() {
       </div>
 
       <div className="sq-tab-body">
-        {tab === 'ask'      && <AskTab      token={token} />}
-        {tab === 'tables'   && <TablesTab   token={token} />}
-        {tab === 'mappings' && <MappingsTab token={token} />}
-        {tab === 'journal'  && <JournalTab  token={token} />}
+        {tab === 'ask'       && <AskTab       token={token} />}
+        {tab === 'knowledge' && <KnowledgeTab token={token} />}
+        {tab === 'tables'    && <TablesTab    token={token} />}
+        {tab === 'mappings'  && <MappingsTab  token={token} />}
+        {tab === 'journal'   && <JournalTab   token={token} />}
       </div>
     </div>
   );

@@ -136,26 +136,64 @@ router.get('/tables', async (req, res) => {
   }
 });
 
-// ── Helper: build lessons block from journal ─────────────────────────────────
-async function buildLessonsBlock() {
+// ── Helper: build business knowledge block from facts table ─────────────────
+async function buildFactsBlock() {
   try {
     const result = await query(`
-      SELECT question, generated_sql, success, error_message, notes
-      FROM square_ai_journal
-      WHERE notes IS NOT NULL OR success = false
-      ORDER BY created_at DESC
-      LIMIT 20
+      SELECT category, content
+      FROM square_ai_facts
+      WHERE active = true
+      ORDER BY sort_order, created_at
     `);
     if (!result.rows.length) return '';
 
-    const lines = result.rows.map((r) => {
-      if (r.notes) {
-        return `- Q: "${r.question.slice(0, 80)}" → NOTE: ${r.notes}`;
-      }
-      return `- Q: "${r.question.slice(0, 80)}" → FAILED: ${(r.error_message || '').slice(0, 120)}`;
+    // Group by category
+    const grouped = {};
+    result.rows.forEach((r) => {
+      if (!grouped[r.category]) grouped[r.category] = [];
+      grouped[r.category].push(r.content);
     });
 
-    return `\n=== LESSONS LEARNED (from past queries — apply these corrections) ===\n${lines.join('\n')}\n`;
+    const sections = Object.entries(grouped).map(([cat, items]) =>
+      `${cat}:\n${items.map((c) => `  - ${c}`).join('\n')}`
+    );
+
+    return `\n=== BUSINESS KNOWLEDGE (permanent facts — always apply) ===\n${sections.join('\n')}\n`;
+  } catch {
+    return '';
+  }
+}
+
+// ── Helper: build curated lessons block ──────────────────────────────────────
+async function buildLessonsBlock() {
+  try {
+    // Tier 3: curated lessons (promoted from journal)
+    const lessons = await query(`
+      SELECT content FROM square_ai_lessons
+      WHERE active = true
+      ORDER BY created_at DESC
+      LIMIT 15
+    `);
+
+    // Tier 3b: recent failures (auto, not curated) — kept small so they don't crowd facts
+    const failures = await query(`
+      SELECT error_message
+      FROM square_ai_journal
+      WHERE success = false AND error_message IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 5
+    `);
+
+    const parts = [];
+    if (lessons.rows.length) {
+      parts.push('Curated corrections:\n' + lessons.rows.map((r) => `  - ${r.content}`).join('\n'));
+    }
+    if (failures.rows.length) {
+      parts.push('Recent failures (avoid these patterns):\n' + failures.rows.map((r) => `  - ${(r.error_message || '').slice(0, 120)}`).join('\n'));
+    }
+    if (!parts.length) return '';
+
+    return `\n=== LESSONS LEARNED ===\n${parts.join('\n')}\n`;
   } catch {
     return '';
   }
@@ -184,9 +222,9 @@ router.post('/ask', async (req, res) => {
 
   const client = new Anthropic({ apiKey });
 
-  // Inject lessons learned from journal into system prompt
-  const lessons = await buildLessonsBlock();
-  const systemPrompt = SQUARE_SCHEMA_CONTEXT + lessons;
+  // Build system prompt: schema + permanent facts (Tier 2) + curated lessons (Tier 3)
+  const [facts, lessons] = await Promise.all([buildFactsBlock(), buildLessonsBlock()]);
+  const systemPrompt = SQUARE_SCHEMA_CONTEXT + facts + lessons;
 
   // Build message history for multi-turn context
   const messages = [
@@ -407,6 +445,139 @@ router.patch('/journal/:id', async (req, res) => {
   } catch (err) {
     console.error('[square] journal patch error:', err.message);
     res.status(500).json({ error: 'Failed to update journal entry' });
+  }
+});
+
+// ── GET /api/square/facts ────────────────────────────────────────────────────
+router.get('/facts', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, category, content, active, sort_order, created_at
+       FROM square_ai_facts
+       ORDER BY sort_order, category, created_at`
+    );
+    res.json({ facts: result.rows });
+  } catch (err) {
+    console.error('[square] facts error:', err.message);
+    res.status(500).json({ error: 'Failed to load facts' });
+  }
+});
+
+// ── POST /api/square/facts ───────────────────────────────────────────────────
+router.post('/facts', async (req, res) => {
+  const { category = 'General', content } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'content is required' });
+  try {
+    const result = await query(
+      `INSERT INTO square_ai_facts (category, content, created_by)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [category.trim(), content.trim(), req.user?.id || null]
+    );
+    res.json({ fact: result.rows[0] });
+  } catch (err) {
+    console.error('[square] facts insert error:', err.message);
+    res.status(500).json({ error: 'Failed to save fact' });
+  }
+});
+
+// ── PATCH /api/square/facts/:id ──────────────────────────────────────────────
+router.patch('/facts/:id', async (req, res) => {
+  const { category, content, active } = req.body;
+  const fields = [];
+  const vals = [];
+  if (category !== undefined) { fields.push(`category = $${vals.length + 1}`); vals.push(category); }
+  if (content  !== undefined) { fields.push(`content = $${vals.length + 1}`);  vals.push(content); }
+  if (active   !== undefined) { fields.push(`active = $${vals.length + 1}`);   vals.push(active); }
+  if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
+  vals.push(req.params.id);
+  try {
+    const result = await query(
+      `UPDATE square_ai_facts SET ${fields.join(', ')} WHERE id = $${vals.length} RETURNING *`,
+      vals
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Fact not found' });
+    res.json({ fact: result.rows[0] });
+  } catch (err) {
+    console.error('[square] facts patch error:', err.message);
+    res.status(500).json({ error: 'Failed to update fact' });
+  }
+});
+
+// ── DELETE /api/square/facts/:id ─────────────────────────────────────────────
+router.delete('/facts/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM square_ai_facts WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[square] facts delete error:', err.message);
+    res.status(500).json({ error: 'Failed to delete fact' });
+  }
+});
+
+// ── GET /api/square/lessons ──────────────────────────────────────────────────
+router.get('/lessons', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT l.id, l.content, l.active, l.created_at, j.question AS source_question
+       FROM square_ai_lessons l
+       LEFT JOIN square_ai_journal j ON j.id = l.journal_id
+       ORDER BY l.created_at DESC`
+    );
+    res.json({ lessons: result.rows });
+  } catch (err) {
+    console.error('[square] lessons error:', err.message);
+    res.status(500).json({ error: 'Failed to load lessons' });
+  }
+});
+
+// ── POST /api/square/lessons ─────────────────────────────────────────────────
+// Promote a journal note to a curated lesson (or add a standalone lesson)
+router.post('/lessons', async (req, res) => {
+  const { content, journal_id } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'content is required' });
+  try {
+    const result = await query(
+      `INSERT INTO square_ai_lessons (content, journal_id, created_by)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [content.trim(), journal_id || null, req.user?.id || null]
+    );
+    res.json({ lesson: result.rows[0] });
+  } catch (err) {
+    console.error('[square] lessons insert error:', err.message);
+    res.status(500).json({ error: 'Failed to save lesson' });
+  }
+});
+
+// ── PATCH /api/square/lessons/:id ────────────────────────────────────────────
+router.patch('/lessons/:id', async (req, res) => {
+  const { content, active } = req.body;
+  const fields = [];
+  const vals = [];
+  if (content !== undefined) { fields.push(`content = $${vals.length + 1}`); vals.push(content); }
+  if (active  !== undefined) { fields.push(`active = $${vals.length + 1}`);  vals.push(active); }
+  if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
+  vals.push(req.params.id);
+  try {
+    const result = await query(
+      `UPDATE square_ai_lessons SET ${fields.join(', ')} WHERE id = $${vals.length} RETURNING *`,
+      vals
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Lesson not found' });
+    res.json({ lesson: result.rows[0] });
+  } catch (err) {
+    console.error('[square] lessons patch error:', err.message);
+    res.status(500).json({ error: 'Failed to update lesson' });
+  }
+});
+
+// ── DELETE /api/square/lessons/:id ───────────────────────────────────────────
+router.delete('/lessons/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM square_ai_lessons WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[square] lessons delete error:', err.message);
+    res.status(500).json({ error: 'Failed to delete lesson' });
   }
 });
 
