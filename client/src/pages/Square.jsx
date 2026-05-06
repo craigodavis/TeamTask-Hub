@@ -204,12 +204,17 @@ function AskTab({ token }) {
       if (!r.ok) {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.error || 'Error', error: data.details, sql: data.sql }]);
       } else {
+        // Build a natural content summary if AI didn't provide text
+        let content = data.text || '';
+        if (!content && data.rows) content = `${data.count} row${data.count !== 1 ? 's' : ''} returned`;
+        if (!content && data.facts_saved?.length) content = '';
         setMessages((prev) => [...prev, {
           role: 'assistant',
-          content: `${data.count} row${data.count !== 1 ? 's' : ''} returned`,
+          content,
           sql: data.sql,
           rows: data.rows,
           fields: data.fields,
+          facts_saved: data.facts_saved,
         }]);
       }
     } catch (err) {
@@ -268,8 +273,21 @@ function AskTab({ token }) {
         {messages.map((msg, i) => (
           <div key={i} className={`sq-msg sq-msg-${msg.role}`}>
             <div className="sq-msg-bubble">
-              <p className="sq-msg-text">{msg.content}</p>
+              {msg.content && <p className="sq-msg-text">{msg.content}</p>}
               {msg.error && <p className="sq-msg-error">{msg.error}</p>}
+              {msg.facts_saved?.length > 0 && (
+                <div className="sq-facts-saved">
+                  <span className="sq-facts-saved-icon">🧠</span>
+                  <div>
+                    <p className="sq-facts-saved-label">Saved to Knowledge Base:</p>
+                    {msg.facts_saved.map((f, fi) => (
+                      <p key={fi} className="sq-facts-saved-item">
+                        <span className="sq-facts-saved-cat">{f.category}</span> — {f.content}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
               {msg.sql && (
                 <div className="sq-sql-block">
                   <button className="sq-sql-toggle" onClick={() => toggleSql(i)}>

@@ -23,7 +23,8 @@ square.order_line_item
   total_amount (CENTS), total_tax_amount (CENTS), total_discount_amount (CENTS)
 
 square.catalog_item
-  id, name, description, is_deleted
+  id, name, description
+  NOTE: there is NO is_deleted column — do not use it
 
 square.catalog_item_variation
   id, item_id, name (variation name), sku, price_money_amount (CENTS), pricing_type,
@@ -98,16 +99,25 @@ Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Ki
 - The database also has fivetran_metadata, metabase, cellarpilot, wine, club_steward schemas — ignore these unless asked
 - There are duplicate catalog_category rows for the same name (Fivetran artifact from multiple locations) — use DISTINCT or filter carefully
 
-=== OUTPUT FORMAT ===
+=== HOW TO RESPOND ===
 
-Return ONLY raw SQL. Rules:
-- No markdown code fences (no backticks, no \`\`\`sql)
-- No explanations before or after the SQL
-- No semicolons
-- Start your response with SELECT or WITH — nothing else
-- Limit results to 500 rows unless asked for more
-- Always alias money columns as dollars using ROUND(.../ 100.0, 2) (e.g. ROUND(o.total_money_amount / 100.0, 2) AS total_dollars, ROUND(oli.total_amount / 100.0, 2) AS line_total_dollars)
-- On order_line_item use total_amount — NOT total_money_amount (that column does not exist on that table)
+You have two tools: run_sql and save_fact.
+
+Use run_sql when the user asks a data question. SQL rules:
+- No markdown, no semicolons, no backticks
+- Always LIMIT 500 unless asked for more
+- Money columns: ROUND(amount / 100.0, 2) AS name_dollars
+- On order_line_item use total_amount (NOT total_money_amount)
+- quantity is double precision — no cast needed
+
+Use save_fact when the user tells you something about the business
+(e.g. "those are our red wines", "we are closed Mondays", "Craig is the owner").
+You may call save_fact multiple times in one turn to save several facts.
+After saving, respond conversationally confirming what you saved.
+
+You may use BOTH tools in one turn — e.g. run a query then save a fact based on the results.
+
+If the user is just chatting or asking a non-data question, respond conversationally without calling any tool.
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────
@@ -212,6 +222,62 @@ async function logJournal({ question, generated_sql, success, error_message, row
   }
 }
 
+// ── Tool definitions ──────────────────────────────────────────────────────────
+const SQUARE_TOOLS = [
+  {
+    name: 'run_sql',
+    description: 'Run a read-only SQL SELECT query against the Square PostgreSQL database. Returns rows and field names.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string', description: 'A valid PostgreSQL SELECT or WITH query. No semicolons.' },
+      },
+      required: ['sql'],
+    },
+  },
+  {
+    name: 'save_fact',
+    description: 'Save a permanent business fact to the AI knowledge base. Use this when the user tells you something about the business.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        category: {
+          type: 'string',
+          enum: ['Products', 'Locations', 'Team', 'Seasons & Hours', 'Business Rules', 'General'],
+          description: 'Category for the fact',
+        },
+        content: { type: 'string', description: 'The fact to remember, written as a clear statement.' },
+      },
+      required: ['category', 'content'],
+    },
+  },
+];
+
+// ── Helper: execute SQL safely ────────────────────────────────────────────────
+async function executeSql(sql) {
+  const hasLimit = /\bLIMIT\s+\d+\b/i.test(sql);
+  const finalSql = hasLimit ? sql : `${sql} LIMIT 500`;
+
+  const normalised = finalSql.replace(/\s+/g, ' ').trim().toUpperCase();
+  if (!normalised.startsWith('SELECT') && !normalised.startsWith('WITH')) {
+    return { error: 'Only SELECT queries are allowed.' };
+  }
+
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query('SET statement_timeout = 15000');
+    const result = await dbClient.query(finalSql);
+    return {
+      sql: finalSql,
+      rows: result.rows,
+      fields: result.fields.map((f) => f.name),
+      count: result.rows.length,
+    };
+  } finally {
+    dbClient.release();
+  }
+}
+
 // ── POST /api/square/ask ─────────────────────────────────────────────────────
 router.post('/ask', async (req, res) => {
   const { question, history = [] } = req.body;
@@ -220,75 +286,99 @@ router.post('/ask', async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
 
-  const client = new Anthropic({ apiKey });
+  const ai = new Anthropic({ apiKey });
 
-  // Build system prompt: schema + permanent facts (Tier 2) + curated lessons (Tier 3)
   const [facts, lessons] = await Promise.all([buildFactsBlock(), buildLessonsBlock()]);
   const systemPrompt = SQUARE_SCHEMA_CONTEXT + facts + lessons;
 
-  // Build message history for multi-turn context
+  // History from frontend is [{role, content}] with string content — safe for multi-turn
   const messages = [
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: question },
   ];
 
-  let sql;
-  let aiMessage;
+  // Agentic tool-use loop
+  const accumulated = { text: '', sql: null, rows: null, fields: null, facts_saved: [] };
+
   try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-    });
-    aiMessage = response.content[0]?.text?.trim() || '';
+    while (true) {
+      const response = await ai.messages.create({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 2048,
+        system: systemPrompt,
+        tools: SQUARE_TOOLS,
+        messages,
+      });
 
-    // Extract SQL: find the first SELECT or WITH keyword anywhere in the response
-    const sqlMatch = aiMessage.match(/((?:WITH|SELECT)\s[\s\S]+)/i);
-    sql = sqlMatch ? sqlMatch[1].trim() : aiMessage.trim();
+      // Collect any text from this turn
+      const textBlock = response.content.find((b) => b.type === 'text');
+      if (textBlock?.text) accumulated.text = textBlock.text.trim();
 
-    // Strip trailing markdown fences and semicolons
-    sql = sql.replace(/\s*```[\s\S]*$/, '').replace(/;\s*$/, '').trim();
+      if (response.stop_reason === 'end_turn') break;
+
+      if (response.stop_reason === 'tool_use') {
+        // Add assistant's response (with tool_use blocks) to messages
+        messages.push({ role: 'assistant', content: response.content });
+
+        const toolResults = [];
+        for (const block of response.content) {
+          if (block.type !== 'tool_use') continue;
+
+          if (block.name === 'run_sql') {
+            let result;
+            try {
+              result = await executeSql(block.input.sql);
+              if (result.error) {
+                await logJournal({ question, generated_sql: block.input.sql, success: false, error_message: result.error });
+                toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${result.error}` });
+              } else {
+                accumulated.sql    = result.sql;
+                accumulated.rows   = result.rows;
+                accumulated.fields = result.fields;
+                await logJournal({ question, generated_sql: result.sql, success: true, row_count: result.count });
+                toolResults.push({
+                  type: 'tool_result',
+                  tool_use_id: block.id,
+                  content: `${result.count} rows returned. Fields: ${result.fields.join(', ')}. First few rows: ${JSON.stringify(result.rows.slice(0, 5))}`,
+                });
+              }
+            } catch (err) {
+              await logJournal({ question, generated_sql: block.input.sql, success: false, error_message: err.message });
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `SQL error: ${err.message}` });
+            }
+
+          } else if (block.name === 'save_fact') {
+            try {
+              await query(
+                `INSERT INTO square_ai_facts (category, content, created_by) VALUES ($1, $2, $3)`,
+                [block.input.category, block.input.content, req.user?.id || null]
+              );
+              accumulated.facts_saved.push({ category: block.input.category, content: block.input.content });
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'Fact saved successfully.' });
+            } catch (err) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Failed to save fact: ${err.message}` });
+            }
+          }
+        }
+
+        messages.push({ role: 'user', content: toolResults });
+      } else {
+        break; // unexpected stop reason
+      }
+    }
   } catch (err) {
     console.error('[square/ask] AI error:', err.message);
     return res.status(500).json({ error: 'AI request failed', details: err.message });
   }
 
-  // Safety: only allow SELECT / WITH (CTEs)
-  const normalised = sql.replace(/\s+/g, ' ').trim().toUpperCase();
-  if (!normalised.startsWith('SELECT') && !normalised.startsWith('WITH')) {
-    await logJournal({ question, generated_sql: sql, success: false, error_message: 'Non-SELECT query generated' });
-    return res.status(400).json({
-      error: 'AI generated a non-SELECT query — refusing to execute.',
-      sql,
-      raw: aiMessage,
-    });
-  }
-
-  // Don't double-add LIMIT if the query already has one
-  const hasLimit = /\bLIMIT\s+\d+\b/i.test(sql);
-  const finalSql = hasLimit ? sql : `${sql} LIMIT 500`;
-
-  // Execute with timeout
-  let rows, fields;
-  try {
-    const dbClient = await pool.connect();
-    try {
-      await dbClient.query('SET statement_timeout = 15000'); // 15s max
-      const result = await dbClient.query(finalSql);
-      rows = result.rows;
-      fields = result.fields.map((f) => f.name);
-    } finally {
-      dbClient.release();
-    }
-  } catch (err) {
-    console.error('[square/ask] query error:', err.message);
-    await logJournal({ question, generated_sql: finalSql, success: false, error_message: err.message });
-    return res.status(400).json({ error: 'Query failed', details: err.message, sql: finalSql });
-  }
-
-  await logJournal({ question, generated_sql: finalSql, success: true, row_count: rows.length });
-  res.json({ sql, rows, fields, count: rows.length });
+  res.json({
+    text:        accumulated.text,
+    sql:         accumulated.sql,
+    rows:        accumulated.rows,
+    fields:      accumulated.fields,
+    count:       accumulated.rows?.length ?? null,
+    facts_saved: accumulated.facts_saved,
+  });
 });
 
 // ── GET /api/square/mappings ─────────────────────────────────────────────────

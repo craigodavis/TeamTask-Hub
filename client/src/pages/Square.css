@@ -1209,3 +1209,38 @@
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Facts saved confirmation in chat */
+.sq-facts-saved {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 6px 0;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+
+.sq-facts-saved-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.sq-facts-saved-label {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #15803d;
+}
+
+.sq-facts-saved-item {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: #166534;
+}
+
+.sq-facts-saved-cat {
+  font-weight: 600;
+}
