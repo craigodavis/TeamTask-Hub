@@ -912,7 +912,7 @@ function KnowledgeTab({ token }) {
           <textarea
             className="sq-knowledge-input"
             rows={2}
-            placeholder='e.g. "Red wines: Mama\'s Merlot, Canyon Cabernet, Syrah Reserve, Petit Verdot"'
+            placeholder={`e.g. "Red wines: Mama's Merlot, Canyon Cabernet, Syrah Reserve, Petit Verdot"`}
             value={newContent}
             onChange={(e) => setNewContent(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addFact(); }}
