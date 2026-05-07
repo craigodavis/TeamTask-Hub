@@ -292,13 +292,43 @@
 
 .sq-null { color: #d1d5db; font-style: italic; }
 
-.sq-result-count {
-  margin: 0;
-  padding: 5px 10px;
-  font-size: 0.72rem;
-  color: #9ca3af;
+.sq-result-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   background: #f9fafb;
   border-top: 1px solid #e5e7eb;
+  padding: 4px 10px;
+}
+
+.sq-result-count {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.sq-copy-btn {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #6b7280;
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.sq-copy-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.sq-copy-btn:active, .sq-copy-btn[data-copied] {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #bbf7d0;
 }
 
 .sq-no-results {

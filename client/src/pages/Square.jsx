@@ -110,7 +110,24 @@ function formatCell(field, value) {
 }
 
 function ResultTable({ fields, rows }) {
+  const [copied, setCopied] = useState(false);
+
   if (!rows?.length) return <p className="sq-no-results">No results returned.</p>;
+
+  const handleCopy = () => {
+    const text = rows
+      .map((row) => fields.map((f) => {
+        const v = row[f];
+        if (v == null) return '';
+        return String(v).includes('\t') || String(v).includes('\n') ? `"${v}"` : String(v);
+      }).join('\t'))
+      .join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   return (
     <div className="sq-result-table-wrap">
       <table className="sq-result-table">
@@ -125,7 +142,12 @@ function ResultTable({ fields, rows }) {
           ))}
         </tbody>
       </table>
-      <p className="sq-result-count">{rows.length} row{rows.length !== 1 ? 's' : ''}</p>
+      <div className="sq-result-footer">
+        <span className="sq-result-count">{rows.length} row{rows.length !== 1 ? 's' : ''}</span>
+        <button className="sq-copy-btn" onClick={handleCopy}>
+          {copied ? '✓ Copied' : '⎘ Copy'}
+        </button>
+      </div>
     </div>
   );
 }
