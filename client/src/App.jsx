@@ -11,6 +11,7 @@ import { Square } from './pages/Square';
 import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
+import ReportView from './pages/ReportView';
 import { AppShell } from './components/AppShell';
 import { appHubTitle } from './appHubTitle';
 
@@ -65,6 +66,8 @@ function App() {
 
   return (
     <Routes>
+      {/* Public routes — no auth required */}
+      <Route path="/r/:token" element={<ReportView />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login onLogin={onLogin} />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AuthGate user={user} />}>

@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 import twilio from 'twilio';
+import { executeSqlReadOnly } from './scheduledReportsHelper.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -195,6 +196,149 @@ export function startDailySquareAutoSync() {
 
   setTimeout(run, 30 * 1000);
   setInterval(run, DAY_IN_MS);
+}
+
+// ── Scheduled Report Runner ───────────────────────────────────────────────────
+
+function isReportDue(report, now) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const todayStr   = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const currentTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const sendTime    = String(report.send_time).slice(0, 5); // HH:MM
+
+  // Already ran today?
+  if (report.last_ran_at) {
+    const lr = new Date(report.last_ran_at);
+    const lastStr = `${lr.getFullYear()}-${pad(lr.getMonth() + 1)}-${pad(lr.getDate())}`;
+    if (lastStr === todayStr) return false;
+  }
+
+  // Date range
+  if (report.start_date && todayStr < report.start_date.slice(0, 10)) return false;
+  if (report.end_date   && todayStr > report.end_date.slice(0, 10))   return false;
+
+  // Not yet time today?
+  if (currentTime < sendTime) return false;
+
+  const dow        = now.getDay();        // 0=Sun
+  const dom        = now.getDate();       // 1–31
+  const month      = now.getMonth() + 1; // 1–12
+  const year       = now.getFullYear();
+
+  switch (report.frequency) {
+    case 'daily':
+      return true;
+    case 'weekly':
+      return dow === report.day_of_week;
+    case 'monthly': {
+      const daysInMonth = new Date(year, month, 0).getDate();
+      return dom === Math.min(report.day_of_month || 1, daysInMonth);
+    }
+    case 'yearly': {
+      const m = report.send_month || 1;
+      const daysInYearMonth = new Date(year, m, 0).getDate();
+      return month === m && dom === Math.min(report.day_of_month || 1, daysInYearMonth);
+    }
+    default:
+      return false;
+  }
+}
+
+async function runScheduledReport(report) {
+  console.log(`[scheduler] Running report "${report.name}" (${report.id})`);
+  let runId, rows, fields, smsSent = 0;
+
+  try {
+    const result = await executeSqlReadOnly(report.sql_query);
+    rows   = result.rows;
+    fields = result.fields;
+
+    // Store run record
+    const runResult = await query(
+      `INSERT INTO scheduled_report_runs
+         (report_id, status, rows_returned, result_data, result_fields)
+       VALUES ($1, 'success', $2, $3, $4) RETURNING id, view_token`,
+      [report.id, rows.length, JSON.stringify(rows), JSON.stringify(fields)]
+    );
+    runId = runResult.rows[0].id;
+    const viewToken = runResult.rows[0].view_token;
+
+    // Get recipients
+    const recipients = await query(
+      `SELECT u.phone, u.display_name FROM scheduled_report_recipients srr
+       JOIN users u ON u.id = srr.user_id
+       WHERE srr.report_id = $1 AND u.phone IS NOT NULL AND u.phone != ''`,
+      [report.id]
+    );
+
+    if (recipients.rows.length) {
+      // Get Twilio creds for this company
+      const integrations = await getCompanyIntegrations(report.company_id);
+      const accountSid  = integrations?.twilio_account_sid?.trim() || process.env.TWILIO_ACCOUNT_SID;
+      const authToken   = integrations?.twilio_auth_token?.trim()  || process.env.TWILIO_AUTH_TOKEN;
+      const fromNumber  = integrations?.twilio_phone_number?.trim() || process.env.TWILIO_PHONE_NUMBER;
+      const appUrl      = process.env.APP_URL || 'https://app.kindredvineyards.com';
+
+      if (accountSid && authToken && fromNumber) {
+        const tc = twilio(accountSid, authToken);
+        for (const r of recipients.rows) {
+          try {
+            await tc.messages.create({
+              from: fromNumber,
+              to: r.phone,
+              body: `📊 ${report.name} is ready — ${rows.length} result${rows.length !== 1 ? 's' : ''}.\nView: ${appUrl}/r/${viewToken}`,
+            });
+            smsSent++;
+          } catch (e) {
+            console.error(`[scheduler] SMS failed to ${r.phone}:`, e.message);
+          }
+        }
+      }
+    }
+
+    // Update run with SMS count + mark report last_ran_at
+    await query(
+      `UPDATE scheduled_report_runs SET sms_sent_count = $1 WHERE id = $2`,
+      [smsSent, runId]
+    );
+  } catch (err) {
+    console.error(`[scheduler] Report "${report.name}" failed:`, err.message);
+    await query(
+      `INSERT INTO scheduled_report_runs (report_id, status, error_message) VALUES ($1,'failed',$2)`,
+      [report.id, err.message]
+    );
+  }
+
+  // Always update last_ran_at so it doesn't retry today
+  await query(`UPDATE scheduled_reports SET last_ran_at = NOW() WHERE id = $1`, [report.id]);
+}
+
+export function startReportScheduler() {
+  const FIVE_MIN = 5 * 60 * 1000;
+
+  const check = async () => {
+    try {
+      const now = new Date();
+      const reports = await query(
+        `SELECT * FROM scheduled_reports WHERE active = true
+         AND (start_date IS NULL OR start_date <= CURRENT_DATE)
+         AND (end_date   IS NULL OR end_date   >= CURRENT_DATE)`
+      );
+      for (const report of reports.rows) {
+        if (isReportDue(report, now)) {
+          runScheduledReport(report).catch((e) =>
+            console.error(`[scheduler] Unhandled error for report ${report.id}:`, e.message)
+          );
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] Check loop error:', err.message);
+    }
+  };
+
+  setTimeout(check, 60 * 1000); // first check 60s after startup
+  setInterval(check, FIVE_MIN);
+  console.log('Report scheduler started (checking every 5 minutes)');
 }
 
 // ---------- Square: fetch team members only (manager); no DB insert/update ----------

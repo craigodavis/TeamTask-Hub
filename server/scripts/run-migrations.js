@@ -303,6 +303,48 @@ const MIGRATIONS = [
     created_by UUID REFERENCES users(id) ON DELETE SET NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_square_ai_lessons_active ON square_ai_lessons(active, created_at)`,
+  // 056: Scheduled reports
+  `CREATE TABLE IF NOT EXISTS scheduled_reports (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name          VARCHAR(255) NOT NULL,
+    description   TEXT,
+    sql_query     TEXT NOT NULL,
+    frequency     VARCHAR(20) NOT NULL CHECK (frequency IN ('daily','weekly','monthly','yearly')),
+    day_of_week   INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
+    day_of_month  INTEGER CHECK (day_of_month BETWEEN 1 AND 31),
+    send_month    INTEGER CHECK (send_month BETWEEN 1 AND 12),
+    send_time     TIME NOT NULL DEFAULT '08:00',
+    start_date    DATE,
+    end_date      DATE,
+    active        BOOLEAN NOT NULL DEFAULT true,
+    last_ran_at   TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_reports_company ON scheduled_reports(company_id, active)`,
+  // 057: Scheduled report recipients
+  `CREATE TABLE IF NOT EXISTS scheduled_report_recipients (
+    report_id UUID NOT NULL REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+    user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (report_id, user_id)
+  )`,
+  // 058: Scheduled report runs (history + token for public view)
+  `CREATE TABLE IF NOT EXISTS scheduled_report_runs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id       UUID NOT NULL REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+    ran_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status          VARCHAR(20) NOT NULL DEFAULT 'success',
+    rows_returned   INTEGER,
+    sms_sent_count  INTEGER,
+    error_message   TEXT,
+    view_token      UUID NOT NULL DEFAULT gen_random_uuid(),
+    token_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+    result_data     JSONB,
+    result_fields   JSONB
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_report_runs_report ON scheduled_report_runs(report_id, ran_at DESC)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_report_runs_token ON scheduled_report_runs(view_token)`,
 ];
 
 async function run() {

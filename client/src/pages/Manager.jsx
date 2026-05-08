@@ -33,6 +33,7 @@ import {
   taskMonthNames,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
+import { ScheduledReports } from './ScheduledReports';
 import './Manager.css';
 
 function todayStr() {
@@ -388,15 +389,24 @@ export function Manager() {
             >
               Debt report
             </button>
+            <button
+              type="button"
+              className={activeReport === 'scheduled' ? 'active' : ''}
+              onClick={() => setActiveReport('scheduled')}
+            >
+              Scheduled reports
+            </button>
           </nav>
 
+          {activeReport !== 'scheduled' && (
           <p className="hint">
             {activeReport === 'debt'
               ? 'Debt report compares month-end balances for two calendar years. Edit the table and save.'
               : 'Pick a report, set the date range, then run. More reports can be added here over time.'}
           </p>
+          )}
 
-          {activeReport !== 'debt' && (
+          {activeReport !== 'debt' && activeReport !== 'scheduled' && (
           <div className="report-filters">
             <label>
               From
@@ -514,6 +524,8 @@ export function Manager() {
           )}
 
           {activeReport === 'debt' && <DebtReportSection />}
+
+          {activeReport === 'scheduled' && <ScheduledReports />}
         </section>
       )}
 

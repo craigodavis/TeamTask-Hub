@@ -11,7 +11,8 @@ import { companiesRouter } from './routes/companies.js';
 import { taskListsRouter } from './routes/taskLists.js';
 import { announcementsRouter } from './routes/announcements.js';
 import { foodWasteRouter } from './routes/foodWaste.js';
-import { integrationsRouter, startDailySquareAutoSync } from './routes/integrations.js';
+import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } from './routes/integrations.js';
+import { scheduledReportsRouter } from './routes/scheduledReports.js';
 import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager } from './middleware/auth.js';
 import { settingsRouter } from './routes/settings.js';
@@ -52,6 +53,8 @@ app.use('/api/receipts', requireAuth, receiptsRouter);
 app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
 app.use('/api/square', requireAuth, requireManager, squareRouter);
+app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
+app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
@@ -74,8 +77,10 @@ ensureLocationsTables()
   .then(() => {
     console.log('Schema checks (locations / migration 008) finished.');
     startDailySquareAutoSync();
+    startReportScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
     startDailySquareAutoSync();
+    startReportScheduler();
   });

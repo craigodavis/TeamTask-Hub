@@ -1,0 +1,447 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import './ScheduledReports.css';
+
+const API = '/api/reports/scheduled';
+const token = () => localStorage.getItem('teamtask_token');
+const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` });
+
+const FREQUENCIES = [
+  { value: 'daily',   label: 'Daily' },
+  { value: 'weekly',  label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'yearly',  label: 'Yearly' },
+];
+const DAYS_OF_WEEK = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function freqSummary(r) {
+  if (!r) return '';
+  switch (r.frequency) {
+    case 'daily':   return `Daily at ${r.send_time?.slice(0,5)}`;
+    case 'weekly':  return `Every ${DAYS_OF_WEEK[r.day_of_week] || '?'} at ${r.send_time?.slice(0,5)}`;
+    case 'monthly': return `${ordinal(r.day_of_month)} of every month at ${r.send_time?.slice(0,5)}`;
+    case 'yearly':  return `${MONTHS[(r.send_month||1)-1]} ${ordinal(r.day_of_month)} at ${r.send_time?.slice(0,5)}`;
+    default: return r.frequency;
+  }
+}
+function ordinal(n) {
+  if (!n) return '1st';
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+
+// ── Report Form ───────────────────────────────────────────────────────────────
+const BLANK = {
+  name: '', description: '', sql_query: '', frequency: 'daily',
+  day_of_week: 1, day_of_month: 1, send_month: 1,
+  send_time: '08:00', start_date: '', end_date: '', active: true,
+  recipient_ids: [],
+};
+
+function ReportForm({ initial, users, onSave, onCancel }) {
+  const [form, setForm]       = useState({ ...BLANK, ...initial });
+  const [saving, setSaving]   = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testError, setTestError]   = useState('');
+  const [aiQuery, setAiQuery]       = useState('');
+  const [aiLoading, setAiLoading]   = useState(false);
+  const [showAi, setShowAi]         = useState(false);
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const toggleRecipient = (id) => {
+    setForm((f) => ({
+      ...f,
+      recipient_ids: f.recipient_ids.includes(id)
+        ? f.recipient_ids.filter((x) => x !== id)
+        : [...f.recipient_ids, id],
+    }));
+  };
+
+  const handleTest = async () => {
+    setTesting(true); setTestResult(null); setTestError('');
+    try {
+      const r = await fetch(`${API}/test-sql`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ sql_query: form.sql_query }),
+      });
+      const d = await r.json();
+      if (!r.ok) setTestError(d.error || 'Query failed');
+      else setTestResult(d);
+    } catch (e) { setTestError(e.message); }
+    finally { setTesting(false); }
+  };
+
+  const handleAiGenerate = async () => {
+    if (!aiQuery.trim()) return;
+    setAiLoading(true);
+    try {
+      const r = await fetch('/api/square/ask', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ question: aiQuery, history: [] }),
+      });
+      const d = await r.json();
+      if (d.sql) { set('sql_query', d.sql); setShowAi(false); setAiQuery(''); }
+      else setTestError(d.error || 'No SQL generated');
+    } catch (e) { setTestError(e.message); }
+    finally { setAiLoading(false); }
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.sql_query.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(form);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="sr-form-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="sr-form">
+        <div className="sr-form-header">
+          <h3>{initial?.id ? 'Edit Report' : 'New Scheduled Report'}</h3>
+          <button className="sr-form-close" onClick={onCancel}>✕</button>
+        </div>
+
+        <div className="sr-form-body">
+          {/* Name & Description */}
+          <div className="sr-field">
+            <label>Report Name *</label>
+            <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Daily Sales Summary" />
+          </div>
+          <div className="sr-field">
+            <label>Description</label>
+            <input value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Optional description" />
+          </div>
+
+          {/* SQL Query */}
+          <div className="sr-field">
+            <div className="sr-field-row">
+              <label>SQL Query *</label>
+              <button className="sr-ai-toggle" onClick={() => setShowAi(!showAi)}>
+                {showAi ? '✕ Close AI' : '✦ Generate with AI'}
+              </button>
+            </div>
+            {showAi && (
+              <div className="sr-ai-panel">
+                <input
+                  className="sr-ai-input"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  placeholder="Describe the report in plain English…"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAiGenerate()}
+                />
+                <button className="sr-ai-btn" onClick={handleAiGenerate} disabled={aiLoading || !aiQuery.trim()}>
+                  {aiLoading ? '…' : 'Generate SQL'}
+                </button>
+              </div>
+            )}
+            <textarea
+              className="sr-sql-input"
+              rows={6}
+              value={form.sql_query}
+              onChange={(e) => set('sql_query', e.target.value)}
+              placeholder="SELECT ... FROM square.order ..."
+              spellCheck={false}
+            />
+            <div className="sr-test-row">
+              <button className="sr-test-btn" onClick={handleTest} disabled={testing || !form.sql_query.trim()}>
+                {testing ? 'Running…' : '▶ Test Query'}
+              </button>
+              {testError && <span className="sr-test-error">{testError}</span>}
+              {testResult && <span className="sr-test-ok">✓ {testResult.count} row{testResult.count !== 1 ? 's' : ''} returned</span>}
+            </div>
+            {testResult && testResult.rows?.length > 0 && (
+              <div className="sr-preview-wrap">
+                <table className="sr-preview-table">
+                  <thead><tr>{testResult.fields.map((f) => <th key={f}>{f}</th>)}</tr></thead>
+                  <tbody>
+                    {testResult.rows.slice(0, 5).map((row, i) => (
+                      <tr key={i}>{testResult.fields.map((f) => <td key={f}>{row[f] == null ? '—' : String(row[f])}</td>)}</tr>
+                    ))}
+                  </tbody>
+                </table>
+                {testResult.rows.length > 5 && <p className="sr-preview-more">…and {testResult.rows.length - 5} more rows</p>}
+              </div>
+            )}
+          </div>
+
+          {/* Schedule */}
+          <div className="sr-field-group">
+            <div className="sr-field sr-field-sm">
+              <label>Frequency</label>
+              <select value={form.frequency} onChange={(e) => set('frequency', e.target.value)}>
+                {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+            {form.frequency === 'weekly' && (
+              <div className="sr-field sr-field-sm">
+                <label>Day of Week</label>
+                <select value={form.day_of_week} onChange={(e) => set('day_of_week', parseInt(e.target.value))}>
+                  {DAYS_OF_WEEK.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              </div>
+            )}
+            {(form.frequency === 'monthly' || form.frequency === 'yearly') && (
+              <div className="sr-field sr-field-sm">
+                <label>Day of Month</label>
+                <select value={form.day_of_month} onChange={(e) => set('day_of_month', parseInt(e.target.value))}>
+                  {Array.from({length: 31}, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>{ordinal(d)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {form.frequency === 'yearly' && (
+              <div className="sr-field sr-field-sm">
+                <label>Month</label>
+                <select value={form.send_month} onChange={(e) => set('send_month', parseInt(e.target.value))}>
+                  {MONTHS.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="sr-field sr-field-sm">
+              <label>Send Time</label>
+              <input type="time" value={form.send_time} onChange={(e) => set('send_time', e.target.value)} />
+            </div>
+          </div>
+
+          {/* Date range */}
+          <div className="sr-field-group">
+            <div className="sr-field sr-field-sm">
+              <label>Start Date</label>
+              <input type="date" value={form.start_date} onChange={(e) => set('start_date', e.target.value)} />
+            </div>
+            <div className="sr-field sr-field-sm">
+              <label>End Date</label>
+              <input type="date" value={form.end_date} onChange={(e) => set('end_date', e.target.value)} />
+            </div>
+          </div>
+
+          {/* Recipients */}
+          <div className="sr-field">
+            <label>Recipients <span className="sr-label-hint">(must have a phone number)</span></label>
+            <div className="sr-recipients">
+              {users.filter((u) => u.phone).map((u) => (
+                <label key={u.id} className={`sr-recipient ${form.recipient_ids.includes(u.id) ? 'sr-recipient-on' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={form.recipient_ids.includes(u.id)}
+                    onChange={() => toggleRecipient(u.id)}
+                  />
+                  <span>{u.display_name}</span>
+                  <span className="sr-recipient-phone">{u.phone}</span>
+                </label>
+              ))}
+              {users.filter((u) => u.phone).length === 0 && (
+                <p className="sr-no-phones">No users with phone numbers found.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Active */}
+          <div className="sr-field sr-field-inline">
+            <label>
+              <input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} />
+              Active (will send on schedule)
+            </label>
+          </div>
+        </div>
+
+        <div className="sr-form-footer">
+          <button className="sr-cancel-btn" onClick={onCancel}>Cancel</button>
+          <button
+            className="sr-save-btn"
+            onClick={handleSave}
+            disabled={saving || !form.name.trim() || !form.sql_query.trim()}
+          >
+            {saving ? 'Saving…' : (initial?.id ? 'Save Changes' : 'Create Report')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Run History Modal ─────────────────────────────────────────────────────────
+function RunHistory({ report, onClose }) {
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API}/${report.id}/runs`, { headers: { Authorization: `Bearer ${token()}` } })
+      .then((r) => r.json())
+      .then((d) => setRuns(d.runs || []))
+      .finally(() => setLoading(false));
+  }, [report.id]);
+
+  return (
+    <div className="sr-form-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sr-form sr-history-form">
+        <div className="sr-form-header">
+          <h3>Run History — {report.name}</h3>
+          <button className="sr-form-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="sr-form-body">
+          {loading && <p className="sr-state">Loading…</p>}
+          {!loading && runs.length === 0 && <p className="sr-state">No runs yet.</p>}
+          {!loading && runs.length > 0 && (
+            <table className="sr-history-table">
+              <thead>
+                <tr><th>Ran At</th><th>Status</th><th>Rows</th><th>SMS Sent</th><th>Link</th></tr>
+              </thead>
+              <tbody>
+                {runs.map((r) => (
+                  <tr key={r.id}>
+                    <td>{new Date(r.ran_at).toLocaleString()}</td>
+                    <td><span className={`sr-status-badge sr-status-${r.status}`}>{r.status}</span></td>
+                    <td>{r.rows_returned ?? '—'}</td>
+                    <td>{r.sms_sent_count ?? '—'}</td>
+                    <td>
+                      {r.status === 'success' && (
+                        <a href={`/r/${r.view_token}`} target="_blank" rel="noreferrer" className="sr-view-link">
+                          View ↗
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export function ScheduledReports() {
+  const [reports, setReports]   = useState([]);
+  const [users, setUsers]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing]   = useState(null);
+  const [history, setHistory]   = useState(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      fetch(API,            { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
+      fetch('/api/integrations/users', { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
+    ]).then(([rd, ud]) => {
+      setReports(rd.reports || []);
+      setUsers(ud.users || []);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async (form) => {
+    const isEdit = !!editing?.id;
+    const url  = isEdit ? `${API}/${editing.id}` : API;
+    const method = isEdit ? 'PATCH' : 'POST';
+    const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(form) });
+    if (r.ok) { setShowForm(false); setEditing(null); load(); }
+  };
+
+  const handleToggleActive = async (report) => {
+    await fetch(`${API}/${report.id}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ active: !report.active }),
+    });
+    load();
+  };
+
+  const handleDelete = async (report) => {
+    if (!window.confirm(`Delete "${report.name}"? This cannot be undone.`)) return;
+    await fetch(`${API}/${report.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
+    load();
+  };
+
+  return (
+    <div className="sr-wrap">
+      <div className="sr-toolbar">
+        <div>
+          <h3 className="sr-title">Scheduled Reports</h3>
+          <p className="sr-subtitle">Define reports that run automatically and send results via SMS.</p>
+        </div>
+        <button className="sr-new-btn" onClick={() => { setEditing(null); setShowForm(true); }}>
+          + New Report
+        </button>
+      </div>
+
+      {loading && <p className="sr-state">Loading…</p>}
+
+      {!loading && reports.length === 0 && (
+        <div className="sr-empty">
+          <p>No scheduled reports yet.</p>
+          <button className="sr-new-btn" onClick={() => { setEditing(null); setShowForm(true); }}>
+            Create your first report
+          </button>
+        </div>
+      )}
+
+      {!loading && reports.length > 0 && (
+        <div className="sr-list">
+          {reports.map((report) => (
+            <div key={report.id} className={`sr-card ${!report.active ? 'sr-card-inactive' : ''}`}>
+              <div className="sr-card-left">
+                <div className="sr-card-top">
+                  <span className={`sr-active-dot ${report.active ? 'sr-dot-on' : 'sr-dot-off'}`} />
+                  <span className="sr-card-name">{report.name}</span>
+                  {report.description && <span className="sr-card-desc">{report.description}</span>}
+                </div>
+                <div className="sr-card-meta">
+                  <span className="sr-card-freq">🕐 {freqSummary(report)}</span>
+                  {report.recipients?.length > 0 && (
+                    <span className="sr-card-recips">
+                      👤 {report.recipients.length} recipient{report.recipients.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {report.last_ran_at && (
+                    <span className="sr-card-last">Last sent {new Date(report.last_ran_at).toLocaleDateString()}</span>
+                  )}
+                </div>
+              </div>
+              <div className="sr-card-actions">
+                <button className="sr-card-btn" onClick={() => setHistory(report)} title="View run history">📋</button>
+                <button className="sr-card-btn" onClick={() => { setEditing(report); setShowForm(true); }} title="Edit">✎</button>
+                <button
+                  className={`sr-card-btn sr-toggle-btn ${report.active ? 'sr-toggle-on' : 'sr-toggle-off'}`}
+                  onClick={() => handleToggleActive(report)}
+                  title={report.active ? 'Deactivate' : 'Activate'}
+                >
+                  {report.active ? 'Active' : 'Inactive'}
+                </button>
+                <button className="sr-card-btn sr-delete-btn" onClick={() => handleDelete(report)} title="Delete">✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <ReportForm
+          initial={editing ? {
+            ...editing,
+            recipient_ids: (editing.recipients || []).map((r) => r.id),
+            send_time: editing.send_time?.slice(0, 5) || '08:00',
+            start_date: editing.start_date?.slice(0, 10) || '',
+            end_date: editing.end_date?.slice(0, 10) || '',
+          } : undefined}
+          users={users}
+          onSave={handleSave}
+          onCancel={() => { setShowForm(false); setEditing(null); }}
+        />
+      )}
+
+      {history && <RunHistory report={history} onClose={() => setHistory(null)} />}
+    </div>
+  );
+}
