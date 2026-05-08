@@ -249,7 +249,7 @@ async function runScheduledReport(report) {
   let runId, rows, fields, smsSent = 0;
 
   try {
-    const result = await executeSqlReadOnly(report.sql_query);
+    const result = await executeSqlReadOnly(report.sql_query, report.params || []);
     rows   = result.rows;
     fields = result.fields;
 

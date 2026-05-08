@@ -14,6 +14,20 @@ const FREQUENCIES = [
 const DAYS_OF_WEEK = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+// Date expression presets
+const DATE_PRESETS = [
+  { label: 'Today',                value: "now()" },
+  { label: 'Yesterday',            value: "now() - interval '1 day'" },
+  { label: '7 days ago',           value: "now() - interval '7 days'" },
+  { label: '30 days ago',          value: "now() - interval '30 days'" },
+  { label: '90 days ago',          value: "now() - interval '90 days'" },
+  { label: 'Start of this month',  value: "date_trunc('month', now())" },
+  { label: 'Start of last month',  value: "date_trunc('month', now() - interval '1 month')" },
+  { label: 'End of last month',    value: "date_trunc('month', now()) - interval '1 day'" },
+  { label: 'Start of this year',   value: "date_trunc('year', now())" },
+  { label: 'Custom…',              value: '__custom__' },
+];
+
 function freqSummary(r) {
   if (!r) return '';
   switch (r.frequency) {
@@ -31,12 +45,92 @@ function ordinal(n) {
   return n + (s[(v-20)%10] || s[v] || s[0]);
 }
 
+// Extract {token_names} from a SQL string
+function extractTokens(sql) {
+  const matches = [...(sql || '').matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g)];
+  return [...new Set(matches.map((m) => m[1]))];
+}
+
+// Merge detected tokens with existing params — preserve values, drop removed tokens
+function syncParams(sql, existing) {
+  const tokens = extractTokens(sql);
+  return tokens.map((name) => {
+    const prev = existing.find((p) => p.name === name);
+    return prev || { name, type: 'date_expr', value: '' };
+  });
+}
+
+// ── Param Row ────────────────────────────────────────────────────────────────
+function ParamRow({ param, onChange }) {
+  const isCustom = param.type === 'date_expr' &&
+    param.value !== '' &&
+    !DATE_PRESETS.find((p) => p.value === param.value && p.value !== '__custom__');
+
+  const presetValue = isCustom ? '__custom__' :
+    (DATE_PRESETS.find((p) => p.value === param.value)?.value ?? '');
+
+  const handlePresetChange = (val) => {
+    if (val === '__custom__') {
+      onChange({ ...param, value: '' });
+    } else {
+      onChange({ ...param, value: val });
+    }
+  };
+
+  return (
+    <div className="sr-param-row">
+      <span className="sr-param-name">{'{' + param.name + '}'}</span>
+
+      <select
+        className="sr-param-type"
+        value={param.type}
+        onChange={(e) => onChange({ ...param, type: e.target.value, value: '' })}
+      >
+        <option value="date_expr">Date expression</option>
+        <option value="static">Fixed value</option>
+      </select>
+
+      {param.type === 'date_expr' ? (
+        <>
+          <select
+            className="sr-param-preset"
+            value={presetValue}
+            onChange={(e) => handlePresetChange(e.target.value)}
+          >
+            <option value="">— pick a preset —</option>
+            {DATE_PRESETS.map((p) => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+          {(isCustom || presetValue === '__custom__') && (
+            <input
+              className="sr-param-custom"
+              value={param.value}
+              onChange={(e) => onChange({ ...param, value: e.target.value })}
+              placeholder="e.g. now() - interval '60 days'"
+              spellCheck={false}
+            />
+          )}
+        </>
+      ) : (
+        <input
+          className="sr-param-static"
+          value={param.value}
+          onChange={(e) => onChange({ ...param, value: e.target.value })}
+          placeholder="e.g. 'Kindred by the Creek' or 100"
+          spellCheck={false}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Report Form ───────────────────────────────────────────────────────────────
 const BLANK = {
   name: '', description: '', sql_query: '', frequency: 'daily',
   day_of_week: 1, day_of_month: 1, send_month: 1,
   send_time: '08:00', start_date: '', end_date: '', active: true,
-  recipient_ids: [],
+  recipient_ids: [], params: [],
 };
 
 function ReportForm({ initial, users, onSave, onCancel }) {
@@ -50,6 +144,21 @@ function ReportForm({ initial, users, onSave, onCancel }) {
   const [showAi, setShowAi]         = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Auto-sync params whenever SQL changes
+  useEffect(() => {
+    setForm((f) => ({
+      ...f,
+      params: syncParams(f.sql_query, f.params),
+    }));
+  }, [form.sql_query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateParam = (name, updated) => {
+    setForm((f) => ({
+      ...f,
+      params: f.params.map((p) => p.name === name ? updated : p),
+    }));
+  };
 
   const toggleRecipient = (id) => {
     setForm((f) => ({
@@ -66,7 +175,7 @@ function ReportForm({ initial, users, onSave, onCancel }) {
       const r = await fetch(`${API}/test-sql`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ sql_query: form.sql_query }),
+        body: JSON.stringify({ sql_query: form.sql_query, params: form.params }),
       });
       const d = await r.json();
       if (!r.ok) setTestError(d.error || 'Query failed');
@@ -98,6 +207,9 @@ function ReportForm({ initial, users, onSave, onCancel }) {
       await onSave(form);
     } finally { setSaving(false); }
   };
+
+  // Tokens present in SQL that have no value yet
+  const unboundParams = form.params.filter((p) => !p.value);
 
   return (
     <div className="sr-form-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
@@ -145,7 +257,7 @@ function ReportForm({ initial, users, onSave, onCancel }) {
               rows={6}
               value={form.sql_query}
               onChange={(e) => set('sql_query', e.target.value)}
-              placeholder="SELECT ... FROM square.order ..."
+              placeholder={'SELECT ...\nFROM square.order\nWHERE created_at >= {start_date}\n  AND created_at < {end_date}'}
               spellCheck={false}
             />
             <div className="sr-test-row">
@@ -169,6 +281,35 @@ function ReportForm({ initial, users, onSave, onCancel }) {
               </div>
             )}
           </div>
+
+          {/* Parameters — auto-detected from {tokens} in SQL */}
+          {form.params.length > 0 && (
+            <div className="sr-field">
+              <div className="sr-params-header">
+                <label>Parameters</label>
+                {unboundParams.length > 0 && (
+                  <span className="sr-params-warning">
+                    ⚠ {unboundParams.map((p) => `{${p.name}}`).join(', ')} not bound
+                  </span>
+                )}
+                {unboundParams.length === 0 && (
+                  <span className="sr-params-ok">✓ All bound</span>
+                )}
+              </div>
+              <div className="sr-params-list">
+                {form.params.map((param) => (
+                  <ParamRow
+                    key={param.name}
+                    param={param}
+                    onChange={(updated) => updateParam(param.name, updated)}
+                  />
+                ))}
+              </div>
+              <p className="sr-params-hint">
+                Use <code>{'{param_name}'}</code> in your SQL. Date expressions are evaluated by PostgreSQL each time the report runs.
+              </p>
+            </div>
+          )}
 
           {/* Schedule */}
           <div className="sr-field-group">
@@ -399,6 +540,11 @@ export function ScheduledReports() {
                 </div>
                 <div className="sr-card-meta">
                   <span className="sr-card-freq">🕐 {freqSummary(report)}</span>
+                  {report.params?.length > 0 && (
+                    <span className="sr-card-params">
+                      🔧 {report.params.length} param{report.params.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
                   {report.recipients?.length > 0 && (
                     <span className="sr-card-recips">
                       👤 {report.recipients.length} recipient{report.recipients.length !== 1 ? 's' : ''}
@@ -431,6 +577,7 @@ export function ScheduledReports() {
           initial={editing ? {
             ...editing,
             recipient_ids: (editing.recipients || []).map((r) => r.id),
+            params: editing.params || [],
             send_time: editing.send_time?.slice(0, 5) || '08:00',
             start_date: editing.start_date?.slice(0, 10) || '',
             end_date: editing.end_date?.slice(0, 10) || '',

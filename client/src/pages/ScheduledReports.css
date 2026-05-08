@@ -499,6 +499,116 @@
   margin: 0;
 }
 
+/* ── Parameters section ────────────────────────────── */
+
+.sr-params-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sr-params-header label {
+  margin: 0;
+}
+
+.sr-params-warning {
+  font-size: 0.78rem;
+  color: #e65100;
+  font-weight: 500;
+}
+
+.sr-params-ok {
+  font-size: 0.78rem;
+  color: #2e7d32;
+  font-weight: 500;
+}
+
+.sr-params-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #e4e4e4;
+  border-radius: 7px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.sr-param-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sr-param-name {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 0.82rem;
+  background: #e8edff;
+  color: #3b5bdb;
+  border-radius: 4px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.sr-param-type {
+  padding: 5px 8px;
+  border: 1px solid #d4d4d4;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sr-param-preset {
+  padding: 5px 8px;
+  border: 1px solid #d4d4d4;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  background: #fff;
+  cursor: pointer;
+  min-width: 170px;
+}
+
+.sr-param-custom,
+.sr-param-static {
+  flex: 1;
+  min-width: 200px;
+  padding: 5px 8px;
+  border: 1px solid #d4d4d4;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  background: #fff;
+}
+
+.sr-param-custom:focus,
+.sr-param-static:focus,
+.sr-param-type:focus,
+.sr-param-preset:focus {
+  outline: none;
+  border-color: #3b5bdb;
+  box-shadow: 0 0 0 2px rgba(59,91,219,0.1);
+}
+
+.sr-params-hint {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: #999;
+}
+
+.sr-params-hint code {
+  background: #f0f0f0;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.78rem;
+  color: #555;
+}
+
 /* ── Save / cancel buttons ─────────────────────────── */
 
 .sr-save-btn {

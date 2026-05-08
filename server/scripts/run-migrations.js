@@ -345,6 +345,8 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_report_runs_report ON scheduled_report_runs(report_id, ran_at DESC)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_report_runs_token ON scheduled_report_runs(view_token)`,
+  // 059: Add params (template variables) to scheduled_reports
+  `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS params JSONB NOT NULL DEFAULT '[]'`,
 ];
 
 async function run() {

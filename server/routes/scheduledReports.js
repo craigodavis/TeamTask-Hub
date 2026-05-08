@@ -49,7 +49,7 @@ router.post('/', async (req, res) => {
     name, description, sql_query, frequency,
     day_of_week, day_of_month, send_month,
     send_time, start_date, end_date, active = true,
-    recipient_ids = [],
+    recipient_ids = [], params = [],
   } = req.body;
 
   if (!name?.trim())      return res.status(400).json({ error: 'name is required' });
@@ -62,13 +62,13 @@ router.post('/', async (req, res) => {
     const r = await dbClient.query(
       `INSERT INTO scheduled_reports
          (company_id, name, description, sql_query, frequency, day_of_week, day_of_month,
-          send_month, send_time, start_date, end_date, active, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          send_month, send_time, start_date, end_date, active, created_by, params)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [cid(req), name.trim(), description || null, sql_query.trim(), frequency,
        day_of_week ?? null, day_of_month ?? null, send_month ?? null,
        send_time || '08:00', start_date || null, end_date || null, active,
-       req.user?.id || null]
+       req.user?.id || null, JSON.stringify(params)]
     );
     const report = r.rows[0];
     if (recipient_ids.length) {
@@ -95,7 +95,7 @@ router.patch('/:id', async (req, res) => {
     name, description, sql_query, frequency,
     day_of_week, day_of_month, send_month,
     send_time, start_date, end_date, active,
-    recipient_ids,
+    recipient_ids, params,
   } = req.body;
 
   const dbClient = await pool.connect();
@@ -117,6 +117,7 @@ router.patch('/:id', async (req, res) => {
     if (start_date  !== undefined) set('start_date', start_date || null);
     if (end_date    !== undefined) set('end_date', end_date || null);
     if (active      !== undefined) set('active', active);
+    if (params      !== undefined) set('params', JSON.stringify(params));
 
     if (fields.length) {
       vals.push(req.params.id, cid(req));
@@ -177,15 +178,15 @@ router.delete('/:id', async (req, res) => {
 });
 
 // ── POST /api/reports/scheduled/:id/test ────────────────────────────────────
-// Run the query and return results without sending SMS
+// Run the saved query (with its saved params) and return results without sending SMS
 router.post('/:id/test', async (req, res) => {
   try {
     const r = await query(
-      `SELECT sql_query FROM scheduled_reports WHERE id = $1 AND company_id = $2`,
+      `SELECT sql_query, params FROM scheduled_reports WHERE id = $1 AND company_id = $2`,
       [req.params.id, cid(req)]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
-    const { rows, fields } = await executeSqlReadOnly(r.rows[0].sql_query);
+    const { rows, fields } = await executeSqlReadOnly(r.rows[0].sql_query, r.rows[0].params || []);
     res.json({ rows, fields, count: rows.length });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -193,12 +194,12 @@ router.post('/:id/test', async (req, res) => {
 });
 
 // ── POST /api/reports/scheduled/test-sql ────────────────────────────────────
-// Test arbitrary SQL (from the editor before saving)
+// Test arbitrary SQL + params (from the editor before saving)
 router.post('/test-sql', async (req, res) => {
-  const { sql_query } = req.body;
+  const { sql_query, params } = req.body;
   if (!sql_query?.trim()) return res.status(400).json({ error: 'sql_query required' });
   try {
-    const { rows, fields } = await executeSqlReadOnly(sql_query);
+    const { rows, fields } = await executeSqlReadOnly(sql_query, params || []);
     res.json({ rows, fields, count: rows.length });
   } catch (err) {
     res.status(400).json({ error: err.message });
