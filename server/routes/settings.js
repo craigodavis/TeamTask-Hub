@@ -250,4 +250,32 @@ router.put('/integrations', requireOwner, async (req, res) => {
   }
 });
 
+// GET /settings/general — company-level general settings (owner only)
+router.get('/general', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT timezone FROM companies WHERE id = $1`,
+      [companyId(req)]
+    );
+    res.json({ timezone: r.rows[0]?.timezone || 'UTC' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /settings/general — update company-level general settings (owner only)
+router.patch('/general', requireOwner, async (req, res) => {
+  const { timezone } = req.body;
+  if (!timezone?.trim()) return res.status(400).json({ error: 'timezone is required' });
+  try {
+    await query(
+      `UPDATE companies SET timezone = $1 WHERE id = $2`,
+      [timezone.trim(), companyId(req)]
+    );
+    res.json({ ok: true, timezone: timezone.trim() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as settingsRouter };
