@@ -205,16 +205,31 @@ export function startDailySquareAutoSync() {
 
 // ── Scheduled Report Runner ───────────────────────────────────────────────────
 
-function isReportDue(report, now) {
-  const pad = (n) => String(n).padStart(2, '0');
-  const todayStr   = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  const currentTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+function isReportDue(report, now, timezone = 'UTC') {
+  // Evaluate all date/time parts in the company's timezone
+  const fmt = (opts) => Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone, ...opts })
+      .formatToParts(now).map((p) => [p.type, p.value])
+  );
+
+  const dateParts = fmt({ year: 'numeric', month: '2-digit', day: '2-digit',
+                          hour: '2-digit', minute: '2-digit', hour12: false });
+  // Intl hour12:false can return '24' for midnight — normalise to '00'
+  const hh = dateParts.hour === '24' ? '00' : dateParts.hour;
+  const todayStr    = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  const currentTime = `${hh}:${dateParts.minute}`;
   const sendTime    = String(report.send_time).slice(0, 5); // HH:MM
 
-  // Already ran today?
+  // Already ran today (in company timezone)?
   if (report.last_ran_at) {
-    const lr = new Date(report.last_ran_at);
-    const lastStr = `${lr.getFullYear()}-${pad(lr.getMonth() + 1)}-${pad(lr.getDate())}`;
+    const lrParts = fmt({ year: 'numeric', month: '2-digit', day: '2-digit' });
+    // Re-format last_ran_at using the same timezone
+    const lrFmt = Object.fromEntries(
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(new Date(report.last_ran_at)).map((p) => [p.type, p.value])
+    );
+    const lastStr = `${lrFmt.year}-${lrFmt.month}-${lrFmt.day}`;
     if (lastStr === todayStr) return false;
   }
 
@@ -222,13 +237,15 @@ function isReportDue(report, now) {
   if (report.start_date && todayStr < report.start_date.slice(0, 10)) return false;
   if (report.end_date   && todayStr > report.end_date.slice(0, 10))   return false;
 
-  // Not yet time today?
+  // Not yet time today (in company timezone)?
   if (currentTime < sendTime) return false;
 
-  const dow        = now.getDay();        // 0=Sun
-  const dom        = now.getDate();       // 1–31
-  const month      = now.getMonth() + 1; // 1–12
-  const year       = now.getFullYear();
+  const dowParts = fmt({ weekday: 'short' }); // 'Sun','Mon',...
+  const DOW_MAP  = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dow   = DOW_MAP[dateParts.weekday] ?? DOW_MAP[dowParts.weekday] ?? new Date(now).getDay();
+  const dom   = parseInt(dateParts.day,   10);
+  const month = parseInt(dateParts.month, 10);
+  const year  = parseInt(dateParts.year,  10);
 
   switch (report.frequency) {
     case 'daily':
@@ -298,10 +315,13 @@ async function runScheduledReport(report) {
               body: `📊 ${report.name} is ready — ${rows.length} result${rows.length !== 1 ? 's' : ''}.\nView: ${appUrl}/r/${viewToken}`,
             });
             smsSent++;
+            console.log(`[scheduler] SMS sent to ${r.display_name} (${r.phone})`);
           } catch (e) {
             console.error(`[scheduler] SMS failed to ${r.phone}:`, e.message);
           }
         }
+      } else {
+        console.warn(`[scheduler] Skipping SMS for "${report.name}" — Twilio not fully configured (sid=${!!accountSid} token=${!!authToken} from=${!!fromNumber})`);
       }
     }
 
@@ -329,12 +349,17 @@ export function startReportScheduler() {
     try {
       const now = new Date();
       const reports = await query(
-        `SELECT * FROM scheduled_reports WHERE active = true
-         AND (start_date IS NULL OR start_date <= CURRENT_DATE)
-         AND (end_date   IS NULL OR end_date   >= CURRENT_DATE)`
+        `SELECT sr.*, c.timezone
+         FROM scheduled_reports sr
+         JOIN companies c ON c.id = sr.company_id
+         WHERE sr.active = true
+           AND (sr.start_date IS NULL OR sr.start_date <= CURRENT_DATE)
+           AND (sr.end_date   IS NULL OR sr.end_date   >= CURRENT_DATE)`
       );
       for (const report of reports.rows) {
-        if (isReportDue(report, now)) {
+        const tz = report.timezone || 'UTC';
+        if (isReportDue(report, now, tz)) {
+          console.log(`[scheduler] Report due: "${report.name}" (tz=${tz})`);
           runScheduledReport(report).catch((e) =>
             console.error(`[scheduler] Unhandled error for report ${report.id}:`, e.message)
           );
@@ -577,6 +602,25 @@ router.get('/users', async (req, res) => {
 });
 
 // List SMS log (manager)
+// POST /integrations/run-report/:id — immediately run a scheduled report (manager+)
+router.post('/run-report/:id', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT sr.*, c.timezone
+       FROM scheduled_reports sr
+       JOIN companies c ON c.id = sr.company_id
+       WHERE sr.id = $1 AND sr.company_id = $2`,
+      [req.params.id, companyId(req)]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Report not found' });
+    await runScheduledReport(r.rows[0]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /integrations/sms-log
 router.get('/sms-log', async (req, res) => {
   try {
     const { limit = 50 } = req.query;

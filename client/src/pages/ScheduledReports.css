@@ -158,6 +158,23 @@
 .sr-toggle-on  { color: #2e7d32; border-color: #a5d6a7; background: #e8f5e9; }
 .sr-toggle-off { color: #888;    border-color: #ddd;    background: #fafafa; }
 
+.sr-run-now-btn {
+  color: #2e7d32;
+  border-color: #a5d6a7;
+  background: #f1f8f1;
+  font-weight: 600;
+}
+
+.sr-run-now-btn:hover:not(:disabled) {
+  background: #e8f5e9 !important;
+  border-color: #66bb6a !important;
+}
+
+.sr-run-now-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .sr-delete-btn:hover {
   background: #fff0f0;
   border-color: #ef9a9a;

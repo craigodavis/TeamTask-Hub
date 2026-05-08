@@ -546,12 +546,13 @@ function RunHistory({ report, onClose }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export function ScheduledReports() {
-  const [reports, setReports]   = useState([]);
-  const [users, setUsers]       = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing]   = useState(null);
-  const [history, setHistory]   = useState(null);
+  const [reports, setReports]     = useState([]);
+  const [users, setUsers]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [showForm, setShowForm]   = useState(false);
+  const [editing, setEditing]     = useState(null);
+  const [history, setHistory]     = useState(null);
+  const [runningNow, setRunningNow] = useState({});
 
   const load = useCallback(() => {
     setLoading(true);
@@ -587,6 +588,23 @@ export function ScheduledReports() {
     if (!window.confirm(`Delete "${report.name}"? This cannot be undone.`)) return;
     await fetch(`${API}/${report.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
     load();
+  };
+
+  const handleRunNow = async (report) => {
+    setRunningNow((prev) => ({ ...prev, [report.id]: true }));
+    try {
+      const r = await fetch(`/api/integrations/run-report/${report.id}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      const d = await r.json();
+      if (!r.ok) alert(`Run failed: ${d.error}`);
+      else { alert(`✓ "${report.name}" sent successfully.`); load(); }
+    } catch (e) {
+      alert(`Run failed: ${e.message}`);
+    } finally {
+      setRunningNow((prev) => ({ ...prev, [report.id]: false }));
+    }
   };
 
   return (
@@ -640,6 +658,14 @@ export function ScheduledReports() {
                 </div>
               </div>
               <div className="sr-card-actions">
+                <button
+                  className="sr-card-btn sr-run-now-btn"
+                  onClick={() => handleRunNow(report)}
+                  disabled={!!runningNow[report.id]}
+                  title="Run now and send SMS"
+                >
+                  {runningNow[report.id] ? '…' : '▶ Run Now'}
+                </button>
                 <button className="sr-card-btn" onClick={() => setHistory(report)} title="View run history">📋</button>
                 <button className="sr-card-btn" onClick={() => { setEditing(report); setShowForm(true); }} title="Edit">✎</button>
                 <button
