@@ -268,18 +268,15 @@ function isReportDue(report, now, timezone = 'UTC') {
 
 async function runScheduledReport(report) {
   console.log(`[scheduler] Running report "${report.name}" (${report.id})`);
-  let runId, rows, fields, smsSent = 0;
+  let runId, smsSent = 0, sqlError = null;
 
   try {
     const timezone = await getCompanyTimezone(report.company_id);
     const result = await executeSqlReadOnly(report.sql_query, report.params || [], timezone);
-    rows   = result.rows;
-    fields = result.fields;
+    const { rows, fields } = result;
 
-    // Evaluate params to display values for the report header
     const paramsSnapshot = await resolveParamsSnapshot(report.params || [], timezone);
 
-    // Store run record
     const runResult = await query(
       `INSERT INTO scheduled_report_runs
          (report_id, status, rows_returned, result_data, result_fields, params_snapshot)
@@ -297,13 +294,14 @@ async function runScheduledReport(report) {
       [report.id]
     );
 
-    if (recipients.rows.length) {
-      // Get Twilio creds for this company
+    if (!recipients.rows.length) {
+      console.warn(`[scheduler] "${report.name}" — no recipients with phone numbers`);
+    } else {
       const integrations = await getCompanyIntegrations(report.company_id);
-      const accountSid  = integrations?.twilio_account_sid?.trim() || process.env.TWILIO_ACCOUNT_SID;
-      const authToken   = integrations?.twilio_auth_token?.trim()  || process.env.TWILIO_AUTH_TOKEN;
-      const fromNumber  = integrations?.twilio_phone_number?.trim() || process.env.TWILIO_PHONE_NUMBER;
-      const appUrl      = process.env.APP_URL || 'https://app.kindredvineyards.com';
+      const accountSid = integrations?.twilio_account_sid?.trim() || process.env.TWILIO_ACCOUNT_SID;
+      const authToken  = integrations?.twilio_auth_token?.trim()  || process.env.TWILIO_AUTH_TOKEN;
+      const fromNumber = integrations?.twilio_phone_number?.trim() || process.env.TWILIO_PHONE_NUMBER;
+      const appUrl     = process.env.APP_URL || 'https://app.kindredvineyards.com';
 
       if (accountSid && authToken && fromNumber) {
         const tc = twilio(accountSid, authToken);
@@ -321,25 +319,28 @@ async function runScheduledReport(report) {
           }
         }
       } else {
-        console.warn(`[scheduler] Skipping SMS for "${report.name}" — Twilio not fully configured (sid=${!!accountSid} token=${!!authToken} from=${!!fromNumber})`);
+        const missing = [!accountSid && 'account_sid', !authToken && 'auth_token', !fromNumber && 'phone_number'].filter(Boolean);
+        console.warn(`[scheduler] "${report.name}" — Twilio not configured, missing: ${missing.join(', ')}`);
       }
     }
 
-    // Update run with SMS count + mark report last_ran_at
-    await query(
-      `UPDATE scheduled_report_runs SET sms_sent_count = $1 WHERE id = $2`,
-      [smsSent, runId]
-    );
+    await query(`UPDATE scheduled_report_runs SET sms_sent_count = $1 WHERE id = $2`, [smsSent, runId]);
+
   } catch (err) {
-    console.error(`[scheduler] Report "${report.name}" failed:`, err.message);
+    sqlError = err.message;
+    console.error(`[scheduler] "${report.name}" failed:`, err.message);
     await query(
       `INSERT INTO scheduled_report_runs (report_id, status, error_message) VALUES ($1,'failed',$2)`,
       [report.id, err.message]
-    );
+    ).catch(() => {});
   }
 
-  // Always update last_ran_at so it doesn't retry today
-  await query(`UPDATE scheduled_reports SET last_ran_at = NOW() WHERE id = $1`, [report.id]);
+  // Always update last_ran_at so the scheduler doesn't retry the same window
+  await query(`UPDATE scheduled_reports SET last_ran_at = NOW() WHERE id = $1`, [report.id]).catch(() => {});
+
+  // Return result so callers (run-now endpoint) can surface errors to the UI
+  if (sqlError) throw new Error(sqlError);
+  return { smsSent };
 }
 
 export function startReportScheduler() {
@@ -606,15 +607,29 @@ router.get('/users', async (req, res) => {
 router.post('/run-report/:id', async (req, res) => {
   try {
     const r = await query(
-      `SELECT sr.*, c.timezone
+      `SELECT sr.*, c.timezone,
+         (SELECT COUNT(*) FROM scheduled_report_recipients srr
+          JOIN users u ON u.id = srr.user_id
+          WHERE srr.report_id = sr.id AND u.phone IS NOT NULL AND u.phone != '') AS recipient_count
        FROM scheduled_reports sr
        JOIN companies c ON c.id = sr.company_id
        WHERE sr.id = $1 AND sr.company_id = $2`,
       [req.params.id, companyId(req)]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Report not found' });
-    await runScheduledReport(r.rows[0]);
-    res.json({ ok: true });
+
+    const report = r.rows[0];
+
+    // Pre-flight checks so we return a clear error before touching the DB
+    if (!report.sql_query?.trim()) {
+      return res.status(400).json({ error: 'Report has no SQL query.' });
+    }
+    if (parseInt(report.recipient_count) === 0) {
+      return res.status(400).json({ error: 'No recipients with phone numbers. Edit the report and add at least one recipient.' });
+    }
+
+    const { smsSent } = await runScheduledReport(report);
+    res.json({ ok: true, smsSent });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

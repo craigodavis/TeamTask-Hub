@@ -598,8 +598,15 @@ export function ScheduledReports() {
         headers: { Authorization: `Bearer ${token()}` },
       });
       const d = await r.json();
-      if (!r.ok) alert(`Run failed: ${d.error}`);
-      else { alert(`✓ "${report.name}" sent successfully.`); load(); }
+      if (!r.ok) {
+        alert(`Run failed:\n\n${d.error}`);
+      } else {
+        const msg = d.smsSent > 0
+          ? `✓ "${report.name}" ran successfully — ${d.smsSent} SMS sent.`
+          : `✓ "${report.name}" ran successfully but 0 SMS sent.\n\nCheck that Twilio is configured in Settings → Integrations.`;
+        alert(msg);
+        load();
+      }
     } catch (e) {
       alert(`Run failed: ${e.message}`);
     } finally {
