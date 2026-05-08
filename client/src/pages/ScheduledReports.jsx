@@ -247,26 +247,56 @@ function ReportForm({ initial, users, onSave, onCancel }) {
 
             {showHelp && (
               <div className="sr-help-panel">
+
                 <div className="sr-help-section">
-                  <strong>Query parameters</strong>
-                  <p>Use <code>{'{param_name}'}</code> anywhere in your SQL. Each token auto-appears as a configurable parameter below the editor.</p>
+                  <strong>Step 1 — put a name placeholder in the SQL</strong>
+                  <p>Type <code>{'{any_name}'}</code> in your SQL — the name is just a label you choose, letters and underscores only. A parameter row appears automatically below the editor for each one you add.</p>
                   <pre className="sr-help-example">{`SELECT location_name, SUM(total_amount) AS revenue
 FROM square.order
 WHERE created_at >= {start_date}
   AND created_at <  {end_date}
   AND location_name = {location}
-GROUP BY 1
-ORDER BY 2 DESC`}</pre>
+GROUP BY 1 ORDER BY 2 DESC`}</pre>
+                </div>
+
+                <div className="sr-help-section">
+                  <strong>Step 2 — set each parameter's value below the editor</strong>
+                  <p>For each <code>{'{name}'}</code> you added, choose a type and value in the Parameters section that appears:</p>
+                  <table className="sr-help-table sr-help-table-wide">
+                    <thead>
+                      <tr><th>Name in SQL</th><th>Type</th><th>Value you enter</th><th>What runs</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><code>{'{start_date}'}</code></td>
+                        <td>Date expression</td>
+                        <td><em>30 days ago preset</em></td>
+                        <td><code>now() - interval '30 days'</code></td>
+                      </tr>
+                      <tr>
+                        <td><code>{'{end_date}'}</code></td>
+                        <td>Date expression</td>
+                        <td><em>Today preset</em></td>
+                        <td><code>now()</code></td>
+                      </tr>
+                      <tr>
+                        <td><code>{'{location}'}</code></td>
+                        <td>Fixed value</td>
+                        <td><code>'Kindred by the Creek'</code></td>
+                        <td><code>'Kindred by the Creek'</code></td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
 
                 <div className="sr-help-cols">
                   <div className="sr-help-section">
-                    <strong>Date expression params</strong>
-                    <p>Evaluated by PostgreSQL each time the report runs — always up to date.</p>
+                    <strong>Date expression — common values</strong>
+                    <p>Recalculated by PostgreSQL every time the report runs.</p>
                     <table className="sr-help-table">
                       <tbody>
                         <tr><td>Today</td><td><code>now()</code></td></tr>
-                        <tr><td>Yesterday</td><td><code>now() - interval '1 day'</code></td></tr>
+                        <tr><td>14 days ago</td><td><code>now() - interval '14 days'</code></td></tr>
                         <tr><td>30 days ago</td><td><code>now() - interval '30 days'</code></td></tr>
                         <tr><td>Start of month</td><td><code>date_trunc('month', now())</code></td></tr>
                         <tr><td>Start of year</td><td><code>date_trunc('year', now())</code></td></tr>
@@ -275,8 +305,8 @@ ORDER BY 2 DESC`}</pre>
                   </div>
 
                   <div className="sr-help-section">
-                    <strong>Fixed value params</strong>
-                    <p>Hard-coded literals — written exactly as they'd appear in SQL.</p>
+                    <strong>Fixed value — SQL literals</strong>
+                    <p>Hard-coded — wrap text in single quotes exactly as in SQL.</p>
                     <table className="sr-help-table">
                       <tbody>
                         <tr><td>Text</td><td><code>'Kindred by the Creek'</code></td></tr>
@@ -288,7 +318,7 @@ ORDER BY 2 DESC`}</pre>
                 </div>
 
                 <p className="sr-help-tip">
-                  💡 Tip: click <strong>▶ Test Query</strong> to preview results with your params substituted in before saving.
+                  💡 Click <strong>▶ Test Query</strong> after filling in your parameters to see real results before saving.
                 </p>
               </div>
             )}
@@ -360,7 +390,7 @@ ORDER BY 2 DESC`}</pre>
                 ))}
               </div>
               <p className="sr-params-hint">
-                Use <code>{'{param_name}'}</code> in your SQL. Date expressions are evaluated by PostgreSQL each time the report runs.
+                <strong>How it works:</strong> <code>{'{name}'}</code> in the SQL is just a label. Set its value here — the value is what actually gets substituted when the report runs.
               </p>
             </div>
           )}

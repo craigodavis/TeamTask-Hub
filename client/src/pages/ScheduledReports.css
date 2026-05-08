@@ -435,6 +435,36 @@
   width: 110px;
 }
 
+.sr-help-table-wide {
+  margin-top: 8px;
+}
+
+.sr-help-table-wide th {
+  padding: 4px 10px 4px 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #2c4a6e;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid #d0e0f0;
+}
+
+.sr-help-table-wide td {
+  padding: 5px 10px 5px 0;
+  border-bottom: 1px solid #e8f0f8;
+  font-size: 0.8rem;
+  vertical-align: middle;
+}
+
+.sr-help-table-wide td:first-child {
+  width: auto;
+}
+
+.sr-help-table-wide em {
+  color: #666;
+  font-style: italic;
+}
+
 .sr-help-table code {
   background: #fff;
   border: 1px solid #d0e0f0;
