@@ -551,6 +551,22 @@ router.post('/twilio/send', async (req, res) => {
   }
 });
 
+// List company users (used by scheduled reports recipient picker)
+router.get('/users', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT id, display_name, phone, email, role
+       FROM users
+       WHERE company_id = $1
+       ORDER BY display_name`,
+      [companyId(req)]
+    );
+    res.json({ users: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // List SMS log (manager)
 router.get('/sms-log', async (req, res) => {
   try {
