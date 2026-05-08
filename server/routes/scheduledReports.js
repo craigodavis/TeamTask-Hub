@@ -3,6 +3,11 @@ import twilio from 'twilio';
 import { pool, query } from '../db.js';
 import { executeSqlReadOnly } from './scheduledReportsHelper.js';
 
+async function getCompanyTimezone(companyId) {
+  const r = await query(`SELECT timezone FROM companies WHERE id = $1`, [companyId]);
+  return r.rows[0]?.timezone || 'UTC';
+}
+
 const router = express.Router();
 
 // ── Helper: get company integrations (Twilio) ────────────────────────────────
@@ -186,7 +191,8 @@ router.post('/:id/test', async (req, res) => {
       [req.params.id, cid(req)]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
-    const { rows, fields } = await executeSqlReadOnly(r.rows[0].sql_query, r.rows[0].params || []);
+    const timezone = await getCompanyTimezone(cid(req));
+    const { rows, fields } = await executeSqlReadOnly(r.rows[0].sql_query, r.rows[0].params || [], timezone);
     res.json({ rows, fields, count: rows.length });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -199,7 +205,8 @@ router.post('/test-sql', async (req, res) => {
   const { sql_query, params } = req.body;
   if (!sql_query?.trim()) return res.status(400).json({ error: 'sql_query required' });
   try {
-    const { rows, fields } = await executeSqlReadOnly(sql_query, params || []);
+    const timezone = await getCompanyTimezone(cid(req));
+    const { rows, fields } = await executeSqlReadOnly(sql_query, params || [], timezone);
     res.json({ rows, fields, count: rows.length });
   } catch (err) {
     res.status(400).json({ error: err.message });

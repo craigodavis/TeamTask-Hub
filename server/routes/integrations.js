@@ -13,6 +13,11 @@ const SQUARE_PLACEHOLDER_PASSWORD_HASH = bcrypt.hashSync('square-sync-no-passwor
 const SQUARE_VERSION = '2024-01-18';
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
+async function getCompanyTimezone(cId) {
+  const r = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
+  return r.rows[0]?.timezone || 'UTC';
+}
+
 async function getCompanyIntegrations(cId) {
   const r = await query(
     `SELECT square_application_id, square_access_token, square_env, twilio_account_sid, twilio_auth_token, twilio_phone_number
@@ -249,12 +254,13 @@ async function runScheduledReport(report) {
   let runId, rows, fields, smsSent = 0;
 
   try {
-    const result = await executeSqlReadOnly(report.sql_query, report.params || []);
+    const timezone = await getCompanyTimezone(report.company_id);
+    const result = await executeSqlReadOnly(report.sql_query, report.params || [], timezone);
     rows   = result.rows;
     fields = result.fields;
 
     // Evaluate params to display values for the report header
-    const paramsSnapshot = await resolveParamsSnapshot(report.params || []);
+    const paramsSnapshot = await resolveParamsSnapshot(report.params || [], timezone);
 
     // Store run record
     const runResult = await query(

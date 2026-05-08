@@ -349,6 +349,8 @@ const MIGRATIONS = [
   `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS params JSONB NOT NULL DEFAULT '[]'`,
   // 060: Store evaluated param snapshot on each run for display in report header
   `ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS params_snapshot JSONB NOT NULL DEFAULT '[]'`,
+  // 061: Company timezone for scheduled reports and date expressions
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS timezone VARCHAR(100) NOT NULL DEFAULT 'UTC'`,
 ];
 
 async function run() {

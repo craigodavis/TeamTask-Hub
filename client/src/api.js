@@ -823,3 +823,19 @@ export async function deleteCardMapping(id) {
   if (!res.ok) throw new Error(data.error || 'Failed to delete mapping');
   return data;
 }
+
+export async function getGeneralSettings() {
+  const res = await fetch(`${API}/settings/general`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load general settings');
+  return data;
+}
+
+export async function patchGeneralSettings(payload) {
+  const res = await fetch(`${API}/settings/general`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save general settings');
+  return data;
+}

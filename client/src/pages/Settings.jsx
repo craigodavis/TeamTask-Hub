@@ -1,10 +1,120 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import './Settings.css';
 
-const OWNER_TABS = ['integrations', 'mail', 'locations', 'square'];
+const OWNER_TABS = ['general', 'integrations', 'mail', 'locations', 'square'];
+
+// Common IANA timezone list — covers all US zones plus a broad international set
+const TIMEZONES = [
+  { group: 'United States',  zones: [
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Phoenix',
+    'America/Los_Angeles',
+    'America/Anchorage',
+    'Pacific/Honolulu',
+  ]},
+  { group: 'Canada', zones: [
+    'America/Toronto',
+    'America/Vancouver',
+    'America/Winnipeg',
+    'America/Halifax',
+  ]},
+  { group: 'Europe', zones: [
+    'Europe/London',
+    'Europe/Paris',
+    'Europe/Berlin',
+    'Europe/Amsterdam',
+    'Europe/Rome',
+    'Europe/Madrid',
+    'Europe/Zurich',
+    'Europe/Stockholm',
+    'Europe/Helsinki',
+    'Europe/Athens',
+    'Europe/Istanbul',
+  ]},
+  { group: 'Asia / Pacific', zones: [
+    'Asia/Dubai',
+    'Asia/Kolkata',
+    'Asia/Bangkok',
+    'Asia/Singapore',
+    'Asia/Tokyo',
+    'Asia/Seoul',
+    'Asia/Shanghai',
+    'Australia/Sydney',
+    'Australia/Melbourne',
+    'Pacific/Auckland',
+  ]},
+  { group: 'Other', zones: [
+    'UTC',
+    'America/Sao_Paulo',
+    'America/Mexico_City',
+    'America/Buenos_Aires',
+    'Africa/Johannesburg',
+    'Africa/Nairobi',
+  ]},
+];
+
+function tzLabel(tz) {
+  // e.g. "America/Los_Angeles" → "Los Angeles"
+  // Show offset too so users can orient themselves
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      timeZoneName: 'short',
+    });
+    const parts = formatter.formatToParts(now);
+    const abbr = parts.find((p) => p.type === 'timeZoneName')?.value || '';
+    const name = tz.split('/').pop().replace(/_/g, ' ');
+    return abbr ? `${name} (${abbr})` : name;
+  } catch {
+    return tz;
+  }
+}
+
+function GeneralSettingsPanel({ timezone, onTimezoneChange, saving, onSave }) {
+  const [local, setLocal] = useState(timezone);
+
+  useEffect(() => { setLocal(timezone); }, [timezone]);
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    onSave(local);
+  };
+
+  return (
+    <div>
+      <p className="settings-intro">
+        General settings for this company. The timezone is used for scheduled report queries — <code>now()</code> and date expressions will be evaluated in this timezone.
+      </p>
+      <form onSubmit={handleSave} className="settings-form">
+        <fieldset>
+          <legend>Regional</legend>
+          <label>
+            Timezone
+            <select value={local} onChange={(e) => setLocal(e.target.value)}>
+              {TIMEZONES.map(({ group, zones }) => (
+                <optgroup key={group} label={group}>
+                  {zones.map((tz) => (
+                    <option key={tz} value={tz}>{tzLabel(tz)}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <small>Used by scheduled report date parameters (e.g. <code>now()</code>, <code>date_trunc('month', now())</code>).</small>
+          </label>
+        </fieldset>
+        <div className="settings-actions">
+          <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 export function Settings() {
   const { user } = useOutletContext();
@@ -15,8 +125,8 @@ export function Settings() {
 
   const tab = (() => {
     if (!isOwner) return 'square';
-    if (!tabParam) return 'integrations';
-    return OWNER_TABS.includes(tabParam) ? tabParam : 'integrations';
+    if (!tabParam) return 'general';
+    return OWNER_TABS.includes(tabParam) ? tabParam : 'general';
   })();
 
   const setSettingsTab = (next) => {
@@ -60,6 +170,9 @@ export function Settings() {
   const [editingLocationId, setEditingLocationId] = useState(null);
   const [editingLocationName, setEditingLocationName] = useState('');
 
+  const [timezone, setTimezone] = useState('UTC');
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
+
   useEffect(() => {
     if (!isOwner && isManager && tabParam && tabParam !== 'square') {
       setSearchParams({ tab: 'square' }, { replace: true });
@@ -79,8 +192,11 @@ export function Settings() {
 
   useEffect(() => {
     if (!isOwner) return;
-    getIntegrationSettings()
-      .then((r) => {
+    Promise.all([
+      getIntegrationSettings(),
+      getGeneralSettings(),
+    ])
+      .then(([r, g]) => {
         setSettings(r);
         setSquareApplicationId(r.square_application_id || '');
         setSquareEnv(r.square_env || 'production');
@@ -90,6 +206,7 @@ export function Settings() {
         setMailUser(r.mail_user || '');
         setMailFrom(r.mail_from || '');
         setMailSecure(r.mail_secure || false);
+        setTimezone(g.timezone || 'UTC');
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -319,6 +436,7 @@ export function Settings() {
       <nav className="settings-tabs" aria-label="Settings sections">
         {isOwner && (
           <>
+            <button type="button" className={tab === 'general' ? 'active' : ''} onClick={() => setSettingsTab('general')}>General</button>
             <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setSettingsTab('integrations')}>Integrations</button>
             <button type="button" className={tab === 'mail' ? 'active' : ''} onClick={() => setSettingsTab('mail')}>Mail</button>
             <button type="button" className={tab === 'locations' ? 'active' : ''} onClick={() => { setSettingsTab('locations'); if (tab !== 'locations') loadLocations(); }}>Locations</button>
@@ -328,6 +446,28 @@ export function Settings() {
       </nav>
       {error && <p className="settings-error">{error}</p>}
       {message && <p className="settings-message">{message}</p>}
+
+      {tab === 'general' && (
+        <GeneralSettingsPanel
+          timezone={timezone}
+          onTimezoneChange={setTimezone}
+          saving={timezoneSaving}
+          onSave={async (tz) => {
+            setTimezoneSaving(true);
+            setError('');
+            setMessage('');
+            try {
+              await patchGeneralSettings({ timezone: tz });
+              setTimezone(tz);
+              setMessage('Settings saved.');
+            } catch (e) {
+              setError(e.message);
+            } finally {
+              setTimezoneSaving(false);
+            }
+          }}
+        />
+      )}
 
       {tab === 'integrations' && (
         <>

@@ -33,16 +33,17 @@ export function applyParams(sql, params = []) {
  * date_expr params: all evaluated in a single SELECT for efficiency.
  * static params:    surrounding single quotes stripped for readability.
  */
-export async function resolveParamsSnapshot(params = []) {
+export async function resolveParamsSnapshot(params = [], timezone = 'UTC') {
   if (!params || params.length === 0) return [];
 
   const dateParams = params.filter((p) => p.type === 'date_expr' && p.value);
 
-  // Evaluate all date expressions in one round trip
+  // Evaluate all date expressions in one round trip, in the company's timezone
   const resolved = {};
   if (dateParams.length > 0) {
     const dbClient = await pool.connect();
     try {
+      await dbClient.query(`SET LOCAL timezone = '${timezone.replace(/'/g, '')}'`);
       const selects = dateParams.map((p, i) => `(${p.value})::text AS v${i}`);
       const result  = await dbClient.query(`SELECT ${selects.join(', ')}`);
       const row     = result.rows[0] || {};
@@ -76,7 +77,7 @@ export async function resolveParamsSnapshot(params = []) {
  * Params are substituted before execution.
  * Used by both the scheduled report runner and the test endpoint.
  */
-export async function executeSqlReadOnly(sql, params = []) {
+export async function executeSqlReadOnly(sql, params = [], timezone = 'UTC') {
   const resolved = applyParams(sql, params);
   const trimmed = resolved.trim().replace(/;\s*$/, '');
   const upper = trimmed.replace(/\s+/g, ' ').toUpperCase();
@@ -89,6 +90,7 @@ export async function executeSqlReadOnly(sql, params = []) {
   const dbClient = await pool.connect();
   try {
     await dbClient.query('SET statement_timeout = 30000');
+    await dbClient.query(`SET LOCAL timezone = '${timezone.replace(/'/g, '')}'`);
     const result = await dbClient.query(finalSql);
     return {
       rows: result.rows,
