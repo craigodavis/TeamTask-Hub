@@ -575,6 +575,7 @@
 
 .sr-test-error { font-size: 0.82rem; color: #c62828; }
 .sr-test-ok    { font-size: 0.82rem; color: #2e7d32; }
+.sr-save-error { flex: 1; }
 
 .sr-preview-wrap {
   margin-top: 10px;

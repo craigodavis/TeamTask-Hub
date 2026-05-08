@@ -204,9 +204,14 @@ function ReportForm({ initial, users, onSave, onCancel }) {
   const handleSave = async () => {
     if (!form.name.trim() || !form.sql_query.trim()) return;
     setSaving(true);
+    setTestError('');
     try {
       await onSave(form);
-    } finally { setSaving(false); }
+    } catch (e) {
+      setTestError(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Tokens present in SQL that have no value yet
@@ -478,6 +483,7 @@ GROUP BY 1 ORDER BY 2 DESC`}</pre>
         </div>
 
         <div className="sr-form-footer">
+          {testError && <span className="sr-test-error sr-save-error">{testError}</span>}
           <button className="sr-cancel-btn" onClick={onCancel}>Cancel</button>
           <button
             className="sr-save-btn"
@@ -569,10 +575,14 @@ export function ScheduledReports() {
 
   const handleSave = async (form) => {
     const isEdit = !!editing?.id;
-    const url  = isEdit ? `${API}/${editing.id}` : API;
+    const url    = isEdit ? `${API}/${editing.id}` : API;
     const method = isEdit ? 'PATCH' : 'POST';
     const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(form) });
-    if (r.ok) { setShowForm(false); setEditing(null); load(); }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Save failed (${r.status})`);
+    setShowForm(false);
+    setEditing(null);
+    load();
   };
 
   const handleToggleActive = async (report) => {
