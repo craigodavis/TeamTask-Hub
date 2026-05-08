@@ -3,6 +3,8 @@ import twilio from 'twilio';
 import { pool, query } from '../db.js';
 import { executeSqlReadOnly } from './scheduledReportsHelper.js';
 
+const schema = process.env.DB_SCHEMA || 'teamtask_hub';
+
 async function getCompanyTimezone(companyId) {
   const r = await query(`SELECT timezone FROM companies WHERE id = $1`, [companyId]);
   return r.rows[0]?.timezone || 'UTC';
@@ -63,6 +65,7 @@ router.post('/', async (req, res) => {
 
   const dbClient = await pool.connect();
   try {
+    await dbClient.query(`SET search_path TO ${schema}`);
     await dbClient.query('BEGIN');
     const r = await dbClient.query(
       `INSERT INTO scheduled_reports
@@ -105,6 +108,7 @@ router.patch('/:id', async (req, res) => {
 
   const dbClient = await pool.connect();
   try {
+    await dbClient.query(`SET search_path TO ${schema}`);
     await dbClient.query('BEGIN');
 
     const fields = [];

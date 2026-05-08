@@ -234,8 +234,8 @@ function isReportDue(report, now, timezone = 'UTC') {
   }
 
   // Date range
-  if (report.start_date && todayStr < report.start_date.slice(0, 10)) return false;
-  if (report.end_date   && todayStr > report.end_date.slice(0, 10))   return false;
+  if (report.start_date && todayStr < new Date(report.start_date).toISOString().slice(0, 10)) return false;
+  if (report.end_date   && todayStr > new Date(report.end_date).toISOString().slice(0, 10))   return false;
 
   // Not yet time today (in company timezone)?
   if (currentTime < sendTime) return false;
@@ -266,7 +266,7 @@ function isReportDue(report, now, timezone = 'UTC') {
   }
 }
 
-async function runScheduledReport(report) {
+async function runScheduledReport(report, { updateLastRanAt = true } = {}) {
   console.log(`[scheduler] Running report "${report.name}" (${report.id})`);
   let runId, smsSent = 0, sqlError = null;
 
@@ -335,8 +335,11 @@ async function runScheduledReport(report) {
     ).catch(() => {});
   }
 
-  // Always update last_ran_at so the scheduler doesn't retry the same window
-  await query(`UPDATE scheduled_reports SET last_ran_at = NOW() WHERE id = $1`, [report.id]).catch(() => {});
+  // Update last_ran_at for scheduled runs so the scheduler doesn't retry the same window.
+  // Skip for manual "Run Now" so the scheduled run still fires at its configured time.
+  if (updateLastRanAt) {
+    await query(`UPDATE scheduled_reports SET last_ran_at = NOW() WHERE id = $1`, [report.id]).catch(() => {});
+  }
 
   // Return result so callers (run-now endpoint) can surface errors to the UI
   if (sqlError) throw new Error(sqlError);
@@ -628,7 +631,7 @@ router.post('/run-report/:id', async (req, res) => {
       return res.status(400).json({ error: 'No recipients with phone numbers. Edit the report and add at least one recipient.' });
     }
 
-    const { smsSent } = await runScheduledReport(report);
+    const { smsSent } = await runScheduledReport(report, { updateLastRanAt: false });
     res.json({ ok: true, smsSent });
   } catch (err) {
     res.status(500).json({ error: err.message });

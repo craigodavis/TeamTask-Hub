@@ -62,18 +62,25 @@ function syncParams(sql, existing) {
 
 // ── Param Row ────────────────────────────────────────────────────────────────
 function ParamRow({ param, onChange }) {
-  const isCustom = param.type === 'date_expr' &&
+  // A value that doesn't match any preset (and isn't empty) means it was previously saved as custom
+  const isCustomValue = param.type === 'date_expr' &&
     param.value !== '' &&
     !DATE_PRESETS.find((p) => p.value === param.value && p.value !== '__custom__');
 
-  const presetValue = isCustom ? '__custom__' :
-    (DATE_PRESETS.find((p) => p.value === param.value)?.value ?? '');
+  // param.preset tracks the dropdown selection independently from the value
+  // so selecting "Custom…" shows the input immediately even before the user types
+  const showCustomInput = param.type === 'date_expr' && (param.preset === '__custom__' || isCustomValue);
+
+  const presetValue = showCustomInput
+    ? '__custom__'
+    : (DATE_PRESETS.find((p) => p.value === param.value)?.value ?? '');
 
   const handlePresetChange = (val) => {
     if (val === '__custom__') {
-      onChange({ ...param, value: '' });
+      // Mark as custom and preserve any existing value so the user can edit it
+      onChange({ ...param, preset: '__custom__' });
     } else {
-      onChange({ ...param, value: val });
+      onChange({ ...param, preset: val, value: val });
     }
   };
 
@@ -84,7 +91,7 @@ function ParamRow({ param, onChange }) {
       <select
         className="sr-param-type"
         value={param.type}
-        onChange={(e) => onChange({ ...param, type: e.target.value, value: '' })}
+        onChange={(e) => onChange({ ...param, type: e.target.value, value: '', preset: undefined })}
       >
         <option value="date_expr">Date expression</option>
         <option value="static">Fixed value</option>
@@ -102,12 +109,13 @@ function ParamRow({ param, onChange }) {
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
-          {(isCustom || presetValue === '__custom__') && (
+          {showCustomInput && (
             <input
               className="sr-param-custom"
               value={param.value}
               onChange={(e) => onChange({ ...param, value: e.target.value })}
               placeholder="e.g. now() - interval '60 days'"
+              autoFocus
               spellCheck={false}
             />
           )}

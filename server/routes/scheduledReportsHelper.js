@@ -1,5 +1,7 @@
 import { pool } from '../db.js';
 
+const schema = process.env.DB_SCHEMA || 'teamtask_hub';
+
 /**
  * Substitute {param_name} tokens in a SQL string.
  *
@@ -43,6 +45,7 @@ export async function resolveParamsSnapshot(params = [], timezone = 'UTC') {
   if (dateParams.length > 0) {
     const dbClient = await pool.connect();
     try {
+      await dbClient.query(`SET search_path TO ${schema}`);
       await dbClient.query(`SET LOCAL timezone = '${timezone.replace(/'/g, '')}'`);
       const selects = dateParams.map((p, i) => `(${p.value})::text AS v${i}`);
       const result  = await dbClient.query(`SELECT ${selects.join(', ')}`);
@@ -89,6 +92,7 @@ export async function executeSqlReadOnly(sql, params = [], timezone = 'UTC') {
 
   const dbClient = await pool.connect();
   try {
+    await dbClient.query(`SET search_path TO ${schema}`);
     await dbClient.query('SET statement_timeout = 30000');
     await dbClient.query(`SET LOCAL timezone = '${timezone.replace(/'/g, '')}'`);
     const result = await dbClient.query(finalSql);

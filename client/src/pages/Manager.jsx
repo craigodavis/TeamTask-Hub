@@ -389,13 +389,15 @@ export function Manager() {
             >
               Debt report
             </button>
-            <button
-              type="button"
-              className={activeReport === 'scheduled' ? 'active' : ''}
-              onClick={() => setActiveReport('scheduled')}
-            >
-              Scheduled reports
-            </button>
+            {isManager && (
+              <button
+                type="button"
+                className={activeReport === 'scheduled' ? 'active' : ''}
+                onClick={() => setActiveReport('scheduled')}
+              >
+                Scheduled reports
+              </button>
+            )}
           </nav>
 
           {activeReport !== 'scheduled' && (
@@ -525,7 +527,7 @@ export function Manager() {
 
           {activeReport === 'debt' && <DebtReportSection />}
 
-          {activeReport === 'scheduled' && <ScheduledReports />}
+          {activeReport === 'scheduled' && isManager && <ScheduledReports />}
         </section>
       )}
 
