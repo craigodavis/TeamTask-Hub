@@ -243,6 +243,7 @@ router.get('/:token', async (req, res) => {
       rows: run.result_data,
       fields: run.result_fields,
       rows_returned: run.rows_returned,
+      params_snapshot: run.params_snapshot || [],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

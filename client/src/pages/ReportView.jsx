@@ -5,7 +5,6 @@ import './ScheduledReports.css';
 function formatCell(value) {
   if (value === null || value === undefined) return '';
   const s = String(value);
-  // Date/timestamp detection
   if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?/.test(s)) {
     const d = new Date(s);
     if (!isNaN(d.getTime())) {
@@ -15,11 +14,22 @@ function formatCell(value) {
       return `${m}/${day}/${yr}`;
     }
   }
-  // Currency: number that looks like cents or large dollars
   if (typeof value === 'number' && !Number.isInteger(value)) {
     return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   return s;
+}
+
+function formatRunAt(isoString) {
+  const d = new Date(isoString);
+  const m = d.getMonth() + 1;
+  const day = String(d.getDate()).padStart(2, '0');
+  const yr = d.getFullYear();
+  const h = d.getHours();
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 || 12;
+  return `${m}/${day}/${yr} at ${hr}:${min} ${ampm}`;
 }
 
 export default function ReportView() {
@@ -38,6 +48,8 @@ export default function ReportView() {
       .catch(() => setError('Failed to load report.'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  const params = data?.params_snapshot || [];
 
   return (
     <div className="rv-page">
@@ -62,19 +74,20 @@ export default function ReportView() {
           <>
             <h1 className="rv-title">{data.name}</h1>
             {data.description && <p className="rv-desc">{data.description}</p>}
-            <div className="rv-meta">
-              Generated {(() => {
-                const d = new Date(data.ran_at);
-                const m = d.getMonth() + 1;
-                const day = String(d.getDate()).padStart(2, '0');
-                const yr = d.getFullYear();
-                const h = d.getHours();
-                const min = String(d.getMinutes()).padStart(2, '0');
-                const ampm = h >= 12 ? 'PM' : 'AM';
-                const hr = h % 12 || 12;
-                return `${m}/${day}/${yr} at ${hr}:${min} ${ampm}`;
-              })()}
-            </div>
+
+            {/* Param pills */}
+            {params.length > 0 && (
+              <div className="rv-params">
+                {params.map((p) => (
+                  <span key={p.name} className="rv-param-pill">
+                    <span className="rv-param-label">{p.name}</span>
+                    <span className="rv-param-value">{p.display}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="rv-meta">Generated {formatRunAt(data.ran_at)}</div>
 
             {(!data.rows || data.rows.length === 0) ? (
               <div style={{ color: '#888', fontStyle: 'italic' }}>No data returned.</div>

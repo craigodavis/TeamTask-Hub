@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 import twilio from 'twilio';
-import { executeSqlReadOnly } from './scheduledReportsHelper.js';
+import { executeSqlReadOnly, resolveParamsSnapshot } from './scheduledReportsHelper.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -253,12 +253,15 @@ async function runScheduledReport(report) {
     rows   = result.rows;
     fields = result.fields;
 
+    // Evaluate params to display values for the report header
+    const paramsSnapshot = await resolveParamsSnapshot(report.params || []);
+
     // Store run record
     const runResult = await query(
       `INSERT INTO scheduled_report_runs
-         (report_id, status, rows_returned, result_data, result_fields)
-       VALUES ($1, 'success', $2, $3, $4) RETURNING id, view_token`,
-      [report.id, rows.length, JSON.stringify(rows), JSON.stringify(fields)]
+         (report_id, status, rows_returned, result_data, result_fields, params_snapshot)
+       VALUES ($1, 'success', $2, $3, $4, $5) RETURNING id, view_token`,
+      [report.id, rows.length, JSON.stringify(rows), JSON.stringify(fields), JSON.stringify(paramsSnapshot)]
     );
     runId = runResult.rows[0].id;
     const viewToken = runResult.rows[0].view_token;
