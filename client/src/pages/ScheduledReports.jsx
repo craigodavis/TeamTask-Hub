@@ -142,6 +142,7 @@ function ReportForm({ initial, users, onSave, onCancel }) {
   const [aiQuery, setAiQuery]       = useState('');
   const [aiLoading, setAiLoading]   = useState(false);
   const [showAi, setShowAi]         = useState(false);
+  const [showHelp, setShowHelp]     = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -234,10 +235,63 @@ function ReportForm({ initial, users, onSave, onCancel }) {
           <div className="sr-field">
             <div className="sr-field-row">
               <label>SQL Query *</label>
-              <button className="sr-ai-toggle" onClick={() => setShowAi(!showAi)}>
-                {showAi ? '✕ Close AI' : '✦ Generate with AI'}
-              </button>
+              <div className="sr-sql-label-actions">
+                <button className="sr-help-btn" onClick={() => setShowHelp(!showHelp)} title="Query builder help">
+                  {showHelp ? '✕ Close help' : '? Help'}
+                </button>
+                <button className="sr-ai-toggle" onClick={() => setShowAi(!showAi)}>
+                  {showAi ? '✕ Close AI' : '✦ Generate with AI'}
+                </button>
+              </div>
             </div>
+
+            {showHelp && (
+              <div className="sr-help-panel">
+                <div className="sr-help-section">
+                  <strong>Query parameters</strong>
+                  <p>Use <code>{'{param_name}'}</code> anywhere in your SQL. Each token auto-appears as a configurable parameter below the editor.</p>
+                  <pre className="sr-help-example">{`SELECT location_name, SUM(total_amount) AS revenue
+FROM square.order
+WHERE created_at >= {start_date}
+  AND created_at <  {end_date}
+  AND location_name = {location}
+GROUP BY 1
+ORDER BY 2 DESC`}</pre>
+                </div>
+
+                <div className="sr-help-cols">
+                  <div className="sr-help-section">
+                    <strong>Date expression params</strong>
+                    <p>Evaluated by PostgreSQL each time the report runs — always up to date.</p>
+                    <table className="sr-help-table">
+                      <tbody>
+                        <tr><td>Today</td><td><code>now()</code></td></tr>
+                        <tr><td>Yesterday</td><td><code>now() - interval '1 day'</code></td></tr>
+                        <tr><td>30 days ago</td><td><code>now() - interval '30 days'</code></td></tr>
+                        <tr><td>Start of month</td><td><code>date_trunc('month', now())</code></td></tr>
+                        <tr><td>Start of year</td><td><code>date_trunc('year', now())</code></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="sr-help-section">
+                    <strong>Fixed value params</strong>
+                    <p>Hard-coded literals — written exactly as they'd appear in SQL.</p>
+                    <table className="sr-help-table">
+                      <tbody>
+                        <tr><td>Text</td><td><code>'Kindred by the Creek'</code></td></tr>
+                        <tr><td>Number</td><td><code>100</code></td></tr>
+                        <tr><td>Status</td><td><code>'COMPLETED'</code></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <p className="sr-help-tip">
+                  💡 Tip: click <strong>▶ Test Query</strong> to preview results with your params substituted in before saving.
+                </p>
+              </div>
+            )}
             {showAi && (
               <div className="sr-ai-panel">
                 <input

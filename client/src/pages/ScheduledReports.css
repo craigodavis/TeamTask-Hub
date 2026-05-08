@@ -336,6 +336,125 @@
   font-size: 0.8rem;
 }
 
+/* ── SQL label action row ──────────────────────────── */
+
+.sr-sql-label-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sr-help-btn {
+  background: none;
+  border: 1px solid #c8d8e8;
+  color: #5b8db8;
+  border-radius: 5px;
+  padding: 3px 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.sr-help-btn:hover {
+  background: #eef4fa;
+  border-color: #5b8db8;
+}
+
+/* ── Help panel ────────────────────────────────────── */
+
+.sr-help-panel {
+  background: #f0f6ff;
+  border: 1px solid #c5d8ef;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 10px;
+  font-size: 0.84rem;
+  color: #333;
+}
+
+.sr-help-panel p {
+  margin: 4px 0 8px;
+  color: #555;
+  line-height: 1.5;
+}
+
+.sr-help-section {
+  margin-bottom: 14px;
+}
+
+.sr-help-section strong {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #2c4a6e;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sr-help-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 540px) {
+  .sr-help-cols { grid-template-columns: 1fr; }
+}
+
+.sr-help-example {
+  background: #fff;
+  border: 1px solid #d0e0f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 0.78rem;
+  color: #2c3e50;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 6px 0 0;
+  line-height: 1.55;
+}
+
+.sr-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.sr-help-table td {
+  padding: 3px 8px 3px 0;
+  vertical-align: top;
+}
+
+.sr-help-table td:first-child {
+  color: #666;
+  white-space: nowrap;
+  width: 110px;
+}
+
+.sr-help-table code {
+  background: #fff;
+  border: 1px solid #d0e0f0;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.77rem;
+  color: #1a3a5c;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+}
+
+.sr-help-tip {
+  margin: 0 !important;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #d0e0f0;
+  border-radius: 6px;
+  font-size: 0.8rem !important;
+  color: #4a6080 !important;
+}
+
 /* ── AI generate ───────────────────────────────────── */
 
 .sr-ai-toggle {
