@@ -301,7 +301,7 @@ async function runScheduledReport(report, { updateLastRanAt = true } = {}) {
       const accountSid = integrations?.twilio_account_sid?.trim() || process.env.TWILIO_ACCOUNT_SID;
       const authToken  = integrations?.twilio_auth_token?.trim()  || process.env.TWILIO_AUTH_TOKEN;
       const fromNumber = integrations?.twilio_phone_number?.trim() || process.env.TWILIO_PHONE_NUMBER;
-      const appUrl     = process.env.APP_URL || 'https://app.kindredvineyards.com';
+      const appUrl     = process.env.APP_URL || 'https://team.kindredvineyards.com';
 
       if (accountSid && authToken && fromNumber) {
         const tc = twilio(accountSid, authToken);
