@@ -22,6 +22,7 @@ import { receiptsRouter } from './routes/receipts.js';
 import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
+import { productsRouter } from './routes/products.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
@@ -53,6 +54,7 @@ app.use('/api/receipts', requireAuth, receiptsRouter);
 app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
 app.use('/api/square', requireAuth, requireManager, squareRouter);
+app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
 

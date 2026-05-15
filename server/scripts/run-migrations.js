@@ -351,6 +351,202 @@ const MIGRATIONS = [
   `ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS params_snapshot JSONB NOT NULL DEFAULT '[]'`,
   // 061: Company timezone for scheduled reports and date expressions
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS timezone VARCHAR(100) NOT NULL DEFAULT 'UTC'`,
+
+  // 062: Commerce7 integration credentials on company_integrations
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS c7_tenant_slug    VARCHAR(200),
+     ADD COLUMN IF NOT EXISTS c7_tenant_id      VARCHAR(200),
+     ADD COLUMN IF NOT EXISTS c7_api_base_url   VARCHAR(500),
+     ADD COLUMN IF NOT EXISTS c7_api_key        TEXT`,
+
+  // 063: product schema + products master table
+  `CREATE SCHEMA IF NOT EXISTS product`,
+  `CREATE TABLE IF NOT EXISTS product.products (
+     id             UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id     UUID         NOT NULL,
+     name           VARCHAR(500) NOT NULL,
+     description    TEXT,
+     vintage        SMALLINT,
+     varietal       VARCHAR(200),
+     wine_style     VARCHAR(50),
+     appellation    VARCHAR(200),
+     region         VARCHAR(200),
+     country        VARCHAR(100) DEFAULT 'USA',
+     alcohol_pct    NUMERIC(5,2),
+     is_available   BOOLEAN      NOT NULL DEFAULT true,
+     is_archived    BOOLEAN      NOT NULL DEFAULT false,
+     display_order  INTEGER      NOT NULL DEFAULT 0,
+     internal_notes TEXT,
+     images         JSONB        NOT NULL DEFAULT '[]',
+     created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+     created_by     UUID,
+     updated_by     UUID
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_products_company       ON product.products(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_company_avail ON product.products(company_id, is_available, is_archived)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_vintage       ON product.products(company_id, vintage)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_varietal      ON product.products(company_id, varietal)`,
+
+  // 064: product_variants (SKUs per product)
+  `CREATE TABLE IF NOT EXISTS product.product_variants (
+     id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+     product_id    UUID        NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
+     company_id    UUID        NOT NULL,
+     volume_format VARCHAR(50) NOT NULL DEFAULT '750ml',
+     sku           VARCHAR(100),
+     price_cents   INTEGER,
+     is_default    BOOLEAN     NOT NULL DEFAULT false,
+     is_available  BOOLEAN     NOT NULL DEFAULT true,
+     taxable       BOOLEAN     NOT NULL DEFAULT true,
+     weight_oz     NUMERIC(7,2),
+     ordinal       INTEGER     NOT NULL DEFAULT 0,
+     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE(product_id, volume_format)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_variants_product ON product.product_variants(product_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_variants_company ON product.product_variants(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_variants_sku     ON product.product_variants(company_id, sku)`,
+
+  // 065: c7_products (Commerce7-specific overlay fields)
+  `CREATE TABLE IF NOT EXISTS product.c7_products (
+     product_id         UUID PRIMARY KEY REFERENCES product.products(id) ON DELETE CASCADE,
+     company_id         UUID    NOT NULL,
+     c7_product_id      VARCHAR(200) UNIQUE,
+     c7_handle          VARCHAR(500),
+     teaser             TEXT,
+     winemaker_notes    TEXT,
+     residual_sugar     VARCHAR(100),
+     food_pairings      TEXT[]  NOT NULL DEFAULT '{}',
+     awards             JSONB   NOT NULL DEFAULT '[]',
+     club_eligible      BOOLEAN NOT NULL DEFAULT false,
+     available_channels TEXT[]  NOT NULL DEFAULT '{}',
+     seo_title          VARCHAR(500),
+     seo_description    TEXT,
+     tags               TEXT[]  NOT NULL DEFAULT '{}',
+     sort_position      INTEGER,
+     c7_created_at      TIMESTAMPTZ,
+     c7_updated_at      TIMESTAMPTZ
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_products_company   ON product.c7_products(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_products_c7_id     ON product.c7_products(c7_product_id)`,
+
+  // 066: c7_variant_data
+  `CREATE TABLE IF NOT EXISTS product.c7_variant_data (
+     variant_id         UUID PRIMARY KEY REFERENCES product.product_variants(id) ON DELETE CASCADE,
+     company_id         UUID NOT NULL,
+     c7_variant_id      VARCHAR(200) UNIQUE,
+     member_price_cents INTEGER,
+     inventory_on_hand  INTEGER,
+     c7_updated_at      TIMESTAMPTZ
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_variant_company ON product.c7_variant_data(company_id)`,
+
+  // 067: square_items (Square-specific overlay)
+  `CREATE TABLE IF NOT EXISTS product.square_items (
+     product_id           UUID PRIMARY KEY REFERENCES product.products(id) ON DELETE CASCADE,
+     company_id           UUID    NOT NULL,
+     square_item_id       VARCHAR(200) UNIQUE,
+     abbreviation         VARCHAR(24),
+     square_category_id   VARCHAR(100),
+     tax_ids              TEXT[]  NOT NULL DEFAULT '{}',
+     modifier_list_info   JSONB   NOT NULL DEFAULT '[]',
+     available_online     BOOLEAN NOT NULL DEFAULT true,
+     available_for_pickup BOOLEAN NOT NULL DEFAULT true,
+     skip_modifier_screen BOOLEAN NOT NULL DEFAULT false,
+     sq_updated_at        TIMESTAMPTZ
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_square_items_company ON product.square_items(company_id)`,
+
+  // 068: square_variation_data
+  `CREATE TABLE IF NOT EXISTS product.square_variation_data (
+     variant_id                UUID PRIMARY KEY REFERENCES product.product_variants(id) ON DELETE CASCADE,
+     company_id                UUID    NOT NULL,
+     square_variation_id       VARCHAR(200) UNIQUE,
+     pricing_type              VARCHAR(30) DEFAULT 'FIXED_PRICING',
+     inventory_alert_type      VARCHAR(30) DEFAULT 'NONE',
+     inventory_alert_threshold INTEGER,
+     location_overrides        JSONB   NOT NULL DEFAULT '[]',
+     sellable                  BOOLEAN NOT NULL DEFAULT true,
+     stockable                 BOOLEAN NOT NULL DEFAULT true,
+     sq_updated_at             TIMESTAMPTZ
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_variation_company ON product.square_variation_data(company_id)`,
+
+  // 069: sync_status (per product per system)
+  `CREATE TABLE IF NOT EXISTS product.sync_status (
+     id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id     UUID        NOT NULL,
+     product_id     UUID        NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
+     system         VARCHAR(30) NOT NULL,
+     needs_push     BOOLEAN     NOT NULL DEFAULT true,
+     last_synced_at TIMESTAMPTZ,
+     sync_error     TEXT,
+     retry_count    SMALLINT    NOT NULL DEFAULT 0,
+     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE(product_id, system)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_sync_status_company    ON product.sync_status(company_id, system)`,
+  `CREATE INDEX IF NOT EXISTS idx_sync_status_needs_push ON product.sync_status(company_id, needs_push) WHERE needs_push = true`,
+
+  // 070: webhook_events (raw inbound payloads from C7 / Square)
+  `CREATE TABLE IF NOT EXISTS product.webhook_events (
+     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id        UUID,
+     source            VARCHAR(30) NOT NULL,
+     event_type        VARCHAR(200),
+     external_event_id VARCHAR(200),
+     raw_payload       JSONB       NOT NULL,
+     received_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     processed_at      TIMESTAMPTZ,
+     process_error     TEXT,
+     product_id        UUID        REFERENCES product.products(id) ON DELETE SET NULL,
+     UNIQUE(source, external_event_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_webhook_company  ON product.webhook_events(company_id, source)`,
+  `CREATE INDEX IF NOT EXISTS idx_webhook_unproc   ON product.webhook_events(processed_at) WHERE processed_at IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_webhook_received ON product.webhook_events(received_at DESC)`,
+
+  // 071: inventory_counts (monthly count sessions)
+  `CREATE TABLE IF NOT EXISTS product.inventory_counts (
+     id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id   UUID        NOT NULL,
+     count_month  DATE        NOT NULL,
+     location_id  UUID,
+     status       VARCHAR(20) NOT NULL DEFAULT 'open',
+     notes        TEXT,
+     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by   UUID        NOT NULL,
+     submitted_at TIMESTAMPTZ,
+     submitted_by UUID,
+     approved_at  TIMESTAMPTZ,
+     approved_by  UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_counts_unique ON product.inventory_counts(company_id, count_month, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))`,
+  `CREATE INDEX IF NOT EXISTS idx_inv_counts_company ON product.inventory_counts(company_id, count_month DESC)`,
+
+  // 072: inventory_lines (per-SKU entries per count session)
+  `CREATE TABLE IF NOT EXISTS product.inventory_lines (
+     id             UUID     PRIMARY KEY DEFAULT gen_random_uuid(),
+     count_id       UUID     NOT NULL REFERENCES product.inventory_counts(id) ON DELETE CASCADE,
+     company_id     UUID     NOT NULL,
+     variant_id     UUID     NOT NULL REFERENCES product.product_variants(id) ON DELETE RESTRICT,
+     cases_count    SMALLINT NOT NULL DEFAULT 0 CHECK (cases_count >= 0),
+     bottles_count  SMALLINT NOT NULL DEFAULT 0 CHECK (bottles_count >= 0),
+     total_bottles  SMALLINT GENERATED ALWAYS AS (cases_count * 12 + bottles_count) STORED,
+     entered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     entered_by     UUID     NOT NULL,
+     last_edited_at TIMESTAMPTZ,
+     last_edited_by UUID,
+     notes          TEXT,
+     UNIQUE(count_id, variant_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_inv_lines_count   ON product.inventory_lines(count_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inv_lines_variant ON product.inventory_lines(variant_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inv_lines_company ON product.inventory_lines(company_id)`,
 ];
 
 async function run() {

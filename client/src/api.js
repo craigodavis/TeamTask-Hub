@@ -839,3 +839,29 @@ export async function patchGeneralSettings(payload) {
   if (!res.ok) throw new Error(data.error || 'Failed to save general settings');
   return data;
 }
+
+// ── Products MDS ──────────────────────────────────────────────────────────────
+
+export async function getProducts(params = {}) {
+  const qs = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''))
+  ).toString();
+  const res = await fetch(`${API}/products${qs ? `?${qs}` : ''}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load products');
+  return data;
+}
+
+export async function getProductFilters() {
+  const res = await fetch(`${API}/products/filters`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load product filters');
+  return data;
+}
+
+export async function getProduct(id) {
+  const res = await fetch(`${API}/products/${id}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load product');
+  return data;
+}

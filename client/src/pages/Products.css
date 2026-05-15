@@ -1,0 +1,214 @@
+/* ── Products MDS ──────────────────────────────────────────────────────────── */
+
+.prod-wrap {
+  padding: 24px;
+  max-width: 1400px;
+}
+
+/* Toolbar */
+.prod-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.prod-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.prod-subtitle {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0;
+}
+
+/* Filters */
+.prod-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.prod-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 300px;
+  padding: 7px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.prod-filters select {
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+.prod-clear-btn {
+  padding: 7px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f3f4f6;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #374151;
+}
+.prod-clear-btn:hover { background: #e5e7eb; }
+
+/* States */
+.prod-loading, .prod-empty, .prod-error {
+  padding: 48px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 1rem;
+}
+.prod-error { color: #dc2626; }
+
+/* Product grid */
+.prod-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+/* Product card */
+.prod-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+.prod-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  transform: translateY(-1px);
+}
+.prod-card:focus { outline: 2px solid #6366f1; outline-offset: 2px; }
+
+.prod-card-img {
+  height: 160px;
+  background: #f9fafb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.prod-card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.prod-card-no-img {
+  font-size: 3rem;
+  opacity: 0.3;
+}
+
+.prod-card-body {
+  padding: 12px;
+}
+
+.prod-card-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+.prod-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.prod-meta-pill {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.prod-meta-light {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.prod-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+.prod-card-price {
+  font-weight: 600;
+  color: #111827;
+  font-size: 0.9rem;
+}
+.prod-card-avail {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* Sync badges */
+.prod-card-sync {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+}
+.prod-sync-label {
+  color: #9ca3af;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.prod-sync-badge {
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.prod-sync-ok      { background: #d1fae5; color: #065f46; }
+.prod-sync-pending { background: #fef3c7; color: #92400e; }
+.prod-sync-error   { background: #fee2e2; color: #991b1b; }
+.prod-sync-none    { background: #f3f4f6; color: #9ca3af; }
+
+/* Pagination */
+.prod-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 32px;
+  font-size: 0.9rem;
+  color: #374151;
+}
+.prod-pagination button {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.prod-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.prod-pagination button:not(:disabled):hover { background: #f3f4f6; }

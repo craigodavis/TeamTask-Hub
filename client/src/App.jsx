@@ -12,6 +12,7 @@ import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
 import ReportView from './pages/ReportView';
+import { Products } from './pages/Products';
 import { AppShell } from './components/AppShell';
 import { appHubTitle } from './appHubTitle';
 
@@ -108,6 +109,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Square />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/products"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <Products />
               ) : (
                 <Navigate to="/" replace />
               )
