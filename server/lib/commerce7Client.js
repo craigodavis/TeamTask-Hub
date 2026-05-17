@@ -9,8 +9,6 @@
  *   const data = await client.get('/product?page=1&limit=100');
  */
 
-import fetch from 'node-fetch';
-
 const C7_APP_ID = 'club-pickup-enforcer';
 const C7_DEFAULT_BASE_URL = 'https://api.commerce7.com/v1';
 
