@@ -56,7 +56,7 @@ async function c7Request(integration, method, path, body) {
  * @param {string} dataKey - key in response that holds the array, e.g. 'products'
  * @param {number} pageSize - items per page (max 100 for most C7 endpoints)
  */
-export async function c7FetchAll(integration, path, dataKey, pageSize = 100) {
+export async function c7FetchAll(integration, path, dataKey, pageSize = 50) {
   const results = [];
   let page = 1;
   while (true) {

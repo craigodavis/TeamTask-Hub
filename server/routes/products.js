@@ -182,7 +182,7 @@ router.post('/import/c7', requireAuth, async (req, res) => {
 
     const { c7FetchAll } = await import('../lib/commerce7Client.js');
     console.log(`[products/import-c7] Starting import for company ${companyId}`);
-    const c7Products = await c7FetchAll(integration, '/product', 'products', 100);
+    const c7Products = await c7FetchAll(integration, '/product', 'products', 50);
     console.log(`[products/import-c7] Fetched ${c7Products.length} products`);
 
     const client = await pool.connect();
