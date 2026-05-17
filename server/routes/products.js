@@ -192,25 +192,34 @@ router.post('/import/c7', requireAuth, async (req, res) => {
       await client.query(`SET search_path TO product, ${appSchema}`);
 
       for (const p of c7Products) {
+        // C7 nests wine attributes under p.wine
+        const wine = p.wine || {};
+
+        // Images: C7 uses { src, formats, sortOrder } — map to { url, alt, position }
         const images = (p.images || []).map((img, i) => ({
-          url: img.url || img, alt: img.alt || p.title || '', position: img.position ?? i,
+          url: img.src || img.formats?.medium?.src || img.formats?.large?.src || '',
+          alt: p.title || '',
+          position: img.sortOrder ?? i,
         }));
 
         const vintage = (() => {
-          const n = parseInt(p.vintage, 10);
+          const n = parseInt(wine.vintage ?? p.vintage, 10);
           return (n >= 1900 && n <= 2100) ? n : null;
         })();
 
         const wineStyle = (() => {
-          const t = String(p.type || '').toLowerCase();
+          const t = String(wine.type || p.type || '').toLowerCase();
           if (t.includes('red')) return 'Red';
           if (t.includes('white')) return 'White';
           if (t.includes('ros')) return 'Rosé';
           if (t.includes('sparkling') || t.includes('bubble')) return 'Sparkling';
           if (t.includes('dessert') || t.includes('sweet')) return 'Dessert';
           if (t.includes('fortif')) return 'Fortified';
-          return p.type || null;
+          return wine.type || p.type || null;
         })();
+
+        // C7 uses webStatus / adminStatus, not isAvailable
+        const isAvailable = p.webStatus === 'Available' || p.adminStatus === 'Available';
 
         // Check if already imported (by c7_product_id)
         const existing = await client.query(
@@ -232,11 +241,15 @@ router.post('/import/c7', requireAuth, async (req, res) => {
              WHERE id = $12`,
             [
               p.title || 'Unnamed Product',
-              p.content || p.description || null,
-              vintage, p.varietal || null, wineStyle,
-              p.appellation || null, p.region || null, p.country || 'USA',
-              p.alcoholPercent ? parseFloat(p.alcoholPercent) : null,
-              p.isAvailable !== false,
+              p.content || null,
+              vintage,
+              wine.varietal || p.subTitle || null,
+              wineStyle,
+              wine.appellation || null,
+              wine.region || null,
+              wine.countryCode || 'USA',
+              null, // alcohol is per-variant in C7
+              isAvailable,
               JSON.stringify(images),
               productId,
             ]
@@ -250,12 +263,18 @@ router.post('/import/c7', requireAuth, async (req, res) => {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
              RETURNING id`,
             [
-              companyId, p.title || 'Unnamed Product',
-              p.content || p.description || null,
-              vintage, p.varietal || null, wineStyle,
-              p.appellation || null, p.region || null, p.country || 'USA',
-              p.alcoholPercent ? parseFloat(p.alcoholPercent) : null,
-              p.isAvailable !== false, p.position ?? 0,
+              companyId,
+              p.title || 'Unnamed Product',
+              p.content || null,
+              vintage,
+              wine.varietal || p.subTitle || null,
+              wineStyle,
+              wine.appellation || null,
+              wine.region || null,
+              wine.countryCode || 'USA',
+              null, // alcohol is per-variant in C7
+              isAvailable,
+              p.sortOrder ?? 0,
               JSON.stringify(images),
             ]
           );
@@ -277,12 +296,21 @@ router.post('/import/c7', requireAuth, async (req, res) => {
              club_eligible = EXCLUDED.club_eligible, available_channels = EXCLUDED.available_channels,
              tags = EXCLUDED.tags, c7_updated_at = EXCLUDED.c7_updated_at`,
           [
-            productId, companyId, String(p.id), p.handle || null, p.teaser || null,
-            p.winemakerNotes || null, p.residualSugar || null,
-            p.foodPairings || [], JSON.stringify(p.awards || []),
-            p.clubEligible || false, p.availableChannels || [],
-            p.metaData?.title || null, p.metaData?.description || null,
-            p.tags || [], p.position ?? 0, p.createdAt || null, p.updatedAt || null,
+            productId, companyId, String(p.id),
+            p.slug || null,          // C7 uses slug not handle
+            p.teaser || null,
+            p.wine?.winemakerNotes || null,
+            p.wine?.residualSugar || null,
+            p.wine?.foodPairings || [],
+            JSON.stringify(p.metaData?.awards || []),
+            false,                   // clubEligible not in list API
+            [],                      // availableChannels not in list API
+            p.seo?.title || null,
+            p.seo?.description || null,
+            p.metaData?.tags || [],
+            p.sortOrder ?? 0,
+            p.createdAt || null,
+            p.updatedAt || null,
           ]
         );
 
@@ -294,11 +322,30 @@ router.post('/import/c7', requireAuth, async (req, res) => {
           [companyId, productId]
         );
 
-        // Variants
-        const variants = p.variants || p.skus || [];
+        // Variants — C7 prices are already in cents; volumeInML → human label
+        const variants = p.variants || [];
         for (let ord = 0; ord < variants.length; ord++) {
           const v = variants[ord];
           if (!v?.id) continue;
+
+          // Convert mL to a human-readable format label
+          const volumeLabel = (() => {
+            const ml = parseInt(v.volumeInML, 10);
+            if (!ml) return '750ml';
+            if (ml === 187) return '187ml';
+            if (ml === 375) return '375ml';
+            if (ml === 500) return '500ml';
+            if (ml === 750) return '750ml';
+            if (ml === 1000) return '1L';
+            if (ml === 1500) return '1.5L';
+            if (ml === 3000) return '3L';
+            if (ml === 6000) return '6L';
+            return `${ml}ml`;
+          })();
+
+          // C7 price is in cents already (7000 = $70.00)
+          const priceCents = v.price != null ? Math.round(parseFloat(v.price)) : null;
+
           const varRes = await client.query(
             `INSERT INTO product.product_variants
                (product_id, company_id, volume_format, sku, price_cents,
@@ -309,14 +356,18 @@ router.post('/import/c7', requireAuth, async (req, res) => {
                is_available = EXCLUDED.is_available, updated_at = NOW()
              RETURNING id`,
             [
-              productId, companyId, v.volume || v.size || '750ml', v.sku || null,
-              v.price != null ? Math.round(parseFloat(v.price) * 100) : null,
-              ord === 0, v.isAvailable !== false, v.taxable !== false,
-              v.weight ? parseFloat(v.weight) : null, ord,
+              productId, companyId, volumeLabel, v.sku || null,
+              priceCents,
+              ord === 0,
+              true,   // C7 doesn't surface isAvailable per-variant in list API
+              true,   // assume taxable
+              v.weight ? Math.round(parseFloat(v.weight) * 16) : null, // lbs → oz
+              ord,
             ]
           );
           const variantId = varRes.rows[0]?.id;
           if (!variantId) continue;
+
           await client.query(
             `INSERT INTO product.c7_variant_data
                (variant_id, company_id, c7_variant_id, member_price_cents, inventory_on_hand)
@@ -327,8 +378,8 @@ router.post('/import/c7', requireAuth, async (req, res) => {
                inventory_on_hand = EXCLUDED.inventory_on_hand`,
             [
               variantId, companyId, String(v.id),
-              v.memberPrice != null ? Math.round(parseFloat(v.memberPrice) * 100) : null,
-              v.inventoryQuantity ?? v.inventoryOnHand ?? null,
+              null,   // member price not in list API
+              v.inventory?.quantity ?? null,
             ]
           );
           variantsImported++;
