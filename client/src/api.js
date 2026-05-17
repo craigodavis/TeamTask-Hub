@@ -865,3 +865,39 @@ export async function getProduct(id) {
   if (!res.ok) throw new Error(data.error || 'Failed to load product');
   return data;
 }
+
+// ── Commerce7 Settings ────────────────────────────────────────────────────────
+
+export async function getC7Settings() {
+  const res = await fetch(`${API}/settings/commerce7`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Commerce7 settings');
+  return data;
+}
+
+export async function putC7Settings(payload) {
+  const res = await fetch(`${API}/settings/commerce7`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save Commerce7 settings');
+  return data;
+}
+
+export async function testC7Connection(body = {}) {
+  const res = await fetch(`${API}/settings/commerce7/test`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Test failed');
+  return data;
+}
+
+export async function importC7Products() {
+  const res = await fetch(`${API}/products/import/c7`, {
+    method: 'POST', headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Import failed');
+  return data;
+}

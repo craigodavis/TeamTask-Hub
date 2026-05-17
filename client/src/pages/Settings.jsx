@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, importC7Products } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import './Settings.css';
 
-const OWNER_TABS = ['general', 'integrations', 'mail', 'locations', 'square'];
+const OWNER_TABS = ['general', 'integrations', 'mail', 'locations', 'square', 'commerce7'];
 
 // Common IANA timezone list — covers all US zones plus a broad international set
 const TIMEZONES = [
@@ -173,6 +173,18 @@ export function Settings() {
   const [timezone, setTimezone] = useState('UTC');
   const [timezoneSaving, setTimezoneSaving] = useState(false);
 
+  // Commerce7
+  const [c7Settings, setC7Settings]           = useState(null);
+  const [c7TenantSlug, setC7TenantSlug]       = useState('');
+  const [c7TenantId, setC7TenantId]           = useState('');
+  const [c7ApiBaseUrl, setC7ApiBaseUrl]       = useState('');
+  const [c7ApiKey, setC7ApiKey]               = useState('');
+  const [c7Saving, setC7Saving]               = useState(false);
+  const [c7Testing, setC7Testing]             = useState(false);
+  const [c7TestResult, setC7TestResult]       = useState('');
+  const [c7Importing, setC7Importing]         = useState(false);
+  const [c7ImportResult, setC7ImportResult]   = useState('');
+
   useEffect(() => {
     if (!isOwner && isManager && tabParam && tabParam !== 'square') {
       setSearchParams({ tab: 'square' }, { replace: true });
@@ -195,8 +207,9 @@ export function Settings() {
     Promise.all([
       getIntegrationSettings(),
       getGeneralSettings(),
+      getC7Settings(),
     ])
-      .then(([r, g]) => {
+      .then(([r, g, c7]) => {
         setSettings(r);
         setSquareApplicationId(r.square_application_id || '');
         setSquareEnv(r.square_env || 'production');
@@ -207,6 +220,10 @@ export function Settings() {
         setMailFrom(r.mail_from || '');
         setMailSecure(r.mail_secure || false);
         setTimezone(g.timezone || 'UTC');
+        setC7Settings(c7);
+        setC7TenantSlug(c7.c7_tenant_slug || '');
+        setC7TenantId(c7.c7_tenant_id || '');
+        setC7ApiBaseUrl(c7.c7_api_base_url || '');
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -443,6 +460,9 @@ export function Settings() {
           </>
         )}
         <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>Square users</button>
+        {isOwner && (
+          <button type="button" className={tab === 'commerce7' ? 'active' : ''} onClick={() => setSettingsTab('commerce7')}>Commerce7</button>
+        )}
       </nav>
       {error && <p className="settings-error">{error}</p>}
       {message && <p className="settings-message">{message}</p>}
@@ -652,6 +672,138 @@ export function Settings() {
       )}
 
       {tab === 'square' && <SquareUsersPanel />}
+
+      {tab === 'commerce7' && isOwner && (
+        <>
+          <p className="settings-intro">
+            Connect this company to Commerce7. The API key is stored securely and never returned after saving.
+            Leave the API key blank to keep the current value.
+          </p>
+          <form
+            className="settings-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setC7Saving(true); setError(''); setMessage(''); setC7TestResult(''); setC7ImportResult('');
+              try {
+                const body = {
+                  c7_tenant_slug:  c7TenantSlug.trim()  || undefined,
+                  c7_tenant_id:    c7TenantId.trim()    || undefined,
+                  c7_api_base_url: c7ApiBaseUrl.trim()  || undefined,
+                };
+                if (c7ApiKey.trim()) body.c7_api_key = c7ApiKey.trim();
+                await putC7Settings(body);
+                setMessage('Commerce7 settings saved.');
+                setC7ApiKey('');
+                const fresh = await getC7Settings();
+                setC7Settings(fresh);
+                setC7TenantSlug(fresh.c7_tenant_slug || '');
+                setC7TenantId(fresh.c7_tenant_id || '');
+                setC7ApiBaseUrl(fresh.c7_api_base_url || '');
+              } catch (e) { setError(e.message); }
+              finally { setC7Saving(false); }
+            }}
+          >
+            <fieldset>
+              <legend>Commerce7 API</legend>
+              <label>
+                Tenant Slug
+                <input
+                  type="text"
+                  placeholder="e.g. kindredvineyards"
+                  value={c7TenantSlug}
+                  onChange={(e) => setC7TenantSlug(e.target.value)}
+                  autoComplete="off"
+                />
+                <small>Found in your Commerce7 URL: <code>app.commerce7.com/<strong>slug</strong></code></small>
+              </label>
+              <label>
+                Tenant ID
+                <input
+                  type="text"
+                  placeholder="Commerce7 Tenant ID"
+                  value={c7TenantId}
+                  onChange={(e) => setC7TenantId(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                API Base URL <span style={{ fontWeight: 400, color: '#888' }}>(optional)</span>
+                <input
+                  type="text"
+                  placeholder="https://api.commerce7.com/v1"
+                  value={c7ApiBaseUrl}
+                  onChange={(e) => setC7ApiBaseUrl(e.target.value)}
+                  autoComplete="off"
+                />
+                <small>Leave blank to use the default Commerce7 API endpoint.</small>
+              </label>
+              <label>
+                API Key
+                <input
+                  type="password"
+                  placeholder={c7Settings?.c7_configured ? 'Leave blank to keep current' : 'Commerce7 API key'}
+                  value={c7ApiKey}
+                  onChange={(e) => setC7ApiKey(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+              {c7Settings?.c7_configured && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ API key is configured</p>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn-test"
+                  disabled={c7Testing || (!c7Settings?.c7_configured && !c7ApiKey.trim())}
+                  onClick={async () => {
+                    setC7Testing(true); setC7TestResult(''); setError('');
+                    try {
+                      const body = {};
+                      if (c7TenantSlug.trim())  body.c7_tenant_slug  = c7TenantSlug.trim();
+                      if (c7TenantId.trim())    body.c7_tenant_id    = c7TenantId.trim();
+                      if (c7ApiBaseUrl.trim())  body.c7_api_base_url = c7ApiBaseUrl.trim();
+                      if (c7ApiKey.trim())      body.c7_api_key      = c7ApiKey.trim();
+                      const r = await testC7Connection(body);
+                      setC7TestResult(r.message || 'Connected.');
+                    } catch (e) { setError(e.message); }
+                    finally { setC7Testing(false); }
+                  }}
+                >
+                  {c7Testing ? 'Testing…' : 'Test connection'}
+                </button>
+              </div>
+              {c7TestResult && <p className="test-result success">{c7TestResult}</p>}
+            </fieldset>
+            <button type="submit" disabled={c7Saving}>{c7Saving ? 'Saving…' : 'Save'}</button>
+          </form>
+
+          {c7Settings?.c7_configured && (
+            <fieldset style={{ marginTop: '1.5rem' }}>
+              <legend>Product Import</legend>
+              <p style={{ margin: '0 0 0.75rem', color: '#555', fontSize: '0.9em' }}>
+                Import all products from Commerce7 into TeamHub. Safe to re-run — existing products will be updated.
+              </p>
+              <button
+                type="button"
+                className="btn-test"
+                disabled={c7Importing}
+                onClick={async () => {
+                  setC7Importing(true); setC7ImportResult(''); setError('');
+                  try {
+                    const r = await importC7Products();
+                    setC7ImportResult(`✓ Import complete — ${r.imported} new, ${r.updated} updated, ${r.variants} variants (${r.total} total products).`);
+                  } catch (e) { setError(e.message); }
+                  finally { setC7Importing(false); }
+                }}
+              >
+                {c7Importing ? 'Importing…' : '↓ Import products from Commerce7'}
+              </button>
+              {c7ImportResult && <p className="test-result success" style={{ marginTop: '10px' }}>{c7ImportResult}</p>}
+            </fieldset>
+          )}
+        </>
+      )}
 
       {tab === 'locations' && (
         <>

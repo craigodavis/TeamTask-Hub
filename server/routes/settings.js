@@ -250,6 +250,84 @@ router.put('/integrations', requireOwner, async (req, res) => {
   }
 });
 
+// GET /settings/commerce7 — C7 credentials (owner only, never returns api key)
+router.get('/commerce7', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url,
+              c7_api_key IS NOT NULL AND c7_api_key != '' AS c7_configured
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const row = r.rows[0];
+    res.json({
+      c7_tenant_slug:  row?.c7_tenant_slug  || '',
+      c7_tenant_id:    row?.c7_tenant_id    || '',
+      c7_api_base_url: row?.c7_api_base_url || '',
+      c7_configured:   !!row?.c7_configured,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /settings/commerce7 — save C7 credentials (owner only)
+router.put('/commerce7', requireOwner, async (req, res) => {
+  const { c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key } = req.body ?? {};
+  try {
+    await query(
+      `INSERT INTO company_integrations (company_id, c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (company_id) DO UPDATE SET
+         c7_tenant_slug  = COALESCE(NULLIF($2,''), company_integrations.c7_tenant_slug),
+         c7_tenant_id    = COALESCE(NULLIF($3,''), company_integrations.c7_tenant_id),
+         c7_api_base_url = COALESCE(NULLIF($4,''), company_integrations.c7_api_base_url),
+         c7_api_key      = COALESCE(NULLIF($5,''), company_integrations.c7_api_key),
+         updated_at      = NOW(),
+         updated_by      = $6`,
+      [
+        companyId(req),
+        c7_tenant_slug?.trim() || null,
+        c7_tenant_id?.trim()   || null,
+        c7_api_base_url?.trim()|| null,
+        c7_api_key?.trim()     || null,
+        req.userId,
+      ]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /settings/commerce7/test — verify C7 credentials (owner only)
+router.post('/commerce7/test', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const row = r.rows[0];
+    // Allow testing unsaved values passed in body
+    const integration = {
+      c7_tenant_slug:  req.body?.c7_tenant_slug  || row?.c7_tenant_slug  || '',
+      c7_tenant_id:    req.body?.c7_tenant_id    || row?.c7_tenant_id    || '',
+      c7_api_base_url: req.body?.c7_api_base_url || row?.c7_api_base_url || '',
+      c7_api_key:      req.body?.c7_api_key      || row?.c7_api_key      || '',
+    };
+    if (!integration.c7_api_key) {
+      return res.status(400).json({ error: 'API key not configured. Enter and save your key first.' });
+    }
+    const { makeC7Client } = await import('../lib/commerce7Client.js');
+    const client = makeC7Client(integration);
+    const data = await client.get('/product?page=1&limit=1');
+    res.json({ ok: true, message: `Connected. ${data.total ?? '?'} products found in Commerce7.` });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // GET /settings/general — company-level general settings (owner only)
 router.get('/general', requireOwner, async (req, res) => {
   try {

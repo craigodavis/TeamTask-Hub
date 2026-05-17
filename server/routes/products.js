@@ -163,4 +163,187 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ── POST /api/products/import/c7 ─────────────────────────────────────────────
+// Trigger a C7 product import for this company from the UI.
+// Runs inline (synchronous) — suitable for < a few hundred products.
+router.post('/import/c7', requireAuth, async (req, res) => {
+  try {
+    const companyId = cid(req);
+    // Load credentials
+    const credsRes = await query(
+      `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+       FROM ${appSchema}.company_integrations WHERE company_id = $1`,
+      [companyId]
+    );
+    const integration = credsRes.rows[0];
+    if (!integration?.c7_api_key) {
+      return res.status(400).json({ error: 'Commerce7 not configured. Set credentials in Settings → Commerce7.' });
+    }
+
+    const { c7FetchAll } = await import('../lib/commerce7Client.js');
+    console.log(`[products/import-c7] Starting import for company ${companyId}`);
+    const c7Products = await c7FetchAll(integration, '/product', 'products', 100);
+    console.log(`[products/import-c7] Fetched ${c7Products.length} products`);
+
+    const client = await pool.connect();
+    let imported = 0, updated = 0, variantsImported = 0;
+
+    try {
+      await client.query(`SET search_path TO product, ${appSchema}`);
+
+      for (const p of c7Products) {
+        const images = (p.images || []).map((img, i) => ({
+          url: img.url || img, alt: img.alt || p.title || '', position: img.position ?? i,
+        }));
+
+        const vintage = (() => {
+          const n = parseInt(p.vintage, 10);
+          return (n >= 1900 && n <= 2100) ? n : null;
+        })();
+
+        const wineStyle = (() => {
+          const t = String(p.type || '').toLowerCase();
+          if (t.includes('red')) return 'Red';
+          if (t.includes('white')) return 'White';
+          if (t.includes('ros')) return 'Rosé';
+          if (t.includes('sparkling') || t.includes('bubble')) return 'Sparkling';
+          if (t.includes('dessert') || t.includes('sweet')) return 'Dessert';
+          if (t.includes('fortif')) return 'Fortified';
+          return p.type || null;
+        })();
+
+        // Check if already imported (by c7_product_id)
+        const existing = await client.query(
+          `SELECT p.id FROM product.products p
+           JOIN product.c7_products c ON c.product_id = p.id
+           WHERE c.c7_product_id = $1 AND p.company_id = $2`,
+          [String(p.id), companyId]
+        );
+
+        let productId;
+        if (existing.rows.length > 0) {
+          productId = existing.rows[0].id;
+          // Update master fields
+          await client.query(
+            `UPDATE product.products SET
+               name = $1, description = $2, vintage = $3, varietal = $4,
+               wine_style = $5, appellation = $6, region = $7, country = $8,
+               alcohol_pct = $9, is_available = $10, images = $11, updated_at = NOW()
+             WHERE id = $12`,
+            [
+              p.title || 'Unnamed Product',
+              p.content || p.description || null,
+              vintage, p.varietal || null, wineStyle,
+              p.appellation || null, p.region || null, p.country || 'USA',
+              p.alcoholPercent ? parseFloat(p.alcoholPercent) : null,
+              p.isAvailable !== false,
+              JSON.stringify(images),
+              productId,
+            ]
+          );
+          updated++;
+        } else {
+          const ins = await client.query(
+            `INSERT INTO product.products
+               (company_id, name, description, vintage, varietal, wine_style,
+                appellation, region, country, alcohol_pct, is_available, display_order, images)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             RETURNING id`,
+            [
+              companyId, p.title || 'Unnamed Product',
+              p.content || p.description || null,
+              vintage, p.varietal || null, wineStyle,
+              p.appellation || null, p.region || null, p.country || 'USA',
+              p.alcoholPercent ? parseFloat(p.alcoholPercent) : null,
+              p.isAvailable !== false, p.position ?? 0,
+              JSON.stringify(images),
+            ]
+          );
+          productId = ins.rows[0].id;
+          imported++;
+        }
+
+        // C7 overlay upsert
+        await client.query(
+          `INSERT INTO product.c7_products
+             (product_id, company_id, c7_product_id, c7_handle, teaser, winemaker_notes,
+              residual_sugar, food_pairings, awards, club_eligible, available_channels,
+              seo_title, seo_description, tags, sort_position, c7_created_at, c7_updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+           ON CONFLICT (product_id) DO UPDATE SET
+             c7_product_id = EXCLUDED.c7_product_id, c7_handle = EXCLUDED.c7_handle,
+             teaser = EXCLUDED.teaser, winemaker_notes = EXCLUDED.winemaker_notes,
+             food_pairings = EXCLUDED.food_pairings, awards = EXCLUDED.awards,
+             club_eligible = EXCLUDED.club_eligible, available_channels = EXCLUDED.available_channels,
+             tags = EXCLUDED.tags, c7_updated_at = EXCLUDED.c7_updated_at`,
+          [
+            productId, companyId, String(p.id), p.handle || null, p.teaser || null,
+            p.winemakerNotes || null, p.residualSugar || null,
+            p.foodPairings || [], JSON.stringify(p.awards || []),
+            p.clubEligible || false, p.availableChannels || [],
+            p.metaData?.title || null, p.metaData?.description || null,
+            p.tags || [], p.position ?? 0, p.createdAt || null, p.updatedAt || null,
+          ]
+        );
+
+        // Sync status
+        await client.query(
+          `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, last_synced_at)
+           VALUES ($1,$2,'commerce7',false,NOW())
+           ON CONFLICT (product_id, system) DO UPDATE SET last_synced_at = NOW(), needs_push = false`,
+          [companyId, productId]
+        );
+
+        // Variants
+        const variants = p.variants || p.skus || [];
+        for (let ord = 0; ord < variants.length; ord++) {
+          const v = variants[ord];
+          if (!v?.id) continue;
+          const varRes = await client.query(
+            `INSERT INTO product.product_variants
+               (product_id, company_id, volume_format, sku, price_cents,
+                is_default, is_available, taxable, weight_oz, ordinal)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             ON CONFLICT (product_id, volume_format) DO UPDATE SET
+               sku = EXCLUDED.sku, price_cents = EXCLUDED.price_cents,
+               is_available = EXCLUDED.is_available, updated_at = NOW()
+             RETURNING id`,
+            [
+              productId, companyId, v.volume || v.size || '750ml', v.sku || null,
+              v.price != null ? Math.round(parseFloat(v.price) * 100) : null,
+              ord === 0, v.isAvailable !== false, v.taxable !== false,
+              v.weight ? parseFloat(v.weight) : null, ord,
+            ]
+          );
+          const variantId = varRes.rows[0]?.id;
+          if (!variantId) continue;
+          await client.query(
+            `INSERT INTO product.c7_variant_data
+               (variant_id, company_id, c7_variant_id, member_price_cents, inventory_on_hand)
+             VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT (variant_id) DO UPDATE SET
+               c7_variant_id = EXCLUDED.c7_variant_id,
+               member_price_cents = EXCLUDED.member_price_cents,
+               inventory_on_hand = EXCLUDED.inventory_on_hand`,
+            [
+              variantId, companyId, String(v.id),
+              v.memberPrice != null ? Math.round(parseFloat(v.memberPrice) * 100) : null,
+              v.inventoryQuantity ?? v.inventoryOnHand ?? null,
+            ]
+          );
+          variantsImported++;
+        }
+      }
+    } finally {
+      client.release();
+    }
+
+    console.log(`[products/import-c7] Done: ${imported} new, ${updated} updated, ${variantsImported} variants`);
+    res.json({ ok: true, imported, updated, variants: variantsImported, total: c7Products.length });
+  } catch (err) {
+    console.error('[products/import-c7]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as productsRouter };
