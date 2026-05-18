@@ -901,3 +901,21 @@ export async function importC7Products() {
   if (!res.ok) throw new Error(data.error || 'Import failed');
   return data;
 }
+
+export async function updateProduct(id, data) {
+  const res = await fetch(`${API}/products/${id}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update product');
+  return d;
+}
+
+export async function createProduct(data) {
+  const res = await fetch(`${API}/products`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create product');
+  return d;
+}

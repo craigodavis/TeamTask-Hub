@@ -397,4 +397,384 @@ router.post('/import/c7', requireAuth, async (req, res) => {
   }
 });
 
+// ── Helper: build C7 API payload from our internal field names ────────────────
+function buildC7Payload(body) {
+  const p = {};
+  if (body.name !== undefined)        p.title = body.name;
+  if (body.description !== undefined) p.content = body.description ?? null;
+  if (body.teaser !== undefined)      p.teaser = body.teaser ?? null;
+  if (body.slug !== undefined)        p.slug = body.slug || undefined;
+
+  if (body.is_available !== undefined) {
+    const status = body.is_available ? 'Available' : 'Not Available';
+    p.webStatus = status;
+    p.adminStatus = status;
+  }
+
+  const wine = {};
+  if (body.wine_style !== undefined)  wine.type = body.wine_style ?? null;
+  if (body.vintage !== undefined)     wine.vintage = body.vintage || null;
+  if (body.varietal !== undefined)    wine.varietal = body.varietal ?? null;
+  if (body.appellation !== undefined) wine.appellation = body.appellation ?? null;
+  if (body.region !== undefined)      wine.region = body.region ?? null;
+  if (body.country !== undefined)     wine.countryCode = body.country || 'US';
+  if (Object.keys(wine).length)       p.wine = wine;
+
+  const seo = {};
+  if (body.seo_title !== undefined)       seo.title = body.seo_title ?? null;
+  if (body.seo_description !== undefined) seo.description = body.seo_description ?? null;
+  if (Object.keys(seo).length)            p.seo = seo;
+
+  const meta = {};
+  if (body.tasting_notes !== undefined)   meta['tasting-notes'] = body.tasting_notes ?? null;
+  if (body.winemaker_notes !== undefined) meta['wine-maker-s-notes'] = body.winemaker_notes ?? null;
+  if (body.pairing_notes !== undefined)   meta['pairing-notes'] = body.pairing_notes ?? null;
+  if (body.release_date !== undefined)    meta['release-date'] = body.release_date ?? null;
+  if (body.cases_produced !== undefined)  meta['cases-produced'] = body.cases_produced ?? null;
+  if (body.origin_vineyard !== undefined) meta['origin-vineyard'] = body.origin_vineyard ?? null;
+  if (body.label_story !== undefined)     meta['label-story'] = body.label_story ?? null;
+  if (body.awards !== undefined)          meta.awards = body.awards ?? null;
+  if (body.tags !== undefined)            meta.tags = body.tags ?? [];
+  if (Object.keys(meta).length)           p.metaData = meta;
+
+  return p;
+}
+
+// Helper: load full product by id (same shape as GET /:id)
+async function loadFullProduct(client, productId, companyId) {
+  const [prod, c7, variants, syncRows] = await Promise.all([
+    client.query(
+      `SELECT * FROM product.products WHERE id = $1 AND company_id = $2`,
+      [productId, companyId]
+    ),
+    client.query(
+      `SELECT * FROM product.c7_products WHERE product_id = $1`,
+      [productId]
+    ),
+    client.query(
+      `SELECT v.*, cd.c7_variant_id, cd.member_price_cents, cd.inventory_on_hand
+       FROM product.product_variants v
+       LEFT JOIN product.c7_variant_data cd ON cd.variant_id = v.id
+       WHERE v.product_id = $1
+       ORDER BY v.ordinal ASC`,
+      [productId]
+    ),
+    client.query(
+      `SELECT system, needs_push, last_synced_at, sync_error, retry_count
+       FROM product.sync_status WHERE product_id = $1`,
+      [productId]
+    ),
+  ]);
+
+  const syncStatus = {};
+  for (const s of syncRows.rows) syncStatus[s.system] = s;
+
+  return {
+    ...prod.rows[0],
+    c7: c7.rows[0] || null,
+    variants: variants.rows,
+    sync: syncStatus,
+  };
+}
+
+// ── PUT /api/products/:id ─────────────────────────────────────────────────────
+router.put('/:id', requireAuth, async (req, res) => {
+  const companyId = cid(req);
+  const productId = req.params.id;
+
+  try {
+    const client = await pool.connect();
+    let c7Error = null;
+
+    try {
+      await client.query(`SET search_path TO product, ${appSchema}`);
+
+      // Verify ownership
+      const check = await client.query(
+        `SELECT id FROM product.products WHERE id = $1 AND company_id = $2`,
+        [productId, companyId]
+      );
+      if (!check.rows.length) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+
+      const b = req.body;
+
+      // Update products table
+      const prodFields = [];
+      const prodVals = [];
+      const addProd = (col, val) => { prodVals.push(val); prodFields.push(`${col} = $${prodVals.length}`); };
+
+      if (b.name !== undefined)         addProd('name', b.name);
+      if (b.description !== undefined)  addProd('description', b.description ?? null);
+      if (b.vintage !== undefined)      addProd('vintage', b.vintage ? parseInt(b.vintage, 10) : null);
+      if (b.varietal !== undefined)     addProd('varietal', b.varietal ?? null);
+      if (b.wine_style !== undefined)   addProd('wine_style', b.wine_style ?? null);
+      if (b.appellation !== undefined)  addProd('appellation', b.appellation ?? null);
+      if (b.region !== undefined)       addProd('region', b.region ?? null);
+      if (b.country !== undefined)      addProd('country', b.country ?? null);
+      if (b.is_available !== undefined) addProd('is_available', Boolean(b.is_available));
+      if (b.is_archived !== undefined)  addProd('is_archived', Boolean(b.is_archived));
+
+      if (prodFields.length) {
+        prodVals.push(productId);
+        await client.query(
+          `UPDATE product.products SET ${prodFields.join(', ')}, updated_at = NOW() WHERE id = $${prodVals.length}`,
+          prodVals
+        );
+      }
+
+      // Upsert c7_products overlay
+      const c7Fields = ['product_id', 'company_id'];
+      const c7Vals = [productId, companyId];
+      const c7Updates = [];
+      const addC7 = (col, val) => {
+        c7Vals.push(val);
+        c7Fields.push(col);
+        c7Updates.push(`${col} = EXCLUDED.${col}`);
+      };
+
+      if (b.slug !== undefined)            addC7('c7_handle', b.slug ?? null);
+      if (b.teaser !== undefined)          addC7('teaser', b.teaser ?? null);
+      if (b.winemaker_notes !== undefined) addC7('winemaker_notes', b.winemaker_notes ?? null);
+      if (b.seo_title !== undefined)       addC7('seo_title', b.seo_title ?? null);
+      if (b.seo_description !== undefined) addC7('seo_description', b.seo_description ?? null);
+      if (b.tags !== undefined)            addC7('tags', JSON.stringify(b.tags ?? []));
+
+      if (c7Fields.length > 2) {
+        const placeholders = c7Vals.map((_, i) => `$${i + 1}`).join(', ');
+        await client.query(
+          `INSERT INTO product.c7_products (${c7Fields.join(', ')})
+           VALUES (${placeholders})
+           ON CONFLICT (product_id) DO UPDATE SET ${c7Updates.join(', ')}`,
+          c7Vals
+        );
+      }
+
+      // Push to C7 if credentials + c7_product_id exist
+      const credsRes = await query(
+        `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+         FROM ${appSchema}.company_integrations WHERE company_id = $1`,
+        [companyId]
+      );
+      const integration = credsRes.rows[0];
+
+      const c7Row = await client.query(
+        `SELECT c7_product_id FROM product.c7_products WHERE product_id = $1`,
+        [productId]
+      );
+      const c7ProductId = c7Row.rows[0]?.c7_product_id;
+
+      if (integration?.c7_api_key && c7ProductId) {
+        try {
+          const { makeC7Client } = await import('../lib/commerce7Client.js');
+          const c7 = makeC7Client(integration);
+          const payload = buildC7Payload(b);
+          await c7.put(`/product/${c7ProductId}`, payload);
+
+          // Update variants in C7 if provided
+          if (Array.isArray(b.variants)) {
+            for (const v of b.variants) {
+              if (!v.id) continue;
+              // Get c7_variant_id
+              const cvRow = await client.query(
+                `SELECT cd.c7_variant_id FROM product.product_variants pv
+                 JOIN product.c7_variant_data cd ON cd.variant_id = pv.id
+                 WHERE pv.id = $1 AND pv.product_id = $2`,
+                [v.id, productId]
+              );
+              const c7VariantId = cvRow.rows[0]?.c7_variant_id;
+
+              // Update local variant
+              const vFields = [];
+              const vVals = [];
+              const addV = (col, val) => { vVals.push(val); vFields.push(`${col} = $${vVals.length}`); };
+              if (v.sku !== undefined)           addV('sku', v.sku ?? null);
+              if (v.price_cents !== undefined)   addV('price_cents', v.price_cents != null ? parseInt(v.price_cents, 10) : null);
+              if (v.volume_format !== undefined)  addV('volume_format', v.volume_format ?? null);
+              if (v.is_available !== undefined)  addV('is_available', Boolean(v.is_available));
+              if (vFields.length) {
+                vVals.push(v.id, productId);
+                await client.query(
+                  `UPDATE product.product_variants SET ${vFields.join(', ')}, updated_at = NOW()
+                   WHERE id = $${vVals.length - 1} AND product_id = $${vVals.length}`,
+                  vVals
+                );
+              }
+
+              // Push variant to C7
+              if (c7VariantId) {
+                const volumeML = (() => {
+                  const fmt = v.volume_format || '';
+                  const map = { '187ml': 187, '375ml': 375, '500ml': 500, '750ml': 750, '1L': 1000, '1.5L': 1500, '3L': 3000, '6L': 6000 };
+                  if (map[fmt]) return map[fmt];
+                  const m = fmt.match(/^(\d+)ml$/i);
+                  return m ? parseInt(m[1], 10) : undefined;
+                })();
+                const varPayload = {};
+                if (v.sku !== undefined) varPayload.sku = v.sku;
+                if (v.price_cents !== undefined) varPayload.price = v.price_cents != null ? parseInt(v.price_cents, 10) : null;
+                if (volumeML !== undefined) varPayload.volumeInML = volumeML;
+                if (v.alcohol_pct !== undefined) varPayload.alcoholPercentage = v.alcohol_pct;
+                await c7.put(`/product-variant/${c7VariantId}`, varPayload);
+              }
+            }
+          }
+
+          // Mark synced
+          await client.query(
+            `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, last_synced_at, sync_error)
+             VALUES ($1, $2, 'commerce7', false, NOW(), NULL)
+             ON CONFLICT (product_id, system) DO UPDATE SET needs_push = false, last_synced_at = NOW(), sync_error = NULL`,
+            [companyId, productId]
+          );
+        } catch (err) {
+          console.error('[products] PUT C7 push failed:', err.message);
+          c7Error = err.message;
+          await client.query(
+            `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, sync_error)
+             VALUES ($1, $2, 'commerce7', true, $3)
+             ON CONFLICT (product_id, system) DO UPDATE SET needs_push = true, sync_error = $3`,
+            [companyId, productId, err.message]
+          );
+        }
+      } else if (c7ProductId) {
+        // Has C7 product but no credentials — mark pending
+        await client.query(
+          `INSERT INTO product.sync_status (company_id, product_id, system, needs_push)
+           VALUES ($1, $2, 'commerce7', true)
+           ON CONFLICT (product_id, system) DO UPDATE SET needs_push = true`,
+          [companyId, productId]
+        );
+      }
+
+      const full = await loadFullProduct(client, productId, companyId);
+      const response = { ok: true, product: full };
+      if (c7Error) response.c7Error = c7Error;
+      res.json(response);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('[products] PUT /:id error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/products ────────────────────────────────────────────────────────
+router.post('/', requireAuth, async (req, res) => {
+  const companyId = cid(req);
+  const b = req.body;
+
+  if (!b.name) return res.status(400).json({ error: 'name is required' });
+
+  try {
+    const client = await pool.connect();
+    let c7Error = null;
+
+    try {
+      await client.query(`SET search_path TO product, ${appSchema}`);
+
+      // Load C7 credentials
+      const credsRes = await query(
+        `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+         FROM ${appSchema}.company_integrations WHERE company_id = $1`,
+        [companyId]
+      );
+      const integration = credsRes.rows[0];
+
+      let c7ProductId = null;
+
+      // Create in C7 first if credentials exist
+      if (integration?.c7_api_key) {
+        try {
+          const { makeC7Client } = await import('../lib/commerce7Client.js');
+          const c7 = makeC7Client(integration);
+          const c7Payload = buildC7Payload(b);
+          c7Payload.type = 'Wine'; // required for C7 create
+
+          const c7NewProduct = await c7.post('/product', c7Payload);
+          c7ProductId = c7NewProduct?.id ? String(c7NewProduct.id) : null;
+        } catch (err) {
+          console.error('[products] POST C7 create failed:', err.message);
+          c7Error = err.message;
+        }
+      }
+
+      // Insert into products
+      const vintage = b.vintage ? parseInt(b.vintage, 10) : null;
+      const prodRes = await client.query(
+        `INSERT INTO product.products
+           (company_id, name, description, vintage, varietal, wine_style,
+            appellation, region, country, is_available, is_archived, display_order, images)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING id`,
+        [
+          companyId,
+          b.name,
+          b.description ?? null,
+          vintage,
+          b.varietal ?? null,
+          b.wine_style ?? null,
+          b.appellation ?? null,
+          b.region ?? null,
+          b.country ?? 'USA',
+          b.is_available !== undefined ? Boolean(b.is_available) : true,
+          false,
+          0,
+          JSON.stringify([]),
+        ]
+      );
+      const productId = prodRes.rows[0].id;
+
+      // Insert c7_products row if we have any c7 data
+      if (c7ProductId || b.slug || b.teaser || b.seo_title || b.seo_description || b.tags || b.winemaker_notes) {
+        await client.query(
+          `INSERT INTO product.c7_products
+             (product_id, company_id, c7_product_id, c7_handle, teaser, winemaker_notes,
+              seo_title, seo_description, tags)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (product_id) DO NOTHING`,
+          [
+            productId,
+            companyId,
+            c7ProductId,
+            b.slug ?? null,
+            b.teaser ?? null,
+            b.winemaker_notes ?? null,
+            b.seo_title ?? null,
+            b.seo_description ?? null,
+            JSON.stringify(b.tags ?? []),
+          ]
+        );
+      }
+
+      // Sync status
+      const needsPush = !c7ProductId && !!integration?.c7_api_key;
+      await client.query(
+        `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, last_synced_at, sync_error)
+         VALUES ($1,$2,'commerce7',$3,$4,$5)
+         ON CONFLICT (product_id, system) DO NOTHING`,
+        [
+          companyId,
+          productId,
+          needsPush,
+          c7ProductId ? new Date() : null,
+          c7Error,
+        ]
+      );
+
+      const full = await loadFullProduct(client, productId, companyId);
+      const response = { ok: true, product: full };
+      if (c7Error) response.c7Error = c7Error;
+      res.status(201).json(response);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('[products] POST / error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as productsRouter };

@@ -26,6 +26,22 @@
   margin: 0;
 }
 
+/* Add product button */
+.prod-add-btn {
+  padding: 8px 18px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+  align-self: flex-start;
+}
+.prod-add-btn:hover { background: #4338ca; }
+
 /* Filters */
 .prod-filters {
   display: flex;

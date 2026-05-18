@@ -109,6 +109,12 @@ export function Products() {
             {' — sourced from Commerce7'}
           </p>
         </div>
+        <button
+          className="prod-add-btn"
+          onClick={() => navigate('/products/new')}
+        >
+          + New Product
+        </button>
       </div>
 
       {/* Filters */}
