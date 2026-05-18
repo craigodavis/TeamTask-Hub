@@ -271,6 +271,7 @@ async function executeActions(runId, reportId, companyId, rows, timezone = 'UTC'
 
 // GET /api/reports/scheduled/:reportId/actions
 router.get('/', async (req, res) => {
+  console.log('[queryActions GET] reportId:', req.params.reportId, 'companyId:', cid(req));
   try {
     await assertReportOwner(req.params.reportId, cid(req));
     const r = await query(
@@ -300,6 +301,7 @@ router.get('/', async (req, res) => {
 
 // POST /api/reports/scheduled/:reportId/actions
 router.post('/', async (req, res) => {
+  console.log('[queryActions POST] reportId:', req.params.reportId, 'companyId:', cid(req), 'name:', req.body?.name);
   const { name, action_type = 1, config = {}, notify_once_per_status = false,
           is_active = true, sort_order = 0, conditions = [], recipients = [] } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
