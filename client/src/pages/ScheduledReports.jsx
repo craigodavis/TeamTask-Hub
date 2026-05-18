@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './ScheduledReports.css';
+import { QueryActionsTab } from './QueryActionsTab';
 
 const API = '/api/reports/scheduled';
 const token = () => localStorage.getItem('teamtask_token');
@@ -143,6 +144,7 @@ const BLANK = {
 
 function ReportForm({ initial, users, onSave, onCancel }) {
   const [form, setForm]       = useState({ ...BLANK, ...initial });
+  const [tab, setTab]         = useState('report');
   const [saving, setSaving]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -233,7 +235,35 @@ function ReportForm({ initial, users, onSave, onCancel }) {
           <button className="sr-form-close" onClick={onCancel}>✕</button>
         </div>
 
+        {/* Tab switcher */}
+        <div className="sr-tabs">
+          <button
+            className={`sr-tab ${tab === 'report' ? 'sr-tab-active' : ''}`}
+            onClick={() => setTab('report')}
+          >
+            Report
+          </button>
+          <button
+            className={`sr-tab ${tab === 'advanced' ? 'sr-tab-active' : ''}`}
+            onClick={() => setTab('advanced')}
+          >
+            Advanced
+            {initial?.id && <span className="sr-tab-hint"> · Actions</span>}
+          </button>
+        </div>
+
         <div className="sr-form-body">
+          {/* Advanced tab — Query Actions */}
+          {tab === 'advanced' && (
+            <QueryActionsTab
+              reportId={initial?.id || null}
+              queryFields={testResult?.fields || []}
+            />
+          )}
+
+          {/* Report tab */}
+          {tab !== 'advanced' && (
+          <>
           {/* Name & Description */}
           <div className="sr-field">
             <label>Report Name *</label>
@@ -488,6 +518,8 @@ GROUP BY 1 ORDER BY 2 DESC`}</pre>
               Active (will send on schedule)
             </label>
           </div>
+          </>
+          )}
         </div>
 
         <div className="sr-form-footer">

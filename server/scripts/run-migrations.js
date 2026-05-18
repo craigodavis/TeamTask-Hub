@@ -547,6 +547,67 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_inv_lines_count   ON product.inventory_lines(count_id)`,
   `CREATE INDEX IF NOT EXISTS idx_inv_lines_variant ON product.inventory_lines(variant_id)`,
   `CREATE INDEX IF NOT EXISTS idx_inv_lines_company ON product.inventory_lines(company_id)`,
+
+  // 073: Add triggered_by to scheduled_report_runs (manual run tracking)
+  `ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS triggered_by UUID REFERENCES users(id) ON DELETE SET NULL`,
+
+  // 074: Query actions
+  `CREATE TABLE IF NOT EXISTS query_actions (
+    id                     UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id              UUID    NOT NULL REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+    name                   VARCHAR(255) NOT NULL,
+    action_type            SMALLINT     NOT NULL DEFAULT 1,
+    config                 JSONB        NOT NULL DEFAULT '{}',
+    notify_once_per_status BOOLEAN      NOT NULL DEFAULT false,
+    is_active              BOOLEAN      NOT NULL DEFAULT true,
+    sort_order             INTEGER      NOT NULL DEFAULT 0,
+    created_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_by             UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_query_actions_report ON query_actions(report_id, is_active)`,
+
+  // 075: Query action conditions — all conditions in same group ANDed; groups ORed
+  `CREATE TABLE IF NOT EXISTS query_action_conditions (
+    id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    action_id       UUID    NOT NULL REFERENCES query_actions(id) ON DELETE CASCADE,
+    field_name      VARCHAR(255) NOT NULL,
+    operator        VARCHAR(20)  NOT NULL
+                    CHECK (operator IN ('=','!=','>','<','>=','<=','contains','not_contains','in','not_in')),
+    field_value     VARCHAR(500) NOT NULL,
+    condition_group INTEGER      NOT NULL DEFAULT 1,
+    sort_order      INTEGER      NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_qac_action ON query_action_conditions(action_id)`,
+
+  // 076: Query action recipients — who gets notified (field from row, static value, or system user)
+  `CREATE TABLE IF NOT EXISTS query_action_recipients (
+    id             UUID   PRIMARY KEY DEFAULT gen_random_uuid(),
+    action_id      UUID   NOT NULL REFERENCES query_actions(id) ON DELETE CASCADE,
+    channel        VARCHAR(10)  NOT NULL CHECK (channel IN ('sms','email')),
+    recipient_type VARCHAR(10)  NOT NULL CHECK (recipient_type IN ('field','static','user')),
+    value          VARCHAR(500) NOT NULL,
+    label          VARCHAR(100),
+    sort_order     INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_qar_action ON query_action_recipients(action_id)`,
+
+  // 077: Query action run details — per-row delivery log; supports dedup via row_key + triggered_status
+  `CREATE TABLE IF NOT EXISTS query_action_run_details (
+    id               UUID   PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id           UUID   NOT NULL REFERENCES scheduled_report_runs(id) ON DELETE CASCADE,
+    action_id        UUID   NOT NULL REFERENCES query_actions(id) ON DELETE CASCADE,
+    row_data         JSONB  NOT NULL,
+    row_key          VARCHAR(500),
+    recipient        VARCHAR(255),
+    status           VARCHAR(20)  NOT NULL DEFAULT 'sent'
+                     CHECK (status IN ('sent','failed','skipped','suppressed')),
+    triggered_status VARCHAR(100),
+    error_message    TEXT,
+    sent_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_qard_run       ON query_action_run_details(run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_qard_action    ON query_action_run_details(action_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_qard_dedup     ON query_action_run_details(action_id, row_key, triggered_status, sent_at DESC)`,
 ];
 
 async function run() {

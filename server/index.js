@@ -13,6 +13,7 @@ import { announcementsRouter } from './routes/announcements.js';
 import { foodWasteRouter } from './routes/foodWaste.js';
 import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } from './routes/integrations.js';
 import { scheduledReportsRouter } from './routes/scheduledReports.js';
+import { queryActionsRouter } from './routes/queryActions.js';
 import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager } from './middleware/auth.js';
 import { settingsRouter } from './routes/settings.js';
@@ -57,6 +58,7 @@ app.use('/api/square', requireAuth, requireManager, squareRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
+app.use('/api/reports/scheduled/:reportId/actions', requireAuth, requireManager, queryActionsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
