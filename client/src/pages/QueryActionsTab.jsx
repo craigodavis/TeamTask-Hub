@@ -376,15 +376,18 @@ export function QueryActionsTab({ reportId, queryFields }) {
   const [running, setRunning]         = useState(false);
   const [runResult, setRunResult]     = useState(null);
 
-  const loadActions = useCallback(() => {
+  const loadActions = useCallback(async () => {
     setLoading(true);
-    Promise.all([
-      fetch(actionsApi(reportId), { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
-      fetch(`${actionsApi(reportId)}/team-members`, { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
-    ]).then(([ad, td]) => {
-      setActions(ad.actions || []);
-      setTeamMembers(td.team_members || []);
-    }).finally(() => setLoading(false));
+    try {
+      const [ad, td] = await Promise.allSettled([
+        fetch(actionsApi(reportId), { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
+        fetch(`${actionsApi(reportId)}/team-members`, { headers: { Authorization: `Bearer ${token()}` } }).then((r) => r.json()),
+      ]);
+      if (ad.status === 'fulfilled') setActions(ad.value.actions || []);
+      if (td.status === 'fulfilled') setTeamMembers(td.value.team_members || []);
+    } finally {
+      setLoading(false);
+    }
   }, [reportId]);
 
   useEffect(() => { loadActions(); }, [loadActions]);

@@ -481,16 +481,19 @@ router.post(['/:id/run', '/run'], async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/reports/scheduled/:reportId/actions/team-members
-// Returns Square team members for the manager recipient dropdown
+// Returns TeamHub users (managers/owners) for the manager recipient dropdown.
+// recipient_type='user' stores a TeamHub user UUID; the execution engine
+// looks up their phone from the users table at send time.
 router.get('/team-members', async (req, res) => {
   try {
     const r = await query(
-      `SELECT e.id, e.first_name || ' ' || e.last_name AS name,
-              xc.phone, e.email
-       FROM square.employee e
-       LEFT JOIN square.x_employee_contact xc ON xc.employee_id = e.id
-       WHERE e.status = 'ACTIVE'
-       ORDER BY e.first_name, e.last_name`
+      `SELECT id, display_name AS name, phone, email
+       FROM users
+       WHERE company_id = $1
+         AND phone IS NOT NULL
+         AND phone != ''
+       ORDER BY display_name`,
+      [cid(req)]
     );
     res.json({ team_members: r.rows });
   } catch (err) {
