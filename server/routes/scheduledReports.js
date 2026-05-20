@@ -2,6 +2,7 @@ import express from 'express';
 import twilio from 'twilio';
 import { pool, query } from '../db.js';
 import { executeSqlReadOnly } from './scheduledReportsHelper.js';
+import { queryActionsRouter } from './queryActions.js';
 
 const schema = process.env.DB_SCHEMA || 'teamtask_hub';
 
@@ -260,5 +261,8 @@ router.get('/:token', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Nest query actions under /:reportId/actions so mergeParams works correctly
+router.use('/:reportId/actions', queryActionsRouter);
 
 export { router as scheduledReportsRouter };
