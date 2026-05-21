@@ -660,6 +660,57 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_betty_company   ON betty_recommendations(company_id, txn_date DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_betty_status    ON betty_recommendations(company_id, status)`,
+
+  // ── Migration 082: gateway_actions ───────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS gateway_actions (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id          UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    -- Who submitted
+    submitted_by_user   UUID        REFERENCES users(id) ON DELETE SET NULL,
+    submitted_by_token  UUID        REFERENCES service_tokens(id) ON DELETE SET NULL,
+    requested_by_label  TEXT        NOT NULL,           -- display name for audit log
+    -- What to do
+    service             TEXT        NOT NULL CHECK (service IN ('qbo','square','commerce7')),
+    operation           TEXT        NOT NULL,           -- e.g. "Bill.create", "Payment.delete"
+    payload             JSONB       NOT NULL DEFAULT '{}',
+    -- Approval state
+    status              TEXT        NOT NULL DEFAULT 'pending_approval'
+                        CHECK (status IN ('pending_approval','executing','completed','failed','rejected')),
+    auto_approve_at     TIMESTAMPTZ,                    -- NULL = manual-only
+    -- Resolution
+    approved_by         UUID        REFERENCES users(id) ON DELETE SET NULL,
+    approved_at         TIMESTAMPTZ,
+    rejected_by         UUID        REFERENCES users(id) ON DELETE SET NULL,
+    rejected_at         TIMESTAMPTZ,
+    rejection_note      TEXT,
+    -- Execution result
+    result              JSONB,
+    error_message       TEXT,
+    executed_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_gwa_company_status ON gateway_actions(company_id, status, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_gwa_auto_approve   ON gateway_actions(auto_approve_at) WHERE status = 'pending_approval'`,
+
+  // ── Migration 083: gateway_approval_rules ────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS gateway_approval_rules (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id          UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name                TEXT        NOT NULL,
+    -- Match criteria (glob patterns, NULL = match all)
+    service_pattern     TEXT,                           -- e.g. "qbo", "*"
+    operation_pattern   TEXT,                           -- e.g. "*.delete", "Bill.*"
+    -- Approval behaviour
+    require_approval    BOOLEAN     NOT NULL DEFAULT true,
+    auto_approve_minutes INT,                           -- NULL = never auto-approve; 0 = immediate
+    -- Order
+    priority            INT         NOT NULL DEFAULT 100,
+    enabled             BOOLEAN     NOT NULL DEFAULT true,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_gwr_company ON gateway_approval_rules(company_id, priority)`,
 ];
 
 async function run() {

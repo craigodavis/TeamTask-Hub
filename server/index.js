@@ -17,6 +17,8 @@ import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
+import { gatewayRouter } from './routes/gateway.js';
+import { startGatewayAutoApproveScheduler } from './lib/gatewayRules.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -59,6 +61,7 @@ app.use('/api/square', requireAuth, requireManager, squareRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
+app.use('/api/gateway', requireAuth, gatewayRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
 
@@ -84,9 +87,11 @@ ensureLocationsTables()
     console.log('Schema checks (locations / migration 008) finished.');
     startDailySquareAutoSync();
     startReportScheduler();
+    startGatewayAutoApproveScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
     startDailySquareAutoSync();
     startReportScheduler();
+    startGatewayAutoApproveScheduler();
   });
