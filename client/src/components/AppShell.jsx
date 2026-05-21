@@ -106,6 +106,16 @@ export function AppShell({ user, onLogout, children }) {
               <span>Products</span>
             </NavLink>
           )}
+          {isManager && (
+            <NavLink
+              to="/betty"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="📊"
+              title="Betty vs Bookkeeper"
+            >
+              <span>Betty</span>
+            </NavLink>
+          )}
           {managerLinks.map((item) => (
             <NavLink
               key={item.to}

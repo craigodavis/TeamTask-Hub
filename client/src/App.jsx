@@ -14,6 +14,7 @@ import { FoodIngredients } from './pages/FoodIngredients';
 import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
 import { ProductDetail } from './pages/ProductDetail';
+import { BettyComparison } from './pages/BettyComparison';
 import { AppShell } from './components/AppShell';
 import { appHubTitle } from './appHubTitle';
 
@@ -140,6 +141,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <ProductDetail />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/betty"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <BettyComparison />
               ) : (
                 <Navigate to="/" replace />
               )

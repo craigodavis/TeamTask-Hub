@@ -624,6 +624,42 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_service_tokens_company ON service_tokens(company_id)`,
   `CREATE INDEX IF NOT EXISTS idx_service_tokens_hash    ON service_tokens(token_hash) WHERE revoked_at IS NULL`,
+
+  // 079: Betty recommendations — agent's suggested categorizations vs human bookkeeper
+  // Read-only comparison: no changes are written to QBO, just stored here for review
+  `CREATE TABLE IF NOT EXISTS betty_recommendations (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id          UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    qbo_txn_id          TEXT        NOT NULL,
+    qbo_txn_type        TEXT        NOT NULL,   -- Purchase, JournalEntry, Deposit, etc.
+    txn_date            DATE        NOT NULL,
+    txn_amount          NUMERIC(12,2),
+    txn_description     TEXT,
+    payee_name          TEXT,
+    -- What the human bookkeeper has in QBO right now
+    bookkeeper_account_id    TEXT,
+    bookkeeper_account_name  TEXT,
+    bookkeeper_class_id      TEXT,
+    bookkeeper_class_name    TEXT,
+    -- What Betty recommends
+    betty_account_id    TEXT,
+    betty_account_name  TEXT,
+    betty_class_id      TEXT,
+    betty_class_name    TEXT,
+    betty_reasoning     TEXT,
+    betty_confidence    TEXT CHECK (betty_confidence IN ('high','medium','low')),
+    -- Review outcome
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','agree','disagree','needs_review')),
+    reviewer_note       TEXT,
+    reviewed_by         UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (company_id, qbo_txn_id, qbo_txn_type)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_betty_company   ON betty_recommendations(company_id, txn_date DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_betty_status    ON betty_recommendations(company_id, status)`,
 ];
 
 async function run() {
