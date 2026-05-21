@@ -130,11 +130,7 @@ export function Settings() {
   })();
 
   const setSettingsTab = (next) => {
-    if (next === 'integrations' && isOwner) {
-      setSearchParams({}, { replace: true });
-    } else {
-      setSearchParams({ tab: next }, { replace: true });
-    }
+    setSearchParams({ tab: next }, { replace: true });
   };
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(() => user?.role === 'owner');

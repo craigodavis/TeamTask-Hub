@@ -375,6 +375,7 @@ export function QueryActionsTab({ reportId, queryFields }) {
   const [editing, setEditing]         = useState(null);   // null | 'new' | action object
   const [running, setRunning]         = useState(false);
   const [runResult, setRunResult]     = useState(null);
+  const [saveFlash, setSaveFlash]     = useState('');
 
   const loadActions = useCallback(async () => {
     setLoading(true);
@@ -400,6 +401,8 @@ export function QueryActionsTab({ reportId, queryFields }) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Save failed');
     setEditing(null);
+    setSaveFlash(isEdit ? 'Action updated.' : 'Action saved.');
+    setTimeout(() => setSaveFlash(''), 3000);
     loadActions();
   };
 
@@ -459,6 +462,8 @@ export function QueryActionsTab({ reportId, queryFields }) {
           )}
         </div>
       </div>
+
+      {saveFlash && <div className="qa-save-flash">{saveFlash}</div>}
 
       {runResult && (
         <div className={`qa-run-result ${runResult.error ? 'qa-run-error' : 'qa-run-ok'}`}>
