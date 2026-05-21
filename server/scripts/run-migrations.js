@@ -608,6 +608,22 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_qard_run       ON query_action_run_details(run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_qard_action    ON query_action_run_details(action_id)`,
   `CREATE INDEX IF NOT EXISTS idx_qard_dedup     ON query_action_run_details(action_id, row_key, triggered_status, sent_at DESC)`,
+
+  // 078: Service tokens — named, revocable API keys for agents / integrations (no human login required)
+  `CREATE TABLE IF NOT EXISTS service_tokens (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name         TEXT        NOT NULL,
+    token_hash   TEXT        NOT NULL UNIQUE,
+    role         TEXT        NOT NULL DEFAULT 'manager'
+                             CHECK (role IN ('manager', 'owner')),
+    created_by   UUID        REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at   TIMESTAMPTZ
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_service_tokens_company ON service_tokens(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_service_tokens_hash    ON service_tokens(token_hash) WHERE revoked_at IS NULL`,
 ];
 
 async function run() {

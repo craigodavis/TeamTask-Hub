@@ -169,6 +169,13 @@ export function Settings() {
   const [timezone, setTimezone] = useState('UTC');
   const [timezoneSaving, setTimezoneSaving] = useState(false);
 
+  // Service tokens
+  const [serviceTokens, setServiceTokens]     = useState([]);
+  const [newTokenName, setNewTokenName]       = useState('');
+  const [newTokenRole, setNewTokenRole]       = useState('manager');
+  const [createdToken, setCreatedToken]       = useState(null); // shown once after creation
+  const [tokenCreating, setTokenCreating]     = useState(false);
+
   // Commerce7
   const [c7Settings, setC7Settings]           = useState(null);
   const [c7TenantSlug, setC7TenantSlug]       = useState('');
@@ -318,6 +325,53 @@ export function Settings() {
       setError(e.message);
     } finally {
       setQboDisconnecting(false);
+    }
+  };
+
+  // ── Service token handlers ────────────────────────────────────────────────
+  const loadServiceTokens = async () => {
+    try {
+      const r = await fetch('/api/service-tokens', { headers: { Authorization: `Bearer ${localStorage.getItem('teamtask_token')}` } });
+      const d = await r.json();
+      setServiceTokens(d.tokens || []);
+    } catch (_) {}
+  };
+
+  useEffect(() => { if (isOwner && tab === 'integrations') loadServiceTokens(); }, [tab]);
+
+  const handleCreateToken = async (e) => {
+    e.preventDefault();
+    if (!newTokenName.trim()) return;
+    setTokenCreating(true);
+    setCreatedToken(null);
+    try {
+      const r = await fetch('/api/service-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('teamtask_token')}` },
+        body: JSON.stringify({ name: newTokenName.trim(), role: newTokenRole }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setCreatedToken(d.token.raw);
+      setNewTokenName('');
+      loadServiceTokens();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setTokenCreating(false);
+    }
+  };
+
+  const handleRevokeToken = async (id, name) => {
+    if (!window.confirm(`Revoke token "${name}"? Any agent using it will immediately lose access.`)) return;
+    try {
+      await fetch(`/api/service-tokens/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('teamtask_token')}` },
+      });
+      setServiceTokens((prev) => prev.filter((t) => t.id !== id));
+    } catch (e) {
+      setError(e.message);
     }
   };
 
@@ -588,6 +642,69 @@ export function Settings() {
                   {qboConnecting ? 'Connecting…' : 'Connect QuickBooks'}
                 </button>
               </div>
+            )}
+          </fieldset>
+
+          {/* ── API Keys ───────────────────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>API Keys</legend>
+            <p style={{ margin: '0 0 1rem', color: '#666', fontSize: '0.9em' }}>
+              Issue named tokens for agents and integrations (e.g. BookKeeper). Tokens are shown <strong>once</strong> at creation — copy it immediately.
+            </p>
+
+            {createdToken && (
+              <div className="service-token-reveal">
+                <p><strong>✓ Token created — copy it now. It will not be shown again.</strong></p>
+                <code className="service-token-value">{createdToken}</code>
+                <button type="button" className="btn-copy" onClick={() => { navigator.clipboard.writeText(createdToken); }}>Copy</button>
+                <button type="button" className="btn-dismiss" onClick={() => setCreatedToken(null)}>Dismiss</button>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateToken} className="service-token-form">
+              <input
+                type="text"
+                placeholder="Token name (e.g. BookKeeper Agent)"
+                value={newTokenName}
+                onChange={(e) => setNewTokenName(e.target.value)}
+                className="service-token-name-input"
+              />
+              <select value={newTokenRole} onChange={(e) => setNewTokenRole(e.target.value)} className="service-token-role-select">
+                <option value="manager">Manager</option>
+                <option value="owner">Owner</option>
+              </select>
+              <button type="submit" className="btn-test" disabled={tokenCreating || !newTokenName.trim()}>
+                {tokenCreating ? 'Creating…' : '+ Create Token'}
+              </button>
+            </form>
+
+            {serviceTokens.length > 0 && (
+              <table className="service-token-table">
+                <thead>
+                  <tr><th>Name</th><th>Role</th><th>Created</th><th>Last used</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {serviceTokens.map((t) => (
+                    <tr key={t.id} className={t.revoked_at ? 'token-revoked' : ''}>
+                      <td>{t.name}</td>
+                      <td><span className="token-role-badge">{t.role}</span></td>
+                      <td>{new Date(t.created_at).toLocaleDateString()}</td>
+                      <td>{t.last_used_at ? new Date(t.last_used_at).toLocaleDateString() : '—'}</td>
+                      <td>
+                        {!t.revoked_at && (
+                          <button type="button" className="btn-revoke" onClick={() => handleRevokeToken(t.id, t.name)}>
+                            Revoke
+                          </button>
+                        )}
+                        {t.revoked_at && <span className="token-revoked-label">Revoked</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {serviceTokens.filter(t => !t.revoked_at).length === 0 && !createdToken && (
+              <p style={{ color: '#aaa', fontSize: '0.85em', marginTop: '0.5rem' }}>No active tokens.</p>
             )}
           </fieldset>
         </>

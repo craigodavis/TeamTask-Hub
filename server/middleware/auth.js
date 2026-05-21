@@ -1,14 +1,42 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
+  // Service token path: prefixed with thk_
+  if (token.startsWith('thk_')) {
+    try {
+      const hash = crypto.createHash('sha256').update(token).digest('hex');
+      const r = await query(
+        `SELECT id, company_id, role FROM service_tokens
+         WHERE token_hash = $1 AND revoked_at IS NULL`,
+        [hash]
+      );
+      if (!r.rows.length) {
+        return res.status(401).json({ error: 'Invalid or revoked service token' });
+      }
+      const st = r.rows[0];
+      req.companyId = st.company_id;
+      req.role = st.role;
+      req.isServiceToken = true;
+      req.serviceTokenId = st.id;
+      // Update last_used_at without blocking the request
+      query(`UPDATE service_tokens SET last_used_at = NOW() WHERE id = $1`, [st.id]).catch(() => {});
+      return next();
+    } catch (err) {
+      return res.status(500).json({ error: 'Auth error' });
+    }
+  }
+
+  // JWT path: human user login
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.userId = payload.userId;

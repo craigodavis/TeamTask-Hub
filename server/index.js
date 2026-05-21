@@ -15,6 +15,7 @@ import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } fr
 import { scheduledReportsRouter } from './routes/scheduledReports.js';
 import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager } from './middleware/auth.js';
+import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -55,6 +56,7 @@ app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
 app.use('/api/square', requireAuth, requireManager, squareRouter);
 app.use('/api/products', requireAuth, productsRouter);
+app.use('/api/service-tokens', requireAuth, serviceTokensRouter);  // owner enforced in UI; any authed user can list their own
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
 
