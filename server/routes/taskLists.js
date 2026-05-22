@@ -1,6 +1,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
+import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -574,6 +575,12 @@ router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (r
         `DELETE FROM task_completions WHERE assignment_id = $1 AND task_template_id = $2 AND user_id = $3`,
         [assignmentId, taskTemplateId, userId]
       );
+      // If assignment previously had SMS sent, reset it so it can fire again when all tasks are addressed
+      await query(
+        `UPDATE task_assignments SET completion_sms_sent_at = NULL
+         WHERE id = $1 AND completion_sms_sent_at IS NOT NULL`,
+        [assignmentId]
+      );
       return res.json({ assignment_id: assignmentId, task_template_id: taskTemplateId, user_id: userId, status: null, reason: null });
     }
 
@@ -594,10 +601,86 @@ router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (r
       [assignmentId, taskTemplateId, userId]
     );
     res.json(r.rows[0]);
+
+    // Fire-and-forget: check if all tasks in the assignment are now addressed and send SMS
+    checkAndSendCompletionSms(assignmentId, companyId(req), userId).catch((e) =>
+      console.error('[taskLists] completion SMS error:', e.message)
+    );
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * After a task status change, check if every task in the assignment has been
+ * addressed (completed or not_completed).  If so — and we haven't sent SMS
+ * for this assignment yet — send the celebratory/summary message.
+ */
+async function checkAndSendCompletionSms(assignmentId, cId, triggeredByUserId) {
+  // Fetch assignment info + SMS-sent flag in one query
+  const assignRes = await query(
+    `SELECT ta.id, ta.completion_sms_sent_at, ta.template_id, ta.company_id,
+            c.ops_manager_name
+     FROM task_assignments ta
+     JOIN companies c ON c.id = ta.company_id
+     WHERE ta.id = $1 AND ta.company_id = $2`,
+    [assignmentId, cId]
+  );
+  const assignment = assignRes.rows[0];
+  if (!assignment || assignment.completion_sms_sent_at) return; // already sent
+
+  // Count total tasks on the template vs how many have a status record
+  const countRes = await query(
+    `SELECT
+       COUNT(tt.id)                                                       AS total,
+       COUNT(tc.status) FILTER (WHERE tc.status = 'completed')           AS n_completed,
+       COUNT(tc.status) FILTER (WHERE tc.status = 'not_completed')       AS n_not_done
+     FROM task_templates tt
+     LEFT JOIN task_completions tc
+       ON tc.task_template_id = tt.id
+      AND tc.assignment_id = $1
+     WHERE tt.template_id = $2`,
+    [assignmentId, assignment.template_id]
+  );
+  const { total, n_completed, n_not_done } = countRes.rows[0];
+  const totalNum    = parseInt(total,       10);
+  const completedNum = parseInt(n_completed, 10);
+  const notDoneNum  = parseInt(n_not_done,  10);
+  const addressedNum = completedNum + notDoneNum;
+
+  if (addressedNum < totalNum) return; // still tasks left without a status
+
+  // All tasks addressed — build message
+  let message;
+  const managerName = assignment.ops_manager_name || 'your manager';
+  if (notDoneNum === 0) {
+    // Everyone completed everything 🎉
+    message = `🎉 Hurrah! All ${totalNum} task${totalNum === 1 ? '' : 's'} on your list have been completed. Great work, team!`;
+  } else {
+    const remaining = notDoneNum;
+    message = `Hey, good job completing ${completedNum} of ${totalNum} task${totalNum === 1 ? '' : 's'}. You still have ${remaining} task${remaining === 1 ? '' : 's'} remaining. Please contact ${managerName}.`;
+  }
+
+  // Gather the distinct users who touched any task in this assignment
+  const usersRes = await query(
+    `SELECT DISTINCT user_id FROM task_completions WHERE assignment_id = $1`,
+    [assignmentId]
+  );
+  const userIds = usersRes.rows.map((r) => r.user_id);
+
+  if (userIds.length === 0) return;
+
+  // Mark as sent before firing (prevent race double-sends)
+  const updateRes = await query(
+    `UPDATE task_assignments SET completion_sms_sent_at = NOW()
+     WHERE id = $1 AND completion_sms_sent_at IS NULL
+     RETURNING id`,
+    [assignmentId]
+  );
+  if (updateRes.rowCount === 0) return; // another process beat us to it
+
+  await sendSmsToUsers(cId, userIds, message, triggeredByUserId);
+}
 
 // ---------- Task report (manager): completions in date range ----------
 router.get('/report', requireManager, async (req, res) => {

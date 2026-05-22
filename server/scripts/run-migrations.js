@@ -866,6 +866,12 @@ const MIGRATIONS = [
   // ── Migration 088: tri-state completion (status + reason) ────────────────
   `ALTER TABLE task_completions ADD COLUMN IF NOT EXISTS status VARCHAR(20)`,
   `ALTER TABLE task_completions ADD COLUMN IF NOT EXISTS reason TEXT`,
+
+  // ── Migration 089: ops_manager_name on companies ─────────────────────────
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS ops_manager_name VARCHAR(200)`,
+
+  // ── Migration 090: completion_sms_sent_at on task_assignments ─────────────
+  `ALTER TABLE task_assignments ADD COLUMN IF NOT EXISTS completion_sms_sent_at TIMESTAMPTZ`,
 ];
 
 async function run() {

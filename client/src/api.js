@@ -865,6 +865,13 @@ export async function patchGeneralSettings(payload) {
   return data;
 }
 
+export async function getSquareEmployees() {
+  const res = await fetch(`${API}/settings/square-employees`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Square employees');
+  return data;
+}
+
 // ── Products MDS ──────────────────────────────────────────────────────────────
 
 export async function getProducts(params = {}) {
