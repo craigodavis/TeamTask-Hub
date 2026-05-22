@@ -661,7 +661,152 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_betty_company   ON betty_recommendations(company_id, txn_date DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_betty_status    ON betty_recommendations(company_id, status)`,
 
-  // ── Migration 082: gateway_actions ───────────────────────────────────────
+  // ── Migration 080: commerce7 schema ──────────────────────────────────────
+  `CREATE SCHEMA IF NOT EXISTS commerce7`,
+
+  // ── Migration 081: commerce7.customers ───────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.customers (
+    id                     UUID        PRIMARY KEY,   -- C7's customer UUID
+    company_id             UUID        NOT NULL,
+    honorific              TEXT,
+    first_name             TEXT,
+    last_name              TEXT,
+    birth_date             DATE,
+    city                   TEXT,
+    state_code             VARCHAR(10),
+    zip_code               VARCHAR(20),
+    country_code           VARCHAR(10),
+    email_marketing_status TEXT,
+    has_account            BOOLEAN     NOT NULL DEFAULT false,
+    last_activity_date     TIMESTAMPTZ,
+    emails                 JSONB       NOT NULL DEFAULT '[]',
+    phones                 JSONB       NOT NULL DEFAULT '[]',
+    clubs                  JSONB       NOT NULL DEFAULT '[]',
+    order_information      JSONB,
+    tags                   JSONB       NOT NULL DEFAULT '[]',
+    metadata               JSONB,
+    c7_created_at          TIMESTAMPTZ,
+    c7_updated_at          TIMESTAMPTZ,
+    synced_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_customers_company    ON commerce7.customers(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_customers_updated    ON commerce7.customers(company_id, c7_updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_customers_email      ON commerce7.customers USING gin(emails)`,
+
+  // ── Migration 082: commerce7.orders ─────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.orders (
+    id                     UUID        PRIMARY KEY,   -- C7's order UUID
+    company_id             UUID        NOT NULL,
+    order_number           INTEGER     NOT NULL,
+    order_submitted_date   TIMESTAMPTZ,
+    order_paid_date        TIMESTAMPTZ,
+    order_fulfilled_date   TIMESTAMPTZ,
+    order_source           TEXT,                      -- Internal, Web, API …
+    customer_type          TEXT,                      -- New Customer, Repeat Customer …
+    purchase_type          TEXT,                      -- Regular, Exchange, Club …
+    previous_order_id      UUID,                      -- populated for exchanges
+    previous_order_number  INTEGER,
+    refund_order_id        UUID,
+    payment_status         TEXT,
+    compliance_status      TEXT,
+    fulfillment_status     TEXT,
+    shipping_status        TEXT,
+    channel                TEXT,                      -- Inbound, Outbound …
+    sales_attribute_code   TEXT,                      -- Club, Tasting Room, Web …
+    pos_profile_id         UUID,
+    customer_id            UUID        REFERENCES commerce7.customers(id) ON DELETE SET NULL,
+    order_delivery_method  TEXT,
+    tax_sale_type          TEXT,
+    -- Monetary totals (cents — same as C7 API)
+    sub_total              INTEGER     NOT NULL DEFAULT 0,
+    ship_total             INTEGER     NOT NULL DEFAULT 0,
+    tax_total              INTEGER     NOT NULL DEFAULT 0,
+    duty_total             INTEGER     NOT NULL DEFAULT 0,
+    bottle_deposit_total   INTEGER     NOT NULL DEFAULT 0,
+    tip_total              INTEGER     NOT NULL DEFAULT 0,
+    total                  INTEGER     NOT NULL DEFAULT 0,
+    total_after_tip        INTEGER     NOT NULL DEFAULT 0,
+    is_non_taxable         BOOLEAN     NOT NULL DEFAULT false,
+    is_no_duty             BOOLEAN     NOT NULL DEFAULT false,
+    loyalty_points_earned  INTEGER     NOT NULL DEFAULT 0,
+    -- Billing address (denormalised for reporting — avoids joins)
+    bill_to_first_name     TEXT,
+    bill_to_last_name      TEXT,
+    bill_to_city           TEXT,
+    bill_to_state_code     TEXT,
+    bill_to_zip_code       TEXT,
+    bill_to_country_code   TEXT,
+    -- Complex sub-objects stored as JSONB
+    club                   JSONB,
+    tenders                JSONB       NOT NULL DEFAULT '[]',
+    taxes                  JSONB       NOT NULL DEFAULT '[]',
+    fulfillments           JSONB       NOT NULL DEFAULT '[]',
+    promotions             JSONB       NOT NULL DEFAULT '[]',
+    coupons                JSONB       NOT NULL DEFAULT '[]',
+    tags                   JSONB       NOT NULL DEFAULT '[]',
+    metadata               JSONB,
+    c7_created_at          TIMESTAMPTZ,
+    c7_updated_at          TIMESTAMPTZ,
+    synced_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_orders_company_date  ON commerce7.orders(company_id, order_submitted_date DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_orders_customer      ON commerce7.orders(customer_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_orders_number        ON commerce7.orders(company_id, order_number)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_orders_purchase_type ON commerce7.orders(company_id, purchase_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_orders_sales_attr    ON commerce7.orders(company_id, sales_attribute_code)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_c7_orders_co_num ON commerce7.orders(company_id, order_number)`,
+
+  // ── Migration 083: commerce7.order_items ────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.order_items (
+    id                     UUID        PRIMARY KEY,   -- C7's item UUID
+    company_id             UUID        NOT NULL,
+    order_id               UUID        NOT NULL REFERENCES commerce7.orders(id) ON DELETE CASCADE,
+    purchase_type          TEXT,
+    product_title          TEXT,
+    product_slug           TEXT,
+    item_type              TEXT,                      -- Wine, Merchandise, Fee …
+    product_id             UUID,
+    product_variant_id     UUID,
+    product_variant_title  TEXT,
+    sku                    TEXT,
+    cost_of_good           INTEGER,                   -- cents
+    price                  INTEGER,                   -- cents
+    original_price         INTEGER,                   -- cents
+    compare_price          INTEGER,                   -- cents
+    quantity               INTEGER     NOT NULL DEFAULT 1,
+    quantity_fulfilled     INTEGER     NOT NULL DEFAULT 0,
+    tax                    INTEGER     NOT NULL DEFAULT 0,  -- cents
+    tax_type               TEXT,
+    bottle_deposit         INTEGER     NOT NULL DEFAULT 0,
+    weight                 NUMERIC(8,3),
+    volume_in_ml           INTEGER,
+    alcohol_percentage     NUMERIC(5,2),
+    department_code        TEXT,
+    department_id          UUID,
+    allocation_id          UUID,
+    is_price_override      BOOLEAN     NOT NULL DEFAULT false,
+    notes                  TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_items_order       ON commerce7.order_items(order_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_items_company     ON commerce7.order_items(company_id, order_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_items_product     ON commerce7.order_items(product_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_items_sku         ON commerce7.order_items(company_id, sku)`,
+
+  // ── Migration 084: commerce7.sync_log ────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.sync_log (
+    id             BIGSERIAL   PRIMARY KEY,
+    company_id     UUID        NOT NULL,
+    entity         TEXT        NOT NULL,  -- 'customers' | 'orders'
+    mode           TEXT        NOT NULL DEFAULT 'incremental',  -- 'full' | 'incremental'
+    since          TIMESTAMPTZ,           -- incremental window start
+    records_synced INTEGER     NOT NULL DEFAULT 0,
+    error_message  TEXT,
+    started_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at    TIMESTAMPTZ
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_sync_log ON commerce7.sync_log(company_id, entity, started_at DESC)`,
+
+  // ── Migration 085: gateway_actions ───────────────────────────────────────
   `CREATE TABLE IF NOT EXISTS gateway_actions (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id          UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -693,7 +838,7 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_gwa_company_status ON gateway_actions(company_id, status, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_gwa_auto_approve   ON gateway_actions(auto_approve_at) WHERE status = 'pending_approval'`,
 
-  // ── Migration 083: gateway_approval_rules ────────────────────────────────
+  // ── Migration 086: gateway_approval_rules ────────────────────────────────
   `CREATE TABLE IF NOT EXISTS gateway_approval_rules (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id          UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

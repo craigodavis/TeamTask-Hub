@@ -230,4 +230,133 @@ router.get('/comparison', async (req, res) => {
   }
 });
 
+// ── POST /api/betty/db/query ──────────────────────────────────────────────────
+// Betty runs a read-only SQL SELECT against sales/product schemas.
+// Allowed schemas: square, commerce7, product
+// Betty is trusted — no row limits imposed.
+router.post('/db/query', async (req, res) => {
+  const { sql } = req.body;
+  if (!sql || typeof sql !== 'string') {
+    return res.status(400).json({ error: 'sql (string) is required' });
+  }
+
+  // Strip SQL comments, then validate the statement is a plain SELECT
+  const stripped = sql
+    .replace(/--[^\n]*/g, '')          // single-line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '')  // block comments
+    .trim();
+
+  if (!/^SELECT\b/i.test(stripped)) {
+    return res.status(400).json({ error: 'Only SELECT statements are permitted' });
+  }
+
+  const BLOCKED = [
+    'INSERT', 'UPDATE', 'DELETE', 'DROP', 'TRUNCATE', 'CREATE', 'ALTER',
+    'GRANT', 'REVOKE', 'EXECUTE', 'CALL', 'DO', 'COPY', 'VACUUM', 'ANALYZE',
+    'SET ', 'RESET', 'LISTEN', 'NOTIFY',
+  ];
+  const upper = stripped.toUpperCase();
+  for (const kw of BLOCKED) {
+    if (new RegExp(`\\b${kw.trim()}\\b`).test(upper)) {
+      return res.status(400).json({ error: `Keyword "${kw.trim()}" is not permitted in queries` });
+    }
+  }
+
+  try {
+    const result = await query(stripped);
+    res.json({ rows: result.rows, count: result.rowCount });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── GET /api/betty/db/schema ──────────────────────────────────────────────────
+// Returns table + column definitions for all allowed schemas so Betty can
+// self-orient without needing column names hard-coded in her prompt.
+router.get('/db/schema', async (req, res) => {
+  const ALLOWED = ['square', 'commerce7', 'product'];
+  try {
+    const result = await query(
+      `SELECT table_schema, table_name, column_name, data_type, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = ANY($1)
+       ORDER BY table_schema, table_name, ordinal_position`,
+      [ALLOWED]
+    );
+
+    // Group: { schema: { table: [ {column, type, nullable} ] } }
+    const schemas = {};
+    for (const row of result.rows) {
+      const s = row.table_schema;
+      const t = row.table_name;
+      if (!schemas[s]) schemas[s] = {};
+      if (!schemas[s][t]) schemas[s][t] = [];
+      schemas[s][t].push({
+        column:   row.column_name,
+        type:     row.data_type,
+        nullable: row.is_nullable === 'YES',
+      });
+    }
+    res.json({ schemas });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/betty/db/sync-health ─────────────────────────────────────────────
+// Reports freshness of the Commerce7 sync (our job) and Square sync (Fivetran).
+// Betty should call this before running any sales or excise-tax report.
+router.get('/db/sync-health', async (req, res) => {
+  function isStale(ts, hours) {
+    if (!ts) return true;
+    return (Date.now() - new Date(ts).getTime()) > hours * 60 * 60 * 1000;
+  }
+
+  try {
+    const [c7Rows, squareRow] = await Promise.all([
+      query(
+        `SELECT entity, finished_at, records_synced, error_message
+         FROM commerce7.sync_log
+         WHERE finished_at IS NOT NULL
+         ORDER BY finished_at DESC`
+      ),
+      query(`SELECT MAX(_fivetran_synced) AS last_synced FROM square.order`),
+    ]);
+
+    // Last completed run per entity (customers / orders)
+    const c7 = {};
+    for (const row of c7Rows.rows) {
+      if (!c7[row.entity]) {
+        const stale = isStale(row.finished_at, 6);
+        c7[row.entity] = {
+          last_sync:      row.finished_at,
+          records_synced: row.records_synced,
+          error:          row.error_message || null,
+          status:         row.error_message ? 'error' : stale ? 'stale' : 'ok',
+        };
+      }
+    }
+
+    const squareLastSync = squareRow.rows[0]?.last_synced ?? null;
+    const squareStatus   = !squareLastSync        ? 'unknown'
+                         : isStale(squareLastSync, 24) ? 'stale'
+                         : 'ok';
+
+    const overallOk = squareStatus === 'ok'
+      && Object.values(c7).every((e) => e.status === 'ok');
+
+    res.json({
+      ok: overallOk,
+      commerce7: c7,
+      square: {
+        last_synced: squareLastSync,
+        source:      'fivetran',
+        status:      squareStatus,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as bettyRouter };

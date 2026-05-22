@@ -19,6 +19,7 @@ import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
 import { gatewayRouter } from './routes/gateway.js';
 import { startGatewayAutoApproveScheduler } from './lib/gatewayRules.js';
+import { startC7SyncScheduler } from './lib/commerce7Sync.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -88,10 +89,12 @@ ensureLocationsTables()
     startDailySquareAutoSync();
     startReportScheduler();
     startGatewayAutoApproveScheduler();
+    startC7SyncScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
     startDailySquareAutoSync();
     startReportScheduler();
     startGatewayAutoApproveScheduler();
+    startC7SyncScheduler();
   });

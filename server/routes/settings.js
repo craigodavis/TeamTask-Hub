@@ -328,6 +328,55 @@ router.post('/commerce7/test', requireOwner, async (req, res) => {
   }
 });
 
+// POST /settings/commerce7/sync — trigger manual C7 data sync (owner only)
+router.post('/commerce7/sync', requireOwner, async (req, res) => {
+  const { mode = 'incremental', entity } = req.body; // entity: 'customers'|'orders'|undefined (both)
+  try {
+    const r = await query(
+      `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const integration = r.rows[0];
+    if (!integration?.c7_api_key) {
+      return res.status(400).json({ error: 'Commerce7 not configured' });
+    }
+
+    const { syncCustomers, syncOrders, syncCompany } = await import('../lib/commerce7Sync.js');
+    const cid = companyId(req);
+    const opts = { mode };
+
+    // Respond immediately — sync runs async in background
+    res.json({ ok: true, message: `${mode} sync started for ${entity || 'customers + orders'}` });
+
+    if (entity === 'customers') {
+      syncCustomers(cid, integration, opts).catch((e) => console.error('[c7-sync] manual sync error:', e.message));
+    } else if (entity === 'orders') {
+      syncOrders(cid, integration, opts).catch((e) => console.error('[c7-sync] manual sync error:', e.message));
+    } else {
+      syncCompany(cid, integration, opts).catch((e) => console.error('[c7-sync] manual sync error:', e.message));
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /settings/commerce7/sync-log — recent sync history (owner only)
+router.get('/commerce7/sync-log', requireOwner, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT entity, mode, since, records_synced, error_message, started_at, finished_at
+       FROM commerce7.sync_log
+       WHERE company_id = $1
+       ORDER BY started_at DESC LIMIT 20`,
+      [companyId(req)]
+    );
+    res.json({ log: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /settings/general — company-level general settings (owner only)
 router.get('/general', requireOwner, async (req, res) => {
   try {
