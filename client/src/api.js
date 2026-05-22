@@ -206,11 +206,22 @@ export async function getTemplateTasks(templateId) {
   return data;
 }
 
-export async function createTaskItem(templateId, title, sort_order) {
+export async function reorderTemplateTasks(templateId, taskIds) {
+  const res = await fetch(`${API}/task-lists/templates/${templateId}/tasks/reorder`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ task_ids: taskIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to reorder tasks');
+  return data;
+}
+
+export async function createTaskItem(templateId, title, sort_order, priority = 'must') {
   const res = await fetch(`${API}/task-lists/templates/${templateId}/tasks`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ title, sort_order }),
+    body: JSON.stringify({ title, sort_order, priority }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to add task');

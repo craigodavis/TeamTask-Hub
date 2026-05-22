@@ -237,7 +237,7 @@ router.get('/templates/:templateId/tasks', async (req, res) => {
   try {
     const { templateId } = req.params;
     const r = await query(
-      `SELECT tt.id, tt.template_id, tt.title, tt.sort_order
+      `SELECT tt.id, tt.template_id, tt.title, tt.sort_order, tt.priority
        FROM task_templates tt
        JOIN task_list_templates tlt ON tlt.id = tt.template_id AND tlt.company_id = $1
        WHERE tt.template_id = $2 ORDER BY tt.sort_order, tt.id`,
@@ -252,14 +252,15 @@ router.get('/templates/:templateId/tasks', async (req, res) => {
 router.post('/templates/:templateId/tasks', requireManager, async (req, res) => {
   try {
     const { templateId } = req.params;
-    const { title, sort_order } = req.body;
+    const { title, sort_order, priority } = req.body;
     if (!title) return res.status(400).json({ error: 'title required' });
+    const validPriority = ['must', 'try'].includes(priority) ? priority : 'must';
     const r = await query(
-      `INSERT INTO task_templates (template_id, title, sort_order)
-       SELECT $2, $3, COALESCE($4, (SELECT COALESCE(MAX(sort_order),0)+1 FROM task_templates WHERE template_id = $2))
+      `INSERT INTO task_templates (template_id, title, sort_order, priority)
+       SELECT $2, $3, COALESCE($4, (SELECT COALESCE(MAX(sort_order),0)+1 FROM task_templates WHERE template_id = $2)), $5
        FROM task_list_templates WHERE id = $2 AND company_id = $1
-       RETURNING id, template_id, title, sort_order`,
-      [companyId(req), templateId, title, sort_order]
+       RETURNING id, template_id, title, sort_order, priority`,
+      [companyId(req), templateId, title, sort_order, validPriority]
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
     res.status(201).json(r.rows[0]);
@@ -271,15 +272,55 @@ router.post('/templates/:templateId/tasks', requireManager, async (req, res) => 
 router.patch('/tasks/:taskId', requireManager, async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { title, sort_order } = req.body;
+    const { title, sort_order, priority } = req.body;
+    const validPriority = priority && ['must', 'try'].includes(priority) ? priority : null;
     const r = await query(
-      `UPDATE task_templates SET title = COALESCE($2, title), sort_order = COALESCE($3, sort_order), updated_at = NOW()
+      `UPDATE task_templates
+       SET title      = COALESCE($2, title),
+           sort_order = COALESCE($3, sort_order),
+           priority   = COALESCE($5, priority),
+           updated_at = NOW()
        WHERE id = $1 AND template_id IN (SELECT id FROM task_list_templates WHERE company_id = $4)
-       RETURNING id, template_id, title, sort_order`,
-      [taskId, title, sort_order, companyId(req)]
+       RETURNING id, template_id, title, sort_order, priority`,
+      [taskId, title, sort_order, companyId(req), validPriority]
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
     res.json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reorder tasks within a template by providing ordered task IDs.
+// Assigns sort_order 1, 2, 3... to match the given sequence.
+router.put('/templates/:templateId/tasks/reorder', requireManager, async (req, res) => {
+  try {
+    const { templateId } = req.params;
+    const { task_ids } = req.body;
+    if (!Array.isArray(task_ids) || task_ids.length === 0) {
+      return res.status(400).json({ error: 'task_ids array required' });
+    }
+    // Verify template belongs to this company
+    const owns = await query(
+      `SELECT 1 FROM task_list_templates WHERE id = $1 AND company_id = $2`,
+      [templateId, companyId(req)]
+    );
+    if (owns.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+
+    // Update each task's sort_order in one pass
+    for (let i = 0; i < task_ids.length; i++) {
+      await query(
+        `UPDATE task_templates SET sort_order = $1, updated_at = NOW()
+         WHERE id = $2 AND template_id = $3`,
+        [i + 1, task_ids[i], templateId]
+      );
+    }
+    const r = await query(
+      `SELECT id, template_id, title, sort_order, priority FROM task_templates
+       WHERE template_id = $1 ORDER BY sort_order, id`,
+      [templateId]
+    );
+    res.json({ tasks: r.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -400,7 +441,7 @@ router.get('/day-summary', async (req, res) => {
     const out = [];
     for (const a of assignments) {
       const tasksResult = await query(
-        `SELECT tt.id as task_template_id, tt.title, tt.sort_order,
+        `SELECT tt.id as task_template_id, tt.title, tt.sort_order, tt.priority,
                 tc.completed_at as my_completed_at,
                 tc.status as my_status,
                 tc.reason as my_reason

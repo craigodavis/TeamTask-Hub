@@ -156,7 +156,10 @@ export function Dashboard() {
               const showingReason = showReasonFor === key;
               return (
                 <li key={t.task_template_id} className="task-card">
-                  <span className="task-title">{t.title}</span>
+                  <span className="task-title">
+                    {t.title}
+                    {t.priority === 'try' && <span className="task-optional-badge">Optional</span>}
+                  </span>
                   {showingReason ? (
                     <div className="reason-input-row">
                       <input

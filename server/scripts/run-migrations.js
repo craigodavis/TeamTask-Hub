@@ -857,7 +857,10 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_gwr_company ON gateway_approval_rules(company_id, priority)`,
 
-  // ── Migration 087: wage_title on task list templates ─────────────────────
+  // ── Migration 087: priority on task_templates ────────────────────────────
+  `ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS priority VARCHAR(10) NOT NULL DEFAULT 'must'`,
+
+  // ── Migration 088: wage_title on task list templates ─────────────────────
   `ALTER TABLE task_list_templates ADD COLUMN IF NOT EXISTS wage_title VARCHAR(256)`,
 
   // ── Migration 088: tri-state completion (status + reason) ────────────────

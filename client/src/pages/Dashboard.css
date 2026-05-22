@@ -222,6 +222,20 @@
 
 .task-title {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.task-optional-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #718096;
+  border: 1px solid #a0aec0;
+  border-radius: 99px;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
 }
 
 .toggle-complete {

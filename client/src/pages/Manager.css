@@ -108,6 +108,92 @@
   padding-left: 2rem;
 }
 
+/* Drag-and-drop task list */
+.task-edit-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.task-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  cursor: default;
+  user-select: none;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.task-edit-row.task-dragging {
+  opacity: 0.4;
+}
+
+.task-edit-row.task-drag-over {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-secondary, #999);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.task-edit-title {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+/* Priority toggle button */
+.priority-toggle {
+  flex-shrink: 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1.5px solid currentColor;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.priority-toggle.priority-must {
+  color: #c53030;
+  border-color: #c53030;
+}
+
+.priority-toggle.priority-must:hover {
+  background: #fff5f5;
+}
+
+.priority-toggle.priority-try {
+  color: #718096;
+  border-color: #a0aec0;
+}
+
+.priority-toggle.priority-try:hover {
+  background: #f7fafc;
+}
+
+.priority-select-new {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .template-tasks ul {
   list-style: none;
   margin: 0 0 0.5rem;
