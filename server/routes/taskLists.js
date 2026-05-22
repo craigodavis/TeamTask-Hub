@@ -9,13 +9,28 @@ function isMissingTableErr(err, tableName) {
   return err.code === '42P01' || (err.message && String(err.message).includes(tableName) && String(err.message).toLowerCase().includes('does not exist'));
 }
 
+// ---------- Wage titles (sourced from Square shift data) ----------
+router.get('/wage-titles', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT DISTINCT wage_title FROM square.shift
+       WHERE wage_title IS NOT NULL AND wage_title <> ''
+       ORDER BY wage_title`
+    );
+    res.json({ wage_titles: r.rows.map((row) => row.wage_title) });
+  } catch (err) {
+    // If the square schema isn't accessible, return empty list gracefully
+    res.json({ wage_titles: [] });
+  }
+});
+
 // ---------- Templates (manager) ----------
 router.get('/templates', async (req, res) => {
   try {
     let r;
     try {
       r = await query(
-        `SELECT tlt.id, tlt.company_id, tlt.name, tlt.type, tlt.period_type, tlt.day_of_week, tlt.day_of_month, tlt.recur_month, tlt.recur_day, tlt.created_at,
+        `SELECT tlt.id, tlt.company_id, tlt.name, tlt.type, tlt.period_type, tlt.day_of_week, tlt.day_of_month, tlt.recur_month, tlt.recur_day, tlt.wage_title, tlt.created_at,
                 COALESCE(
                   (SELECT array_agg(tll.location_id ORDER BY tll.location_id) FROM task_list_template_locations tll WHERE tll.template_id = tlt.id),
                   ARRAY[]::uuid[]
@@ -27,7 +42,7 @@ router.get('/templates', async (req, res) => {
     } catch (tableErr) {
       if (isMissingTableErr(tableErr, 'task_list_template_locations')) {
         r = await query(
-          `SELECT id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, created_at
+          `SELECT id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, wage_title, created_at
            FROM task_list_templates WHERE company_id = $1 ORDER BY name`,
           [companyId(req)]
         );
@@ -45,7 +60,7 @@ router.get('/templates', async (req, res) => {
 
 router.post('/templates', requireManager, async (req, res) => {
   try {
-    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids } = req.body;
+    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids, wage_title } = req.body;
     if (!name || !type || !period_type) {
       return res.status(400).json({ error: 'name, type, period_type required' });
     }
@@ -73,9 +88,9 @@ router.post('/templates', requireManager, async (req, res) => {
     }
     const cId = companyId(req);
     const r = await query(
-      `INSERT INTO task_list_templates (company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, created_at`,
-      [cId, name, type, period_type, dayOfWeekVal, dayOfMonthVal, recurMonthVal, recurDayVal]
+      `INSERT INTO task_list_templates (company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, wage_title)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, wage_title, created_at`,
+      [cId, name, type, period_type, dayOfWeekVal, dayOfMonthVal, recurMonthVal, recurDayVal, wage_title || null]
     );
     const template = r.rows[0];
     let locationIds = [];
@@ -110,7 +125,7 @@ router.post('/templates', requireManager, async (req, res) => {
 router.patch('/templates/:id', requireManager, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids } = req.body;
+    const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids, wage_title } = req.body;
     if (period_type === 'weekly' && day_of_week != null) {
       const dow = parseInt(day_of_week, 10);
       if (dow < 0 || dow > 6) {
@@ -155,9 +170,10 @@ router.patch('/templates/:id', requireManager, async (req, res) => {
            WHEN $4 IS NOT NULL AND $4 != '' AND $4 != 'yearly' THEN NULL::integer
            ELSE task_list_templates.recur_day
          END,
+         wage_title = CASE WHEN $10::text IS NOT NULL THEN $10::text ELSE wage_title END,
          updated_at = NOW()
        WHERE id = $1 AND company_id = $9
-       RETURNING id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, updated_at`,
+       RETURNING id, company_id, name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, wage_title, updated_at`,
       [
         id, name, type, period_type,
         period_type === 'weekly' && day_of_week != null ? parseInt(day_of_week, 10) : null,
@@ -165,6 +181,7 @@ router.patch('/templates/:id', requireManager, async (req, res) => {
         period_type === 'yearly' && recur_month != null ? parseInt(recur_month, 10) : null,
         period_type === 'yearly' && recur_day != null ? parseInt(recur_day, 10) : null,
         cId,
+        wage_title !== undefined ? (wage_title || null) : null,
       ]
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
@@ -384,7 +401,9 @@ router.get('/day-summary', async (req, res) => {
     for (const a of assignments) {
       const tasksResult = await query(
         `SELECT tt.id as task_template_id, tt.title, tt.sort_order,
-                tc.completed_at as my_completed_at
+                tc.completed_at as my_completed_at,
+                tc.status as my_status,
+                tc.reason as my_reason
          FROM task_templates tt
          LEFT JOIN task_completions tc ON tc.task_template_id = tt.id AND tc.assignment_id = $1 AND tc.user_id = $2
          WHERE tt.template_id = $3
@@ -481,27 +500,55 @@ router.get('/assignments/:assignmentId/completions', async (req, res) => {
   }
 });
 
-// Set or clear completion for current user
+// Set or clear completion for current user.
+// Body: { status: 'completed' | 'not_completed' | null, reason?: string }
+// Legacy body: { completed: true|false } still supported.
 router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (req, res) => {
   try {
     const { assignmentId, taskTemplateId } = req.params;
-    const { completed } = req.body; // true = yes, false = no
+    let { status, reason, completed } = req.body;
+
+    // Legacy support: { completed: true } → 'completed'; { completed: false } → null
+    if (status === undefined) {
+      status = completed ? 'completed' : null;
+    }
+
+    if (status === 'not_completed' && !reason?.trim()) {
+      return res.status(400).json({ error: 'reason is required when status is not_completed' });
+    }
+    if (status && !['completed', 'not_completed'].includes(status)) {
+      return res.status(400).json({ error: 'status must be completed, not_completed, or null' });
+    }
+
     const userId = req.userId;
     const exists = await query(
       `SELECT 1 FROM task_assignments WHERE id = $1 AND company_id = $2`,
       [assignmentId, companyId(req)]
     );
     if (exists.rows.length === 0) return res.status(404).json({ error: 'Assignment not found' });
-    const completedAt = completed ? new Date().toISOString() : null;
+
+    if (!status) {
+      // Clear the record entirely → task returns to "null" (unchecked) state
+      await query(
+        `DELETE FROM task_completions WHERE assignment_id = $1 AND task_template_id = $2 AND user_id = $3`,
+        [assignmentId, taskTemplateId, userId]
+      );
+      return res.json({ assignment_id: assignmentId, task_template_id: taskTemplateId, user_id: userId, status: null, reason: null });
+    }
+
+    const completedAt = status === 'completed' ? new Date().toISOString() : null;
     await query(
-      `INSERT INTO task_completions (assignment_id, task_template_id, user_id, completed_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
+      `INSERT INTO task_completions (assignment_id, task_template_id, user_id, completed_at, status, reason, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
        ON CONFLICT (assignment_id, task_template_id, user_id) DO UPDATE SET
-         completed_at = EXCLUDED.completed_at, updated_at = NOW()`,
-      [assignmentId, taskTemplateId, userId, completedAt]
+         completed_at = EXCLUDED.completed_at,
+         status       = EXCLUDED.status,
+         reason       = EXCLUDED.reason,
+         updated_at   = NOW()`,
+      [assignmentId, taskTemplateId, userId, completedAt, status, status === 'not_completed' ? reason.trim() : null]
     );
     const r = await query(
-      `SELECT id, assignment_id, task_template_id, user_id, completed_at FROM task_completions
+      `SELECT id, assignment_id, task_template_id, user_id, completed_at, status, reason FROM task_completions
        WHERE assignment_id = $1 AND task_template_id = $2 AND user_id = $3`,
       [assignmentId, taskTemplateId, userId]
     );

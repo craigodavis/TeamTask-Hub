@@ -86,13 +86,27 @@ export async function getDaySummary(date) {
   return data;
 }
 
-export async function setTaskComplete(assignmentId, taskTemplateId, completed) {
+// status: 'completed' | 'not_completed' | null (null = reset/undo)
+// reason: required when status === 'not_completed'
+export async function setTaskStatus(assignmentId, taskTemplateId, status, reason = null) {
   const res = await fetch(
     `${API}/task-lists/assignments/${assignmentId}/tasks/${taskTemplateId}/complete`,
-    { method: 'PUT', headers: headers(), body: JSON.stringify({ completed }) }
+    { method: 'PUT', headers: headers(), body: JSON.stringify({ status, reason }) }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update');
+  return data;
+}
+
+// Legacy alias
+export async function setTaskComplete(assignmentId, taskTemplateId, completed) {
+  return setTaskStatus(assignmentId, taskTemplateId, completed ? 'completed' : null);
+}
+
+export async function getWageTitles() {
+  const res = await fetch(`${API}/task-lists/wage-titles`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load wage titles');
   return data;
 }
 

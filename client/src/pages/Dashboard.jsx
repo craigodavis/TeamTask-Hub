@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { getDaySummary, setTaskComplete, getActiveAnnouncements, acknowledgeAnnouncement } from '../api';
+import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement } from '../api';
 import './Dashboard.css';
 
 function todayStr() {
@@ -15,9 +15,11 @@ export function Dashboard() {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [taskTab, setTaskTab] = useState('active'); // 'active' | 'completed'
+  const [taskTab, setTaskTab] = useState('active'); // 'active' | 'reviewed'
   const [announcementTab, setAnnouncementTab] = useState('unread'); // 'unread' | 'read'
   const [taskSectionsOpen, setTaskSectionsOpen] = useState({ daily: true, weekly: true, monthly: true, yearly: true, adhoc: true });
+  const [reasonInput, setReasonInput] = useState({}); // `${assignmentId}:${taskTemplateId}` → text
+  const [showReasonFor, setShowReasonFor] = useState(null); // key of task showing reason input
 
   const load = useCallback(async () => {
     setError('');
@@ -44,26 +46,51 @@ export function Dashboard() {
     setDate(d.toISOString().slice(0, 10));
   };
 
-  const handleToggle = async (assignmentId, taskTemplateId, currentlyCompleted) => {
-    const completed = !currentlyCompleted;
+  const updateTaskInState = (assignmentId, taskTemplateId, patch) => {
+    setDaySummary((prev) => ({
+      ...prev,
+      assignments: prev.assignments.map((a) =>
+        a.id === assignmentId
+          ? { ...a, tasks: a.tasks.map((t) => t.task_template_id === taskTemplateId ? { ...t, ...patch } : t) }
+          : a
+      ),
+    }));
+  };
+
+  const handleMarkComplete = async (assignmentId, taskTemplateId) => {
     try {
-      await setTaskComplete(assignmentId, taskTemplateId, completed);
-      setDaySummary((prev) => ({
-        ...prev,
-        assignments: prev.assignments.map((a) =>
-          a.id === assignmentId
-            ? {
-                ...a,
-                tasks: a.tasks.map((t) =>
-                  t.task_template_id === taskTemplateId ? { ...t, my_completed_at: completed ? new Date().toISOString() : null } : t
-                ),
-              }
-            : a
-        ),
-      }));
-    } catch (err) {
-      setError(err.message);
-    }
+      await setTaskStatus(assignmentId, taskTemplateId, 'completed');
+      updateTaskInState(assignmentId, taskTemplateId, { my_status: 'completed', my_reason: null, my_completed_at: new Date().toISOString() });
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleUndo = async (assignmentId, taskTemplateId) => {
+    try {
+      await setTaskStatus(assignmentId, taskTemplateId, null);
+      updateTaskInState(assignmentId, taskTemplateId, { my_status: null, my_reason: null, my_completed_at: null });
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleNotDoneClick = (assignmentId, taskTemplateId) => {
+    const key = `${assignmentId}:${taskTemplateId}`;
+    setShowReasonFor(key);
+    setReasonInput((prev) => ({ ...prev, [key]: '' }));
+  };
+
+  const handleNotDoneSubmit = async (assignmentId, taskTemplateId) => {
+    const key = `${assignmentId}:${taskTemplateId}`;
+    const reason = reasonInput[key]?.trim();
+    if (!reason) return;
+    try {
+      await setTaskStatus(assignmentId, taskTemplateId, 'not_completed', reason);
+      updateTaskInState(assignmentId, taskTemplateId, { my_status: 'not_completed', my_reason: reason, my_completed_at: null });
+      setShowReasonFor(null);
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleReasonCancel = (key) => {
+    setShowReasonFor(null);
+    setReasonInput((prev) => { const n = { ...prev }; delete n[key]; return n; });
   };
 
   const handleAck = async (id) => {
@@ -77,15 +104,19 @@ export function Dashboard() {
 
   const isToday = date === todayStr();
 
+  // "To Do" = no completion record (my_status is null)
+  // "Reviewed" = completed OR not_completed
   const assignmentsWithActiveTasks = daySummary.assignments?.map((a) => ({
     ...a,
-    tasks: (a.tasks || []).filter((t) => !t.my_completed_at),
+    tasks: (a.tasks || []).filter((t) => !t.my_status),
   })).filter((a) => a.tasks.length > 0) ?? [];
 
-  const assignmentsWithCompletedTasks = daySummary.assignments?.map((a) => ({
+  const assignmentsWithReviewedTasks = daySummary.assignments?.map((a) => ({
     ...a,
-    tasks: (a.tasks || []).filter((t) => t.my_completed_at),
+    tasks: (a.tasks || []).filter((t) => !!t.my_status),
   })).filter((a) => a.tasks.length > 0) ?? [];
+
+  const reviewedCount = assignmentsWithReviewedTasks.reduce((n, a) => n + a.tasks.length, 0);
 
   const periodSectionOrder = ['daily', 'weekly', 'monthly', 'yearly', 'adhoc'];
   const periodSectionLabel = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly', adhoc: 'Ad-Hoc' };
@@ -112,31 +143,92 @@ export function Dashboard() {
     return db.localeCompare(da);
   });
 
-  const renderTaskList = (assignments, showCompleted) => (
+  const renderActiveTasks = (assignments) => (
     assignments.length === 0 ? (
-      <p className="empty">
-        {showCompleted ? 'No completed tasks for this day.' : 'No tasks to do for this day.'}
-      </p>
+      <p className="empty">No tasks to do for this day.</p>
+    ) : (
+      assignments.map((a) => (
+        <div key={a.id} className="assignment-block">
+          <h3 className="template-name">{a.template_name}</h3>
+          <ul className="task-list">
+            {a.tasks.map((t) => {
+              const key = `${a.id}:${t.task_template_id}`;
+              const showingReason = showReasonFor === key;
+              return (
+                <li key={t.task_template_id} className="task-card">
+                  <span className="task-title">{t.title}</span>
+                  {showingReason ? (
+                    <div className="reason-input-row">
+                      <input
+                        className="reason-input"
+                        type="text"
+                        placeholder="Why wasn't this done?"
+                        value={reasonInput[key] || ''}
+                        onChange={(e) => setReasonInput((prev) => ({ ...prev, [key]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleNotDoneSubmit(a.id, t.task_template_id); if (e.key === 'Escape') handleReasonCancel(key); }}
+                        autoFocus
+                      />
+                      <button type="button" className="btn-reason-submit" onClick={() => handleNotDoneSubmit(a.id, t.task_template_id)}>Submit</button>
+                      <button type="button" className="btn-reason-cancel" onClick={() => handleReasonCancel(key)}>Cancel</button>
+                    </div>
+                  ) : (
+                    <div className="task-actions">
+                      <button
+                        type="button"
+                        className="toggle-complete"
+                        onClick={() => handleMarkComplete(a.id, t.task_template_id)}
+                        aria-label="Mark complete"
+                        title="Mark complete"
+                      >
+                        <span className="circle" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className="toggle-not-done"
+                        onClick={() => handleNotDoneClick(a.id, t.task_template_id)}
+                        aria-label="Mark not done"
+                        title="Mark as not done (requires reason)"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))
+    )
+  );
+
+  const renderReviewedTasks = (assignments) => (
+    assignments.length === 0 ? (
+      <p className="empty">No reviewed tasks for this day.</p>
     ) : (
       assignments.map((a) => (
         <div key={a.id} className="assignment-block">
           <h3 className="template-name">{a.template_name}</h3>
           <ul className="task-list">
             {a.tasks.map((t) => (
-              <li key={t.task_template_id} className={`task-card ${showCompleted ? 'task-done' : ''}`}>
-                <span className="task-title">{t.title}</span>
+              <li
+                key={t.task_template_id}
+                className={`task-card ${t.my_status === 'completed' ? 'task-done' : 'task-not-done'}`}
+              >
+                <div className="task-title-block">
+                  <span className="task-title">{t.title}</span>
+                  {t.my_status === 'not_completed' && t.my_reason && (
+                    <span className="task-not-done-reason">Reason: {t.my_reason}</span>
+                  )}
+                </div>
                 <button
                   type="button"
-                  className={showCompleted ? 'toggle-incomplete' : 'toggle-complete'}
-                  onClick={() => handleToggle(a.id, t.task_template_id, showCompleted)}
-                  aria-label={showCompleted ? 'Mark incomplete' : 'Mark complete'}
-                  title={showCompleted ? 'Mark incomplete' : 'Mark complete'}
+                  className="toggle-incomplete"
+                  onClick={() => handleUndo(a.id, t.task_template_id)}
+                  aria-label="Undo"
+                  title="Undo — return to To Do"
                 >
-                  {showCompleted ? (
-                    <span aria-hidden>Undo</span>
-                  ) : (
-                    <span className="circle" aria-hidden />
-                  )}
+                  Undo
                 </button>
               </li>
             ))}
@@ -147,11 +239,11 @@ export function Dashboard() {
   );
 
   const activeBySection = getAssignmentsBySection(assignmentsWithActiveTasks);
-  const completedBySection = getAssignmentsBySection(assignmentsWithCompletedTasks);
+  const reviewedBySection = getAssignmentsBySection(assignmentsWithReviewedTasks);
 
-  const renderTaskSections = (showCompleted) =>
+  const renderTaskSections = (reviewed) =>
     periodSectionOrder.map((sectionKey) => {
-      const assignments = showCompleted ? completedBySection[sectionKey] : activeBySection[sectionKey];
+      const assignments = reviewed ? reviewedBySection[sectionKey] : activeBySection[sectionKey];
       const isOpen = taskSectionsOpen[sectionKey];
       const label = periodSectionLabel[sectionKey];
       const count = assignments.length;
@@ -169,7 +261,7 @@ export function Dashboard() {
           </button>
           {isOpen && (
             <div className="task-section-content">
-              {renderTaskList(assignments, showCompleted)}
+              {reviewed ? renderReviewedTasks(assignments) : renderActiveTasks(assignments)}
             </div>
           )}
         </div>
@@ -226,10 +318,10 @@ export function Dashboard() {
                 </button>
                 <button
                   type="button"
-                  className={taskTab === 'completed' ? 'active' : ''}
-                  onClick={() => setTaskTab('completed')}
+                  className={taskTab === 'reviewed' ? 'active' : ''}
+                  onClick={() => setTaskTab('reviewed')}
                 >
-                  Completed
+                  Reviewed {reviewedCount > 0 && `(${reviewedCount})`}
                 </button>
               </div>
               {taskTab === 'active'

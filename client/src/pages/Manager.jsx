@@ -31,6 +31,7 @@ import {
   deleteTaskItem,
   taskDayNames,
   taskMonthNames,
+  getWageTitles,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
@@ -73,6 +74,7 @@ export function Manager() {
   const [activeReport, setActiveReport] = useState('food-waste');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [wageTitles, setWageTitles] = useState([]);
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
   if (!isManager) {
@@ -148,6 +150,7 @@ export function Manager() {
       loadTemplates();
       loadAssignments();
       loadLocations();
+      getWageTitles().then((r) => setWageTitles(r.wage_titles || [])).catch(() => {});
     } else if (tab === 'announcements') {
       loadAnnouncements();
       loadLocations();
@@ -315,13 +318,14 @@ export function Manager() {
       {tab === 'tasks' && (
         <section className="manager-section">
           <h2>Task list templates</h2>
-          <TaskListTemplateForm locations={locations} onCreated={loadTemplates} />
+          <TaskListTemplateForm locations={locations} wageTitles={wageTitles} onCreated={loadTemplates} />
           <ul className="template-list">
             {templates.map((t) => (
               <TaskTemplateRow
                 key={t.id}
                 template={t}
                 locations={locations}
+                wageTitles={wageTitles}
                 onUpdate={loadTemplates}
                 onAssign={() => handleCreateAssignment(t.id)}
                 assignDate={assignDate}
@@ -864,7 +868,7 @@ const TASK_TEMPLATE_TYPES = [
   { value: 'free_time', label: 'Free Time' },
 ];
 
-function TaskListTemplateForm({ locations, onCreated }) {
+function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('opening');
   const [period_type, setPeriodType] = useState('daily');
@@ -873,6 +877,7 @@ function TaskListTemplateForm({ locations, onCreated }) {
   const [recur_month, setRecurMonth] = useState(1);
   const [recur_day, setRecurDay] = useState(1);
   const [locationIds, setLocationIds] = useState([]);
+  const [wageTitle, setWageTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const toggleLocation = (id) => {
@@ -902,9 +907,11 @@ function TaskListTemplateForm({ locations, onCreated }) {
       if (period_type === 'monthly') options.day_of_month = day_of_month;
       if (period_type === 'yearly') { options.recur_month = recur_month; options.recur_day = recur_day; }
       if (locationIds.length > 0) options.location_ids = locationIds;
+      if (wageTitle) options.wage_title = wageTitle;
       await createTaskListTemplate(name.trim(), type.trim(), period_type, options);
       setName('');
       setLocationIds([]);
+      setWageTitle('');
       onCreated();
     } catch (e) {
       setErr(e.message);
@@ -966,6 +973,17 @@ function TaskListTemplateForm({ locations, onCreated }) {
           </label>
         </>
       )}
+      {wageTitles && wageTitles.length > 0 && (
+        <label className="form-inline-label">
+          Role
+          <select value={wageTitle} onChange={(e) => setWageTitle(e.target.value)}>
+            <option value="">All roles</option>
+            {wageTitles.map((wt) => (
+              <option key={wt} value={wt}>{wt}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {locations && locations.length > 0 && (
         <span className="form-locations-inline">
           Locations (empty = all):{' '}
@@ -983,7 +1001,7 @@ function TaskListTemplateForm({ locations, onCreated }) {
   );
 }
 
-function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }) {
+function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, assignDate }) {
   const [tasks, setTasks] = useState([]);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -1043,6 +1061,7 @@ function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }
         {template.period_type === 'weekly' && template.day_of_week != null ? `, ${taskDayNames[template.day_of_week]}` : ''}
         {template.period_type === 'monthly' && template.day_of_month != null ? `, day ${template.day_of_month}` : ''}
         {template.period_type === 'yearly' && template.recur_month != null && template.recur_day != null ? `, ${taskMonthNames[template.recur_month - 1]} ${template.recur_day}` : ''})
+        {template.wage_title && <span className="wage-title-badge">{template.wage_title}</span>}
       </span>
       <span>
         {template.period_type === 'weekly' ? (
@@ -1060,6 +1079,23 @@ function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }
       </span>
       {open && (
         <div className="template-tasks">
+          {wageTitles && wageTitles.length > 0 && (
+            <p className="template-wage-title">
+              Assigned role:{' '}
+              <select
+                value={template.wage_title || ''}
+                onChange={(e) => {
+                  const val = e.target.value || null;
+                  updateTaskListTemplate(template.id, { wage_title: val ?? '' }).then(onUpdate).catch((err) => alert(err.message));
+                }}
+              >
+                <option value="">All roles</option>
+                {wageTitles.map((wt) => (
+                  <option key={wt} value={wt}>{wt}</option>
+                ))}
+              </select>
+            </p>
+          )}
           {template.period_type === 'weekly' && (
             <p className="template-weekly-day">
               Show on:{' '}

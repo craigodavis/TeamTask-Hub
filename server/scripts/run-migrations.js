@@ -856,6 +856,13 @@ const MIGRATIONS = [
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_gwr_company ON gateway_approval_rules(company_id, priority)`,
+
+  // ── Migration 087: wage_title on task list templates ─────────────────────
+  `ALTER TABLE task_list_templates ADD COLUMN IF NOT EXISTS wage_title VARCHAR(256)`,
+
+  // ── Migration 088: tri-state completion (status + reason) ────────────────
+  `ALTER TABLE task_completions ADD COLUMN IF NOT EXISTS status VARCHAR(20)`,
+  `ALTER TABLE task_completions ADD COLUMN IF NOT EXISTS reason TEXT`,
 ];
 
 async function run() {
