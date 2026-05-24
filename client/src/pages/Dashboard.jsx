@@ -40,6 +40,12 @@ export function Dashboard() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Poll every 30 s so teammates' completions appear automatically
+  useEffect(() => {
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
+
   const goDate = (delta) => {
     const d = new Date(date);
     d.setDate(d.getDate() + delta);
