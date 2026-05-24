@@ -1011,6 +1011,10 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
   // Drag state
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+  // Inline name editing
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(template.name);
+  const [nameSaving, setNameSaving] = useState(false);
 
   const loadTasks = () => {
     getTemplateTasks(template.id).then((r) => setTasks(r.tasks || [])).catch(() => {});
@@ -1084,6 +1088,26 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
 
   const handleDragEnd = () => { setDragIndex(null); setDragOverIndex(null); };
 
+  const handleNameSave = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === template.name) { setEditingName(false); return; }
+    setNameSaving(true);
+    try {
+      await updateTaskListTemplate(template.id, { name: trimmed });
+      onUpdate();
+      setEditingName(false);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const handleNameKeyDown = (e) => {
+    if (e.key === 'Enter') handleNameSave();
+    if (e.key === 'Escape') { setNameInput(template.name); setEditingName(false); }
+  };
+
   const handleDeleteTemplate = async () => {
     if (!window.confirm(`Delete template "${template.name}" and its tasks?`)) return;
     try {
@@ -1106,15 +1130,49 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
 
   return (
     <li className="template-row">
-      <span>
+      <span className="template-row-title">
         <button type="button" className="btn-expand" onClick={() => setOpen(!open)} aria-label={open ? 'Collapse' : 'Expand'}>
           {open ? '−' : '+'}
         </button>
-        {template.name} ({TASK_TEMPLATE_TYPES.find((t) => t.value === template.type)?.label ?? template.type}, {template.period_type}
-        {template.period_type === 'weekly' && template.day_of_week != null ? `, ${taskDayNames[template.day_of_week]}` : ''}
-        {template.period_type === 'monthly' && template.day_of_month != null ? `, day ${template.day_of_month}` : ''}
-        {template.period_type === 'yearly' && template.recur_month != null && template.recur_day != null ? `, ${taskMonthNames[template.recur_month - 1]} ${template.recur_day}` : ''})
-        {template.wage_title && <span className="wage-title-badge">{template.wage_title}</span>}
+        {editingName ? (
+          <>
+            <input
+              className="template-name-input"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              onBlur={handleNameSave}
+              disabled={nameSaving}
+              autoFocus
+            />
+            <button type="button" className="btn-name-save" onClick={handleNameSave} disabled={nameSaving}>
+              {nameSaving ? '…' : '✓'}
+            </button>
+            <button type="button" className="btn-name-cancel" onClick={() => { setNameInput(template.name); setEditingName(false); }}>
+              ✕
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="template-name-text">
+              {template.name}
+            </span>
+            <button
+              type="button"
+              className="btn-name-edit"
+              onClick={() => { setNameInput(template.name); setEditingName(true); }}
+              aria-label="Edit name"
+              title="Edit name"
+            >
+              ✎
+            </button>
+            {' '}({TASK_TEMPLATE_TYPES.find((t) => t.value === template.type)?.label ?? template.type}, {template.period_type}
+            {template.period_type === 'weekly' && template.day_of_week != null ? `, ${taskDayNames[template.day_of_week]}` : ''}
+            {template.period_type === 'monthly' && template.day_of_month != null ? `, day ${template.day_of_month}` : ''}
+            {template.period_type === 'yearly' && template.recur_month != null && template.recur_day != null ? `, ${taskMonthNames[template.recur_month - 1]} ${template.recur_day}` : ''})
+            {template.wage_title && <span className="wage-title-badge">{template.wage_title}</span>}
+          </>
+        )}
       </span>
       <span>
         {template.period_type === 'weekly' ? (
