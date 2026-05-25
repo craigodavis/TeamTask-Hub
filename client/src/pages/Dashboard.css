@@ -192,10 +192,100 @@
   margin-bottom: 1.5rem;
 }
 
+.assignment-block-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.assignment-block-header .template-name {
+  margin: 0;
+  flex: 1;
+}
+
 .template-name {
   margin: 0 0 0.5rem;
   font-size: 1rem;
   color: var(--text);
+}
+
+/* Close List button */
+.btn-close-list {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border: 1px solid #e53e3e;
+  border-radius: 8px;
+  background: transparent;
+  color: #e53e3e;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.btn-close-list:hover {
+  background: #fff5f5;
+}
+
+/* Close List note row (inline prompt when tasks remain) */
+.close-list-note-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.close-list-note-input {
+  flex: 1;
+  min-width: 140px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #e53e3e;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.close-list-note-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(229, 62, 62, 0.25);
+}
+
+.btn-close-list-confirm {
+  padding: 0.4rem 0.75rem;
+  background: #e53e3e;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-close-list-confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn-close-list-confirm:not(:disabled):hover {
+  background: #c53030;
+}
+
+.btn-close-list-cancel {
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  color: var(--text-secondary, #666);
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-close-list-cancel:hover {
+  background: #f0f0f0;
 }
 
 .task-list {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement } from '../api';
+import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment } from '../api';
 import './Dashboard.css';
 
 function todayStr() {
@@ -20,6 +20,8 @@ export function Dashboard() {
   const [taskSectionsOpen, setTaskSectionsOpen] = useState({ daily: true, weekly: true, monthly: true, yearly: true, adhoc: true });
   const [reasonInput, setReasonInput] = useState({}); // `${assignmentId}:${taskTemplateId}` → text
   const [showReasonFor, setShowReasonFor] = useState(null); // key of task showing reason input
+  const [closeNoteFor, setCloseNoteFor] = useState(null); // assignmentId showing close-list note prompt
+  const [closeNoteInput, setCloseNoteInput] = useState({}); // assignmentId → note text
 
   const load = useCallback(async () => {
     setError('');
@@ -99,6 +101,35 @@ export function Dashboard() {
     setReasonInput((prev) => { const n = { ...prev }; delete n[key]; return n; });
   };
 
+  // Close list early — if tasks remain, a note is required
+  const handleCloseListClick = (assignmentId, hasIncompleteTasks) => {
+    if (hasIncompleteTasks) {
+      setCloseNoteFor(assignmentId);
+      setCloseNoteInput((prev) => ({ ...prev, [assignmentId]: '' }));
+    } else {
+      handleCloseListSubmit(assignmentId, '');
+    }
+  };
+
+  const handleCloseListSubmit = async (assignmentId, note) => {
+    try {
+      await closeAssignment(assignmentId, note);
+      // Remove the assignment from active view (it's now archived)
+      setDaySummary((prev) => ({
+        ...prev,
+        assignments: prev.assignments.map((a) =>
+          a.id === assignmentId ? { ...a, archived_at: new Date().toISOString() } : a
+        ),
+      }));
+      setCloseNoteFor(null);
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleCloseNoteCancel = (assignmentId) => {
+    setCloseNoteFor(null);
+    setCloseNoteInput((prev) => { const n = { ...prev }; delete n[assignmentId]; return n; });
+  };
+
   const handleAck = async (id) => {
     try {
       await acknowledgeAnnouncement(id);
@@ -153,12 +184,54 @@ export function Dashboard() {
     assignments.length === 0 ? (
       <p className="empty">No tasks to do for this day.</p>
     ) : (
-      assignments.map((a) => (
+      assignments.map((a) => {
+        const showingCloseNote = closeNoteFor === a.id;
+        return (
         <div key={a.id} className="assignment-block">
-          <h3 className="template-name">
-            {a.template_name}
-            {a.archived_at && <span className="badge-archived">Archived</span>}
-          </h3>
+          <div className="assignment-block-header">
+            <h3 className="template-name">
+              {a.template_name}
+              {a.archived_at && <span className="badge-archived">Archived</span>}
+            </h3>
+            {isManager && !a.archived_at && (
+              showingCloseNote ? (
+                <div className="close-list-note-row">
+                  <input
+                    className="close-list-note-input"
+                    type="text"
+                    placeholder="Why are you closing early?"
+                    value={closeNoteInput[a.id] || ''}
+                    onChange={(e) => setCloseNoteInput((prev) => ({ ...prev, [a.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && closeNoteInput[a.id]?.trim()) handleCloseListSubmit(a.id, closeNoteInput[a.id]);
+                      if (e.key === 'Escape') handleCloseNoteCancel(a.id);
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="btn-close-list-confirm"
+                    disabled={!closeNoteInput[a.id]?.trim()}
+                    onClick={() => handleCloseListSubmit(a.id, closeNoteInput[a.id])}
+                  >
+                    Close List
+                  </button>
+                  <button type="button" className="btn-close-list-cancel" onClick={() => handleCloseNoteCancel(a.id)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-close-list"
+                  onClick={() => handleCloseListClick(a.id, a.tasks.length > 0)}
+                  title="Close this task list"
+                >
+                  Close List
+                </button>
+              )
+            )}
+          </div>
           <ul className="task-list">
             {a.tasks.map((t) => {
               const key = `${a.id}:${t.task_template_id}`;
@@ -210,7 +283,8 @@ export function Dashboard() {
             })}
           </ul>
         </div>
-      ))
+        );
+      })
     )
   );
 

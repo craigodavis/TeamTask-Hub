@@ -531,6 +531,102 @@ router.delete('/assignments/:id', requireManager, async (req, res) => {
   }
 });
 
+// ---------- Close assignment early ----------
+// POST /assignments/:id/close  { note?: string }
+// - If all tasks are already done, archives with no note required.
+// - If incomplete tasks remain, `note` is required.
+// - Marks remaining incomplete tasks as not_completed with the note as reason.
+// - Sets archived_at and sends SMS to managers + assignee (same as nightly job).
+router.post('/assignments/:id/close', requireManager, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { note } = req.body;
+    const cId = companyId(req);
+
+    // Verify assignment belongs to this company and isn't already archived
+    const assignmentRes = await query(
+      `SELECT ta.id, ta.template_id, ta.company_id, ta.assignee_id, ta.assigned_date,
+              tlt.name AS template_name,
+              u.display_name AS assignee_name
+       FROM task_assignments ta
+       JOIN task_list_templates tlt ON tlt.id = ta.template_id
+       LEFT JOIN users u ON u.id = ta.assignee_id
+       WHERE ta.id = $1 AND ta.company_id = $2 AND ta.archived_at IS NULL`,
+      [id, cId]
+    );
+    if (assignmentRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Assignment not found or already closed' });
+    }
+    const a = assignmentRes.rows[0];
+
+    // Find incomplete tasks
+    const incompleteTasks = await query(
+      `SELECT tt.id AS task_template_id, tt.title
+       FROM task_templates tt
+       WHERE tt.template_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM task_completions tc
+           WHERE tc.assignment_id = $2 AND tc.task_template_id = tt.id
+         )
+       ORDER BY tt.sort_order, tt.id`,
+      [a.template_id, a.id]
+    );
+
+    if (incompleteTasks.rows.length > 0 && !note?.trim()) {
+      return res.status(400).json({
+        error: 'note is required when closing a list with incomplete tasks',
+        incomplete_count: incompleteTasks.rows.length,
+      });
+    }
+
+    // Mark remaining tasks not_completed with the note
+    if (incompleteTasks.rows.length > 0) {
+      const reason = note.trim();
+      for (const t of incompleteTasks.rows) {
+        await query(
+          `INSERT INTO task_completions (assignment_id, task_template_id, user_id, completed_at, status, reason, updated_at)
+           VALUES ($1, $2, $3, NULL, 'not_completed', $4, NOW())
+           ON CONFLICT (assignment_id, task_template_id, user_id) DO UPDATE SET
+             completed_at = NULL, status = 'not_completed', reason = $4, updated_at = NOW()`,
+          [a.id, t.task_template_id, req.userId, reason]
+        );
+      }
+
+      // SMS managers + assignee
+      try {
+        const taskNames = incompleteTasks.rows.map((t) => `• ${t.title}`).join('\n');
+        const message = `⚠️ Task list closed early: "${a.template_name}" (${a.assigned_date})\n${taskNames}\nReason: ${reason}\nAssigned to: ${a.assignee_name || 'Unassigned'}`;
+
+        const managers = await query(
+          `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner') AND phone IS NOT NULL AND phone != ''`,
+          [cId]
+        );
+        const managerIds = new Set(managers.rows.map((r) => r.id));
+        const recipientIds = [...managerIds];
+        if (a.assignee_id && !managerIds.has(a.assignee_id)) {
+          const assigneeHasPhone = await query(
+            `SELECT id FROM users WHERE id = $1 AND phone IS NOT NULL AND phone != ''`,
+            [a.assignee_id]
+          );
+          if (assigneeHasPhone.rows.length) recipientIds.push(a.assignee_id);
+        }
+        if (recipientIds.length) {
+          await sendSmsToUsers(cId, recipientIds, message, req.userId || null);
+        }
+      } catch (smsErr) {
+        console.error('[close] SMS error:', smsErr.message);
+      }
+    }
+
+    // Archive the assignment
+    await query(`UPDATE task_assignments SET archived_at = NOW() WHERE id = $1`, [a.id]);
+
+    res.json({ ok: true, assignment_id: a.id, incomplete_closed: incompleteTasks.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Completions (main screen: get tasks for a date + user; toggle yes/no) ----------
 router.get('/assignments/:assignmentId/completions', async (req, res) => {
   try {
