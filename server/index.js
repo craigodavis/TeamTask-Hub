@@ -32,6 +32,7 @@ import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
 import { productsRouter, startTaxGapAlertScheduler } from './routes/products.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
+import { runMigrations } from './scripts/run-migrations.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -88,7 +89,9 @@ app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
 });
 
-ensureLocationsTables()
+runMigrations()
+  .catch((err) => console.error('Migration error (non-fatal):', err.message))
+  .finally(() => ensureLocationsTables())
   .then(() => {
     console.log('Schema checks (locations / migration 008) finished.');
     startDailySquareAutoSync();

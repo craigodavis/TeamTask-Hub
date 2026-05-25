@@ -915,7 +915,7 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS paperclip_default_goal_id VARCHAR(100)`,
 ];
 
-async function run() {
+export async function runMigrations() {
   const schema = process.env.DB_SCHEMA || 'teamtask_hub';
   console.log('Running migrations in schema:', schema);
   for (let i = 0; i < MIGRATIONS.length; i++) {
@@ -924,14 +924,13 @@ async function run() {
       console.log('  Migration', i + 1, 'OK');
     } catch (err) {
       console.error('  Migration', i + 1, 'failed:', err.message);
-      process.exit(1);
+      throw err;
     }
   }
-  console.log('Done.');
-  process.exit(0);
+  console.log('All migrations OK.');
 }
 
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Allow running directly: node scripts/run-migrations.js
+if (process.argv[1].endsWith('run-migrations.js')) {
+  runMigrations().then(() => process.exit(0)).catch(() => process.exit(1));
+}
