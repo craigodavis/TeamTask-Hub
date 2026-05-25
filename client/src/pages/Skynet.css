@@ -1,0 +1,293 @@
+.skynet-page {
+  padding: 2rem;
+  max-width: 900px;
+}
+
+.skynet-loading,
+.skynet-empty {
+  padding: 3rem;
+  text-align: center;
+  color: var(--text-secondary, #666);
+}
+
+.skynet-error {
+  color: var(--color-error, #c0392b);
+  padding: 0.75rem 1rem;
+  background: #fdf0ef;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.skynet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  gap: 1rem;
+}
+
+.skynet-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.skynet-subtitle {
+  margin: 0;
+  color: var(--text-secondary, #666);
+  font-size: 0.9rem;
+}
+
+/* ── Config panel ── */
+.skynet-config-panel {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  padding: 2rem;
+  max-width: 520px;
+}
+
+.skynet-config-panel h2 { margin: 0 0 0.5rem; }
+.skynet-config-panel p  { margin: 0 0 1.5rem; color: var(--text-secondary, #666); font-size: 0.9rem; }
+
+/* ── Form ── */
+.skynet-form-wrapper {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.skynet-form-wrapper h2 { margin: 0 0 1rem; font-size: 1.1rem; }
+
+.skynet-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.skynet-form-row label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #555);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.skynet-optional {
+  font-weight: 400;
+  text-transform: none;
+  color: #999;
+}
+
+.skynet-form-row input,
+.skynet-form-row select,
+.skynet-form-row textarea {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: var(--input-bg, #fff);
+  color: var(--text-primary, #111);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.skynet-form-row textarea { resize: vertical; min-height: 90px; }
+
+.skynet-form-row input:focus,
+.skynet-form-row select:focus,
+.skynet-form-row textarea:focus {
+  outline: none;
+  border-color: var(--color-primary, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.skynet-time-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.skynet-time-row select { flex: 1; }
+
+.skynet-form-error {
+  color: var(--color-error, #c0392b);
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.skynet-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* ── Schedule cards ── */
+.skynet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.skynet-card {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  padding: 1.25rem;
+  transition: opacity 0.15s;
+}
+
+.skynet-card-disabled { opacity: 0.55; }
+
+.skynet-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.skynet-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.skynet-card-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.skynet-card-agent {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #666);
+  background: var(--badge-bg, #f3f4f6);
+  padding: 0.1rem 0.5rem;
+  border-radius: 99px;
+  width: fit-content;
+}
+
+.skynet-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.skynet-card-schedule {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-primary, #3b82f6);
+  margin: 0 0 0.4rem;
+}
+
+.skynet-card-prompt {
+  font-size: 0.88rem;
+  color: var(--text-secondary, #555);
+  margin: 0 0 0.75rem;
+  white-space: pre-wrap;
+  line-height: 1.45;
+  max-height: 4.5em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.skynet-card-footer {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+  flex-wrap: wrap;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  padding: 0.5rem 1.1rem;
+  background: var(--color-primary, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+.btn-secondary {
+  padding: 0.5rem 1.1rem;
+  background: transparent;
+  color: var(--text-primary, #333);
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btn-secondary:hover { background: var(--hover-bg, #f3f4f6); }
+
+.btn-run {
+  padding: 0.3rem 0.65rem;
+  background: #10b981;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.btn-run:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-run:disabled { opacity: 0.5; cursor: default; }
+
+.btn-delete {
+  padding: 0.3rem 0.65rem;
+  background: transparent;
+  color: #9ca3af;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.btn-delete:hover:not(:disabled) { background: #fee2e2; color: #c0392b; border-color: #fca5a5; }
+
+/* ── Toggle switch ── */
+.skynet-toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.skynet-toggle input { opacity: 0; width: 0; height: 0; }
+
+.skynet-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #d1d5db;
+  border-radius: 22px;
+  transition: background 0.2s;
+}
+
+.skynet-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.skynet-toggle input:checked + .skynet-toggle-slider { background: #3b82f6; }
+.skynet-toggle input:checked + .skynet-toggle-slider::before { transform: translateX(18px); }

@@ -886,6 +886,33 @@ const MIGRATIONS = [
 
   // ── Migration 092: only_alert_if_rows on scheduled_reports ───────────────
   `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS only_alert_if_rows BOOLEAN NOT NULL DEFAULT false`,
+
+  // ── Migrations 093-096: Skynet agent scheduler ────────────────────────────
+  `CREATE TABLE IF NOT EXISTS skynet_schedules (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name            VARCHAR(300) NOT NULL,
+    agent_id        VARCHAR(100) NOT NULL,
+    agent_name      VARCHAR(200),
+    prompt          TEXT NOT NULL,
+    schedule_type   VARCHAR(50) NOT NULL DEFAULT 'once',
+    cron_expression VARCHAR(100),
+    fire_at         TIMESTAMPTZ,
+    next_run_at     TIMESTAMPTZ,
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    last_run_at     TIMESTAMPTZ,
+    last_issue_id   VARCHAR(200),
+    run_count       INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by      UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_skynet_schedules_company ON skynet_schedules(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_skynet_schedules_next_run ON skynet_schedules(next_run_at) WHERE enabled = true`,
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS paperclip_base_url VARCHAR(500),
+     ADD COLUMN IF NOT EXISTS paperclip_api_key  VARCHAR(500),
+     ADD COLUMN IF NOT EXISTS paperclip_company_id VARCHAR(100),
+     ADD COLUMN IF NOT EXISTS paperclip_default_goal_id VARCHAR(100)`,
 ];
 
 async function run() {

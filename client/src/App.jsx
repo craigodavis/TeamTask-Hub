@@ -16,6 +16,7 @@ import { Products } from './pages/Products';
 import { ProductDetail } from './pages/ProductDetail';
 import { BettyComparison } from './pages/BettyComparison';
 import { Gateway } from './pages/Gateway';
+import { Skynet } from './pages/Skynet';
 import { AppShell } from './components/AppShell';
 import { appHubTitle } from './appHubTitle';
 
@@ -162,6 +163,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Gateway />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/skynet"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <Skynet />
               ) : (
                 <Navigate to="/" replace />
               )

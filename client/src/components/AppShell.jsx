@@ -126,6 +126,16 @@ export function AppShell({ user, onLogout, children }) {
               <span>Gateway</span>
             </NavLink>
           )}
+          {isManager && (
+            <NavLink
+              to="/skynet"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🤖"
+              title="Skynet"
+            >
+              <span>Skynet</span>
+            </NavLink>
+          )}
           {managerLinks.map((item) => (
             <NavLink
               key={item.to}
