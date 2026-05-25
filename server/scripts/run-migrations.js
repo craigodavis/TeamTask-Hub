@@ -920,17 +920,40 @@ const MIGRATIONS = [
 
 export async function runMigrations() {
   const schema = process.env.DB_SCHEMA || 'teamtask_hub';
-  console.log('Running migrations in schema:', schema);
+
+  // Ensure the tracking table exists (always safe to run)
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version    INTEGER     PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Find which versions are already applied
+  const applied = await query(`SELECT version FROM schema_migrations ORDER BY version`);
+  const appliedSet = new Set(applied.rows.map((r) => r.version));
+
+  let ran = 0;
   for (let i = 0; i < MIGRATIONS.length; i++) {
+    const version = i + 1;
+    if (appliedSet.has(version)) continue; // already applied — skip
+
     try {
       await query(MIGRATIONS[i]);
-      console.log('  Migration', i + 1, 'OK');
+      await query(`INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING`, [version]);
+      console.log(`  Migration ${version} applied.`);
+      ran++;
     } catch (err) {
-      console.error('  Migration', i + 1, 'failed:', err.message);
+      console.error(`  Migration ${version} failed:`, err.message);
       throw err;
     }
   }
-  console.log('All migrations OK.');
+
+  if (ran === 0) {
+    console.log('Migrations: schema is up to date.');
+  } else {
+    console.log(`Migrations: ${ran} applied.`);
+  }
 }
 
 // Allow running directly: node scripts/run-migrations.js
