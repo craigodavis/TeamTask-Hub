@@ -117,6 +117,92 @@ router.get('/filters', requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /api/products/square-items ───────────────────────────────────────────
+// Must be before /:id to avoid Express treating "square-items" as an id param.
+router.get('/square-items', requireAuth, requireManager, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query(`SET search_path TO square, ${appSchema}`);
+    const r = await client.query(
+      `SELECT DISTINCT oli.name
+       FROM square.order_line_item oli
+       JOIN square.order o ON o.id = oli.order_id
+       WHERE oli.name IS NOT NULL AND oli.name != ''
+         AND o.state = 'COMPLETED'
+         AND oli.base_price_amount > 0
+       ORDER BY oli.name`
+    );
+    res.json({ items: r.rows.map((row) => row.name) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ── GET /api/products/tax-exempt ─────────────────────────────────────────────
+router.get('/tax-exempt', requireAuth, requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT id, item_name, created_at FROM tax_exempt_square_items
+       WHERE company_id = $1 ORDER BY item_name`,
+      [cid(req)]
+    );
+    res.json({ items: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/products/tax-gap ─────────────────────────────────────────────────
+// Query params: from, to (YYYY-MM-DD). Defaults to last calendar month.
+router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
+  const now = new Date();
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+  const defaultTo   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
+  const fromDate = req.query.from || defaultFrom;
+  const toDate   = req.query.to   || defaultTo;
+
+  const client = await pool.connect();
+  try {
+    await client.query(`SET search_path TO square, ${appSchema}`);
+    const r = await client.query(
+      `SELECT
+         oli.name                                                AS item_name,
+         COUNT(*)::int                                           AS occurrences,
+         ROUND(SUM(oli.base_price_amount) / 100.0, 2)           AS revenue,
+         ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2)   AS estimated_tax_owed,
+         MIN(o.created_at)                                       AS first_sale,
+         MAX(o.created_at)                                       AS last_sale
+       FROM square.order_line_item oli
+       JOIN square.order o ON o.id = oli.order_id
+       LEFT JOIN ${appSchema}.tax_exempt_square_items te
+              ON te.item_name = oli.name AND te.company_id = $1
+       WHERE o.state = 'COMPLETED'
+         AND oli.base_price_amount > 0
+         AND (oli.total_tax_amount = 0 OR oli.total_tax_amount IS NULL)
+         AND oli.total_amount > 0
+         AND o.created_at::date >= $2::date
+         AND o.created_at::date <= $3::date
+         AND te.id IS NULL
+       GROUP BY oli.name
+       ORDER BY revenue DESC`,
+      [cid(req), fromDate, toDate]
+    );
+    const totalExposure = r.rows.reduce((s, row) => s + parseFloat(row.estimated_tax_owed || 0), 0);
+    res.json({
+      from: fromDate,
+      to:   toDate,
+      rows: r.rows,
+      total_exposure: Math.round(totalExposure * 100) / 100,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ── GET /api/products/:id ─────────────────────────────────────────────────────
 router.get('/:id', requireAuth, async (req, res) => {
   try {
@@ -778,43 +864,6 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// ── GET /api/products/square-items ───────────────────────────────────────────
-// All distinct item names ever sold via Square (for left column of Tax Exempt UI)
-router.get('/square-items', requireAuth, requireManager, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query(`SET search_path TO square, ${appSchema}`);
-    const r = await client.query(
-      `SELECT DISTINCT oli.name
-       FROM square.order_line_item oli
-       JOIN square.order o ON o.id = oli.order_id
-       WHERE oli.name IS NOT NULL AND oli.name != ''
-         AND o.state = 'COMPLETED'
-         AND oli.base_price_amount > 0
-       ORDER BY oli.name`
-    );
-    res.json({ items: r.rows.map((row) => row.name) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-// ── GET /api/products/tax-exempt ─────────────────────────────────────────────
-router.get('/tax-exempt', requireAuth, requireManager, async (req, res) => {
-  try {
-    const r = await query(
-      `SELECT id, item_name, created_at FROM tax_exempt_square_items
-       WHERE company_id = $1 ORDER BY item_name`,
-      [cid(req)]
-    );
-    res.json({ items: r.rows });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ── POST /api/products/tax-exempt ────────────────────────────────────────────
 router.post('/tax-exempt', requireAuth, requireManager, async (req, res) => {
   const { item_name } = req.body;
@@ -843,55 +892,6 @@ router.delete('/tax-exempt/:id', requireAuth, requireManager, async (req, res) =
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/products/tax-gap ─────────────────────────────────────────────────
-// Query params: from, to (YYYY-MM-DD). Defaults to last calendar month.
-router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
-  const now = new Date();
-  const defaultFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-  const defaultTo   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
-  const fromDate = req.query.from || defaultFrom;
-  const toDate   = req.query.to   || defaultTo;
-
-  const client = await pool.connect();
-  try {
-    await client.query(`SET search_path TO square, ${appSchema}`);
-    const r = await client.query(
-      `SELECT
-         oli.name                                                AS item_name,
-         COUNT(*)::int                                           AS occurrences,
-         ROUND(SUM(oli.base_price_amount) / 100.0, 2)           AS revenue,
-         ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2)   AS estimated_tax_owed,
-         MIN(o.created_at)                                       AS first_sale,
-         MAX(o.created_at)                                       AS last_sale
-       FROM square.order_line_item oli
-       JOIN square.order o ON o.id = oli.order_id
-       LEFT JOIN ${appSchema}.tax_exempt_square_items te
-              ON te.item_name = oli.name AND te.company_id = $1
-       WHERE o.state = 'COMPLETED'
-         AND oli.base_price_amount > 0
-         AND (oli.total_tax_amount = 0 OR oli.total_tax_amount IS NULL)
-         AND oli.total_amount > 0
-         AND o.created_at::date >= $2::date
-         AND o.created_at::date <= $3::date
-         AND te.id IS NULL
-       GROUP BY oli.name
-       ORDER BY revenue DESC`,
-      [cid(req), fromDate, toDate]
-    );
-    const totalExposure = r.rows.reduce((s, row) => s + parseFloat(row.estimated_tax_owed || 0), 0);
-    res.json({
-      from: fromDate,
-      to:   toDate,
-      rows: r.rows,
-      total_exposure: Math.round(totalExposure * 100) / 100,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
   }
 });
 
