@@ -465,3 +465,16 @@
   white-space: nowrap;
 }
 .btn-tax-add-small:hover { background: var(--primary, #2563eb); color: #fff; }
+
+.tax-category-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  background: #f3f4f6;
+  color: #374151;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.tax-no-category { color: #9ca3af; font-size: 0.85rem; }

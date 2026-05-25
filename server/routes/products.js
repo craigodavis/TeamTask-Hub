@@ -124,15 +124,20 @@ router.get('/square-items', requireAuth, requireManager, async (req, res) => {
   try {
     await client.query(`SET search_path TO square, ${appSchema}`);
     const r = await client.query(
-      `SELECT DISTINCT oli.name
+      `SELECT DISTINCT
+         oli.name,
+         MAX(cmcwc.category_name) AS category_name
        FROM square.order_line_item oli
        JOIN square.order o ON o.id = oli.order_id
+       LEFT JOIN square.custom_make_catalog_w_categories cmcwc
+              ON cmcwc.id = oli.catalog_object_id
        WHERE oli.name IS NOT NULL AND oli.name != ''
          AND o.state = 'COMPLETED'
          AND oli.base_price_amount > 0
+       GROUP BY oli.name
        ORDER BY oli.name`
     );
-    res.json({ items: r.rows.map((row) => row.name) });
+    res.json({ items: r.rows }); // [{ name, category_name }]
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
@@ -169,6 +174,7 @@ router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
     const r = await client.query(
       `SELECT
          oli.name                                                AS item_name,
+         MAX(cmcwc.category_name)                               AS category_name,
          COUNT(*)::int                                           AS occurrences,
          ROUND(SUM(oli.base_price_amount) / 100.0, 2)           AS revenue,
          ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2)   AS estimated_tax_owed,
@@ -176,6 +182,8 @@ router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
          MAX(o.created_at)                                       AS last_sale
        FROM square.order_line_item oli
        JOIN square.order o ON o.id = oli.order_id
+       LEFT JOIN square.custom_make_catalog_w_categories cmcwc
+              ON cmcwc.id = oli.catalog_object_id
        LEFT JOIN ${appSchema}.tax_exempt_square_items te
               ON te.item_name = oli.name AND te.company_id = $1
        WHERE o.state = 'COMPLETED'
@@ -936,11 +944,14 @@ async function runTaxGapAlert(companyId, opsManagerName) {
     const r = await client.query(
       `SELECT
          oli.name                                              AS item_name,
+         MAX(cmcwc.category_name)                             AS category_name,
          COUNT(*)::int                                         AS occurrences,
          ROUND(SUM(oli.base_price_amount) / 100.0, 2)         AS revenue,
          ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2) AS estimated_tax_owed
        FROM square.order_line_item oli
        JOIN square.order o ON o.id = oli.order_id
+       LEFT JOIN square.custom_make_catalog_w_categories cmcwc
+              ON cmcwc.id = oli.catalog_object_id
        LEFT JOIN ${appSchema}.tax_exempt_square_items te
               ON te.item_name = oli.name AND te.company_id = $1
        WHERE o.state = 'COMPLETED'

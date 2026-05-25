@@ -81,7 +81,7 @@ function TaxExemptTab() {
     setError('');
     try {
       const [sqRes, exRes] = await Promise.all([getSquareItems(), getTaxExemptItems()]);
-      setAllItems(sqRes.items || []);
+      setAllItems(sqRes.items || []); // [{ name, category_name }]
       setExemptItems(exRes.items || []);
     } catch (e) {
       setError(e.message);
@@ -93,9 +93,9 @@ function TaxExemptTab() {
   useEffect(() => { load(); }, [load]);
 
   const exemptNames = new Set(exemptItems.map((i) => i.item_name));
-  const availableItems = allItems.filter((name) => !exemptNames.has(name));
+  const availableItems = allItems.filter((item) => !exemptNames.has(item.name));
   const filtered = search
-    ? availableItems.filter((n) => n.toLowerCase().includes(search.toLowerCase()))
+    ? availableItems.filter((item) => item.name.toLowerCase().includes(search.toLowerCase()) || (item.category_name || '').toLowerCase().includes(search.toLowerCase()))
     : availableItems;
 
   const handleAddExempt = async (itemName) => {
@@ -125,7 +125,7 @@ function TaxExemptTab() {
   const handleDropRight = async (e) => {
     e.preventDefault();
     setDragOver(null);
-    if (dragItem) await handleAddExempt(dragItem);
+    if (dragItem) await handleAddExempt(typeof dragItem === 'object' ? dragItem.name : dragItem);
     setDragItem(null);
   };
 
@@ -175,19 +175,24 @@ function TaxExemptTab() {
             {filtered.length === 0 && (
               <li className="tax-item-empty">{search ? 'No matches' : 'All items are tax-exempt'}</li>
             )}
-            {filtered.map((name) => (
+            {filtered.map((item) => (
               <li
-                key={name}
+                key={item.name}
                 className="tax-item"
                 draggable
-                onDragStart={() => handleDragStart(name)}
+                onDragStart={() => handleDragStart(item)}
                 onDragEnd={handleDragEnd}
               >
-                <span className="tax-item-name">{name}</span>
+                <span className="tax-item-name">
+                  {item.name}
+                  {item.category_name && (
+                    <span className="tax-category-badge">{item.category_name}</span>
+                  )}
+                </span>
                 <button
                   type="button"
                   className="btn-tax-add"
-                  onClick={() => handleAddExempt(name)}
+                  onClick={() => handleAddExempt(item.name)}
                   title="Mark as tax exempt"
                 >
                   Exempt →
@@ -265,6 +270,7 @@ function TaxExemptTab() {
                 <thead>
                   <tr>
                     <th>Item</th>
+                    <th>Category</th>
                     <th>Sales</th>
                     <th>Revenue</th>
                     <th>Est. Tax Owed</th>
@@ -275,6 +281,7 @@ function TaxExemptTab() {
                   {gapRows.map((row) => (
                     <tr key={row.item_name}>
                       <td>{row.item_name}</td>
+                      <td>{row.category_name ? <span className="tax-category-badge">{row.category_name}</span> : <span className="tax-no-category">—</span>}</td>
                       <td>{row.occurrences}</td>
                       <td>${Number(row.revenue).toFixed(2)}</td>
                       <td className="tax-gap-owed">${Number(row.estimated_tax_owed).toFixed(2)}</td>
