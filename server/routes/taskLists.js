@@ -580,10 +580,19 @@ router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (r
 
     if (!status) {
       // Clear the record entirely → task returns to "null" (unchecked) state
-      await query(
-        `DELETE FROM task_completions WHERE assignment_id = $1 AND task_template_id = $2 AND user_id = $3`,
-        [assignmentId, taskTemplateId, userId]
-      );
+      // Managers/owners can undo any user's completion; regular users only their own.
+      const isManager = req.role === 'manager' || req.role === 'owner';
+      if (isManager) {
+        await query(
+          `DELETE FROM task_completions WHERE assignment_id = $1 AND task_template_id = $2`,
+          [assignmentId, taskTemplateId]
+        );
+      } else {
+        await query(
+          `DELETE FROM task_completions WHERE assignment_id = $1 AND task_template_id = $2 AND user_id = $3`,
+          [assignmentId, taskTemplateId, userId]
+        );
+      }
       // If assignment previously had SMS sent, reset it so it can fire again when all tasks are addressed
       await query(
         `UPDATE task_assignments SET completion_sms_sent_at = NULL

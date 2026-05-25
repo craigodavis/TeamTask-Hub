@@ -239,7 +239,7 @@ export function Dashboard() {
                     <span className="task-completed-by">✓ {t.completed_by_name}</span>
                   )}
                 </div>
-                {t.completed_by_me && (
+                {(t.completed_by_me || isManager) && (
                   <button
                     type="button"
                     className="toggle-incomplete"
