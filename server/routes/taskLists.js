@@ -729,18 +729,23 @@ router.get('/report', requireManager, async (req, res) => {
   }
 });
 
-// ---------- Nightly archive job (runs at 1am) ----------
+// ---------- Daily archive job (runs at 9am) ----------
 // Closes out all assignments from before today:
-//   - Any incomplete tasks get auto-marked not_completed with "Archived — end of day"
-//   - Sets archived_at on the assignment so the UI can show it as closed
+//   - If any tasks are incomplete, SMS the assignee + all managers
+//   - Auto-marks remaining incomplete tasks as not_completed
+//   - Sets archived_at on the assignment
 
 async function archivePreviousDayAssignments() {
   const today = new Date().toISOString().slice(0, 10);
   try {
-    // Find all open (not yet archived) assignments from before today
+    // Find all open (not yet archived) assignments from before today, with full details
     const openAssignments = await query(
-      `SELECT ta.id, ta.template_id, ta.company_id
+      `SELECT ta.id, ta.template_id, ta.company_id, ta.assignee_id, ta.assigned_date,
+              tlt.name AS template_name,
+              u.display_name AS assignee_name
        FROM task_assignments ta
+       JOIN task_list_templates tlt ON tlt.id = ta.template_id
+       LEFT JOIN users u ON u.id = ta.assignee_id
        WHERE ta.assigned_date < $1 AND ta.archived_at IS NULL`,
       [today]
     );
@@ -753,25 +758,59 @@ async function archivePreviousDayAssignments() {
     for (const a of openAssignments.rows) {
       // Find incomplete tasks for this assignment
       const incompleteTasks = await query(
-        `SELECT tt.id as task_template_id
+        `SELECT tt.id AS task_template_id, tt.title
          FROM task_templates tt
          WHERE tt.template_id = $1
            AND NOT EXISTS (
              SELECT 1 FROM task_completions tc
              WHERE tc.assignment_id = $2 AND tc.task_template_id = tt.id
-           )`,
+           )
+         ORDER BY tt.sort_order, tt.id`,
         [a.template_id, a.id]
       );
+
+      // Send SMS if anything was left incomplete
+      if (incompleteTasks.rows.length > 0) {
+        try {
+          const taskNames = incompleteTasks.rows.map((t) => `• ${t.title}`).join('\n');
+          const message = `⚠️ Incomplete task list: "${a.template_name}" (${a.assigned_date})\n${taskNames}\nAssigned to: ${a.assignee_name || 'Unassigned'}`;
+
+          // Get managers + owners
+          const managers = await query(
+            `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner') AND phone IS NOT NULL AND phone != ''`,
+            [a.company_id]
+          );
+
+          // Include the assignee if they have a phone and aren't already a manager
+          const managerIds = new Set(managers.rows.map((r) => r.id));
+          const recipientIds = [...managerIds];
+          if (a.assignee_id && !managerIds.has(a.assignee_id)) {
+            const assigneeHasPhone = await query(
+              `SELECT id FROM users WHERE id = $1 AND phone IS NOT NULL AND phone != ''`,
+              [a.assignee_id]
+            );
+            if (assigneeHasPhone.rows.length) recipientIds.push(a.assignee_id);
+          }
+
+          if (recipientIds.length) {
+            await sendSmsToUsers(a.company_id, recipientIds, message, null);
+            console.log(`[archive] SMS sent for incomplete "${a.template_name}" (${a.assigned_date}) to ${recipientIds.length} recipient(s)`);
+          }
+        } catch (smsErr) {
+          console.error(`[archive] SMS error for assignment ${a.id}:`, smsErr.message);
+        }
+      }
 
       // Auto-mark each incomplete task as not_completed
       for (const t of incompleteTasks.rows) {
         await query(
           `INSERT INTO task_completions
              (assignment_id, task_template_id, user_id, status, reason, completed_at, updated_at)
-           SELECT $1, $2, assignee_id, 'not_completed', 'Archived — end of day', NOW(), NOW()
+           SELECT $1, $2, COALESCE(assignee_id, (SELECT id FROM users WHERE company_id = $3 AND role = 'owner' LIMIT 1)),
+                  'not_completed', 'Archived — not completed by 9am', NOW(), NOW()
            FROM task_assignments WHERE id = $1
            ON CONFLICT (assignment_id, task_template_id, user_id) DO NOTHING`,
-          [a.id, t.task_template_id]
+          [a.id, t.task_template_id, a.company_id]
         );
       }
 
@@ -789,27 +828,24 @@ async function archivePreviousDayAssignments() {
 }
 
 export function startDailyArchiveScheduler() {
-  // Run once at startup to catch any missed days (e.g. server was down at 1am)
+  // Run once at startup to catch any missed days (e.g. server was down at 9am)
   archivePreviousDayAssignments();
 
-  // Then schedule for 1am every night
-  const msUntil1am = () => {
+  // Then schedule for 9am every day
+  const msUntil9am = () => {
     const now = new Date();
     const next = new Date(now);
-    next.setHours(1, 0, 0, 0);
+    next.setHours(9, 0, 0, 0);
     if (next <= now) next.setDate(next.getDate() + 1);
     return next - now;
   };
 
-  const scheduleNext = () => {
-    setTimeout(() => {
-      archivePreviousDayAssignments();
-      setInterval(archivePreviousDayAssignments, 24 * 60 * 60 * 1000);
-    }, msUntil1am());
-  };
+  setTimeout(() => {
+    archivePreviousDayAssignments();
+    setInterval(archivePreviousDayAssignments, 24 * 60 * 60 * 1000);
+  }, msUntil9am());
 
-  scheduleNext();
-  console.log(`[archive] Scheduler started — next run at 1am (in ${Math.round(msUntil1am() / 60000)} min)`);
+  console.log(`[archive] Scheduler started — next run at 9am (in ${Math.round(msUntil9am() / 60000)} min)`);
 }
 
 export { router as taskListsRouter };
