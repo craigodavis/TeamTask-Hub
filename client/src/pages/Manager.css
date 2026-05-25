@@ -833,3 +833,188 @@
   border-top: 2px dashed #ef6c00;
   vertical-align: middle;
 }
+
+/* ── Square schedule panel ─────────────────────────────── */
+.schedule-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.schedule-panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.schedule-source-badge {
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: #e6f4ea;
+  color: #2d7a41;
+  border-radius: 99px;
+  padding: 0.15rem 0.55rem;
+}
+
+.schedule-loading,
+.schedule-empty {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.schedule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.schedule-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--primary-soft);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.schedule-name {
+  font-weight: 600;
+  min-width: 120px;
+}
+
+.schedule-role {
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.schedule-time {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.schedule-badge-active {
+  font-size: 0.72rem;
+  background: #e6f4ea;
+  color: #2d7a41;
+  border-radius: 99px;
+  padding: 0.1rem 0.5rem;
+  white-space: nowrap;
+}
+
+/* ── Assign templates panel ────────────────────────────── */
+.assign-templates-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.assign-templates-title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.assign-template-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.assign-template-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+
+.assign-template-item.already-assigned {
+  border-color: #9ae6b4;
+  background: #f0fff4;
+}
+
+.assign-template-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.assign-template-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.assign-user-select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.88rem;
+  max-width: 220px;
+}
+
+.btn-assign-template {
+  padding: 0.35rem 0.85rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-assign-template:hover {
+  filter: brightness(1.08);
+}
+
+.assign-done-badge {
+  font-size: 0.82rem;
+  color: #2d7a41;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Current assignments heading ───────────────────────── */
+.assignments-heading {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.assignment-empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.assignment-name {
+  font-weight: 500;
+}
+
+.assignment-assignee {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin-left: 0.4rem;
+}

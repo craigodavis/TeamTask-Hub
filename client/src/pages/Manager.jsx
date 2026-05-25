@@ -33,6 +33,7 @@ import {
   taskMonthNames,
   getWageTitles,
   reorderTemplateTasks,
+  getSquareSchedule,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
@@ -76,6 +77,10 @@ export function Manager() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [wageTitles, setWageTitles] = useState([]);
+  const [squareSchedule, setSquareSchedule] = useState(null); // null = not loaded, [] = loaded empty
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  // assignee selection per template: templateId → userId ('' = unassigned)
+  const [assigneeFor, setAssigneeFor] = useState({});
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
   if (!isManager) {
@@ -146,12 +151,34 @@ export function Manager() {
     }
   };
 
+  const loadSquareSchedule = async (date) => {
+    setScheduleLoading(true);
+    setSquareSchedule(null);
+    try {
+      const r = await getSquareSchedule(date);
+      setSquareSchedule(r.schedule || []);
+      // Pre-select assignees: for each template with a wage_title, pick the first
+      // scheduled staff member whose shift role matches
+      setAssigneeFor((prev) => {
+        const next = { ...prev };
+        // Will be resolved after templates are loaded; see handleAssignDateChange
+        return next;
+      });
+    } catch {
+      setSquareSchedule([]); // fail gracefully — don't block the rest of the UI
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (tab === 'tasks') {
       loadTemplates();
       loadAssignments();
       loadLocations();
+      loadUsers();
       getWageTitles().then((r) => setWageTitles(r.wage_titles || [])).catch(() => {});
+      loadSquareSchedule(assignDate);
     } else if (tab === 'announcements') {
       loadAnnouncements();
       loadLocations();
@@ -166,10 +193,10 @@ export function Manager() {
     }
   }, [tab, assignDate]);
 
-  const handleCreateAssignment = async (templateId) => {
+  const handleCreateAssignment = async (templateId, assigneeId) => {
     setError('');
     try {
-      await createAssignment(templateId, assignDate, null);
+      await createAssignment(templateId, assignDate, assigneeId || null);
       loadAssignments();
       setMessage('Assignment created');
     } catch (e) {
@@ -335,21 +362,120 @@ export function Manager() {
           </ul>
           <h2>Assign task list to day</h2>
           <div className="assign-row">
-            <input type="date" value={assignDate} onChange={(e) => setAssignDate(e.target.value)} />
-            <button type="button" onClick={loadAssignments}>Load</button>
+            <input
+              type="date"
+              value={assignDate}
+              onChange={(e) => {
+                setAssignDate(e.target.value);
+                loadSquareSchedule(e.target.value);
+              }}
+            />
           </div>
-          <p>Assignments for {assignDate}:</p>
+
+          {/* Live Square schedule */}
+          <div className="schedule-panel">
+            <h3 className="schedule-panel-title">
+              Scheduled staff for {assignDate}
+              <span className="schedule-source-badge">Live from Square</span>
+            </h3>
+            {scheduleLoading ? (
+              <p className="schedule-loading">Loading schedule…</p>
+            ) : squareSchedule === null ? null : squareSchedule.length === 0 ? (
+              <p className="schedule-empty">No shifts found in Square for this date.</p>
+            ) : (
+              <ul className="schedule-list">
+                {squareSchedule.map((s, i) => {
+                  const fmt = (iso) => iso
+                    ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                    : '—';
+                  return (
+                    <li key={i} className="schedule-item">
+                      <span className="schedule-name">{s.display_name}</span>
+                      <span className="schedule-role">{s.wage_title || 'No role'}</span>
+                      <span className="schedule-time">{fmt(s.shift_start)} – {fmt(s.shift_end)}</span>
+                      {s.status === 'OPEN' && !s.shift_end && (
+                        <span className="schedule-badge-active">Clocked in</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* Assign templates */}
+          <div className="assign-templates-panel">
+            <h3 className="assign-templates-title">Assign templates to {assignDate}</h3>
+            <ul className="assign-template-list">
+              {templates.map((t) => {
+                // Find matching scheduled staff (same wage_title)
+                const matchingStaff = (squareSchedule || []).filter(
+                  (s) => t.wage_title && s.wage_title === t.wage_title
+                );
+                const selectedAssignee = assigneeFor[t.id] ?? (matchingStaff[0]?.user_id || '');
+                const alreadyAssigned = assignments.some((a) => a.template_id === t.id);
+                return (
+                  <li key={t.id} className={`assign-template-item${alreadyAssigned ? ' already-assigned' : ''}`}>
+                    <span className="assign-template-name">
+                      {t.name}
+                      {t.wage_title && <span className="wage-title-badge">{t.wage_title}</span>}
+                    </span>
+                    <div className="assign-template-controls">
+                      <select
+                        className="assign-user-select"
+                        value={assigneeFor[t.id] ?? (matchingStaff[0]?.user_id || '')}
+                        onChange={(e) => setAssigneeFor((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                      >
+                        <option value="">Unassigned</option>
+                        {/* Scheduled staff first */}
+                        {matchingStaff.length > 0 && (
+                          <optgroup label="Scheduled today (matching role)">
+                            {matchingStaff.map((s) => (
+                              <option key={s.user_id} value={s.user_id}>{s.display_name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {/* All other staff */}
+                        {companyUsers.length > 0 && (
+                          <optgroup label="All staff">
+                            {companyUsers
+                              .filter((u) => !matchingStaff.some((s) => s.user_id === u.id))
+                              .map((u) => (
+                                <option key={u.id} value={u.id}>{u.display_name}</option>
+                              ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      {alreadyAssigned ? (
+                        <span className="assign-done-badge">✓ Assigned</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-assign-template"
+                          onClick={() => handleCreateAssignment(t.id, assigneeFor[t.id] ?? (matchingStaff[0]?.user_id || ''))}
+                        >
+                          Assign
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <h3 className="assignments-heading">Current assignments for {assignDate}</h3>
           <ul className="assignment-list">
-            {assignments.map((a) => (
+            {assignments.length === 0 ? (
+              <li className="assignment-empty">None yet.</li>
+            ) : assignments.map((a) => (
               <li key={a.id}>
-                {a.template_name} ({a.template_type})
+                <span className="assignment-name">{a.template_name}</span>
+                {a.assignee_name && <span className="assignment-assignee">→ {a.assignee_name}</span>}
                 <button type="button" className="btn-remove" onClick={() => handleDeleteAssignment(a.id)}>Remove</button>
               </li>
             ))}
           </ul>
-          {templates.length > 0 && (
-            <p className="hint">To assign a template to this day, use &quot;Assign to this day&quot; above.</p>
-          )}
         </section>
       )}
 
