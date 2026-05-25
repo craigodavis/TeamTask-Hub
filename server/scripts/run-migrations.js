@@ -887,6 +887,9 @@ const MIGRATIONS = [
   // ── Migration 092: only_alert_if_rows on scheduled_reports ───────────────
   `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS only_alert_if_rows BOOLEAN NOT NULL DEFAULT false`,
 
+  // ── Migration 097: archived_at on task_assignments ───────────────────────
+  `ALTER TABLE task_assignments ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
+
   // ── Migrations 093-096: Skynet agent scheduler ────────────────────────────
   `CREATE TABLE IF NOT EXISTS skynet_schedules (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -8,7 +8,7 @@ import express from 'express';
 import cors from 'cors';
 import { authRouter } from './routes/auth.js';
 import { companiesRouter } from './routes/companies.js';
-import { taskListsRouter } from './routes/taskLists.js';
+import { taskListsRouter, startDailyArchiveScheduler } from './routes/taskLists.js';
 import { announcementsRouter } from './routes/announcements.js';
 import { foodWasteRouter } from './routes/foodWaste.js';
 import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } from './routes/integrations.js';
@@ -100,6 +100,7 @@ runMigrations()
     startC7SyncScheduler();
     startTaxGapAlertScheduler();
     startSkynetScheduler();
+    startDailyArchiveScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -109,4 +110,5 @@ runMigrations()
     startC7SyncScheduler();
     startTaxGapAlertScheduler();
     startSkynetScheduler();
+    startDailyArchiveScheduler();
   });

@@ -331,6 +331,19 @@
   font-style: italic;
 }
 
+.badge-archived {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-radius: 99px;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
 /* Inline reason input */
 .reason-input-row {
   display: flex;
