@@ -7,7 +7,8 @@
 
 import express from 'express';
 import { pool, query } from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireManager } from '../middleware/auth.js';
+import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
 const appSchema = process.env.DB_SCHEMA || 'teamtask_hub';
@@ -776,5 +777,214 @@ router.post('/', requireAuth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── GET /api/products/square-items ───────────────────────────────────────────
+// All distinct item names ever sold via Square (for left column of Tax Exempt UI)
+router.get('/square-items', requireAuth, requireManager, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query(`SET search_path TO square, ${appSchema}`);
+    const r = await client.query(
+      `SELECT DISTINCT oli.name
+       FROM square.order_line_item oli
+       JOIN square.order o ON o.id = oli.order_id
+       WHERE oli.name IS NOT NULL AND oli.name != ''
+         AND o.state = 'COMPLETED'
+         AND oli.base_price_amount > 0
+       ORDER BY oli.name`
+    );
+    res.json({ items: r.rows.map((row) => row.name) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ── GET /api/products/tax-exempt ─────────────────────────────────────────────
+router.get('/tax-exempt', requireAuth, requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT id, item_name, created_at FROM tax_exempt_square_items
+       WHERE company_id = $1 ORDER BY item_name`,
+      [cid(req)]
+    );
+    res.json({ items: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/products/tax-exempt ────────────────────────────────────────────
+router.post('/tax-exempt', requireAuth, requireManager, async (req, res) => {
+  const { item_name } = req.body;
+  if (!item_name?.trim()) return res.status(400).json({ error: 'item_name required' });
+  try {
+    const r = await query(
+      `INSERT INTO tax_exempt_square_items (company_id, item_name, created_by)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (company_id, item_name) DO NOTHING
+       RETURNING id, item_name, created_at`,
+      [cid(req), item_name.trim(), req.userId]
+    );
+    res.json({ item: r.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/products/tax-exempt/:id ──────────────────────────────────────
+router.delete('/tax-exempt/:id', requireAuth, requireManager, async (req, res) => {
+  try {
+    await query(
+      `DELETE FROM tax_exempt_square_items WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cid(req)]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/products/tax-gap ─────────────────────────────────────────────────
+// Query params: from, to (YYYY-MM-DD). Defaults to last calendar month.
+router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
+  const now = new Date();
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+  const defaultTo   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
+  const fromDate = req.query.from || defaultFrom;
+  const toDate   = req.query.to   || defaultTo;
+
+  const client = await pool.connect();
+  try {
+    await client.query(`SET search_path TO square, ${appSchema}`);
+    const r = await client.query(
+      `SELECT
+         oli.name                                                AS item_name,
+         COUNT(*)::int                                           AS occurrences,
+         ROUND(SUM(oli.base_price_amount) / 100.0, 2)           AS revenue,
+         ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2)   AS estimated_tax_owed,
+         MIN(o.created_at)                                       AS first_sale,
+         MAX(o.created_at)                                       AS last_sale
+       FROM square.order_line_item oli
+       JOIN square.order o ON o.id = oli.order_id
+       LEFT JOIN ${appSchema}.tax_exempt_square_items te
+              ON te.item_name = oli.name AND te.company_id = $1
+       WHERE o.state = 'COMPLETED'
+         AND oli.base_price_amount > 0
+         AND (oli.total_tax_amount = 0 OR oli.total_tax_amount IS NULL)
+         AND oli.total_amount > 0
+         AND o.created_at::date >= $2::date
+         AND o.created_at::date <= $3::date
+         AND te.id IS NULL
+       GROUP BY oli.name
+       ORDER BY revenue DESC`,
+      [cid(req), fromDate, toDate]
+    );
+    const totalExposure = r.rows.reduce((s, row) => s + parseFloat(row.estimated_tax_owed || 0), 0);
+    res.json({
+      from: fromDate,
+      to:   toDate,
+      rows: r.rows,
+      total_exposure: Math.round(totalExposure * 100) / 100,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ── Tax-gap monthly alert scheduler ──────────────────────────────────────────
+// Runs daily; fires the check on the 1st of each month for every company.
+export function startTaxGapAlertScheduler() {
+  const INTERVAL = 60 * 60 * 1000; // check once per hour
+
+  const run = async () => {
+    const now = new Date();
+    if (now.getDate() !== 1) return; // only fire on the 1st
+
+    console.log('[tax-gap] Monthly check starting…');
+    try {
+      // Get all companies
+      const companies = await query(`SELECT id, ops_manager_name FROM companies`);
+      for (const company of companies.rows) {
+        await runTaxGapAlert(company.id, company.ops_manager_name).catch((e) =>
+          console.error(`[tax-gap] company ${company.id} error:`, e.message)
+        );
+      }
+    } catch (e) {
+      console.error('[tax-gap] scheduler error:', e.message);
+    }
+  };
+
+  // Run immediately on startup in case server restarted on the 1st, then every hour
+  run();
+  setInterval(run, INTERVAL);
+  console.log('[tax-gap] Monthly alert scheduler started');
+}
+
+async function runTaxGapAlert(companyId, opsManagerName) {
+  const now = new Date();
+  const fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+  const toDate   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
+
+  const client = await pool.connect();
+  let rows = [];
+  try {
+    await client.query(`SET search_path TO square, ${appSchema}`);
+    const r = await client.query(
+      `SELECT
+         oli.name                                              AS item_name,
+         COUNT(*)::int                                         AS occurrences,
+         ROUND(SUM(oli.base_price_amount) / 100.0, 2)         AS revenue,
+         ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2) AS estimated_tax_owed
+       FROM square.order_line_item oli
+       JOIN square.order o ON o.id = oli.order_id
+       LEFT JOIN ${appSchema}.tax_exempt_square_items te
+              ON te.item_name = oli.name AND te.company_id = $1
+       WHERE o.state = 'COMPLETED'
+         AND oli.base_price_amount > 0
+         AND (oli.total_tax_amount = 0 OR oli.total_tax_amount IS NULL)
+         AND oli.total_amount > 0
+         AND o.created_at::date >= $2::date
+         AND o.created_at::date <= $3::date
+         AND te.id IS NULL
+       GROUP BY oli.name
+       ORDER BY revenue DESC`,
+      [companyId, fromDate, toDate]
+    );
+    rows = r.rows;
+  } finally {
+    client.release();
+  }
+
+  if (rows.length === 0) {
+    console.log(`[tax-gap] company ${companyId} — no gaps for ${fromDate}–${toDate}`);
+    return;
+  }
+
+  const totalExposure = rows.reduce((s, row) => s + parseFloat(row.estimated_tax_owed || 0), 0);
+  const itemList = rows.slice(0, 5).map((r) => r.item_name).join(', ');
+  const more = rows.length > 5 ? ` (+${rows.length - 5} more)` : '';
+  const message =
+    `⚠️ Tax Gap Alert (${fromDate} – ${toDate}): ${rows.length} item type${rows.length !== 1 ? 's' : ''} sold without tax collected. ` +
+    `Estimated exposure: $${totalExposure.toFixed(2)}. ` +
+    `Items: ${itemList}${more}. ` +
+    `Check Products → Tax Exempt in TeamHub.`;
+
+  // Send to all manager + owner users with phone numbers
+  const mgrs = await query(
+    `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner') AND phone IS NOT NULL AND phone != ''`,
+    [companyId]
+  );
+  if (!mgrs.rows.length) {
+    console.warn(`[tax-gap] company ${companyId} — no managers with phone numbers`);
+    return;
+  }
+  const userIds = mgrs.rows.map((r) => r.id);
+  await sendSmsToUsers(companyId, userIds, message, null);
+  console.log(`[tax-gap] company ${companyId} — alert sent to ${userIds.length} managers, ${rows.length} flagged items, $${totalExposure.toFixed(2)} exposure`);
+}
 
 export { router as productsRouter };

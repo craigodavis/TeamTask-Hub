@@ -27,7 +27,7 @@ import { receiptsRouter } from './routes/receipts.js';
 import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
-import { productsRouter } from './routes/products.js';
+import { productsRouter, startTaxGapAlertScheduler } from './routes/products.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
@@ -90,6 +90,7 @@ ensureLocationsTables()
     startReportScheduler();
     startGatewayAutoApproveScheduler();
     startC7SyncScheduler();
+    startTaxGapAlertScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -97,4 +98,5 @@ ensureLocationsTables()
     startReportScheduler();
     startGatewayAutoApproveScheduler();
     startC7SyncScheduler();
+    startTaxGapAlertScheduler();
   });

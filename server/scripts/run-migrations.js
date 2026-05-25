@@ -872,6 +872,20 @@ const MIGRATIONS = [
 
   // ── Migration 090: completion_sms_sent_at on task_assignments ─────────────
   `ALTER TABLE task_assignments ADD COLUMN IF NOT EXISTS completion_sms_sent_at TIMESTAMPTZ`,
+
+  // ── Migration 091: tax_exempt_square_items ───────────────────────────────
+  `CREATE TABLE IF NOT EXISTS tax_exempt_square_items (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id  UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    item_name   VARCHAR(500) NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by  UUID        REFERENCES users(id),
+    UNIQUE (company_id, item_name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tax_exempt_company ON tax_exempt_square_items(company_id)`,
+
+  // ── Migration 092: only_alert_if_rows on scheduled_reports ───────────────
+  `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS only_alert_if_rows BOOLEAN NOT NULL DEFAULT false`,
 ];
 
 async function run() {

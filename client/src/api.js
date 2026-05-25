@@ -934,6 +934,51 @@ export async function importC7Products() {
   return data;
 }
 
+// ── Tax Exempt Items ──────────────────────────────────────────────────────────
+
+export async function getSquareItems() {
+  const res = await fetch(`${API}/products/square-items`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Square items');
+  return data; // { items: string[] }
+}
+
+export async function getTaxExemptItems() {
+  const res = await fetch(`${API}/products/tax-exempt`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load tax-exempt items');
+  return data; // { items: [{id, item_name, created_at}] }
+}
+
+export async function addTaxExemptItem(itemName) {
+  const res = await fetch(`${API}/products/tax-exempt`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ item_name: itemName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to add exempt item');
+  return data;
+}
+
+export async function removeTaxExemptItem(id) {
+  const res = await fetch(`${API}/products/tax-exempt/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to remove exempt item');
+  }
+}
+
+export async function getTaxGap(from, to) {
+  const qs = new URLSearchParams();
+  if (from) qs.set('from', from);
+  if (to)   qs.set('to',   to);
+  const res = await fetch(`${API}/products/tax-gap?${qs}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to run tax gap check');
+  return data; // { from, to, rows, total_exposure }
+}
+
 export async function updateProduct(id, data) {
   const res = await fetch(`${API}/products/${id}`, {
     method: 'PUT', headers: headers(), body: JSON.stringify(data),
