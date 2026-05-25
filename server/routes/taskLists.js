@@ -65,6 +65,9 @@ router.post('/templates', requireManager, async (req, res) => {
     if (!name || !type || !period_type) {
       return res.status(400).json({ error: 'name, type, period_type required' });
     }
+    if (!wage_title?.trim()) {
+      return res.status(400).json({ error: 'wage_title (role) is required' });
+    }
     let dayOfWeekVal = null, dayOfMonthVal = null, recurMonthVal = null, recurDayVal = null;
     if (period_type === 'weekly') {
       const dow = day_of_week != null ? parseInt(day_of_week, 10) : null;
