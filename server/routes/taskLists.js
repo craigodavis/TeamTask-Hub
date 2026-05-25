@@ -25,6 +25,107 @@ router.get('/wage-titles', async (req, res) => {
   }
 });
 
+// ---------- Live Square schedule for a date ----------
+// GET /square-schedule?date=YYYY-MM-DD
+// Queries Square Labor API directly (not Fivetran) for today/future shifts.
+// Returns [{ user_id, display_name, square_team_member_id, wage_title, shift_start, shift_end, status }]
+router.get('/square-schedule', requireManager, async (req, res) => {
+  const { date } = req.query;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'date query param required (YYYY-MM-DD)' });
+  }
+  const cId = companyId(req);
+  try {
+    // Get Square credentials
+    const intRes = await query(
+      `SELECT square_access_token, square_env FROM company_integrations WHERE company_id = $1`,
+      [cId]
+    );
+    const integrations = intRes.rows[0];
+    const token = integrations?.square_access_token?.trim() || process.env.SQUARE_ACCESS_TOKEN;
+    if (!token) return res.status(400).json({ error: 'Square not configured' });
+    const squareBase = (integrations?.square_env || process.env.SQUARE_ENV || 'production') === 'sandbox'
+      ? 'https://connect.squareupsandbox.com'
+      : 'https://connect.squareup.com';
+
+    // Get company timezone for correct workday matching
+    const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
+    const timezone = tzRes.rows[0]?.timezone || 'America/Boise';
+
+    // Search Square Labor API for shifts on this date
+    // Using workday filter so timezone is respected; fetches all statuses (OPEN + CLOSED)
+    const squareRes = await fetch(`${squareBase}/v2/labor/shifts/search`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Square-Version': '2024-01-18',
+      },
+      body: JSON.stringify({
+        query: {
+          filter: {
+            workday: {
+              date_range: { start_date: date, end_date: date },
+              default_timezone: timezone,
+              match_shifts_by: 'START_AT',
+            },
+          },
+        },
+        limit: 200,
+      }),
+    });
+
+    if (!squareRes.ok) {
+      const errBody = await squareRes.text();
+      console.error('[square-schedule] Square API error:', squareRes.status, errBody);
+      return res.status(502).json({ error: `Square API returned ${squareRes.status}` });
+    }
+
+    const squareData = await squareRes.json();
+    const shifts = squareData.shifts || [];
+
+    // Collect unique team_member_ids from shifts
+    const teamMemberIds = [...new Set(shifts.map((s) => s.team_member_id).filter(Boolean))];
+    if (teamMemberIds.length === 0) {
+      return res.json({ date, schedule: [] });
+    }
+
+    // Map team_member_id → TeamHub user
+    const userRes = await query(
+      `SELECT id AS user_id, display_name, square_team_member_id
+       FROM users
+       WHERE company_id = $1 AND square_team_member_id = ANY($2::text[])`,
+      [cId, teamMemberIds]
+    );
+    const userBySquareId = Object.fromEntries(
+      userRes.rows.map((u) => [u.square_team_member_id, u])
+    );
+
+    // Build schedule entries (one per shift — a person may have multiple shifts)
+    const schedule = shifts
+      .filter((s) => s.team_member_id && userBySquareId[s.team_member_id])
+      .map((s) => {
+        const user = userBySquareId[s.team_member_id];
+        return {
+          user_id: user.user_id,
+          display_name: user.display_name,
+          square_team_member_id: s.team_member_id,
+          wage_title: s.wage?.title || null,
+          shift_start: s.start_at || null,
+          shift_end: s.end_at || null,
+          status: s.status || null,
+        };
+      })
+      // Sort by shift start time
+      .sort((a, b) => (a.shift_start || '').localeCompare(b.shift_start || ''));
+
+    res.json({ date, schedule });
+  } catch (err) {
+    console.error('[square-schedule] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Templates (manager) ----------
 router.get('/templates', async (req, res) => {
   try {

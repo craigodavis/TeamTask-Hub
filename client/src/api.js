@@ -158,6 +158,13 @@ export async function deleteAssignment(id) {
   }
 }
 
+export async function getSquareSchedule(date) {
+  const res = await fetch(`${API}/task-lists/square-schedule?date=${encodeURIComponent(date)}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load schedule');
+  return data;
+}
+
 export async function closeAssignment(id, note) {
   const res = await fetch(`${API}/task-lists/assignments/${id}/close`, {
     method: 'POST',
