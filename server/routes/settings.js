@@ -328,14 +328,66 @@ router.post('/commerce7/test', requireOwner, async (req, res) => {
   }
 });
 
+// POST /settings/commerce7/sync — trigger manual C7 data sync (owner only)
+router.post('/commerce7/sync', requireOwner, async (req, res) => {
+  const { mode = 'incremental', entity } = req.body; // entity: 'customers'|'orders'|undefined (both)
+  try {
+    const r = await query(
+      `SELECT c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const integration = r.rows[0];
+    if (!integration?.c7_api_key) {
+      return res.status(400).json({ error: 'Commerce7 not configured' });
+    }
+
+    const { syncCustomers, syncOrders, syncCompany } = await import('../lib/commerce7Sync.js');
+    const cid = companyId(req);
+    const opts = { mode };
+
+    // Respond immediately — sync runs async in background
+    res.json({ ok: true, message: `${mode} sync started for ${entity || 'customers + orders'}` });
+
+    if (entity === 'customers') {
+      syncCustomers(cid, integration, opts).catch((e) => console.error('[c7-sync] manual sync error:', e.message));
+    } else if (entity === 'orders') {
+      syncOrders(cid, integration, opts).catch((e) => console.error('[c7-sync] manual sync error:', e.message));
+    } else {
+      syncCompany(cid, integration, opts).catch((e) => console.error('[c7-sync] manual sync error:', e.message));
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /settings/commerce7/sync-log — recent sync history (owner only)
+router.get('/commerce7/sync-log', requireOwner, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT entity, mode, since, records_synced, error_message, started_at, finished_at
+       FROM commerce7.sync_log
+       WHERE company_id = $1
+       ORDER BY started_at DESC LIMIT 20`,
+      [companyId(req)]
+    );
+    res.json({ log: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /settings/general — company-level general settings (owner only)
 router.get('/general', requireOwner, async (req, res) => {
   try {
     const r = await query(
-      `SELECT timezone FROM companies WHERE id = $1`,
+      `SELECT timezone, ops_manager_name FROM companies WHERE id = $1`,
       [companyId(req)]
     );
-    res.json({ timezone: r.rows[0]?.timezone || 'UTC' });
+    res.json({
+      timezone:         r.rows[0]?.timezone         || 'UTC',
+      ops_manager_name: r.rows[0]?.ops_manager_name || null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -343,14 +395,32 @@ router.get('/general', requireOwner, async (req, res) => {
 
 // PATCH /settings/general — update company-level general settings (owner only)
 router.patch('/general', requireOwner, async (req, res) => {
-  const { timezone } = req.body;
+  const { timezone, ops_manager_name } = req.body;
   if (!timezone?.trim()) return res.status(400).json({ error: 'timezone is required' });
   try {
     await query(
-      `UPDATE companies SET timezone = $1 WHERE id = $2`,
-      [timezone.trim(), companyId(req)]
+      `UPDATE companies SET timezone = $1, ops_manager_name = $2 WHERE id = $3`,
+      [timezone.trim(), ops_manager_name?.trim() || null, companyId(req)]
     );
-    res.json({ ok: true, timezone: timezone.trim() });
+    res.json({ ok: true, timezone: timezone.trim(), ops_manager_name: ops_manager_name?.trim() || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /settings/square-employees — active Square employees for manager dropdown (owner only)
+router.get('/square-employees', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT first_name, last_name,
+              TRIM(first_name || ' ' || last_name) AS full_name,
+              phone_number
+       FROM square.x_employee_contact
+       WHERE active = true
+         AND first_name IS NOT NULL
+       ORDER BY last_name, first_name`
+    );
+    res.json({ employees: r.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

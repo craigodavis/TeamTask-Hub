@@ -222,6 +222,20 @@
 
 .task-title {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.task-optional-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #718096;
+  border: 1px solid #a0aec0;
+  border-radius: 99px;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
 }
 
 .toggle-complete {
@@ -263,6 +277,105 @@
 
 .toggle-incomplete:hover {
   background: var(--primary-soft);
+}
+
+/* Task action buttons (complete + not-done side by side) */
+.task-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.toggle-not-done {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 2px solid #e53e3e;
+  border-radius: 50%;
+  background: transparent;
+  color: #e53e3e;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.toggle-not-done:hover {
+  background: #fff5f5;
+}
+
+/* Not-done task card */
+.task-not-done {
+  background: #fff5f5;
+  border-left: 3px solid #e53e3e;
+}
+
+.task-title-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.task-not-done-reason {
+  font-size: 0.8rem;
+  color: #c53030;
+  font-style: italic;
+}
+
+/* Inline reason input */
+.reason-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.reason-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #e53e3e;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.reason-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(229, 62, 62, 0.25);
+}
+
+.btn-reason-submit {
+  padding: 0.4rem 0.75rem;
+  background: #e53e3e;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-reason-submit:hover {
+  background: #c53030;
+}
+
+.btn-reason-cancel {
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  color: var(--text-secondary, #666);
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-reason-cancel:hover {
+  background: #f0f0f0;
 }
 
 .announcement-list {

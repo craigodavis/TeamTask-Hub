@@ -86,13 +86,27 @@ export async function getDaySummary(date) {
   return data;
 }
 
-export async function setTaskComplete(assignmentId, taskTemplateId, completed) {
+// status: 'completed' | 'not_completed' | null (null = reset/undo)
+// reason: required when status === 'not_completed'
+export async function setTaskStatus(assignmentId, taskTemplateId, status, reason = null) {
   const res = await fetch(
     `${API}/task-lists/assignments/${assignmentId}/tasks/${taskTemplateId}/complete`,
-    { method: 'PUT', headers: headers(), body: JSON.stringify({ completed }) }
+    { method: 'PUT', headers: headers(), body: JSON.stringify({ status, reason }) }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update');
+  return data;
+}
+
+// Legacy alias
+export async function setTaskComplete(assignmentId, taskTemplateId, completed) {
+  return setTaskStatus(assignmentId, taskTemplateId, completed ? 'completed' : null);
+}
+
+export async function getWageTitles() {
+  const res = await fetch(`${API}/task-lists/wage-titles`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load wage titles');
   return data;
 }
 
@@ -192,11 +206,22 @@ export async function getTemplateTasks(templateId) {
   return data;
 }
 
-export async function createTaskItem(templateId, title, sort_order) {
+export async function reorderTemplateTasks(templateId, taskIds) {
+  const res = await fetch(`${API}/task-lists/templates/${templateId}/tasks/reorder`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ task_ids: taskIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to reorder tasks');
+  return data;
+}
+
+export async function createTaskItem(templateId, title, sort_order, priority = 'must') {
   const res = await fetch(`${API}/task-lists/templates/${templateId}/tasks`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ title, sort_order }),
+    body: JSON.stringify({ title, sort_order, priority }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to add task');
@@ -840,6 +865,13 @@ export async function patchGeneralSettings(payload) {
   return data;
 }
 
+export async function getSquareEmployees() {
+  const res = await fetch(`${API}/settings/square-employees`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Square employees');
+  return data;
+}
+
 // ── Products MDS ──────────────────────────────────────────────────────────────
 
 export async function getProducts(params = {}) {
@@ -900,6 +932,51 @@ export async function importC7Products() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Import failed');
   return data;
+}
+
+// ── Tax Exempt Items ──────────────────────────────────────────────────────────
+
+export async function getSquareItems() {
+  const res = await fetch(`${API}/products/square-items`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Square items');
+  return data; // { items: string[] }
+}
+
+export async function getTaxExemptItems() {
+  const res = await fetch(`${API}/products/tax-exempt`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load tax-exempt items');
+  return data; // { items: [{id, item_name, created_at}] }
+}
+
+export async function addTaxExemptItem(itemName) {
+  const res = await fetch(`${API}/products/tax-exempt`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ item_name: itemName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to add exempt item');
+  return data;
+}
+
+export async function removeTaxExemptItem(id) {
+  const res = await fetch(`${API}/products/tax-exempt/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to remove exempt item');
+  }
+}
+
+export async function getTaxGap(from, to) {
+  const qs = new URLSearchParams();
+  if (from) qs.set('from', from);
+  if (to)   qs.set('to',   to);
+  const res = await fetch(`${API}/products/tax-gap?${qs}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to run tax gap check');
+  return data; // { from, to, rows, total_exposure }
 }
 
 export async function updateProduct(id, data) {

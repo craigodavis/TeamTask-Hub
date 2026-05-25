@@ -60,7 +60,77 @@
   border-bottom: 1px solid var(--border);
 }
 
-.template-row > span:first-child {
+.template-row > span:first-child,
+.template-row-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.template-name-text {
+  font-weight: 500;
+}
+
+.btn-name-edit {
+  padding: 0 0.3rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.5;
+  line-height: 1;
+}
+.btn-name-edit:hover { opacity: 1; color: var(--primary); }
+
+.template-name-input {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  min-width: 160px;
+  max-width: 320px;
+}
+.template-name-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
+
+.btn-name-save {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.btn-name-save:disabled { opacity: 0.6; cursor: default; }
+
+.btn-name-cancel {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.btn-name-cancel:hover { background: #f5f5f5; }
+
+.wage-title-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: var(--primary-soft, #e8f0fe);
+  color: var(--primary, #2563eb);
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.template-wage-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -87,6 +157,92 @@
   width: 100%;
   margin-top: 0.5rem;
   padding-left: 2rem;
+}
+
+/* Drag-and-drop task list */
+.task-edit-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.task-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  cursor: default;
+  user-select: none;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.task-edit-row.task-dragging {
+  opacity: 0.4;
+}
+
+.task-edit-row.task-drag-over {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-secondary, #999);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.task-edit-title {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+/* Priority toggle button */
+.priority-toggle {
+  flex-shrink: 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1.5px solid currentColor;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.priority-toggle.priority-must {
+  color: #c53030;
+  border-color: #c53030;
+}
+
+.priority-toggle.priority-must:hover {
+  background: #fff5f5;
+}
+
+.priority-toggle.priority-try {
+  color: #718096;
+  border-color: #a0aec0;
+}
+
+.priority-toggle.priority-try:hover {
+  background: #f7fafc;
+}
+
+.priority-select-new {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .template-tasks ul {

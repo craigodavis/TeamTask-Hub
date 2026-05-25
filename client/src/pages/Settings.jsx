@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, importC7Products } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, importC7Products, getSquareEmployees } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import './Settings.css';
 
@@ -76,14 +76,25 @@ function tzLabel(tz) {
   }
 }
 
-function GeneralSettingsPanel({ timezone, onTimezoneChange, saving, onSave }) {
-  const [local, setLocal] = useState(timezone);
+function GeneralSettingsPanel({ timezone, opsManagerName, onSave, saving }) {
+  const [localTz, setLocalTz] = useState(timezone);
+  const [localManager, setLocalManager] = useState(opsManagerName || '');
+  const [employees, setEmployees] = useState([]);
+  const [empLoading, setEmpLoading] = useState(true);
 
-  useEffect(() => { setLocal(timezone); }, [timezone]);
+  useEffect(() => { setLocalTz(timezone); }, [timezone]);
+  useEffect(() => { setLocalManager(opsManagerName || ''); }, [opsManagerName]);
+
+  useEffect(() => {
+    getSquareEmployees()
+      .then((d) => setEmployees(d.employees || []))
+      .catch(() => setEmployees([]))
+      .finally(() => setEmpLoading(false));
+  }, []);
 
   const handleSave = (e) => {
     e.preventDefault();
-    onSave(local);
+    onSave({ timezone: localTz, ops_manager_name: localManager || null });
   };
 
   return (
@@ -96,7 +107,7 @@ function GeneralSettingsPanel({ timezone, onTimezoneChange, saving, onSave }) {
           <legend>Regional</legend>
           <label>
             Timezone
-            <select value={local} onChange={(e) => setLocal(e.target.value)}>
+            <select value={localTz} onChange={(e) => setLocalTz(e.target.value)}>
               {TIMEZONES.map(({ group, zones }) => (
                 <optgroup key={group} label={group}>
                   {zones.map((tz) => (
@@ -106,6 +117,23 @@ function GeneralSettingsPanel({ timezone, onTimezoneChange, saving, onSave }) {
               ))}
             </select>
             <small>Used by scheduled report date parameters (e.g. <code>now()</code>, <code>date_trunc('month', now())</code>).</small>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Operations</legend>
+          <label>
+            Ops Manager
+            <select
+              value={localManager}
+              onChange={(e) => setLocalManager(e.target.value)}
+              disabled={empLoading}
+            >
+              <option value="">— None —</option>
+              {employees.map((emp) => (
+                <option key={emp.full_name} value={emp.full_name}>{emp.full_name}</option>
+              ))}
+            </select>
+            <small>Shown in task-completion SMS when not all tasks are finished.</small>
           </label>
         </fieldset>
         <div className="settings-actions">
@@ -167,7 +195,8 @@ export function Settings() {
   const [editingLocationName, setEditingLocationName] = useState('');
 
   const [timezone, setTimezone] = useState('UTC');
-  const [timezoneSaving, setTimezoneSaving] = useState(false);
+  const [opsManagerName, setOpsManagerName] = useState(null);
+  const [generalSaving, setGeneralSaving] = useState(false);
 
   // Service tokens
   const [serviceTokens, setServiceTokens]     = useState([]);
@@ -223,6 +252,7 @@ export function Settings() {
         setMailFrom(r.mail_from || '');
         setMailSecure(r.mail_secure || false);
         setTimezone(g.timezone || 'UTC');
+        setOpsManagerName(g.ops_manager_name || null);
         setC7Settings(c7);
         setC7TenantSlug(c7.c7_tenant_slug || '');
         setC7TenantId(c7.c7_tenant_id || '');
@@ -520,20 +550,21 @@ export function Settings() {
       {tab === 'general' && (
         <GeneralSettingsPanel
           timezone={timezone}
-          onTimezoneChange={setTimezone}
-          saving={timezoneSaving}
-          onSave={async (tz) => {
-            setTimezoneSaving(true);
+          opsManagerName={opsManagerName}
+          saving={generalSaving}
+          onSave={async ({ timezone: tz, ops_manager_name }) => {
+            setGeneralSaving(true);
             setError('');
             setMessage('');
             try {
-              await patchGeneralSettings({ timezone: tz });
+              await patchGeneralSettings({ timezone: tz, ops_manager_name });
               setTimezone(tz);
+              setOpsManagerName(ops_manager_name || null);
               setMessage('Settings saved.');
             } catch (e) {
               setError(e.message);
             } finally {
-              setTimezoneSaving(false);
+              setGeneralSaving(false);
             }
           }}
         />

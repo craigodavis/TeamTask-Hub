@@ -31,6 +31,8 @@ import {
   deleteTaskItem,
   taskDayNames,
   taskMonthNames,
+  getWageTitles,
+  reorderTemplateTasks,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
@@ -73,6 +75,7 @@ export function Manager() {
   const [activeReport, setActiveReport] = useState('food-waste');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [wageTitles, setWageTitles] = useState([]);
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
   if (!isManager) {
@@ -148,6 +151,7 @@ export function Manager() {
       loadTemplates();
       loadAssignments();
       loadLocations();
+      getWageTitles().then((r) => setWageTitles(r.wage_titles || [])).catch(() => {});
     } else if (tab === 'announcements') {
       loadAnnouncements();
       loadLocations();
@@ -315,13 +319,14 @@ export function Manager() {
       {tab === 'tasks' && (
         <section className="manager-section">
           <h2>Task list templates</h2>
-          <TaskListTemplateForm locations={locations} onCreated={loadTemplates} />
+          <TaskListTemplateForm locations={locations} wageTitles={wageTitles} onCreated={loadTemplates} />
           <ul className="template-list">
             {templates.map((t) => (
               <TaskTemplateRow
                 key={t.id}
                 template={t}
                 locations={locations}
+                wageTitles={wageTitles}
                 onUpdate={loadTemplates}
                 onAssign={() => handleCreateAssignment(t.id)}
                 assignDate={assignDate}
@@ -864,7 +869,7 @@ const TASK_TEMPLATE_TYPES = [
   { value: 'free_time', label: 'Free Time' },
 ];
 
-function TaskListTemplateForm({ locations, onCreated }) {
+function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('opening');
   const [period_type, setPeriodType] = useState('daily');
@@ -873,6 +878,7 @@ function TaskListTemplateForm({ locations, onCreated }) {
   const [recur_month, setRecurMonth] = useState(1);
   const [recur_day, setRecurDay] = useState(1);
   const [locationIds, setLocationIds] = useState([]);
+  const [wageTitle, setWageTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const toggleLocation = (id) => {
@@ -902,9 +908,11 @@ function TaskListTemplateForm({ locations, onCreated }) {
       if (period_type === 'monthly') options.day_of_month = day_of_month;
       if (period_type === 'yearly') { options.recur_month = recur_month; options.recur_day = recur_day; }
       if (locationIds.length > 0) options.location_ids = locationIds;
+      if (wageTitle) options.wage_title = wageTitle;
       await createTaskListTemplate(name.trim(), type.trim(), period_type, options);
       setName('');
       setLocationIds([]);
+      setWageTitle('');
       onCreated();
     } catch (e) {
       setErr(e.message);
@@ -966,6 +974,17 @@ function TaskListTemplateForm({ locations, onCreated }) {
           </label>
         </>
       )}
+      {wageTitles && wageTitles.length > 0 && (
+        <label className="form-inline-label">
+          Role
+          <select value={wageTitle} onChange={(e) => setWageTitle(e.target.value)}>
+            <option value="">All roles</option>
+            {wageTitles.map((wt) => (
+              <option key={wt} value={wt}>{wt}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {locations && locations.length > 0 && (
         <span className="form-locations-inline">
           Locations (empty = all):{' '}
@@ -983,11 +1002,19 @@ function TaskListTemplateForm({ locations, onCreated }) {
   );
 }
 
-function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }) {
+function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, assignDate }) {
   const [tasks, setTasks] = useState([]);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState('must');
+  // Drag state
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  // Inline name editing
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(template.name);
+  const [nameSaving, setNameSaving] = useState(false);
 
   const loadTasks = () => {
     getTemplateTasks(template.id).then((r) => setTasks(r.tasks || [])).catch(() => {});
@@ -1004,13 +1031,81 @@ function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }
     if (!newTaskTitle.trim()) return;
     setAdding(true);
     try {
-      await createTaskItem(template.id, newTaskTitle.trim());
+      await createTaskItem(template.id, newTaskTitle.trim(), undefined, newTaskPriority);
       setNewTaskTitle('');
+      setNewTaskPriority('must');
       loadTasks();
       onUpdate();
     } finally {
       setAdding(false);
     }
+  };
+
+  const handleTogglePriority = async (taskId, current) => {
+    const next = current === 'must' ? 'try' : 'must';
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, priority: next } : t));
+    try {
+      await updateTaskItem(taskId, { priority: next });
+    } catch (e) {
+      // Revert on error
+      setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, priority: current } : t));
+      alert(e.message);
+    }
+  };
+
+  // Drag-and-drop handlers
+  const handleDragStart = (e, index) => {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index);
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (index !== dragOverIndex) setDragOverIndex(index);
+  };
+
+  const handleDrop = async (e, dropIndex) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDragIndex(null); setDragOverIndex(null);
+      return;
+    }
+    const reordered = [...tasks];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(dropIndex, 0, moved);
+    setTasks(reordered);
+    setDragIndex(null);
+    setDragOverIndex(null);
+    try {
+      await reorderTemplateTasks(template.id, reordered.map((t) => t.id));
+    } catch (e) {
+      loadTasks(); // revert to server order on error
+      alert(e.message);
+    }
+  };
+
+  const handleDragEnd = () => { setDragIndex(null); setDragOverIndex(null); };
+
+  const handleNameSave = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === template.name) { setEditingName(false); return; }
+    setNameSaving(true);
+    try {
+      await updateTaskListTemplate(template.id, { name: trimmed });
+      onUpdate();
+      setEditingName(false);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const handleNameKeyDown = (e) => {
+    if (e.key === 'Enter') handleNameSave();
+    if (e.key === 'Escape') { setNameInput(template.name); setEditingName(false); }
   };
 
   const handleDeleteTemplate = async () => {
@@ -1035,14 +1130,49 @@ function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }
 
   return (
     <li className="template-row">
-      <span>
+      <span className="template-row-title">
         <button type="button" className="btn-expand" onClick={() => setOpen(!open)} aria-label={open ? 'Collapse' : 'Expand'}>
           {open ? '−' : '+'}
         </button>
-        {template.name} ({TASK_TEMPLATE_TYPES.find((t) => t.value === template.type)?.label ?? template.type}, {template.period_type}
-        {template.period_type === 'weekly' && template.day_of_week != null ? `, ${taskDayNames[template.day_of_week]}` : ''}
-        {template.period_type === 'monthly' && template.day_of_month != null ? `, day ${template.day_of_month}` : ''}
-        {template.period_type === 'yearly' && template.recur_month != null && template.recur_day != null ? `, ${taskMonthNames[template.recur_month - 1]} ${template.recur_day}` : ''})
+        {editingName ? (
+          <>
+            <input
+              className="template-name-input"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              onBlur={handleNameSave}
+              disabled={nameSaving}
+              autoFocus
+            />
+            <button type="button" className="btn-name-save" onClick={handleNameSave} disabled={nameSaving}>
+              {nameSaving ? '…' : '✓'}
+            </button>
+            <button type="button" className="btn-name-cancel" onClick={() => { setNameInput(template.name); setEditingName(false); }}>
+              ✕
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="template-name-text">
+              {template.name}
+            </span>
+            <button
+              type="button"
+              className="btn-name-edit"
+              onClick={() => { setNameInput(template.name); setEditingName(true); }}
+              aria-label="Edit name"
+              title="Edit name"
+            >
+              ✎
+            </button>
+            {' '}({TASK_TEMPLATE_TYPES.find((t) => t.value === template.type)?.label ?? template.type}, {template.period_type}
+            {template.period_type === 'weekly' && template.day_of_week != null ? `, ${taskDayNames[template.day_of_week]}` : ''}
+            {template.period_type === 'monthly' && template.day_of_month != null ? `, day ${template.day_of_month}` : ''}
+            {template.period_type === 'yearly' && template.recur_month != null && template.recur_day != null ? `, ${taskMonthNames[template.recur_month - 1]} ${template.recur_day}` : ''})
+            {template.wage_title && <span className="wage-title-badge">{template.wage_title}</span>}
+          </>
+        )}
       </span>
       <span>
         {template.period_type === 'weekly' ? (
@@ -1060,6 +1190,23 @@ function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }
       </span>
       {open && (
         <div className="template-tasks">
+          {wageTitles && wageTitles.length > 0 && (
+            <p className="template-wage-title">
+              Assigned role:{' '}
+              <select
+                value={template.wage_title || ''}
+                onChange={(e) => {
+                  const val = e.target.value || null;
+                  updateTaskListTemplate(template.id, { wage_title: val ?? '' }).then(onUpdate).catch((err) => alert(err.message));
+                }}
+              >
+                <option value="">All roles</option>
+                {wageTitles.map((wt) => (
+                  <option key={wt} value={wt}>{wt}</option>
+                ))}
+              </select>
+            </p>
+          )}
           {template.period_type === 'weekly' && (
             <p className="template-weekly-day">
               Show on:{' '}
@@ -1138,16 +1285,41 @@ function TaskTemplateRow({ template, locations, onUpdate, onAssign, assignDate }
               })}
             </p>
           )}
-          <ul>
-            {tasks.map((t) => (
-              <li key={t.id}>
-                {t.title}
+          <ul className="task-edit-list">
+            {tasks.map((t, index) => (
+              <li
+                key={t.id}
+                className={[
+                  'task-edit-row',
+                  dragIndex === index ? 'task-dragging' : '',
+                  dragOverIndex === index && dragIndex !== index ? 'task-drag-over' : '',
+                ].filter(Boolean).join(' ')}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
+              >
+                <span className="drag-handle" aria-hidden>⠿</span>
+                <span className="task-edit-title">{t.title}</span>
+                <button
+                  type="button"
+                  className={`priority-toggle priority-${t.priority || 'must'}`}
+                  onClick={() => handleTogglePriority(t.id, t.priority || 'must')}
+                  title="Toggle priority"
+                >
+                  {t.priority === 'try' ? 'Try' : 'Must'}
+                </button>
                 <button type="button" className="btn-remove small" onClick={() => handleDeleteTask(t.id)}>Remove</button>
               </li>
             ))}
           </ul>
           <form onSubmit={handleAddTask} className="form-inline">
             <input placeholder="New task title" value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} />
+            <select value={newTaskPriority} onChange={(e) => setNewTaskPriority(e.target.value)} className="priority-select-new">
+              <option value="must">Must</option>
+              <option value="try">Try</option>
+            </select>
             <button type="submit" disabled={adding}>Add task</button>
           </form>
         </div>

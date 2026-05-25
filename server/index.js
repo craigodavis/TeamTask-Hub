@@ -16,6 +16,11 @@ import { scheduledReportsRouter } from './routes/scheduledReports.js';
 import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
+import { bettyRouter } from './routes/betty.js';
+import { teamRouter } from './routes/team.js';
+import { gatewayRouter } from './routes/gateway.js';
+import { startGatewayAutoApproveScheduler } from './lib/gatewayRules.js';
+import { startC7SyncScheduler } from './lib/commerce7Sync.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -23,7 +28,7 @@ import { receiptsRouter } from './routes/receipts.js';
 import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
-import { productsRouter } from './routes/products.js';
+import { productsRouter, startTaxGapAlertScheduler } from './routes/products.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 
 const app = express();
@@ -56,7 +61,10 @@ app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
 app.use('/api/square', requireAuth, requireManager, squareRouter);
 app.use('/api/products', requireAuth, productsRouter);
-app.use('/api/service-tokens', requireAuth, serviceTokensRouter);  // owner enforced in UI; any authed user can list their own
+app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
+app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
+app.use('/api/team', requireAuth, teamRouter);
+app.use('/api/gateway', requireAuth, gatewayRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
 
@@ -82,9 +90,15 @@ ensureLocationsTables()
     console.log('Schema checks (locations / migration 008) finished.');
     startDailySquareAutoSync();
     startReportScheduler();
+    startGatewayAutoApproveScheduler();
+    startC7SyncScheduler();
+    startTaxGapAlertScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
     startDailySquareAutoSync();
     startReportScheduler();
+    startGatewayAutoApproveScheduler();
+    startC7SyncScheduler();
+    startTaxGapAlertScheduler();
   });

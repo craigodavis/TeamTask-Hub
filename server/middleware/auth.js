@@ -16,7 +16,7 @@ export async function requireAuth(req, res, next) {
     try {
       const hash = crypto.createHash('sha256').update(token).digest('hex');
       const r = await query(
-        `SELECT id, company_id, role FROM service_tokens
+        `SELECT id, company_id, role, name FROM service_tokens
          WHERE token_hash = $1 AND revoked_at IS NULL`,
         [hash]
       );
@@ -28,6 +28,7 @@ export async function requireAuth(req, res, next) {
       req.role = st.role;
       req.isServiceToken = true;
       req.serviceTokenId = st.id;
+      req.serviceTokenName = st.name;
       // Update last_used_at without blocking the request
       query(`UPDATE service_tokens SET last_used_at = NOW() WHERE id = $1`, [st.id]).catch(() => {});
       return next();
