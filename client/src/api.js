@@ -996,3 +996,70 @@ export async function createProduct(data) {
   if (!res.ok) throw new Error(d.error || 'Failed to create product');
   return d;
 }
+
+// ── Skynet ────────────────────────────────────────────────────────────────────
+export async function getSkynetConfig() {
+  const res = await fetch(`${API}/skynet/config`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load Skynet config');
+  return d;
+}
+
+export async function saveSkynetConfig(data) {
+  const res = await fetch(`${API}/skynet/config`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save Skynet config');
+  return d;
+}
+
+export async function getSkynetAgents() {
+  const res = await fetch(`${API}/skynet/agents`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load agents');
+  return d; // { agents: [...] }
+}
+
+export async function getSkynetSchedules() {
+  const res = await fetch(`${API}/skynet/schedules`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load schedules');
+  return d; // { schedules: [...] }
+}
+
+export async function createSkynetSchedule(data) {
+  const res = await fetch(`${API}/skynet/schedules`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create schedule');
+  return d;
+}
+
+export async function updateSkynetSchedule(id, data) {
+  const res = await fetch(`${API}/skynet/schedules/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update schedule');
+  return d;
+}
+
+export async function deleteSkynetSchedule(id) {
+  const res = await fetch(`${API}/skynet/schedules/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete schedule');
+  return d;
+}
+
+export async function runSkynetScheduleNow(id) {
+  const res = await fetch(`${API}/skynet/schedules/${id}/run`, {
+    method: 'POST', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to trigger schedule');
+  return d;
+}
