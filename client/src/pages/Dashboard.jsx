@@ -229,16 +229,21 @@ export function Dashboard() {
                   {t.my_status === 'not_completed' && t.my_reason && (
                     <span className="task-not-done-reason">Reason: {t.my_reason}</span>
                   )}
+                  {t.completed_by_name && !t.completed_by_me && (
+                    <span className="task-completed-by">✓ {t.completed_by_name}</span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  className="toggle-incomplete"
-                  onClick={() => handleUndo(a.id, t.task_template_id)}
-                  aria-label="Undo"
-                  title="Undo — return to To Do"
-                >
-                  Undo
-                </button>
+                {t.completed_by_me && (
+                  <button
+                    type="button"
+                    className="toggle-incomplete"
+                    onClick={() => handleUndo(a.id, t.task_template_id)}
+                    aria-label="Undo"
+                    title="Undo — return to To Do"
+                  >
+                    Undo
+                  </button>
+                )}
               </li>
             ))}
           </ul>
