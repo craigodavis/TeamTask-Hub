@@ -878,9 +878,13 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
   const [recur_month, setRecurMonth] = useState(1);
   const [recur_day, setRecurDay] = useState(1);
   const [locationIds, setLocationIds] = useState([]);
-  const [wageTitle, setWageTitle] = useState('');
+  const [wageTitle, setWageTitle] = useState(() => wageTitles?.[0] || '');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  // Keep wageTitle in sync when wageTitles loads after first render
+  React.useEffect(() => {
+    if (!wageTitle && wageTitles?.length > 0) setWageTitle(wageTitles[0]);
+  }, [wageTitles]);
   const toggleLocation = (id) => {
     setLocationIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -899,6 +903,10 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
     }
     if (period_type === 'yearly' && (recur_month < 1 || recur_month > 12 || recur_day < 1 || recur_day > 31)) {
       setErr('Select month and day for yearly tasks.');
+      return;
+    }
+    if (!wageTitle.trim()) {
+      setErr('A role is required for this task list.');
       return;
     }
     setLoading(true);
@@ -974,17 +982,24 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
           </label>
         </>
       )}
-      {wageTitles && wageTitles.length > 0 && (
-        <label className="form-inline-label">
-          Role
-          <select value={wageTitle} onChange={(e) => setWageTitle(e.target.value)}>
-            <option value="">All roles</option>
+      <label className="form-inline-label">
+        Role <span className="required-star">*</span>
+        {wageTitles && wageTitles.length > 0 ? (
+          <select value={wageTitle} onChange={(e) => setWageTitle(e.target.value)} required>
             {wageTitles.map((wt) => (
               <option key={wt} value={wt}>{wt}</option>
             ))}
           </select>
-        </label>
-      )}
+        ) : (
+          <input
+            type="text"
+            value={wageTitle}
+            onChange={(e) => setWageTitle(e.target.value)}
+            placeholder="e.g. Server, Bartender…"
+            required
+          />
+        )}
+      </label>
       {locations && locations.length > 0 && (
         <span className="form-locations-inline">
           Locations (empty = all):{' '}
