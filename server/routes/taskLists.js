@@ -443,11 +443,20 @@ router.get('/day-summary', async (req, res) => {
     for (const a of assignments) {
       const tasksResult = await query(
         `SELECT tt.id as task_template_id, tt.title, tt.sort_order, tt.priority,
-                tc.completed_at as my_completed_at,
-                tc.status as my_status,
-                tc.reason as my_reason
+                tc.completed_at  AS my_completed_at,
+                tc.status        AS my_status,
+                tc.reason        AS my_reason,
+                tc.user_id       AS completed_by_id,
+                u2.display_name  AS completed_by_name,
+                (tc.user_id = $2) AS completed_by_me
          FROM task_templates tt
-         LEFT JOIN task_completions tc ON tc.task_template_id = tt.id AND tc.assignment_id = $1 AND tc.user_id = $2
+         LEFT JOIN LATERAL (
+           SELECT * FROM task_completions
+           WHERE task_template_id = tt.id AND assignment_id = $1
+           ORDER BY completed_at DESC NULLS LAST
+           LIMIT 1
+         ) tc ON true
+         LEFT JOIN users u2 ON u2.id = tc.user_id
          WHERE tt.template_id = $3
          ORDER BY tt.sort_order, tt.id`,
         [a.id, userId, a.template_id]

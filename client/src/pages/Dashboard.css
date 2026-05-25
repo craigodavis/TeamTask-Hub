@@ -325,6 +325,12 @@
   font-style: italic;
 }
 
+.task-completed-by {
+  font-size: 0.78rem;
+  color: #888;
+  font-style: italic;
+}
+
 /* Inline reason input */
 .reason-input-row {
   display: flex;
