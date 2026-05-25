@@ -158,6 +158,17 @@ export async function deleteAssignment(id) {
   }
 }
 
+export async function closeAssignment(id, note) {
+  const res = await fetch(`${API}/task-lists/assignments/${id}/close`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to close task list');
+  return data;
+}
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
