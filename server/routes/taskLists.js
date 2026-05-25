@@ -729,4 +729,87 @@ router.get('/report', requireManager, async (req, res) => {
   }
 });
 
+// ---------- Nightly archive job (runs at 1am) ----------
+// Closes out all assignments from before today:
+//   - Any incomplete tasks get auto-marked not_completed with "Archived — end of day"
+//   - Sets archived_at on the assignment so the UI can show it as closed
+
+async function archivePreviousDayAssignments() {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    // Find all open (not yet archived) assignments from before today
+    const openAssignments = await query(
+      `SELECT ta.id, ta.template_id, ta.company_id
+       FROM task_assignments ta
+       WHERE ta.assigned_date < $1 AND ta.archived_at IS NULL`,
+      [today]
+    );
+
+    if (!openAssignments.rows.length) {
+      console.log('[archive] No open assignments to archive.');
+      return;
+    }
+
+    for (const a of openAssignments.rows) {
+      // Find incomplete tasks for this assignment
+      const incompleteTasks = await query(
+        `SELECT tt.id as task_template_id
+         FROM task_templates tt
+         WHERE tt.template_id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM task_completions tc
+             WHERE tc.assignment_id = $2 AND tc.task_template_id = tt.id
+           )`,
+        [a.template_id, a.id]
+      );
+
+      // Auto-mark each incomplete task as not_completed
+      for (const t of incompleteTasks.rows) {
+        await query(
+          `INSERT INTO task_completions
+             (assignment_id, task_template_id, user_id, status, reason, completed_at, updated_at)
+           SELECT $1, $2, assignee_id, 'not_completed', 'Archived — end of day', NOW(), NOW()
+           FROM task_assignments WHERE id = $1
+           ON CONFLICT (assignment_id, task_template_id, user_id) DO NOTHING`,
+          [a.id, t.task_template_id]
+        );
+      }
+
+      // Mark the assignment as archived
+      await query(
+        `UPDATE task_assignments SET archived_at = NOW() WHERE id = $1`,
+        [a.id]
+      );
+    }
+
+    console.log(`[archive] Archived ${openAssignments.rows.length} assignment(s) from before ${today}.`);
+  } catch (err) {
+    console.error('[archive] Error:', err.message);
+  }
+}
+
+export function startDailyArchiveScheduler() {
+  // Run once at startup to catch any missed days (e.g. server was down at 1am)
+  archivePreviousDayAssignments();
+
+  // Then schedule for 1am every night
+  const msUntil1am = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(1, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next - now;
+  };
+
+  const scheduleNext = () => {
+    setTimeout(() => {
+      archivePreviousDayAssignments();
+      setInterval(archivePreviousDayAssignments, 24 * 60 * 60 * 1000);
+    }, msUntil1am());
+  };
+
+  scheduleNext();
+  console.log(`[archive] Scheduler started — next run at 1am (in ${Math.round(msUntil1am() / 60000)} min)`);
+}
+
 export { router as taskListsRouter };

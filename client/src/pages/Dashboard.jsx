@@ -155,7 +155,10 @@ export function Dashboard() {
     ) : (
       assignments.map((a) => (
         <div key={a.id} className="assignment-block">
-          <h3 className="template-name">{a.template_name}</h3>
+          <h3 className="template-name">
+            {a.template_name}
+            {a.archived_at && <span className="badge-archived">Archived</span>}
+          </h3>
           <ul className="task-list">
             {a.tasks.map((t) => {
               const key = `${a.id}:${t.task_template_id}`;
@@ -217,7 +220,10 @@ export function Dashboard() {
     ) : (
       assignments.map((a) => (
         <div key={a.id} className="assignment-block">
-          <h3 className="template-name">{a.template_name}</h3>
+          <h3 className="template-name">
+            {a.template_name}
+            {a.archived_at && <span className="badge-archived">Archived</span>}
+          </h3>
           <ul className="task-list">
             {a.tasks.map((t) => (
               <li
