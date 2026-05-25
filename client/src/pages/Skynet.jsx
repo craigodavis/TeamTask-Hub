@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getSkynetAgents, getSkynetSchedules, createSkynetSchedule,
   updateSkynetSchedule, deleteSkynetSchedule, runSkynetScheduleNow,
-  getSkynetConfig, saveSkynetConfig,
+  getSkynetConfig, saveSkynetConfig, testSkynetRun,
 } from '../api';
 import './Skynet.css';
 
@@ -21,6 +21,107 @@ function scheduleLabel(s) {
     case 'annually': return `Annually — ${MONTHS[(cfg.month||1)-1]} ${cfg.dayOfMonth||1} at ${t(cfg.hour||8, cfg.minute||0)}`;
     default:         return s.schedule_type;
   }
+}
+
+function TestPanel({ agents, onSaveAsSchedule }) {
+  const [open,      setOpen]      = useState(false);
+  const [agentId,   setAgentId]   = useState('');
+  const [prompt,    setPrompt]    = useState('');
+  const [running,   setRunning]   = useState(false);
+  const [result,    setResult]    = useState(null); // { ok, issue } | { error }
+
+  async function handleRun(e) {
+    e.preventDefault();
+    setRunning(true);
+    setResult(null);
+    try {
+      const data = await testSkynetRun({ agentId, prompt });
+      setResult({ ok: true, issue: data.issue });
+    } catch (err) {
+      setResult({ ok: false, error: err.message });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function handleSaveAsSchedule() {
+    onSaveAsSchedule({ agentId, prompt });
+    setOpen(false);
+  }
+
+  return (
+    <div className="skynet-test-panel">
+      <button
+        type="button"
+        className="skynet-test-toggle"
+        onClick={() => { setOpen((v) => !v); setResult(null); }}
+        aria-expanded={open}
+      >
+        <span className="skynet-test-toggle-icon">{open ? '▾' : '▸'}</span>
+        Test an agent
+        <span className="skynet-test-badge">Run without scheduling</span>
+      </button>
+
+      {open && (
+        <form className="skynet-test-form" onSubmit={handleRun}>
+          <div className="skynet-form-row">
+            <label>Agent</label>
+            <select value={agentId} onChange={(e) => setAgentId(e.target.value)} required>
+              <option value="">Select an agent…</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name} — {a.title || a.role}</option>
+              ))}
+            </select>
+          </div>
+          <div className="skynet-form-row">
+            <label>Prompt</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="What should the agent do?"
+              rows={4}
+              required
+            />
+          </div>
+
+          {result && (
+            <div className={`skynet-test-result ${result.ok ? 'skynet-test-ok' : 'skynet-test-err'}`}>
+              {result.ok ? (
+                <>
+                  <span className="skynet-test-result-icon">✓</span>
+                  Issue created in Paperclip
+                  {result.issue?.id && (
+                    <span className="skynet-test-issue-id"> #{result.issue.id.slice(0, 8)}…</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="skynet-test-result-icon">✕</span>
+                  {result.error}
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="skynet-form-actions">
+            <button type="submit" className="btn-primary" disabled={running}>
+              {running ? 'Running…' : '▶ Run Test'}
+            </button>
+            {result?.ok && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleSaveAsSchedule}
+                title="Open the schedule form pre-filled with this agent and prompt"
+              >
+                Save as Schedule →
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
 }
 
 function ScheduleForm({ agents, onSave, onCancel, initial }) {
@@ -214,6 +315,7 @@ export function Skynet() {
   const [schedules,   setSchedules]   = useState([]);
   const [configured,  setConfigured]  = useState(null); // null=loading, true/false
   const [showForm,    setShowForm]    = useState(false);
+  const [prefillForm, setPrefillForm] = useState(null); // { agentId, prompt } from test panel
   const [loadError,   setLoadError]   = useState('');
   const [runningId,   setRunningId]   = useState(null);
   const [deletingId,  setDeletingId]  = useState(null);
@@ -240,7 +342,15 @@ export function Skynet() {
   async function handleCreate(data) {
     await createSkynetSchedule(data);
     setShowForm(false);
+    setPrefillForm(null);
     load();
+  }
+
+  function handleSaveAsSchedule({ agentId, prompt }) {
+    setPrefillForm({ agentId, prompt });
+    setShowForm(true);
+    // Scroll to form
+    setTimeout(() => document.querySelector('.skynet-form-wrapper')?.scrollIntoView({ behavior: 'smooth' }), 50);
   }
 
   async function handleToggle(s) {
@@ -295,10 +405,17 @@ export function Skynet() {
         <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Schedule</button>
       </div>
 
+      <TestPanel agents={agents} onSaveAsSchedule={handleSaveAsSchedule} />
+
       {showForm && (
         <div className="skynet-form-wrapper">
           <h2>New Schedule</h2>
-          <ScheduleForm agents={agents} onSave={handleCreate} onCancel={() => setShowForm(false)} />
+          <ScheduleForm
+            agents={agents}
+            onSave={handleCreate}
+            onCancel={() => { setShowForm(false); setPrefillForm(null); }}
+            initial={prefillForm}
+          />
         </div>
       )}
 

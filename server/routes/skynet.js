@@ -235,6 +235,37 @@ router.delete('/schedules/:id', async (req, res) => {
   }
 });
 
+// ── POST /api/skynet/test ─────────────────────────────────────────────────────
+// Ad-hoc one-off execution — no schedule record created or updated.
+// Body: { agentId, prompt, name? }
+router.post('/test', async (req, res) => {
+  const { agentId, prompt, name } = req.body;
+  if (!agentId?.trim()) return res.status(400).json({ error: 'agentId is required' });
+  if (!prompt?.trim())  return res.status(400).json({ error: 'prompt is required' });
+
+  try {
+    const cfg = await getPaperclipConfig(cid(req));
+    const title = (name?.trim() || 'Test run') + ` — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+    const body = {
+      title,
+      description:     prompt.trim(),
+      assigneeAgentId: agentId.trim(),
+      priority:        'medium',
+      status:          'todo',
+    };
+    if (cfg.goalId) body.goalId = cfg.goalId;
+
+    const issue = await paperclipFetch(cid(req), `/api/companies/${cfg.companyId}/issues`, {
+      method: 'POST',
+      body:   JSON.stringify(body),
+    });
+
+    res.json({ ok: true, issue });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/skynet/schedules/:id/run ───────────────────────────────────────
 router.post('/schedules/:id/run', async (req, res) => {
   try {
