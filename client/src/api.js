@@ -1081,3 +1081,14 @@ export async function runSkynetScheduleNow(id) {
   if (!res.ok) throw new Error(d.error || 'Failed to trigger schedule');
   return d;
 }
+
+export async function testSkynetRun({ agentId, prompt, name }) {
+  const res = await fetch(`${API}/skynet/test`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId, prompt, name }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Test run failed');
+  return d;
+}
