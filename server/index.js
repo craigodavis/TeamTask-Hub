@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
 import express from 'express';
 import cors from 'cors';
+import { query } from './db.js';
 import { authRouter } from './routes/auth.js';
 import { companiesRouter } from './routes/companies.js';
 import { taskListsRouter, startDailyArchiveScheduler } from './routes/taskLists.js';
@@ -30,7 +31,9 @@ import { receiptsRouter } from './routes/receipts.js';
 import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
-import { productsRouter, startTaxGapAlertScheduler } from './routes/products.js';
+import { squareSyncRouter } from './routes/squareSync.js';
+import { productsRouter } from './routes/products.js';
+import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 import { runMigrations } from './scripts/run-migrations.js';
 
@@ -63,7 +66,9 @@ app.use('/api/receipts', requireAuth, receiptsRouter);
 app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
 app.use('/api/square', requireAuth, requireManager, squareRouter);
+app.use('/api/square/sync', requireAuth, requireManager, squareSyncRouter);
 app.use('/api/products', requireAuth, productsRouter);
+app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
 app.use('/api/team', requireAuth, teamRouter);
@@ -91,14 +96,20 @@ app.listen(PORT, () => {
 
 runMigrations()
   .catch((err) => console.error('Migration error (non-fatal):', err.message))
-  .finally(() => ensureLocationsTables())
+  .finally(() => {
+    // Any sync stuck in 'running' from before the server stopped is now stale — reset it.
+    query(`UPDATE square_sync_objects SET last_sync_status = NULL WHERE last_sync_status = 'running'`)
+      .catch((e) => console.warn('Could not reset stuck Square sync statuses:', e.message));
+    query(`UPDATE teamtask_hub.commerce7_sync_objects SET last_sync_status = NULL WHERE last_sync_status = 'running'`)
+      .catch((e) => console.warn('Could not reset stuck C7 sync statuses:', e.message));
+    return ensureLocationsTables();
+  })
   .then(() => {
     console.log('Schema checks (locations / migration 008) finished.');
     startDailySquareAutoSync();
     startReportScheduler();
     startGatewayAutoApproveScheduler();
     startC7SyncScheduler();
-    startTaxGapAlertScheduler();
     startSkynetScheduler();
     startDailyArchiveScheduler();
   })
@@ -108,7 +119,6 @@ runMigrations()
     startReportScheduler();
     startGatewayAutoApproveScheduler();
     startC7SyncScheduler();
-    startTaxGapAlertScheduler();
     startSkynetScheduler();
     startDailyArchiveScheduler();
   });

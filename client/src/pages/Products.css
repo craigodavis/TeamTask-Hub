@@ -379,8 +379,29 @@
 .tax-gap-section {
   border-top: 1px solid var(--border, #e5e7eb);
   padding-top: 1.5rem;
+  margin-top: 1.5rem;
 }
 .tax-gap-section h3 { margin: 0 0 0.4rem; font-size: 1rem; }
+.tax-gap-title { font-size: 1rem; font-weight: 600; margin: 0 0 0.35rem; }
+
+/* Catalog sync bar */
+.catalog-sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--card-bg, #f9fafb);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  margin: 0.75rem 0 0;
+  flex-wrap: wrap;
+}
+.catalog-sync-status { font-size: 0.85rem; }
+.sync-ok   { color: #166534; }
+.sync-err  { color: #c0392b; }
+.sync-running { color: #92400e; }
+.sync-none { color: #9ca3af; }
 .tax-gap-hint { margin: 0 0 1rem; font-size: 0.875rem; color: var(--text-muted, #6b7280); }
 
 .tax-gap-controls {

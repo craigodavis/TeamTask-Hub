@@ -52,8 +52,21 @@ async function paperclipFetch(companyId, path, options = {}) {
 }
 
 // Calculate next_run_at for a new or updated schedule
+// Parse every_Nh types → interval hours (e.g. 'every_6h' → 6)
+function everyNHours(scheduleType) {
+  const m = scheduleType.match(/^every_(\d+)h$/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function computeNextRunAt(scheduleType, fireAt, scheduleConfig) {
   if (scheduleType === 'once') return fireAt ? new Date(fireAt) : null;
+
+  const intervalHours = everyNHours(scheduleType);
+  if (intervalHours) {
+    const next = new Date();
+    next.setTime(next.getTime() + intervalHours * 60 * 60 * 1000);
+    return next;
+  }
 
   const now = new Date();
   const { hour = 8, minute = 0, dayOfWeek = 1, dayOfMonth = 1, month = 1 } = scheduleConfig || {};
@@ -168,7 +181,7 @@ router.post('/schedules', async (req, res) => {
   if (!prompt?.trim())     return res.status(400).json({ error: 'prompt is required' });
   if (!scheduleType)       return res.status(400).json({ error: 'scheduleType is required' });
 
-  const validTypes = ['once', 'hourly', 'daily', 'weekly', 'monthly', 'annually'];
+  const validTypes = ['once', 'every_2h', 'every_4h', 'every_6h', 'every_8h', 'every_12h', 'hourly', 'daily', 'weekly', 'monthly', 'annually'];
   if (!validTypes.includes(scheduleType)) return res.status(400).json({ error: `scheduleType must be one of: ${validTypes.join(', ')}` });
   if (scheduleType === 'once' && !fireAt) return res.status(400).json({ error: 'fireAt is required for one-time schedules' });
 

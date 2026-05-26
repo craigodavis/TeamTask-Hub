@@ -7,55 +7,49 @@ const router = express.Router();
 // ── Schema context for AI ────────────────────────────────────────────────────
 const SQUARE_SCHEMA_CONTEXT = `
 You are a SQL analyst for Kindred Vineyards, a winery and tasting room in Sunnyslope, Idaho.
-You query a PostgreSQL database with Square POS data and a custom correction table.
+You query a PostgreSQL database with Square POS data synced directly from the Square API into the team_square schema.
 
 === KEY TABLES ===
 
-square.order
+team_square.order
   id, state ('COMPLETED'|'OPEN'|'CANCELED'), created_at, updated_at, closed_at,
   total_money_amount (CENTS), total_tax_amount (CENTS), total_discount_amount (CENTS),
-  total_service_charge_amount (CENTS), location_id, customer_id, order_source_name
+  total_service_charge_amount (CENTS), net_amount_total_money_amount (CENTS),
+  location_id, customer_id, order_source_name
 
-square.order_line_item
+team_square.order_line_item
   uid (PK), order_id, name, variation_name, catalog_object_id,
-  quantity (double precision — no cast needed),
+  quantity (NUMERIC — no cast needed),
   base_price_amount (CENTS), gross_sales_amount (CENTS),
   total_amount (CENTS), total_tax_amount (CENTS), total_discount_amount (CENTS)
 
-square.catalog_item
-  id, name, description
-  NOTE: there is NO is_deleted column — do not use it
+team_square.catalog_item
+  id, name, description, category_id,
+  is_deleted (BOOLEAN — use to exclude archived items),
+  tax_ids (TEXT array)
 
-square.catalog_item_variation
-  id, item_id, name (variation name), sku, price_money_amount (CENTS), pricing_type,
+team_square.catalog_item_variation
+  id, item_id, name (variation name), sku,
+  price_money_amount (CENTS), pricing_type,
   track_inventory, inventory_alert_threshold
 
-square.catalog_category
+team_square.catalog_category
   id, name  (e.g. '750ml Bottle', 'Glass Pour', '5 Flight Tasting', 'Pizza', 'Beer')
 
-square.catalog_item_category
-  catalog_item_id, id (this column IS the category_id), ordinal
-  NOTE: join square.catalog_category ON cc.id = cic.id
+team_square.location
+  id, name, status, timezone, phone_number,
+  address_line_1, address_locality, address_administrative_district_level_1
 
-square.payment
-  id, order_id, customer_id, created_at, status, source_type,
-  amount_money_amount (CENTS), total_money_amount (CENTS),
-  tip_money_amount (CENTS), refunded_money_amount (CENTS),
-  employee_id, buyer_email_address, receipt_number
+team_square.shift  (employee time clock — sourced from Square Timecards API)
+  id, team_member_id, location_id, start_at, end_at, status ('OPEN'|'CLOSED'),
+  wage_title, wage_hourly_rate_amount (CENTS), wage_job_id
+  NOTE: employee_id is populated on pre-2025 rows only; always use team_member_id
 
-square.customer
-  id, given_name, family_name, email_address, phone_number,
-  created_at, note, reference_id
+team_square.team_member
+  id, given_name, family_name, email_address, phone_number, status ('ACTIVE'|'INACTIVE')
 
-square.location
-  id, name, address_address_line_1, address_city, address_state
-
-square.shift  (employee time clock)
-  id, employee_id, location_id, start_at, end_at, status,
-  regular_hours_worked (NUMERIC), overtime_hours_worked (NUMERIC)
-
-square.employee
-  id, first_name, last_name, email, status
+team_square.team_member_job_assignment
+  team_member_id, job_id, job_title, pay_type, hourly_rate_amount (CENTS)
 
 teamtask_hub.square_catalog_category_map  ← CUSTOM CORRECTION TABLE
   id, catalog_item_id, item_name, category_name, category_id, notes, created_at
@@ -66,38 +60,38 @@ teamtask_hub.square_catalog_category_map  ← CUSTOM CORRECTION TABLE
 === CRITICAL JOINS ===
 
 Order line item → category (ALWAYS use this pattern for category queries):
-  JOIN square.catalog_item_variation civ ON civ.id = oli.catalog_object_id
-  LEFT JOIN square.catalog_item_category cic ON cic.catalog_item_id = civ.item_id
-  LEFT JOIN square.catalog_category cc ON cc.id = cic.id
+  JOIN team_square.catalog_item_variation civ ON civ.id = oli.catalog_object_id
+  LEFT JOIN team_square.catalog_item ci ON ci.id = civ.item_id
+  LEFT JOIN team_square.catalog_category cc ON cc.id = ci.category_id
   LEFT JOIN teamtask_hub.square_catalog_category_map cmap ON cmap.catalog_item_id = civ.item_id
   -- Effective category: COALESCE(cc.name, cmap.category_name)
 
 Order → location:
-  JOIN square.location loc ON loc.id = o.location_id
+  JOIN team_square.location loc ON loc.id = o.location_id
 
 === LOCATIONS ===
 
-There are two Square locations. Use these exact name strings when filtering by location:
-  'Kindred Vineyards, LLC'  — the main winery/tasting room
-  'Kindred by the Creek'    — the creek location
+There are two active Square locations. Use these exact name strings when filtering by location:
+  'Kindred Vineyards, LLC.'  — the main winery/tasting room (note trailing period)
+  'Kindred by the Creek'     — the creek location
 
 Location name synonyms (map user language to the exact loc.name above):
-  'Kindred Vineyards, LLC'  → "kindred", "the winery", "the vineyard", "vineyard", "winery"
-  'Kindred by the Creek'    → "the creek", "creek", "by the creek"
+  'Kindred Vineyards, LLC.'  → "kindred", "the winery", "the vineyard", "vineyard", "winery"
+  'Kindred by the Creek'     → "the creek", "creek", "by the creek"
 
 Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Kindred by the Creek'
 
 === IMPORTANT FACTS ===
 
 - All money amounts are stored in CENTS — divide by 100.0 for dollars
-- quantity is stored as TEXT — cast with quantity::numeric when computing
+- quantity is NUMERIC — no cast needed
 - Pre-2023 orders (before 2023-03-05) used 'Main Creek Menu' / 'Main Vineyard Menu' categories
 - 2023+ orders use '750ml Bottle', 'Glass Pour', '5 Flight Tasting', etc.
 - The mapping table bridges this gap — always COALESCE(cc.name, cmap.category_name)
 - Kindred Vineyards sells wine (750ml bottles and glass pours), wine flights, food (pizza, etc.), beer, and boutique items
 - Only query COMPLETED orders unless explicitly asked otherwise: WHERE o.state = 'COMPLETED'
 - The database also has fivetran_metadata, metabase, cellarpilot, wine, club_steward schemas — ignore these unless asked
-- There are duplicate catalog_category rows for the same name (Fivetran artifact from multiple locations) — use DISTINCT or filter carefully
+- No duplicate category rows — each catalog_item has exactly one category_id
 
 === HOW TO RESPOND ===
 
@@ -449,10 +443,11 @@ router.post('/mappings/seed', async (req, res) => {
       // 3. Have names matching wine bottle patterns
       const candidates = await dbClient.query(`
         SELECT DISTINCT ci.id AS catalog_item_id, ci.name AS item_name
-        FROM square.order o
-        JOIN square.order_line_item oli ON oli.order_id = o.id
-        JOIN square.catalog_item_variation civ ON civ.id = oli.catalog_object_id
-        JOIN square.catalog_item ci ON ci.id = civ.item_id
+        FROM team_square.order o
+        JOIN team_square.order_line_item oli ON oli.order_id = o.id
+        JOIN team_square.catalog_item_variation civ ON civ.id = oli.catalog_object_id
+        JOIN team_square.catalog_item ci ON ci.id = civ.item_id
+        LEFT JOIN team_square.catalog_category cc ON cc.id = ci.category_id
         WHERE o.created_at < '2023-03-05'
           AND (
             LOWER(ci.name) LIKE '%bottle%'
@@ -472,11 +467,7 @@ router.post('/mappings/seed', async (req, res) => {
               AND LOWER(ci.name) NOT LIKE '%club%'
             )
           )
-          AND NOT EXISTS (
-            SELECT 1 FROM square.catalog_item_category cic2
-            JOIN square.catalog_category cc2 ON cc2.id = cic2.id
-            WHERE cic2.catalog_item_id = ci.id AND cc2.name = '750ml Bottle'
-          )
+          AND (cc.name IS NULL OR cc.name <> '750ml Bottle')
         ORDER BY ci.name
       `);
 

@@ -14,7 +14,7 @@ function isMissingTableErr(err, tableName) {
 router.get('/wage-titles', async (req, res) => {
   try {
     const r = await query(
-      `SELECT DISTINCT wage_title FROM square.shift
+      `SELECT DISTINCT wage_title FROM team_square.shift
        WHERE wage_title IS NOT NULL AND wage_title <> ''
        ORDER BY wage_title`
     );

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, importC7Products, getSquareEmployees } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
+import { SquareSyncPanel } from '../components/SquareSyncPanel';
+import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
 import './Settings.css';
 
-const OWNER_TABS = ['general', 'integrations', 'mail', 'locations', 'square', 'commerce7'];
+const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7'];
 
 // Common IANA timezone list — covers all US zones plus a broad international set
 const TIMEZONES = [
@@ -214,12 +216,23 @@ export function Settings() {
   const [c7Saving, setC7Saving]               = useState(false);
   const [c7Testing, setC7Testing]             = useState(false);
   const [c7TestResult, setC7TestResult]       = useState('');
-  const [c7Importing, setC7Importing]         = useState(false);
-  const [c7ImportResult, setC7ImportResult]   = useState('');
+
+  // Amazon Business
+  const [amazonSettings, setAmazonSettings]   = useState(null);
+  const [amazonEmail, setAmazonEmail]         = useState('');
+  const [amazonPassword, setAmazonPassword]   = useState('');
+  const [amazonSaving, setAmazonSaving]       = useState(false);
+  const [amazonTesting, setAmazonTesting]     = useState(false);
+  const [amazonTestResult, setAmazonTestResult] = useState('');
 
   useEffect(() => {
+    // Managers can only see the square tab; owners see all tabs
     if (!isOwner && isManager && tabParam && tabParam !== 'square') {
       setSearchParams({ tab: 'square' }, { replace: true });
+    }
+    // Redirect stale links to removed tabs → general
+    if (isOwner && (tabParam === 'mail' || tabParam === 'locations')) {
+      setSearchParams({ tab: 'general' }, { replace: true });
     }
   }, [isOwner, isManager, tabParam, setSearchParams]);
 
@@ -236,12 +249,14 @@ export function Settings() {
 
   useEffect(() => {
     if (!isOwner) return;
+    loadLocations();
     Promise.all([
       getIntegrationSettings(),
       getGeneralSettings(),
       getC7Settings(),
+      getAmazonSettings(),
     ])
-      .then(([r, g, c7]) => {
+      .then(([r, g, c7, amz]) => {
         setSettings(r);
         setSquareApplicationId(r.square_application_id || '');
         setSquareEnv(r.square_env || 'production');
@@ -257,6 +272,8 @@ export function Settings() {
         setC7TenantSlug(c7.c7_tenant_slug || '');
         setC7TenantId(c7.c7_tenant_id || '');
         setC7ApiBaseUrl(c7.c7_api_base_url || '');
+        setAmazonSettings(amz);
+        setAmazonEmail(amz.amazon_email || '');
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -535,11 +552,9 @@ export function Settings() {
           <>
             <button type="button" className={tab === 'general' ? 'active' : ''} onClick={() => setSettingsTab('general')}>General</button>
             <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setSettingsTab('integrations')}>Integrations</button>
-            <button type="button" className={tab === 'mail' ? 'active' : ''} onClick={() => setSettingsTab('mail')}>Mail</button>
-            <button type="button" className={tab === 'locations' ? 'active' : ''} onClick={() => { setSettingsTab('locations'); if (tab !== 'locations') loadLocations(); }}>Locations</button>
           </>
         )}
-        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>Square users</button>
+        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>Square</button>
         {isOwner && (
           <button type="button" className={tab === 'commerce7' ? 'active' : ''} onClick={() => setSettingsTab('commerce7')}>Commerce7</button>
         )}
@@ -548,31 +563,85 @@ export function Settings() {
       {message && <p className="settings-message">{message}</p>}
 
       {tab === 'general' && (
-        <GeneralSettingsPanel
-          timezone={timezone}
-          opsManagerName={opsManagerName}
-          saving={generalSaving}
-          onSave={async ({ timezone: tz, ops_manager_name }) => {
-            setGeneralSaving(true);
-            setError('');
-            setMessage('');
-            try {
-              await patchGeneralSettings({ timezone: tz, ops_manager_name });
-              setTimezone(tz);
-              setOpsManagerName(ops_manager_name || null);
-              setMessage('Settings saved.');
-            } catch (e) {
-              setError(e.message);
-            } finally {
-              setGeneralSaving(false);
-            }
-          }}
-        />
+        <>
+          <GeneralSettingsPanel
+            timezone={timezone}
+            opsManagerName={opsManagerName}
+            saving={generalSaving}
+            onSave={async ({ timezone: tz, ops_manager_name }) => {
+              setGeneralSaving(true);
+              setError('');
+              setMessage('');
+              try {
+                await patchGeneralSettings({ timezone: tz, ops_manager_name });
+                setTimezone(tz);
+                setOpsManagerName(ops_manager_name || null);
+                setMessage('Settings saved.');
+              } catch (e) {
+                setError(e.message);
+              } finally {
+                setGeneralSaving(false);
+              }
+            }}
+          />
+
+          {/* ── Locations ────────────────────────────────────────── */}
+          <fieldset style={{ marginTop: '2rem' }}>
+            <legend>Locations</legend>
+            <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+              Assign users, announcements, and task templates to one or many locations from the Manager page.
+            </p>
+            <form onSubmit={handleAddLocation} className="settings-form" style={{ marginBottom: '1rem' }}>
+              <label>
+                New location
+                <input
+                  type="text"
+                  placeholder="Location name"
+                  value={newLocationName}
+                  onChange={(e) => setNewLocationName(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <button type="submit" disabled={saving || !newLocationName.trim()}>{saving ? 'Adding…' : 'Add location'}</button>
+            </form>
+            {locationsLoading ? (
+              <p>Loading locations…</p>
+            ) : locations.length === 0 ? (
+              <p className="empty">No locations yet. Add one above.</p>
+            ) : (
+              <ul className="settings-list">
+                {locations.map((loc) => (
+                  <li key={loc.id}>
+                    {editingLocationId === loc.id ? (
+                      <form onSubmit={handleUpdateLocation} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={editingLocationName}
+                          onChange={(e) => setEditingLocationName(e.target.value)}
+                          autoFocus
+                          autoComplete="off"
+                        />
+                        <button type="submit" disabled={saving}>Save</button>
+                        <button type="button" onClick={() => { setEditingLocationId(null); setEditingLocationName(''); }}>Cancel</button>
+                      </form>
+                    ) : (
+                      <>
+                        <span>{loc.name}</span>
+                        <button type="button" onClick={() => { setEditingLocationId(loc.id); setEditingLocationName(loc.name); }}>Edit</button>
+                        <button type="button" onClick={() => handleDeleteLocation(loc.id)}>Delete</button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </fieldset>
+        </>
       )}
 
       {tab === 'integrations' && (
         <>
-          <p className="settings-intro">Configure Square, Twilio, and Campaign Monitor for this company. Values are stored per company and used when managers sync Square or send SMS. Leave a field blank to keep the current value.</p>
+          <p className="settings-intro">Configure API credentials for Square, Twilio, and Commerce7. Values are stored per company. Leave a field blank to keep the current value.</p>
           <p className="settings-help">Square: get an <strong>access token</strong> from the <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer">Square Developer Dashboard</a> (Open your app → Credentials → Access token). Use <strong>sandbox</strong> for testing.</p>
           <form onSubmit={handleSubmit} className="settings-form">
             <fieldset>
@@ -657,6 +726,109 @@ export function Settings() {
         </fieldset>
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </form>
+
+          {/* ── Commerce7 credentials ─────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Commerce7</legend>
+            <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+              API credentials for Commerce7. The key is stored securely and never returned after saving.
+              Sync schedules and records are managed in the <strong>Commerce7</strong> tab.
+            </p>
+            <form
+              className="settings-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setC7Saving(true); setError(''); setMessage(''); setC7TestResult('');
+                try {
+                  const body = {
+                    c7_tenant_slug:  c7TenantSlug.trim()  || undefined,
+                    c7_tenant_id:    c7TenantId.trim()    || undefined,
+                    c7_api_base_url: c7ApiBaseUrl.trim()  || undefined,
+                  };
+                  if (c7ApiKey.trim()) body.c7_api_key = c7ApiKey.trim();
+                  await putC7Settings(body);
+                  setMessage('Commerce7 settings saved.');
+                  setC7ApiKey('');
+                  const fresh = await getC7Settings();
+                  setC7Settings(fresh);
+                  setC7TenantSlug(fresh.c7_tenant_slug || '');
+                  setC7TenantId(fresh.c7_tenant_id || '');
+                  setC7ApiBaseUrl(fresh.c7_api_base_url || '');
+                } catch (e) { setError(e.message); }
+                finally { setC7Saving(false); }
+              }}
+            >
+              <label>
+                Tenant Slug
+                <input
+                  type="text"
+                  placeholder="e.g. kindredvineyards"
+                  value={c7TenantSlug}
+                  onChange={(e) => setC7TenantSlug(e.target.value)}
+                  autoComplete="off"
+                />
+                <small>Found in your Commerce7 URL: <code>app.commerce7.com/<strong>slug</strong></code></small>
+              </label>
+              <label>
+                Tenant ID
+                <input
+                  type="text"
+                  placeholder="Commerce7 Tenant ID"
+                  value={c7TenantId}
+                  onChange={(e) => setC7TenantId(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                API Base URL <span style={{ fontWeight: 400, color: '#888' }}>(optional)</span>
+                <input
+                  type="text"
+                  placeholder="https://api.commerce7.com/v1"
+                  value={c7ApiBaseUrl}
+                  onChange={(e) => setC7ApiBaseUrl(e.target.value)}
+                  autoComplete="off"
+                />
+                <small>Leave blank to use the default endpoint.</small>
+              </label>
+              <label>
+                API Key
+                <input
+                  type="password"
+                  placeholder={c7Settings?.c7_configured ? 'Leave blank to keep current' : 'Commerce7 API key'}
+                  value={c7ApiKey}
+                  onChange={(e) => setC7ApiKey(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+              {c7Settings?.c7_configured && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ API key is configured</p>
+              )}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn-test"
+                  disabled={c7Testing || (!c7Settings?.c7_configured && !c7ApiKey.trim())}
+                  onClick={async () => {
+                    setC7Testing(true); setC7TestResult(''); setError('');
+                    try {
+                      const body = {};
+                      if (c7TenantSlug.trim())  body.c7_tenant_slug  = c7TenantSlug.trim();
+                      if (c7TenantId.trim())    body.c7_tenant_id    = c7TenantId.trim();
+                      if (c7ApiBaseUrl.trim())  body.c7_api_base_url = c7ApiBaseUrl.trim();
+                      if (c7ApiKey.trim())      body.c7_api_key      = c7ApiKey.trim();
+                      const r = await testC7Connection(body);
+                      setC7TestResult(r.message || 'Connected.');
+                    } catch (e) { setError(e.message); }
+                    finally { setC7Testing(false); }
+                  }}
+                >
+                  {c7Testing ? 'Testing…' : 'Test connection'}
+                </button>
+                <button type="submit" disabled={c7Saving}>{c7Saving ? 'Saving…' : 'Save Commerce7'}</button>
+              </div>
+              {c7TestResult && <p className="test-result success">{c7TestResult}</p>}
+            </form>
+          </fieldset>
           <fieldset style={{ marginTop: '1.5rem' }}>
             <legend>QuickBooks Online</legend>
             {settings?.qbo_connected ? (
@@ -674,6 +846,160 @@ export function Settings() {
                 </button>
               </div>
             )}
+          </fieldset>
+
+          {/* ── Mail (SMTP) ───────────────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Mail (SMTP)</legend>
+            <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+              SMTP settings for this company (e.g. password reset emails). Leave password blank to keep the current value.
+            </p>
+            <form onSubmit={handleMailSubmit} className="settings-form">
+              <label>
+                Host
+                <input
+                  type="text"
+                  placeholder="smtp.example.com"
+                  value={mailHost}
+                  onChange={(e) => setMailHost(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                Port
+                <input
+                  type="text"
+                  placeholder="587"
+                  value={mailPort}
+                  onChange={(e) => setMailPort(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                User
+                <input
+                  type="text"
+                  placeholder="SMTP username"
+                  value={mailUser}
+                  onChange={(e) => setMailUser(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  placeholder={settings?.mail_configured ? 'Leave blank to keep current' : 'SMTP password'}
+                  value={mailPass}
+                  onChange={(e) => setMailPass(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                From address
+                <input
+                  type="text"
+                  placeholder="noreply@yourdomain.com"
+                  value={mailFrom}
+                  onChange={(e) => setMailFrom(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  checked={mailSecure}
+                  onChange={(e) => setMailSecure(e.target.checked)}
+                />
+                Use TLS (secure)
+              </label>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button type="button" className="btn-test" onClick={handleTestMail} disabled={testingMail} title="Send a test email to your account using current mail settings">
+                  {testingMail ? 'Sending…' : 'Test email'}
+                </button>
+                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Mail'}</button>
+              </div>
+              {mailTestResult && <p className="test-result success">{mailTestResult}</p>}
+            </form>
+          </fieldset>
+
+          {/* ── Amazon Business ───────────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Amazon Business</legend>
+            <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+              Credentials for automated Amazon Business order sync. The server logs in on your behalf,
+              downloads order history, and imports PDF receipts into the QuickBooks pipeline.
+              Password is stored server-side and never returned.
+            </p>
+            <form
+              className="settings-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setAmazonSaving(true); setError(''); setMessage(''); setAmazonTestResult('');
+                try {
+                  const body = {};
+                  if (amazonEmail.trim()) body.amazon_email = amazonEmail.trim();
+                  if (amazonPassword.trim()) body.amazon_password = amazonPassword.trim();
+                  await putAmazonSettings(body);
+                  setMessage('Amazon Business settings saved.');
+                  setAmazonPassword('');
+                  const fresh = await getAmazonSettings();
+                  setAmazonSettings(fresh);
+                  setAmazonEmail(fresh.amazon_email || '');
+                } catch (e) { setError(e.message); }
+                finally { setAmazonSaving(false); }
+              }}
+            >
+              <label>
+                Amazon Business email
+                <input
+                  type="email"
+                  placeholder="your@amazon-business-account.com"
+                  value={amazonEmail}
+                  onChange={(e) => setAmazonEmail(e.target.value)}
+                  autoComplete="username"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  placeholder={amazonSettings?.amazon_configured ? 'Leave blank to keep current' : 'Amazon Business password'}
+                  value={amazonPassword}
+                  onChange={(e) => setAmazonPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+              {amazonSettings?.amazon_configured && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ Password is configured</p>
+              )}
+              <p style={{ margin: '0.5rem 0 0', color: '#888', fontSize: '0.85em' }}>
+                Note: if your account has two-factor authentication enabled, you'll need to complete a
+                manual login first to establish a browser session, then the automated sync can reuse it.
+              </p>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn-test"
+                  disabled={amazonTesting || (!amazonSettings?.amazon_configured && (!amazonEmail.trim() || !amazonPassword.trim()))}
+                  onClick={async () => {
+                    setAmazonTesting(true); setAmazonTestResult(''); setError('');
+                    try {
+                      const body = {};
+                      if (amazonEmail.trim()) body.amazon_email = amazonEmail.trim();
+                      if (amazonPassword.trim()) body.amazon_password = amazonPassword.trim();
+                      const r = await testAmazonLogin(body);
+                      setAmazonTestResult(r.message || 'Login successful.');
+                    } catch (e) { setError(e.message); }
+                    finally { setAmazonTesting(false); }
+                  }}
+                >
+                  {amazonTesting ? 'Testing…' : 'Test login'}
+                </button>
+                <button type="submit" disabled={amazonSaving}>{amazonSaving ? 'Saving…' : 'Save Amazon'}</button>
+              </div>
+              {amazonTestResult && <p className="test-result success">{amazonTestResult}</p>}
+            </form>
           </fieldset>
 
           {/* ── API Keys ───────────────────────────────────────────── */}
@@ -741,263 +1067,18 @@ export function Settings() {
         </>
       )}
 
-      {tab === 'mail' && (
+
+      {tab === 'square' && (
         <>
-          <p className="settings-intro">SMTP settings for this company (e.g. password reset emails). Leave password blank to keep the current value.</p>
-          <form onSubmit={handleMailSubmit} className="settings-form">
-            <fieldset>
-              <legend>Mail (SMTP)</legend>
-              <label>
-                Host
-                <input
-                  type="text"
-                  placeholder="smtp.example.com"
-                  value={mailHost}
-                  onChange={(e) => setMailHost(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                Port
-                <input
-                  type="text"
-                  placeholder="587"
-                  value={mailPort}
-                  onChange={(e) => setMailPort(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                User
-                <input
-                  type="text"
-                  placeholder="SMTP username"
-                  value={mailUser}
-                  onChange={(e) => setMailUser(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  type="password"
-                  placeholder={settings?.mail_configured ? 'Leave blank to keep current' : 'SMTP password'}
-                  value={mailPass}
-                  onChange={(e) => setMailPass(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                From address
-                <input
-                  type="text"
-                  placeholder="noreply@yourdomain.com"
-                  value={mailFrom}
-                  onChange={(e) => setMailFrom(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label className="settings-checkbox">
-                <input
-                  type="checkbox"
-                  checked={mailSecure}
-                  onChange={(e) => setMailSecure(e.target.checked)}
-                />
-                Use TLS (secure)
-              </label>
-              <button type="button" className="btn-test" onClick={handleTestMail} disabled={testingMail} title="Send a test email to your account using current mail settings">
-                {testingMail ? 'Sending…' : 'Test email'}
-              </button>
-              {mailTestResult && <p className="test-result success">{mailTestResult}</p>}
-            </fieldset>
-            <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-          </form>
+          <SquareSyncPanel />
+          <SquareUsersPanel />
         </>
       )}
-
-      {tab === 'square' && <SquareUsersPanel />}
 
       {tab === 'commerce7' && isOwner && (
-        <>
-          <p className="settings-intro">
-            Connect this company to Commerce7. The API key is stored securely and never returned after saving.
-            Leave the API key blank to keep the current value.
-          </p>
-          <form
-            className="settings-form"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setC7Saving(true); setError(''); setMessage(''); setC7TestResult(''); setC7ImportResult('');
-              try {
-                const body = {
-                  c7_tenant_slug:  c7TenantSlug.trim()  || undefined,
-                  c7_tenant_id:    c7TenantId.trim()    || undefined,
-                  c7_api_base_url: c7ApiBaseUrl.trim()  || undefined,
-                };
-                if (c7ApiKey.trim()) body.c7_api_key = c7ApiKey.trim();
-                await putC7Settings(body);
-                setMessage('Commerce7 settings saved.');
-                setC7ApiKey('');
-                const fresh = await getC7Settings();
-                setC7Settings(fresh);
-                setC7TenantSlug(fresh.c7_tenant_slug || '');
-                setC7TenantId(fresh.c7_tenant_id || '');
-                setC7ApiBaseUrl(fresh.c7_api_base_url || '');
-              } catch (e) { setError(e.message); }
-              finally { setC7Saving(false); }
-            }}
-          >
-            <fieldset>
-              <legend>Commerce7 API</legend>
-              <label>
-                Tenant Slug
-                <input
-                  type="text"
-                  placeholder="e.g. kindredvineyards"
-                  value={c7TenantSlug}
-                  onChange={(e) => setC7TenantSlug(e.target.value)}
-                  autoComplete="off"
-                />
-                <small>Found in your Commerce7 URL: <code>app.commerce7.com/<strong>slug</strong></code></small>
-              </label>
-              <label>
-                Tenant ID
-                <input
-                  type="text"
-                  placeholder="Commerce7 Tenant ID"
-                  value={c7TenantId}
-                  onChange={(e) => setC7TenantId(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                API Base URL <span style={{ fontWeight: 400, color: '#888' }}>(optional)</span>
-                <input
-                  type="text"
-                  placeholder="https://api.commerce7.com/v1"
-                  value={c7ApiBaseUrl}
-                  onChange={(e) => setC7ApiBaseUrl(e.target.value)}
-                  autoComplete="off"
-                />
-                <small>Leave blank to use the default Commerce7 API endpoint.</small>
-              </label>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  placeholder={c7Settings?.c7_configured ? 'Leave blank to keep current' : 'Commerce7 API key'}
-                  value={c7ApiKey}
-                  onChange={(e) => setC7ApiKey(e.target.value)}
-                  autoComplete="new-password"
-                />
-              </label>
-              {c7Settings?.c7_configured && (
-                <p className="test-result success" style={{ marginBottom: 0 }}>✓ API key is configured</p>
-              )}
-
-              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn-test"
-                  disabled={c7Testing || (!c7Settings?.c7_configured && !c7ApiKey.trim())}
-                  onClick={async () => {
-                    setC7Testing(true); setC7TestResult(''); setError('');
-                    try {
-                      const body = {};
-                      if (c7TenantSlug.trim())  body.c7_tenant_slug  = c7TenantSlug.trim();
-                      if (c7TenantId.trim())    body.c7_tenant_id    = c7TenantId.trim();
-                      if (c7ApiBaseUrl.trim())  body.c7_api_base_url = c7ApiBaseUrl.trim();
-                      if (c7ApiKey.trim())      body.c7_api_key      = c7ApiKey.trim();
-                      const r = await testC7Connection(body);
-                      setC7TestResult(r.message || 'Connected.');
-                    } catch (e) { setError(e.message); }
-                    finally { setC7Testing(false); }
-                  }}
-                >
-                  {c7Testing ? 'Testing…' : 'Test connection'}
-                </button>
-              </div>
-              {c7TestResult && <p className="test-result success">{c7TestResult}</p>}
-            </fieldset>
-            <button type="submit" disabled={c7Saving}>{c7Saving ? 'Saving…' : 'Save'}</button>
-          </form>
-
-          {c7Settings?.c7_configured && (
-            <fieldset style={{ marginTop: '1.5rem' }}>
-              <legend>Product Import</legend>
-              <p style={{ margin: '0 0 0.75rem', color: '#555', fontSize: '0.9em' }}>
-                Import all products from Commerce7 into TeamHub. Safe to re-run — existing products will be updated.
-              </p>
-              <button
-                type="button"
-                className="btn-test"
-                disabled={c7Importing}
-                onClick={async () => {
-                  setC7Importing(true); setC7ImportResult(''); setError('');
-                  try {
-                    const r = await importC7Products();
-                    setC7ImportResult(`✓ Import complete — ${r.imported} new, ${r.updated} updated, ${r.variants} variants (${r.total} total products).`);
-                  } catch (e) { setError(e.message); }
-                  finally { setC7Importing(false); }
-                }}
-              >
-                {c7Importing ? 'Importing…' : '↓ Import products from Commerce7'}
-              </button>
-              {c7ImportResult && <p className="test-result success" style={{ marginTop: '10px' }}>{c7ImportResult}</p>}
-            </fieldset>
-          )}
-        </>
+        <Commerce7SyncPanel />
       )}
 
-      {tab === 'locations' && (
-        <>
-          <p className="settings-intro">Locations for this company. Assign users, announcements, and task templates to one or many locations from the Manager page.</p>
-          <form onSubmit={handleAddLocation} className="settings-form" style={{ marginBottom: '1rem' }}>
-            <label>
-              New location
-              <input
-                type="text"
-                placeholder="Location name"
-                value={newLocationName}
-                onChange={(e) => setNewLocationName(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <button type="submit" disabled={saving || !newLocationName.trim()}>{saving ? 'Adding…' : 'Add location'}</button>
-          </form>
-          {locationsLoading ? (
-            <p>Loading locations…</p>
-          ) : locations.length === 0 ? (
-            <p className="empty">No locations yet. Add one above.</p>
-          ) : (
-            <ul className="settings-list">
-              {locations.map((loc) => (
-                <li key={loc.id}>
-                  {editingLocationId === loc.id ? (
-                    <form onSubmit={handleUpdateLocation} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        value={editingLocationName}
-                        onChange={(e) => setEditingLocationName(e.target.value)}
-                        autoFocus
-                        autoComplete="off"
-                      />
-                      <button type="submit" disabled={saving}>Save</button>
-                      <button type="button" onClick={() => { setEditingLocationId(null); setEditingLocationName(''); }}>Cancel</button>
-                    </form>
-                  ) : (
-                    <>
-                      <span>{loc.name}</span>
-                      <button type="button" onClick={() => { setEditingLocationId(loc.id); setEditingLocationName(loc.name); }}>Edit</button>
-                      <button type="button" onClick={() => handleDeleteLocation(loc.id)}>Delete</button>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
     </div>
   );
 }

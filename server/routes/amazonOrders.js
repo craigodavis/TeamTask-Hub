@@ -217,4 +217,20 @@ router.get('/stats', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── POST /api/amazon-orders/sync ─────────────────────────────────────────────
+// Trigger a full automated Amazon Business sync (Playwright).
+// Betty calls this weekly; server does all the work.
+router.post('/sync', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  try {
+    const { runAmazonSync } = await import('../lib/amazonSync.js');
+    // Respond immediately — sync runs and returns its own result
+    const result = await runAmazonSync(cId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[amazon-sync] sync error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 export { router as amazonOrdersRouter };

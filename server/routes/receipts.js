@@ -1,22 +1,18 @@
 import express from 'express';
 import multer from 'multer';
-import { createRequire } from 'module';
 import { query } from '../db.js';
 import { requireAuth, requireOwner } from '../middleware/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { extractReceiptData, categorizeLineItems, suggestRulesFromCorrections } from '../aiClient.js';
-import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
+import { suggestRulesFromCorrections } from '../aiClient.js';
+import { applyRules } from '../rulesEngine.js';
 import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile } from '../qboClient.js';
+import { loadReceiptContext, processReceiptPDF } from '../lib/processReceiptPDF.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'receipts');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-// pdf-parse v1 is CommonJS — use createRequire for ESM compatibility
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
 
 const router = express.Router();
 
@@ -53,101 +49,11 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
   }
 
   // Load QBO reference data, product memory, and rules once for all files
-  const [accountsRes, classesRes, memoryRes, rulesRes] = await Promise.all([
-    query(`SELECT qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active FROM qbo_accounts WHERE company_id = $1`, [cId]),
-    query(`SELECT qbo_id, name, fully_qualified_name, active FROM qbo_classes WHERE company_id = $1`, [cId]),
-    query(`SELECT product_pattern, qbo_account_id, qbo_class_id FROM product_memory WHERE company_id = $1`, [cId]),
-    query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
-  ]);
-  const accounts = accountsRes.rows;
-  const classes = classesRes.rows;
-  const memory = memoryRes.rows;
-  const rules = rulesRes.rows;
-  const rulesPrompt = buildRulesPrompt(rules);
+  const ctx = await loadReceiptContext(cId);
 
   // Process up to 5 files concurrently to stay within Claude API rate limits
   const results = await withConcurrency(req.files, 5, async (file) => {
-    const filename = file.originalname;
-    try {
-      // 1. Extract text from PDF
-      const parsed = await pdfParse(file.buffer);
-      const pdfText = parsed.text;
-
-      // 2. Ask Claude to extract structured receipt data
-      let receiptData;
-      try {
-        receiptData = await extractReceiptData(pdfText);
-      } catch (aiErr) {
-        return { filename, error: `AI extraction failed: ${aiErr.message}` };
-      }
-
-      const { order_number, order_date, vendor, subtotal, tax, total, items, card_last4, payment_instrument } = receiptData;
-
-      if (!order_number) {
-        return { filename, error: 'Could not extract order number from PDF.' };
-      }
-
-      // 3. Duplicate check
-      const dupCheck = await query(
-        `SELECT id, status FROM receipts WHERE company_id = $1 AND order_number = $2`,
-        [cId, order_number]
-      );
-      if (dupCheck.rows.length) {
-        return { filename, order_number, skipped: true, reason: 'duplicate', existing_status: dupCheck.rows[0].status };
-      }
-
-      // 4. AI categorization
-      let categorized = [];
-      if (items?.length && accounts.length) {
-        try {
-          categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt);
-        } catch (catErr) {
-          console.error('[receipts] categorization failed:', catErr.message);
-          categorized = (items || []).map((it) => ({ ...it, qbo_account_id: null, qbo_class_id: null, confidence: 0, reasoning: '' }));
-        }
-      } else {
-        categorized = (items || []).map((it) => ({ ...it, qbo_account_id: null, qbo_class_id: null, confidence: 0, reasoning: '' }));
-      }
-
-      // 5. Apply categorization rules (post-AI override)
-      if (rules.length) {
-        categorized = categorized.map((item) => {
-          const override = applyRules(item, vendor, rules, accounts);
-          return { ...item, ...override };
-        });
-      }
-
-      // 6. Save receipt
-      const receiptRes = await query(
-        `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, pdf_filename, card_last4, payment_instrument)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-        [cId, order_number, order_date || null, vendor || 'Amazon', subtotal || null, tax || null, total || null, filename,
-         card_last4 || null, payment_instrument || null]
-      );
-      const receiptId = receiptRes.rows[0].id;
-
-      // 7. Save PDF to disk for later QBO attachment
-      try {
-        await fs.promises.writeFile(path.join(UPLOAD_DIR, `${receiptId}.pdf`), file.buffer);
-      } catch (fsErr) {
-        console.error('[receipts] failed to save PDF to disk:', fsErr.message);
-      }
-
-      // 8. Save line items
-      for (const item of categorized) {
-        await query(
-          `INSERT INTO receipt_items (receipt_id, description, quantity, unit_price, total, qbo_account_id, qbo_class_id, ai_confidence)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [receiptId, item.description, item.quantity ?? 1, item.unit_price ?? null,
-           item.total ?? null, item.qbo_account_id || null, item.qbo_class_id || null, item.confidence ?? null]
-        );
-      }
-
-      return { filename, order_number, order_date, vendor: vendor || 'Amazon', total, items: categorized.length, receipt_id: receiptId };
-    } catch (err) {
-      console.error('[receipts] error processing', filename, err);
-      return { filename, error: err.message };
-    }
+    return processReceiptPDF(cId, file.buffer, file.originalname, ctx);
   });
 
   res.json({ results });

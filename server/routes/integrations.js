@@ -10,7 +10,7 @@ const companyId = (req) => req.companyId;
 // Placeholder password hash for Square-synced users (they must use "Forgot password" to set one).
 const SQUARE_PLACEHOLDER_PASSWORD_HASH = bcrypt.hashSync('square-sync-no-password', 10);
 
-const SQUARE_VERSION = '2024-01-18';
+const SQUARE_VERSION = '2025-05-21';
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 async function getCompanyTimezone(cId) {
@@ -378,6 +378,36 @@ export function startReportScheduler() {
   setInterval(check, FIVE_MIN);
   console.log('Report scheduler started (checking every 5 minutes)');
 }
+
+// ---------- Square: list team members from local team_square.team_member (no API call) ----------
+router.get('/square/team-members', async (req, res) => {
+  try {
+    const cId = companyId(req);
+    const r = await query(
+      `SELECT
+         tm.id,
+         tm.given_name,
+         tm.family_name,
+         tm.email_address,
+         tm.phone_number,
+         tm.status,
+         CASE WHEN u.id IS NOT NULL THEN true ELSE false END AS already_in_system,
+         u.role,
+         CASE WHEN ex.square_team_member_id IS NOT NULL THEN true ELSE false END AS excluded
+       FROM team_square.team_member tm
+       LEFT JOIN users u
+         ON u.company_id = $1 AND u.square_team_member_id = tm.id
+       LEFT JOIN square_user_exclusions ex
+         ON ex.company_id = $1 AND ex.square_team_member_id = tm.id
+       WHERE tm.status = 'ACTIVE'
+       ORDER BY tm.given_name, tm.family_name`,
+      [cId]
+    );
+    res.json({ team_members: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---------- Square: fetch team members only (manager); no DB insert/update ----------
 router.post('/square/sync', async (req, res) => {

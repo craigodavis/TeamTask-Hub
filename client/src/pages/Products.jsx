@@ -49,13 +49,6 @@ function ProductCard({ product, onClick }) {
 }
 
 // ── Tax Exempt Tab ──────────────────────────────────────────────────────────
-function lastMonthRange() {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-  const to   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
-  return { from, to };
-}
-
 function TaxExemptTab() {
   const [allItems, setAllItems]     = useState([]);
   const [exemptItems, setExemptItems] = useState([]);
@@ -64,11 +57,7 @@ function TaxExemptTab() {
   const [error, setError]           = useState('');
 
   // Gap checker
-  const def = lastMonthRange();
-  const [gapFrom, setGapFrom]       = useState(def.from);
-  const [gapTo, setGapTo]           = useState(def.to);
-  const [gapRows, setGapRows]       = useState(null);
-  const [gapExposure, setGapExposure] = useState(null);
+  const [gapItems, setGapItems]     = useState(null);
   const [gapLoading, setGapLoading] = useState(false);
   const [gapError, setGapError]     = useState('');
 
@@ -91,6 +80,7 @@ function TaxExemptTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
 
   const exemptNames = new Set(exemptItems.map((i) => i.item_name));
   const availableItems = allItems.filter((item) => !exemptNames.has(item.name));
@@ -132,11 +122,10 @@ function TaxExemptTab() {
   const handleRunGap = async () => {
     setGapLoading(true);
     setGapError('');
-    setGapRows(null);
+    setGapItems(null);
     try {
-      const data = await getTaxGap(gapFrom, gapTo);
-      setGapRows(data.rows || []);
-      setGapExposure(data.total_exposure);
+      const data = await getTaxGap();
+      setGapItems(data.items || []);
     } catch (e) {
       setGapError(e.message);
     } finally {
@@ -237,17 +226,10 @@ function TaxExemptTab() {
       <div className="tax-gap-section">
         <h3>Tax Gap Check</h3>
         <p className="tax-gap-hint">
-          Finds items sold without tax that aren't on the exempt list. An SMS alert fires automatically on the 1st of each month.
+          Finds catalog items with no tax configured in Square that aren't on the exempt list.
+          These items will never charge tax at the POS.
         </p>
         <div className="tax-gap-controls">
-          <label>
-            From
-            <input type="date" value={gapFrom} onChange={(e) => setGapFrom(e.target.value)} />
-          </label>
-          <label>
-            To
-            <input type="date" value={gapTo} onChange={(e) => setGapTo(e.target.value)} />
-          </label>
           <button type="button" className="btn-tax-gap-run" onClick={handleRunGap} disabled={gapLoading}>
             {gapLoading ? 'Checking…' : 'Run Check'}
           </button>
@@ -255,41 +237,47 @@ function TaxExemptTab() {
 
         {gapError && <div className="prod-error">{gapError}</div>}
 
-        {gapRows !== null && (
-          gapRows.length === 0 ? (
+        {gapItems !== null && (
+          gapItems.length === 0 ? (
             <div className="tax-gap-clear">
-              ✅ No tax gaps found for this period.
+              ✅ All active catalog items either have tax configured or are on the exempt list.
             </div>
           ) : (
             <>
               <div className="tax-gap-summary">
-                ⚠️ <strong>{gapRows.length} item type{gapRows.length !== 1 ? 's' : ''}</strong> sold without tax.{' '}
-                Estimated exposure: <strong>${Number(gapExposure).toFixed(2)}</strong>
+                ⚠️ <strong>{gapItems.length} item{gapItems.length !== 1 ? 's' : ''}</strong> have no tax configured in Square and are not exempt.
               </div>
               <table className="tax-gap-table">
                 <thead>
                   <tr>
                     <th>Item</th>
                     <th>Category</th>
-                    <th>Sales</th>
-                    <th>Revenue</th>
-                    <th>Est. Tax Owed</th>
+                    <th>Price</th>
+                    <th>Status</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {gapRows.map((row) => (
-                    <tr key={row.item_name}>
-                      <td>{row.item_name}</td>
-                      <td>{row.category_name ? <span className="tax-category-badge">{row.category_name}</span> : <span className="tax-no-category">—</span>}</td>
-                      <td>{row.occurrences}</td>
-                      <td>${Number(row.revenue).toFixed(2)}</td>
-                      <td className="tax-gap-owed">${Number(row.estimated_tax_owed).toFixed(2)}</td>
+                  {gapItems.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.name}</td>
+                      <td>{item.category_name ? <span className="tax-category-badge">{item.category_name}</span> : <span className="tax-no-category">—</span>}</td>
+                      <td>
+                        {item.min_price != null
+                          ? item.min_price === item.max_price
+                            ? `$${(item.min_price / 100).toFixed(2)}`
+                            : `$${(item.min_price / 100).toFixed(2)} – $${(item.max_price / 100).toFixed(2)}`
+                          : '—'}
+                      </td>
+                      <td>{item.is_active
+                        ? <span className="ssync-badge ssync-badge-ok">Active</span>
+                        : <span className="ssync-badge ssync-badge-none">Inactive</span>}
+                      </td>
                       <td>
                         <button
                           type="button"
                           className="btn-tax-add-small"
-                          onClick={() => handleAddExempt(row.item_name)}
+                          onClick={() => handleAddExempt(item.name)}
                         >
                           Mark Exempt
                         </button>
@@ -302,6 +290,7 @@ function TaxExemptTab() {
           )
         )}
       </div>
+
     </div>
   );
 }

@@ -377,6 +377,77 @@ router.get('/commerce7/sync-log', requireOwner, async (req, res) => {
   }
 });
 
+// ── Amazon Business ──────────────────────────────────────────────────────────
+
+// GET /settings/amazon — returns email (never password)
+router.get('/amazon', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT amazon_email,
+              amazon_password IS NOT NULL AND amazon_password != '' AS amazon_configured
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const row = r.rows[0];
+    res.json({
+      amazon_email:       row?.amazon_email       || '',
+      amazon_configured:  !!row?.amazon_configured,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /settings/amazon — save email + password
+router.put('/amazon', requireOwner, async (req, res) => {
+  const { amazon_email, amazon_password } = req.body ?? {};
+  try {
+    await query(
+      `INSERT INTO company_integrations (company_id, amazon_email, amazon_password, updated_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (company_id) DO UPDATE SET
+         amazon_email    = COALESCE(NULLIF($2,''), company_integrations.amazon_email),
+         amazon_password = COALESCE(NULLIF($3,''), company_integrations.amazon_password),
+         updated_at      = NOW(),
+         updated_by      = $4`,
+      [companyId(req), amazon_email?.trim() || null, amazon_password || null, req.userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /settings/amazon/test — test login with Playwright
+router.post('/amazon/test', requireOwner, async (req, res) => {
+  const cId = companyId(req);
+  try {
+    // Use body values if provided (unsaved), otherwise load from DB
+    let email = req.body?.amazon_email?.trim();
+    let password = req.body?.amazon_password;
+
+    if (!email || !password) {
+      const r = await query(
+        `SELECT amazon_email, amazon_password FROM company_integrations WHERE company_id = $1`,
+        [cId]
+      );
+      const row = r.rows[0];
+      email    = email    || row?.amazon_email    || '';
+      password = password || row?.amazon_password || '';
+    }
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Amazon email and password are required.' });
+    }
+
+    const { testAmazonLogin } = await import('../lib/amazonSync.js');
+    const result = await testAmazonLogin(cId, email, password);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // GET /settings/general — company-level general settings (owner only)
 router.get('/general', requireOwner, async (req, res) => {
   try {
@@ -412,13 +483,13 @@ router.patch('/general', requireOwner, async (req, res) => {
 router.get('/square-employees', requireOwner, async (req, res) => {
   try {
     const r = await query(
-      `SELECT first_name, last_name,
-              TRIM(first_name || ' ' || last_name) AS full_name,
+      `SELECT given_name AS first_name, family_name AS last_name,
+              TRIM(given_name || ' ' || family_name) AS full_name,
               phone_number
-       FROM square.x_employee_contact
-       WHERE active = true
-         AND first_name IS NOT NULL
-       ORDER BY last_name, first_name`
+       FROM team_square.team_member
+       WHERE status = 'ACTIVE'
+         AND given_name IS NOT NULL
+       ORDER BY family_name, given_name`
     );
     res.json({ employees: r.rows });
   } catch (err) {

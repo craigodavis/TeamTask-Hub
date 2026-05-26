@@ -8,7 +8,7 @@
 import express from 'express';
 import { pool, query } from '../db.js';
 import { requireAuth, requireManager } from '../middleware/auth.js';
-import { sendSmsToUsers } from '../lib/smsHelper.js';
+import { runCatalogSync, getLastSyncJob } from '../lib/squareCatalogSync.js';
 
 const router = express.Router();
 const appSchema = process.env.DB_SCHEMA || 'teamtask_hub';
@@ -120,28 +120,23 @@ router.get('/filters', requireAuth, async (req, res) => {
 // ── GET /api/products/square-items ───────────────────────────────────────────
 // Must be before /:id to avoid Express treating "square-items" as an id param.
 router.get('/square-items', requireAuth, requireManager, async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query(`SET search_path TO square, ${appSchema}`);
-    const r = await client.query(
-      `SELECT DISTINCT
-         oli.name,
-         MAX(cmcwc.category_name) AS category_name
-       FROM square.order_line_item oli
-       JOIN square.order o ON o.id = oli.order_id
-       LEFT JOIN square.custom_make_catalog_w_categories cmcwc
-              ON cmcwc.id = oli.catalog_object_id
-       WHERE oli.name IS NOT NULL AND oli.name != ''
-         AND o.state = 'COMPLETED'
-         AND oli.base_price_amount > 0
-       GROUP BY oli.name
-       ORDER BY oli.name`
+    const r = await query(
+      `SELECT
+         ci.name,
+         cc.name AS category_name
+       FROM team_square.catalog_item ci
+       LEFT JOIN team_square.catalog_category cc ON cc.id = ci.category_id
+       JOIN team_square.catalog_item_variation v
+            ON v.item_id = ci.id AND v.is_deleted = false AND v.price_money_amount > 0
+       WHERE ci.is_deleted = false
+         AND (ci.tax_ids IS NULL OR array_length(ci.tax_ids, 1) IS NULL)
+       GROUP BY ci.name, cc.name
+       ORDER BY cc.name NULLS LAST, ci.name`
     );
     res.json({ items: r.rows }); // [{ name, category_name }]
   } catch (err) {
     res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
   }
 });
 
@@ -160,54 +155,87 @@ router.get('/tax-exempt', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── GET /api/products/tax-gap ─────────────────────────────────────────────────
-// Query params: from, to (YYYY-MM-DD). Defaults to last calendar month.
+// Catalog-based check: items with NO tax configured in Square that are not on
+// the company's tax-exempt list. These items will never charge tax at the POS
+// regardless of how they're sold. Betty calls this endpoint.
 router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
-  const now = new Date();
-  const defaultFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-  const defaultTo   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
-  const fromDate = req.query.from || defaultFrom;
-  const toDate   = req.query.to   || defaultTo;
-
-  const client = await pool.connect();
   try {
-    await client.query(`SET search_path TO square, ${appSchema}`);
-    const r = await client.query(
+    const r = await query(
       `SELECT
-         oli.name                                                AS item_name,
-         MAX(cmcwc.category_name)                               AS category_name,
-         COUNT(*)::int                                           AS occurrences,
-         ROUND(SUM(oli.base_price_amount) / 100.0, 2)           AS revenue,
-         ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2)   AS estimated_tax_owed,
-         MIN(o.created_at)                                       AS first_sale,
-         MAX(o.created_at)                                       AS last_sale
-       FROM square.order_line_item oli
-       JOIN square.order o ON o.id = oli.order_id
-       LEFT JOIN square.custom_make_catalog_w_categories cmcwc
-              ON cmcwc.id = oli.catalog_object_id
+         ci.id,
+         ci.name,
+         cc.name                    AS category_name,
+         NOT ci.is_deleted          AS is_active,
+         MIN(v.price_money_amount)  AS min_price,
+         MAX(v.price_money_amount)  AS max_price
+       FROM team_square.catalog_item ci
+       LEFT JOIN team_square.catalog_category cc ON cc.id = ci.category_id
+       JOIN team_square.catalog_item_variation v
+            ON v.item_id = ci.id AND v.price_money_amount > 0
        LEFT JOIN ${appSchema}.tax_exempt_square_items te
-              ON te.item_name = oli.name AND te.company_id = $1
-       WHERE o.state = 'COMPLETED'
-         AND oli.base_price_amount > 0
-         AND (oli.total_tax_amount = 0 OR oli.total_tax_amount IS NULL)
-         AND oli.total_amount > 0
-         AND o.created_at::date >= $2::date
-         AND o.created_at::date <= $3::date
+            ON te.item_name = ci.name AND te.company_id = $1
+       WHERE (ci.tax_ids IS NULL OR array_length(ci.tax_ids, 1) IS NULL)
          AND te.id IS NULL
-       GROUP BY oli.name
-       ORDER BY revenue DESC`,
-      [cid(req), fromDate, toDate]
+       GROUP BY ci.id, ci.name, cc.name, ci.is_deleted
+       ORDER BY ci.is_deleted ASC, cc.name NULLS LAST, ci.name`,
+      [cid(req)]
     );
-    const totalExposure = r.rows.reduce((s, row) => s + parseFloat(row.estimated_tax_owed || 0), 0);
-    res.json({
-      from: fromDate,
-      to:   toDate,
-      rows: r.rows,
-      total_exposure: Math.round(totalExposure * 100) / 100,
-    });
+    res.json({ items: r.rows, total: r.rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
+  }
+});
+
+// ── GET /api/products/catalog-tax-gaps ───────────────────────────────────────
+// Items in the Square catalog that have NO taxes configured (tax_ids is null/empty).
+// These were likely entered incorrectly and will never charge tax at sale time.
+router.get('/catalog-tax-gaps', requireAuth, requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT
+         ci.id,
+         ci.name,
+         ci.product_type,
+         cc.name                    AS category_name,
+         NOT ci.is_deleted          AS is_active,
+         MIN(v.price_money_amount)  AS min_price,
+         MAX(v.price_money_amount)  AS max_price
+       FROM team_square.catalog_item ci
+       LEFT JOIN team_square.catalog_category cc ON cc.id = ci.category_id
+       JOIN team_square.catalog_item_variation v
+            ON v.item_id = ci.id AND v.price_money_amount > 0
+       LEFT JOIN ${appSchema}.tax_exempt_square_items te
+            ON te.item_name = ci.name AND te.company_id = $1
+       WHERE (ci.tax_ids IS NULL OR array_length(ci.tax_ids, 1) IS NULL)
+         AND te.id IS NULL
+       GROUP BY ci.id, ci.name, ci.product_type, cc.name, ci.is_deleted
+       ORDER BY ci.is_deleted ASC, cc.name NULLS LAST, ci.name`,
+      [cid(req)]
+    );
+    res.json({ items: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/products/catalog-sync ──────────────────────────────────────────
+// Trigger an immediate Square catalog sync for this company.
+router.post('/catalog-sync', requireAuth, requireManager, async (req, res) => {
+  try {
+    const result = await runCatalogSync(cid(req));
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/products/catalog-sync/status ────────────────────────────────────
+router.get('/catalog-sync/status', requireAuth, requireManager, async (req, res) => {
+  try {
+    const job = await getLastSyncJob(cid(req));
+    res.json({ job: job || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -903,99 +931,5 @@ router.delete('/tax-exempt/:id', requireAuth, requireManager, async (req, res) =
   }
 });
 
-// ── Tax-gap monthly alert scheduler ──────────────────────────────────────────
-// Runs daily; fires the check on the 1st of each month for every company.
-export function startTaxGapAlertScheduler() {
-  const INTERVAL = 60 * 60 * 1000; // check once per hour
-
-  const run = async () => {
-    const now = new Date();
-    if (now.getDate() !== 1) return; // only fire on the 1st
-
-    console.log('[tax-gap] Monthly check starting…');
-    try {
-      // Get all companies
-      const companies = await query(`SELECT id, ops_manager_name FROM companies`);
-      for (const company of companies.rows) {
-        await runTaxGapAlert(company.id, company.ops_manager_name).catch((e) =>
-          console.error(`[tax-gap] company ${company.id} error:`, e.message)
-        );
-      }
-    } catch (e) {
-      console.error('[tax-gap] scheduler error:', e.message);
-    }
-  };
-
-  // Run immediately on startup in case server restarted on the 1st, then every hour
-  run();
-  setInterval(run, INTERVAL);
-  console.log('[tax-gap] Monthly alert scheduler started');
-}
-
-async function runTaxGapAlert(companyId, opsManagerName) {
-  const now = new Date();
-  const fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-  const toDate   = new Date(now.getFullYear(), now.getMonth(),     0).toISOString().slice(0, 10);
-
-  const client = await pool.connect();
-  let rows = [];
-  try {
-    await client.query(`SET search_path TO square, ${appSchema}`);
-    const r = await client.query(
-      `SELECT
-         oli.name                                              AS item_name,
-         MAX(cmcwc.category_name)                             AS category_name,
-         COUNT(*)::int                                         AS occurrences,
-         ROUND(SUM(oli.base_price_amount) / 100.0, 2)         AS revenue,
-         ROUND(SUM(oli.base_price_amount) * 0.06 / 100.0, 2) AS estimated_tax_owed
-       FROM square.order_line_item oli
-       JOIN square.order o ON o.id = oli.order_id
-       LEFT JOIN square.custom_make_catalog_w_categories cmcwc
-              ON cmcwc.id = oli.catalog_object_id
-       LEFT JOIN ${appSchema}.tax_exempt_square_items te
-              ON te.item_name = oli.name AND te.company_id = $1
-       WHERE o.state = 'COMPLETED'
-         AND oli.base_price_amount > 0
-         AND (oli.total_tax_amount = 0 OR oli.total_tax_amount IS NULL)
-         AND oli.total_amount > 0
-         AND o.created_at::date >= $2::date
-         AND o.created_at::date <= $3::date
-         AND te.id IS NULL
-       GROUP BY oli.name
-       ORDER BY revenue DESC`,
-      [companyId, fromDate, toDate]
-    );
-    rows = r.rows;
-  } finally {
-    client.release();
-  }
-
-  if (rows.length === 0) {
-    console.log(`[tax-gap] company ${companyId} — no gaps for ${fromDate}–${toDate}`);
-    return;
-  }
-
-  const totalExposure = rows.reduce((s, row) => s + parseFloat(row.estimated_tax_owed || 0), 0);
-  const itemList = rows.slice(0, 5).map((r) => r.item_name).join(', ');
-  const more = rows.length > 5 ? ` (+${rows.length - 5} more)` : '';
-  const message =
-    `⚠️ Tax Gap Alert (${fromDate} – ${toDate}): ${rows.length} item type${rows.length !== 1 ? 's' : ''} sold without tax collected. ` +
-    `Estimated exposure: $${totalExposure.toFixed(2)}. ` +
-    `Items: ${itemList}${more}. ` +
-    `Check Products → Tax Exempt in TeamHub.`;
-
-  // Send to all manager + owner users with phone numbers
-  const mgrs = await query(
-    `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner') AND phone IS NOT NULL AND phone != ''`,
-    [companyId]
-  );
-  if (!mgrs.rows.length) {
-    console.warn(`[tax-gap] company ${companyId} — no managers with phone numbers`);
-    return;
-  }
-  const userIds = mgrs.rows.map((r) => r.id);
-  await sendSmsToUsers(companyId, userIds, message, null);
-  console.log(`[tax-gap] company ${companyId} — alert sent to ${userIds.length} managers, ${rows.length} flagged items, $${totalExposure.toFixed(2)} exposure`);
-}
 
 export { router as productsRouter };

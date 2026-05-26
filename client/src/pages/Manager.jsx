@@ -698,7 +698,7 @@ export function Manager() {
       {tab === 'integrations' && (
         <section className="manager-section">
           <h2>SMS Send</h2>
-          <p className="hint">Send SMS via Twilio. Sync Square team under <Link to="/settings?tab=square">Settings → Square users</Link>.</p>
+          <p className="hint">Send SMS via Twilio. Manage Square user exclusions under <Link to="/settings?tab=square">Settings → Square</Link>.</p>
           <SmsSendForm
             users={companyUsers}
             loading={loading}
