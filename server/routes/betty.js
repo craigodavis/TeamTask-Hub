@@ -320,7 +320,7 @@ router.get('/db/sync-health', async (req, res) => {
          WHERE finished_at IS NOT NULL
          ORDER BY finished_at DESC`
       ),
-      query(`SELECT MAX(_fivetran_synced) AS last_synced FROM square.order`),
+      query(`SELECT last_synced_at AS last_synced FROM teamtask_hub.square_sync_objects WHERE object_type = 'orders' LIMIT 1`),
     ]);
 
     // Last completed run per entity (customers / orders)

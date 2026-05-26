@@ -916,6 +916,735 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS paperclip_api_key  VARCHAR(500),
      ADD COLUMN IF NOT EXISTS paperclip_company_id VARCHAR(100),
      ADD COLUMN IF NOT EXISTS paperclip_default_goal_id VARCHAR(100)`,
+  // ── Migration 161: Square catalog sync ───────────────────────────────────
+  `ALTER TABLE square.catalog_item
+     ADD COLUMN IF NOT EXISTS tax_ids        TEXT[],
+     ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS is_deleted     BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE square.catalog_category
+     ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS is_deleted     BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE TABLE IF NOT EXISTS square_catalog_sync_jobs (
+     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     completed_at  TIMESTAMPTZ,
+     status        VARCHAR(20) NOT NULL DEFAULT 'running',
+     items_upserted  INTEGER NOT NULL DEFAULT 0,
+     cats_upserted   INTEGER NOT NULL DEFAULT 0,
+     error         TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_sync_jobs_company ON square_catalog_sync_jobs(company_id, started_at DESC)`,
+  // ── Migration 165: square_sync_objects ───────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS square_sync_objects (
+     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     object_type     VARCHAR(50)  NOT NULL,
+     label           VARCHAR(100) NOT NULL,
+     enabled         BOOLEAN      NOT NULL DEFAULT false,
+     sync_frequency  VARCHAR(20)  NOT NULL DEFAULT 'nightly',
+     last_synced_at  TIMESTAMPTZ,
+     last_sync_status VARCHAR(20),
+     last_sync_count  INTEGER,
+     last_sync_error  TEXT,
+     next_sync_at    TIMESTAMPTZ,
+     UNIQUE (company_id, object_type)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_sync_objects_company ON square_sync_objects(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_sync_objects_next ON square_sync_objects(next_sync_at) WHERE enabled = true`,
+
+  // ── Migration 167: team_square schema ────────────────────────────────────
+  `CREATE SCHEMA IF NOT EXISTS team_square`,
+
+  // Catalog items — all Fivetran fields + API extras
+  `CREATE TABLE IF NOT EXISTS team_square.catalog_item (
+     id                          VARCHAR(100) PRIMARY KEY,
+     name                        TEXT,
+     description                 TEXT,
+     description_html            TEXT,
+     description_plaintext       TEXT,
+     abbreviation                VARCHAR(50),
+     label_color                 VARCHAR(20),
+     available_online            BOOLEAN,
+     available_for_pickup        BOOLEAN,
+     available_electronically    BOOLEAN,
+     category_id                 VARCHAR(100),
+     image_url                   TEXT,
+     image_ids                   TEXT[],
+     product_type                VARCHAR(50),
+     skip_modifier_screen        BOOLEAN,
+     tax_ids                     TEXT[],
+     reporting_category_id       VARCHAR(100),
+     reporting_category_ordinal  BIGINT,
+     present_at_all_locations    BOOLEAN,
+     ecom_available              BOOLEAN,
+     ecom_visibility             VARCHAR(50),
+     version                     BIGINT,
+     is_deleted                  BOOLEAN NOT NULL DEFAULT false,
+     updated_at                  TIMESTAMPTZ,
+     synced_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // Item variations — all Fivetran fields + API extras
+  `CREATE TABLE IF NOT EXISTS team_square.catalog_item_variation (
+     id                          VARCHAR(100) PRIMARY KEY,
+     item_id                     VARCHAR(100),
+     name                        TEXT,
+     sku                         VARCHAR(100),
+     upc                         VARCHAR(100),
+     ordinal                     INTEGER,
+     pricing_type                VARCHAR(50),
+     price_money_amount          BIGINT,
+     price_money_currency        VARCHAR(10),
+     track_inventory             BOOLEAN,
+     inventory_alert_type        VARCHAR(50),
+     inventory_alert_threshold   INTEGER,
+     user_data                   TEXT,
+     service_duration            INTEGER,
+     available_for_booking       BOOLEAN,
+     sellable                    BOOLEAN,
+     stockable                   BOOLEAN,
+     measurement_unit_id         VARCHAR(100),
+     version                     BIGINT,
+     is_deleted                  BOOLEAN NOT NULL DEFAULT false,
+     updated_at                  TIMESTAMPTZ,
+     synced_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // Categories — all Fivetran fields + API extras
+  `CREATE TABLE IF NOT EXISTS team_square.catalog_category (
+     id                VARCHAR(100) PRIMARY KEY,
+     name              TEXT,
+     category_type     VARCHAR(50),
+     is_top_level      BOOLEAN,
+     parent_category_id VARCHAR(100),
+     image_ids         TEXT[],
+     version           BIGINT,
+     is_deleted        BOOLEAN NOT NULL DEFAULT false,
+     updated_at        TIMESTAMPTZ,
+     synced_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // Taxes — all Fivetran fields + API extras
+  `CREATE TABLE IF NOT EXISTS team_square.catalog_tax (
+     id                        VARCHAR(100) PRIMARY KEY,
+     name                      TEXT,
+     calculation_phase         VARCHAR(50),
+     inclusion_type            VARCHAR(50),
+     percentage                NUMERIC(8,4),
+     applies_to_custom_amounts BOOLEAN,
+     enabled                   BOOLEAN,
+     tax_type_id               VARCHAR(100),
+     version                   BIGINT,
+     is_deleted                BOOLEAN NOT NULL DEFAULT false,
+     updated_at                TIMESTAMPTZ,
+     synced_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_ts_item_category    ON team_square.catalog_item(category_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_item_deleted     ON team_square.catalog_item(is_deleted)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_variation_item   ON team_square.catalog_item_variation(item_id)`,
+  // ── Migration 175: allow null sent_by in sms_log (agents have no user ID) ──
+  `ALTER TABLE sms_log ALTER COLUMN sent_by DROP NOT NULL`,
+
+  // ── Migration 176: team_square orders ────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.order (
+     id                                    VARCHAR(100) PRIMARY KEY,
+     location_id                           VARCHAR(100),
+     reference_id                          VARCHAR(100),
+     customer_id                           VARCHAR(100),
+     state                                 VARCHAR(20),
+     ticket_name                           VARCHAR(200),
+     order_source_name                     VARCHAR(100),
+     total_money_amount                    BIGINT,
+     total_money_currency                  VARCHAR(10),
+     total_tax_amount                      BIGINT,
+     total_tax_currency                    VARCHAR(10),
+     total_discount_amount                 BIGINT,
+     total_discount_currency               VARCHAR(10),
+     total_tip_amount                      BIGINT,
+     total_tip_currency                    VARCHAR(10),
+     total_service_charge_amount           BIGINT,
+     total_service_charge_currency         VARCHAR(10),
+     net_amount_total_money_amount         BIGINT,
+     created_at                            TIMESTAMPTZ,
+     updated_at                            TIMESTAMPTZ,
+     closed_at                             TIMESTAMPTZ,
+     synced_at                             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_order_state      ON team_square.order(state)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_order_created    ON team_square.order(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_order_updated    ON team_square.order(updated_at)`,
+  `CREATE TABLE IF NOT EXISTS team_square.order_line_item (
+     order_id                VARCHAR(100) NOT NULL,
+     uid                     VARCHAR(100) NOT NULL,
+     name                    TEXT,
+     quantity                NUMERIC(10,4),
+     note                    TEXT,
+     catalog_object_id       VARCHAR(100),
+     catalog_version         BIGINT,
+     variation_name          TEXT,
+     item_type               VARCHAR(50),
+     base_price_amount       BIGINT,
+     base_price_currency     VARCHAR(10),
+     gross_sales_amount      BIGINT,
+     total_tax_amount        BIGINT,
+     total_discount_amount   BIGINT,
+     total_amount            BIGINT,
+     total_currency          VARCHAR(10),
+     synced_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     PRIMARY KEY (order_id, uid)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_oli_order        ON team_square.order_line_item(order_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_oli_catalog      ON team_square.order_line_item(catalog_object_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_oli_name         ON team_square.order_line_item(name)`,
+
+  // ── Migration 184: team_square.shift ─────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.shift (
+     id                              VARCHAR(64)  PRIMARY KEY,
+     employee_id                     VARCHAR(64),
+     team_member_id                  VARCHAR(64),
+     location_id                     VARCHAR(64),
+     timezone                        VARCHAR(64),
+     start_at                        TIMESTAMPTZ,
+     end_at                          TIMESTAMPTZ,
+     status                          VARCHAR(20),
+     wage_title                      VARCHAR(255),
+     wage_hourly_rate_amount         INTEGER,
+     wage_hourly_rate_currency       VARCHAR(10),
+     wage_job_id                     VARCHAR(64),
+     wage_tip_eligible               BOOLEAN,
+     declared_cash_tip_amount        INTEGER,
+     declared_cash_tip_currency      VARCHAR(10),
+     version                         INTEGER,
+     created_at                      TIMESTAMPTZ,
+     updated_at                      TIMESTAMPTZ,
+     synced_at                       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 185: team_square.shift_break ────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.shift_break (
+     id                   VARCHAR(64)  PRIMARY KEY,
+     shift_id             VARCHAR(64)  NOT NULL REFERENCES team_square.shift(id) ON DELETE CASCADE,
+     break_type_id        VARCHAR(64),
+     name                 VARCHAR(255),
+     start_at             TIMESTAMPTZ,
+     end_at               TIMESTAMPTZ,
+     expected_duration    VARCHAR(32),
+     is_paid              BOOLEAN,
+     synced_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 186: indexes on shift tables ────────────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_ts_shift_team_member  ON team_square.shift(team_member_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_shift_location     ON team_square.shift(location_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_shift_start        ON team_square.shift(start_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_shift_status       ON team_square.shift(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_shift_updated      ON team_square.shift(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_break_shift        ON team_square.shift_break(shift_id)`,
+
+  // ── Migration 192: team_square.scheduled_shift ────────────────────────────
+  // Stores both draft and published versions of each scheduled shift.
+  // draft_* fields are always present; pub_* fields are null until published.
+  `CREATE TABLE IF NOT EXISTS team_square.scheduled_shift (
+     id                    VARCHAR(64) PRIMARY KEY,
+     -- draft details (unpublished / pending edits)
+     draft_team_member_id  VARCHAR(64),
+     draft_location_id     VARCHAR(64),
+     draft_job_id          VARCHAR(64),
+     draft_start_at        TIMESTAMPTZ,
+     draft_end_at          TIMESTAMPTZ,
+     draft_timezone        VARCHAR(64),
+     draft_is_deleted      BOOLEAN,
+     -- published details (what employees see; null if never published)
+     pub_team_member_id    VARCHAR(64),
+     pub_location_id       VARCHAR(64),
+     pub_job_id            VARCHAR(64),
+     pub_start_at          TIMESTAMPTZ,
+     pub_end_at            TIMESTAMPTZ,
+     pub_timezone          VARCHAR(64),
+     pub_is_deleted        BOOLEAN,
+     -- meta
+     version               INTEGER,
+     created_at            TIMESTAMPTZ,
+     updated_at            TIMESTAMPTZ,
+     synced_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 193: indexes on scheduled_shift ─────────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_ts_sshift_draft_member ON team_square.scheduled_shift(draft_team_member_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_sshift_pub_member   ON team_square.scheduled_shift(pub_team_member_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_sshift_draft_start  ON team_square.scheduled_shift(draft_start_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_sshift_pub_start    ON team_square.scheduled_shift(pub_start_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_sshift_updated      ON team_square.scheduled_shift(updated_at)`,
+
+  // ── Migration 198: team_square.team_member ────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.team_member (
+     id                       VARCHAR(64)  PRIMARY KEY,
+     reference_id             VARCHAR(255),
+     is_owner                 BOOLEAN,
+     status                   VARCHAR(20),
+     given_name               VARCHAR(255),
+     family_name              VARCHAR(255),
+     email_address            VARCHAR(255),
+     phone_number             VARCHAR(50),
+     merchant_id              VARCHAR(64),
+     -- location assignment
+     assigned_location_type   VARCHAR(50),
+     assigned_location_ids    TEXT[],
+     -- wage setting (scalar fields; job assignments in child table)
+     wage_is_overtime_exempt  BOOLEAN,
+     wage_version             INTEGER,
+     wage_created_at          TIMESTAMPTZ,
+     wage_updated_at          TIMESTAMPTZ,
+     -- meta
+     created_at               TIMESTAMPTZ,
+     updated_at               TIMESTAMPTZ,
+     synced_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 199: team_square.team_member_job_assignment ─────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.team_member_job_assignment (
+     id                    BIGSERIAL    PRIMARY KEY,
+     team_member_id        VARCHAR(64)  NOT NULL REFERENCES team_square.team_member(id) ON DELETE CASCADE,
+     job_id                VARCHAR(64),
+     job_title             VARCHAR(255),
+     pay_type              VARCHAR(20),
+     hourly_rate_amount    INTEGER,
+     hourly_rate_currency  VARCHAR(10),
+     synced_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 200: indexes on team member tables ──────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_ts_tm_status   ON team_square.team_member(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_tm_email    ON team_square.team_member(email_address)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_tm_updated  ON team_square.team_member(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_tmja_member ON team_square.team_member_job_assignment(team_member_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_tmja_job    ON team_square.team_member_job_assignment(job_id)`,
+
+  // ── Migration 205: team_square.location (already applied — keep in place) ──
+  `CREATE TABLE IF NOT EXISTS team_square.location (
+     id                                      VARCHAR(64)  PRIMARY KEY,
+     name                                    VARCHAR(255),
+     status                                  VARCHAR(20),
+     type                                    VARCHAR(20),
+     merchant_id                             VARCHAR(64),
+     business_name                           VARCHAR(255),
+     business_email                          VARCHAR(255),
+     phone_number                            VARCHAR(50),
+     website_url                             VARCHAR(500),
+     description                             TEXT,
+     timezone                                VARCHAR(64),
+     country                                 VARCHAR(10),
+     language_code                           VARCHAR(10),
+     currency                                VARCHAR(10),
+     address_line_1                          VARCHAR(255),
+     address_line_2                          VARCHAR(255),
+     address_line_3                          VARCHAR(255),
+     address_locality                        VARCHAR(255),
+     address_sublocality                     VARCHAR(255),
+     address_administrative_district_level_1 VARCHAR(100),
+     address_postal_code                     VARCHAR(20),
+     address_country                         VARCHAR(10),
+     latitude                                DOUBLE PRECISION,
+     longitude                               DOUBLE PRECISION,
+     mcc                                     VARCHAR(10),
+     full_format_logo_url                    TEXT,
+     capabilities                            TEXT[],
+     created_at                              TIMESTAMPTZ,
+     synced_at                               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 206: team_square.customer ──────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.customer (
+     id                VARCHAR(64)  PRIMARY KEY,
+     given_name        VARCHAR(255),
+     family_name       VARCHAR(255),
+     email_address     VARCHAR(255),
+     phone_number      VARCHAR(50),
+     company_name      VARCHAR(255),
+     nickname          VARCHAR(255),
+     birthday          VARCHAR(20),
+     note              TEXT,
+     reference_id      VARCHAR(255),
+     creation_source   VARCHAR(64),
+     email_unsubscribed BOOLEAN,
+     segment_ids       TEXT[],
+     version           BIGINT,
+     created_at        TIMESTAMPTZ,
+     updated_at        TIMESTAMPTZ,
+     synced_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_customer_email   ON team_square.customer(email_address)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_customer_updated ON team_square.customer(updated_at)`,
+
+  // ── Migration 209: team_square.payment ────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.payment (
+     id                        VARCHAR(64)  PRIMARY KEY,
+     status                    VARCHAR(20),
+     source_type               VARCHAR(30),
+     location_id               VARCHAR(64),
+     order_id                  VARCHAR(64),
+     team_member_id            VARCHAR(64),
+     employee_id               VARCHAR(64),
+     amount_money_amount       BIGINT,
+     amount_money_currency     VARCHAR(10),
+     total_money_amount        BIGINT,
+     total_money_currency      VARCHAR(10),
+     tip_money_amount          BIGINT,
+     app_fee_money_amount      BIGINT,
+     refunded_money_amount     BIGINT,
+     note                      TEXT,
+     receipt_number            VARCHAR(20),
+     receipt_url               TEXT,
+     device_id                 VARCHAR(128),
+     device_name               VARCHAR(255),
+     card_brand                VARCHAR(30),
+     card_last_4               VARCHAR(4),
+     card_exp_month            INTEGER,
+     card_exp_year             INTEGER,
+     card_entry_method         VARCHAR(30),
+     buyer_cash_amount         BIGINT,
+     change_back_cash_amount   BIGINT,
+     created_at                TIMESTAMPTZ,
+     updated_at                TIMESTAMPTZ,
+     synced_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payment_order     ON team_square.payment(order_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payment_location  ON team_square.payment(location_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payment_created   ON team_square.payment(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payment_member    ON team_square.payment(team_member_id)`,
+
+  // ── Migration 214: team_square.invoice ────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.invoice (
+     id                           VARCHAR(128) PRIMARY KEY,
+     version                      INTEGER,
+     location_id                  VARCHAR(64),
+     order_id                     VARCHAR(64),
+     invoice_number               VARCHAR(50),
+     title                        VARCHAR(255),
+     description                  TEXT,
+     status                       VARCHAR(30),
+     delivery_method              VARCHAR(30),
+     timezone                     VARCHAR(64),
+     public_url                   TEXT,
+     creator_team_member_id       VARCHAR(64),
+     recipient_customer_id        VARCHAR(64),
+     recipient_given_name         VARCHAR(255),
+     recipient_family_name        VARCHAR(255),
+     recipient_email_address      VARCHAR(255),
+     recipient_phone_number       VARCHAR(50),
+     created_at                   TIMESTAMPTZ,
+     updated_at                   TIMESTAMPTZ,
+     synced_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE TABLE IF NOT EXISTS team_square.invoice_payment_request (
+     id                        BIGSERIAL    PRIMARY KEY,
+     invoice_id                VARCHAR(128) NOT NULL REFERENCES team_square.invoice(id) ON DELETE CASCADE,
+     uid                       VARCHAR(64),
+     request_type              VARCHAR(30),
+     due_date                  DATE,
+     tipping_enabled           BOOLEAN,
+     computed_amount           BIGINT,
+     total_completed_amount    BIGINT,
+     automatic_payment_source  VARCHAR(30),
+     synced_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (invoice_id, uid)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_invoice_location ON team_square.invoice(location_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_invoice_status   ON team_square.invoice(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_invoice_updated  ON team_square.invoice(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_ipr_invoice      ON team_square.invoice_payment_request(invoice_id)`,
+
+  // ── Migration 219: team_square.gift_card ──────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.gift_card (
+     id               VARCHAR(128) PRIMARY KEY,
+     type             VARCHAR(20),
+     gan_source       VARCHAR(20),
+     state            VARCHAR(20),
+     balance_amount   BIGINT,
+     balance_currency VARCHAR(10),
+     gan              VARCHAR(64),
+     created_at       TIMESTAMPTZ,
+     synced_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_giftcard_state ON team_square.gift_card(state)`,
+
+  // ── Migration 221: team_square.inventory_count ────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.inventory_count (
+     catalog_object_id    VARCHAR(64)  NOT NULL,
+     location_id          VARCHAR(64)  NOT NULL,
+     state                VARCHAR(30)  NOT NULL,
+     catalog_object_type  VARCHAR(30),
+     quantity             NUMERIC,
+     calculated_at        TIMESTAMPTZ,
+     synced_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+     PRIMARY KEY (catalog_object_id, location_id, state)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_inv_location ON team_square.inventory_count(location_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_inv_object   ON team_square.inventory_count(catalog_object_id)`,
+
+  // ── Migration 225: team_square.payout ─────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.payout (
+     id                VARCHAR(64)   PRIMARY KEY,
+     status            VARCHAR(20),
+     location_id       VARCHAR(64),
+     amount_amount     BIGINT,
+     amount_currency   VARCHAR(3),
+     destination_type  VARCHAR(50),
+     destination_id    VARCHAR(64),
+     type              VARCHAR(20),
+     arrival_date      DATE,
+     end_to_end_id     VARCHAR(100),
+     version           INTEGER,
+     created_at        TIMESTAMPTZ,
+     updated_at        TIMESTAMPTZ,
+     synced_at         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 226: team_square.payout_fee ─────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS team_square.payout_fee (
+     id               BIGSERIAL    PRIMARY KEY,
+     payout_id        VARCHAR(64)  NOT NULL REFERENCES team_square.payout(id) ON DELETE CASCADE,
+     type             VARCHAR(50),
+     effective_at     TIMESTAMPTZ,
+     amount_amount    BIGINT,
+     amount_currency  VARCHAR(3),
+     synced_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migrations 227-229: payout indexes ────────────────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_ts_payout_location   ON team_square.payout(location_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payout_status     ON team_square.payout(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payout_created    ON team_square.payout(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_payout_fee_payout ON team_square.payout_fee(payout_id)`,
+
+  // ── Migration 230: commerce7_sync_objects ─────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS teamtask_hub.commerce7_sync_objects (
+     id               BIGSERIAL     PRIMARY KEY,
+     company_id       UUID          NOT NULL,
+     object_type      VARCHAR(50)   NOT NULL,
+     label            VARCHAR(100)  NOT NULL,
+     enabled          BOOLEAN       NOT NULL DEFAULT false,
+     sync_frequency   VARCHAR(20)   NOT NULL DEFAULT 'every_6h',
+     last_synced_at   TIMESTAMPTZ,
+     last_sync_status VARCHAR(20),
+     last_sync_error  TEXT,
+     last_sync_count  INTEGER,
+     next_sync_at     TIMESTAMPTZ,
+     UNIQUE (company_id, object_type)
+   )`,
+
+  // ── Migration 231: index on commerce7_sync_objects ────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_c7_sync_company ON teamtask_hub.commerce7_sync_objects(company_id)`,
+
+  // ── Migration 232: commerce7.product ──────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.product (
+     id                   VARCHAR(64)   PRIMARY KEY,
+     company_id           UUID          NOT NULL,
+     title                VARCHAR(512),
+     slug                 VARCHAR(512),
+     type                 VARCHAR(100),
+     admin_status         VARCHAR(50),
+     web_status           VARCHAR(50),
+     price                BIGINT,
+     compare_price        BIGINT,
+     short_description    TEXT,
+     description          TEXT,
+     image                JSONB,
+     images               JSONB,
+     tags                 JSONB,
+     vendor_id            VARCHAR(64),
+     collection_ids       JSONB,
+     wine_varietal_ids    JSONB,
+     wine_appellation_id  VARCHAR(64),
+     vintage              INTEGER,
+     alcohol_percentage   NUMERIC(5,2),
+     volume_in_ml         INTEGER,
+     weight               NUMERIC(10,3),
+     country_code         VARCHAR(10),
+     region               VARCHAR(255),
+     metadata             JSONB,
+     c7_created_at        TIMESTAMPTZ,
+     c7_updated_at        TIMESTAMPTZ,
+     synced_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 233: commerce7.product_variant ──────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.product_variant (
+     id                VARCHAR(64)   PRIMARY KEY,
+     company_id        UUID          NOT NULL,
+     product_id        VARCHAR(64)   NOT NULL REFERENCES commerce7.product(id) ON DELETE CASCADE,
+     title             VARCHAR(512),
+     sku               VARCHAR(255),
+     price             BIGINT,
+     compare_price     BIGINT,
+     on_hand_count     INTEGER,
+     reserve_count     INTEGER,
+     allocated_count   INTEGER,
+     available_count   INTEGER,
+     is_default        BOOLEAN,
+     attributes        JSONB,
+     metadata          JSONB,
+     c7_created_at     TIMESTAMPTZ,
+     c7_updated_at     TIMESTAMPTZ,
+     synced_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 234: commerce7.collection ───────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.collection (
+     id              VARCHAR(64)   PRIMARY KEY,
+     company_id      UUID          NOT NULL,
+     title           VARCHAR(512),
+     slug            VARCHAR(512),
+     is_published    BOOLEAN,
+     description     TEXT,
+     image           JSONB,
+     metadata        JSONB,
+     c7_created_at   TIMESTAMPTZ,
+     c7_updated_at   TIMESTAMPTZ,
+     synced_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 235: commerce7.vendor ───────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.vendor (
+     id              VARCHAR(64)   PRIMARY KEY,
+     company_id      UUID          NOT NULL,
+     title           VARCHAR(512),
+     c7_created_at   TIMESTAMPTZ,
+     c7_updated_at   TIMESTAMPTZ,
+     synced_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 236: commerce7.wine_varietal ────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.wine_varietal (
+     id              VARCHAR(64)   PRIMARY KEY,
+     company_id      UUID          NOT NULL,
+     title           VARCHAR(255),
+     c7_created_at   TIMESTAMPTZ,
+     c7_updated_at   TIMESTAMPTZ,
+     synced_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 237: commerce7.wine_appellation ─────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.wine_appellation (
+     id              VARCHAR(64)   PRIMARY KEY,
+     company_id      UUID          NOT NULL,
+     title           VARCHAR(255),
+     c7_created_at   TIMESTAMPTZ,
+     c7_updated_at   TIMESTAMPTZ,
+     synced_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 238: commerce7.club ─────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.club (
+     id              VARCHAR(64)   PRIMARY KEY,
+     company_id      UUID          NOT NULL,
+     title           VARCHAR(512),
+     slug            VARCHAR(512),
+     status          VARCHAR(50),
+     description     TEXT,
+     image           JSONB,
+     metadata        JSONB,
+     c7_created_at   TIMESTAMPTZ,
+     c7_updated_at   TIMESTAMPTZ,
+     synced_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 239: commerce7.club_membership ──────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.club_membership (
+     id                  VARCHAR(64)   PRIMARY KEY,
+     company_id          UUID          NOT NULL,
+     customer_id         VARCHAR(64),
+     club_id             VARCHAR(64),
+     status              VARCHAR(50),
+     signup_date         DATE,
+     cancel_date         DATE,
+     next_process_date   DATE,
+     frequency           VARCHAR(50),
+     shipment_count      INTEGER,
+     tags                JSONB,
+     metadata            JSONB,
+     c7_created_at       TIMESTAMPTZ,
+     c7_updated_at       TIMESTAMPTZ,
+     synced_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 240: commerce7.reservation ──────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.reservation (
+     id                    VARCHAR(64)   PRIMARY KEY,
+     company_id            UUID          NOT NULL,
+     customer_id           VARCHAR(64),
+     reservation_type_id   VARCHAR(64),
+     reservation_date      DATE,
+     start_time            VARCHAR(10),
+     end_time              VARCHAR(10),
+     party_size            INTEGER,
+     status                VARCHAR(50),
+     payment_status        VARCHAR(50),
+     channel               VARCHAR(50),
+     sub_total             BIGINT,
+     tax_total             BIGINT,
+     total                 BIGINT,
+     notes                 TEXT,
+     tags                  JSONB,
+     tenders               JSONB,
+     metadata              JSONB,
+     c7_created_at         TIMESTAMPTZ,
+     c7_updated_at         TIMESTAMPTZ,
+     synced_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 241: commerce7.gift_card ────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.gift_card (
+     id                VARCHAR(64)   PRIMARY KEY,
+     company_id        UUID          NOT NULL,
+     customer_id       VARCHAR(64),
+     code              VARCHAR(255),
+     status            VARCHAR(50),
+     balance           BIGINT,
+     original_balance  BIGINT,
+     currency          VARCHAR(10),
+     c7_created_at     TIMESTAMPTZ,
+     c7_updated_at     TIMESTAMPTZ,
+     synced_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migration 242: commerce7.promotion ────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS commerce7.promotion (
+     id              VARCHAR(64)   PRIMARY KEY,
+     company_id      UUID          NOT NULL,
+     title           VARCHAR(512),
+     type            VARCHAR(100),
+     status          VARCHAR(50),
+     discount_type   VARCHAR(50),
+     discount_value  NUMERIC(10,4),
+     start_date      DATE,
+     end_date        DATE,
+     metadata        JSONB,
+     c7_created_at   TIMESTAMPTZ,
+     c7_updated_at   TIMESTAMPTZ,
+     synced_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Migrations 243-254: indexes ───────────────────────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_c7_product_company     ON commerce7.product(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_product_updated     ON commerce7.product(c7_updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_product_type        ON commerce7.product(type)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_variant_product     ON commerce7.product_variant(product_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_variant_company     ON commerce7.product_variant(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_collection_company  ON commerce7.collection(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_company        ON commerce7.club(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_membership_company  ON commerce7.club_membership(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_membership_customer ON commerce7.club_membership(customer_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_membership_club     ON commerce7.club_membership(club_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_reservation_company ON commerce7.reservation(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_reservation_date    ON commerce7.reservation(reservation_date)`,
+
+  // ── Migration 255: Amazon Business credentials ────────────────────────────
+  `ALTER TABLE teamtask_hub.company_integrations
+     ADD COLUMN IF NOT EXISTS amazon_email    VARCHAR(255),
+     ADD COLUMN IF NOT EXISTS amazon_password TEXT`,
 ];
 
 export async function runMigrations() {

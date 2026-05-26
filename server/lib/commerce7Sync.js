@@ -330,25 +330,648 @@ export async function syncOrders(companyId, integration, { mode = 'incremental' 
   }
 }
 
-// ── Full company sync (customers then orders) ────────────────────────────────
+// ── Products + Variants ───────────────────────────────────────────────────────
+
+async function upsertProduct(companyId, p) {
+  await query(
+    `INSERT INTO commerce7.product
+       (id, company_id, title, slug, type, admin_status, web_status,
+        price, compare_price, short_description, description,
+        image, images, tags, vendor_id, collection_ids,
+        wine_varietal_ids, wine_appellation_id,
+        vintage, alcohol_percentage, volume_in_ml, weight,
+        country_code, region, metadata, c7_created_at, c7_updated_at, synced_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       title               = EXCLUDED.title,
+       slug                = EXCLUDED.slug,
+       type                = EXCLUDED.type,
+       admin_status        = EXCLUDED.admin_status,
+       web_status          = EXCLUDED.web_status,
+       price               = EXCLUDED.price,
+       compare_price       = EXCLUDED.compare_price,
+       short_description   = EXCLUDED.short_description,
+       description         = EXCLUDED.description,
+       image               = EXCLUDED.image,
+       images              = EXCLUDED.images,
+       tags                = EXCLUDED.tags,
+       vendor_id           = EXCLUDED.vendor_id,
+       collection_ids      = EXCLUDED.collection_ids,
+       wine_varietal_ids   = EXCLUDED.wine_varietal_ids,
+       wine_appellation_id = EXCLUDED.wine_appellation_id,
+       vintage             = EXCLUDED.vintage,
+       alcohol_percentage  = EXCLUDED.alcohol_percentage,
+       volume_in_ml        = EXCLUDED.volume_in_ml,
+       weight              = EXCLUDED.weight,
+       country_code        = EXCLUDED.country_code,
+       region              = EXCLUDED.region,
+       metadata            = EXCLUDED.metadata,
+       c7_updated_at       = EXCLUDED.c7_updated_at,
+       synced_at           = NOW()`,
+    [
+      p.id, companyId,
+      p.title      ?? null,
+      p.slug       ?? null,
+      p.type       ?? null,
+      p.adminStatus ?? null,
+      p.webStatus  ?? null,
+      p.price      ?? null,
+      p.comparePrice ?? null,
+      p.shortDescription ?? null,
+      p.description ?? null,
+      p.image  ? JSON.stringify(p.image)  : null,
+      p.images ? JSON.stringify(p.images) : null,
+      JSON.stringify(p.tags ?? []),
+      p.vendorId ?? null,
+      JSON.stringify(p.collectionIds ?? p.collections?.map(c => c.id) ?? []),
+      JSON.stringify(p.wineVarietalIds ?? p.wineVarietals?.map(v => v.id) ?? []),
+      p.wineAppellationId ?? p.wineAppellation?.id ?? null,
+      p.vintage ?? null,
+      p.alcoholPercentage ?? null,
+      p.volumeInML ?? null,
+      p.weight ?? null,
+      p.countryCode ?? null,
+      p.region ?? null,
+      p.metaData ? JSON.stringify(p.metaData) : null,
+      p.createdAt ?? null,
+      p.updatedAt ?? null,
+    ]
+  );
+}
+
+async function upsertProductVariants(companyId, productId, variants) {
+  if (!variants?.length) return 0;
+  await query(`DELETE FROM commerce7.product_variant WHERE product_id = $1`, [productId]);
+  for (const v of variants) {
+    await query(
+      `INSERT INTO commerce7.product_variant
+         (id, company_id, product_id, title, sku, price, compare_price,
+          on_hand_count, reserve_count, allocated_count, available_count,
+          is_default, attributes, metadata, c7_created_at, c7_updated_at, synced_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        v.id, companyId, productId,
+        v.title     ?? null,
+        v.sku       ?? null,
+        v.price     ?? null,
+        v.comparePrice ?? null,
+        v.onHandCount    ?? null,
+        v.reserveCount   ?? null,
+        v.allocatedCount ?? null,
+        v.availableCount ?? null,
+        v.isDefault ?? false,
+        v.attributes ? JSON.stringify(v.attributes) : null,
+        v.metaData   ? JSON.stringify(v.metaData)   : null,
+        v.createdAt  ?? null,
+        v.updatedAt  ?? null,
+      ]
+    );
+  }
+  return variants.length;
+}
+
+export async function syncProducts(companyId, integration, { mode = 'incremental' } = {}) {
+  const since = mode === 'full' ? null : await getWatermark(companyId, 'product');
+  const logId = await logStart(companyId, 'products', mode, since);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const params = new URLSearchParams({ page, limit: PAGE_SIZE });
+      if (since) params.set('updatedAt', `gte:${new Date(since).toISOString().slice(0, 10)}`);
+
+      const data = await c7.get(`/product?${params}`);
+      total = data.total ?? 0;
+
+      for (const product of data.products ?? []) {
+        await upsertProduct(companyId, product);
+        await upsertProductVariants(companyId, product.id, product.variants);
+      }
+
+      synced += (data.products ?? []).length;
+      console.log(`[c7-sync] products page ${page}/${Math.ceil(total / PAGE_SIZE)} — ${synced}/${total}`);
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'products' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Collections ───────────────────────────────────────────────────────────────
+
+export async function syncCollections(companyId, integration) {
+  const logId = await logStart(companyId, 'collections', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/collection?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const col of data.collections ?? []) {
+        await query(
+          `INSERT INTO commerce7.collection
+             (id, company_id, title, slug, is_published, description, image, metadata, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             title        = EXCLUDED.title,
+             slug         = EXCLUDED.slug,
+             is_published = EXCLUDED.is_published,
+             description  = EXCLUDED.description,
+             image        = EXCLUDED.image,
+             metadata     = EXCLUDED.metadata,
+             c7_updated_at = EXCLUDED.c7_updated_at,
+             synced_at    = NOW()`,
+          [
+            col.id, companyId,
+            col.title       ?? null,
+            col.slug        ?? null,
+            col.isPublished ?? false,
+            col.description ?? null,
+            col.image  ? JSON.stringify(col.image)  : null,
+            col.metaData ? JSON.stringify(col.metaData) : null,
+            col.createdAt ?? null,
+            col.updatedAt ?? null,
+          ]
+        );
+      }
+
+      synced += (data.collections ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'collections' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Vendors ───────────────────────────────────────────────────────────────────
+
+export async function syncVendors(companyId, integration) {
+  const logId = await logStart(companyId, 'vendors', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/vendor?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const v of data.vendors ?? []) {
+        await query(
+          `INSERT INTO commerce7.vendor
+             (id, company_id, title, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             title         = EXCLUDED.title,
+             c7_updated_at = EXCLUDED.c7_updated_at,
+             synced_at     = NOW()`,
+          [v.id, companyId, v.title ?? null, v.createdAt ?? null, v.updatedAt ?? null]
+        );
+      }
+
+      synced += (data.vendors ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'vendors' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Wine Varietals ────────────────────────────────────────────────────────────
+
+export async function syncWineVarietals(companyId, integration) {
+  const logId = await logStart(companyId, 'wine_varietals', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/wine-varietal?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const v of data.wineVarietals ?? []) {
+        await query(
+          `INSERT INTO commerce7.wine_varietal
+             (id, company_id, title, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             title         = EXCLUDED.title,
+             c7_updated_at = EXCLUDED.c7_updated_at,
+             synced_at     = NOW()`,
+          [v.id, companyId, v.title ?? null, v.createdAt ?? null, v.updatedAt ?? null]
+        );
+      }
+
+      synced += (data.wineVarietals ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'wine_varietals' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Wine Appellations ─────────────────────────────────────────────────────────
+
+export async function syncWineAppellations(companyId, integration) {
+  const logId = await logStart(companyId, 'wine_appellations', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/wine-appellation?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const a of data.wineAppellations ?? []) {
+        await query(
+          `INSERT INTO commerce7.wine_appellation
+             (id, company_id, title, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             title         = EXCLUDED.title,
+             c7_updated_at = EXCLUDED.c7_updated_at,
+             synced_at     = NOW()`,
+          [a.id, companyId, a.title ?? null, a.createdAt ?? null, a.updatedAt ?? null]
+        );
+      }
+
+      synced += (data.wineAppellations ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'wine_appellations' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Clubs ─────────────────────────────────────────────────────────────────────
+
+export async function syncClubs(companyId, integration) {
+  const logId = await logStart(companyId, 'clubs', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/club?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const club of data.clubs ?? []) {
+        await query(
+          `INSERT INTO commerce7.club
+             (id, company_id, title, slug, status, description, image, metadata, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             title         = EXCLUDED.title,
+             slug          = EXCLUDED.slug,
+             status        = EXCLUDED.status,
+             description   = EXCLUDED.description,
+             image         = EXCLUDED.image,
+             metadata      = EXCLUDED.metadata,
+             c7_updated_at = EXCLUDED.c7_updated_at,
+             synced_at     = NOW()`,
+          [
+            club.id, companyId,
+            club.title       ?? null,
+            club.slug        ?? null,
+            club.status      ?? null,
+            club.description ?? null,
+            club.image  ? JSON.stringify(club.image)  : null,
+            club.metaData ? JSON.stringify(club.metaData) : null,
+            club.createdAt ?? null,
+            club.updatedAt ?? null,
+          ]
+        );
+      }
+
+      synced += (data.clubs ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'clubs' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Club Memberships ──────────────────────────────────────────────────────────
+
+export async function syncClubMemberships(companyId, integration, { mode = 'incremental' } = {}) {
+  const since = mode === 'full' ? null : await getWatermark(companyId, 'club_membership');
+  const logId = await logStart(companyId, 'club_memberships', mode, since);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const params = new URLSearchParams({ page, limit: PAGE_SIZE });
+      if (since) params.set('updatedAt', `gte:${new Date(since).toISOString().slice(0, 10)}`);
+
+      const data = await c7.get(`/club-membership?${params}`);
+      total = data.total ?? 0;
+
+      for (const m of data.clubMemberships ?? []) {
+        await query(
+          `INSERT INTO commerce7.club_membership
+             (id, company_id, customer_id, club_id, status,
+              signup_date, cancel_date, next_process_date, frequency,
+              shipment_count, tags, metadata, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             customer_id       = EXCLUDED.customer_id,
+             club_id           = EXCLUDED.club_id,
+             status            = EXCLUDED.status,
+             signup_date       = EXCLUDED.signup_date,
+             cancel_date       = EXCLUDED.cancel_date,
+             next_process_date = EXCLUDED.next_process_date,
+             frequency         = EXCLUDED.frequency,
+             shipment_count    = EXCLUDED.shipment_count,
+             tags              = EXCLUDED.tags,
+             metadata          = EXCLUDED.metadata,
+             c7_updated_at     = EXCLUDED.c7_updated_at,
+             synced_at         = NOW()`,
+          [
+            m.id, companyId,
+            m.customerId    ?? null,
+            m.clubId        ?? null,
+            m.status        ?? null,
+            m.signupDate    ?? null,
+            m.cancelDate    ?? null,
+            m.nextProcessDate ?? null,
+            m.frequency     ?? null,
+            m.shipmentCount ?? null,
+            JSON.stringify(m.tags ?? []),
+            m.metaData ? JSON.stringify(m.metaData) : null,
+            m.createdAt ?? null,
+            m.updatedAt ?? null,
+          ]
+        );
+      }
+
+      synced += (data.clubMemberships ?? []).length;
+      console.log(`[c7-sync] club-memberships page ${page}/${Math.ceil(total / PAGE_SIZE)} — ${synced}/${total}`);
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'club_memberships' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Reservations ──────────────────────────────────────────────────────────────
+
+export async function syncReservations(companyId, integration, { mode = 'incremental' } = {}) {
+  const since = mode === 'full' ? null : await getWatermark(companyId, 'reservation');
+  const logId = await logStart(companyId, 'reservations', mode, since);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const params = new URLSearchParams({ page, limit: PAGE_SIZE });
+      if (since) params.set('updatedAt', `gte:${new Date(since).toISOString().slice(0, 10)}`);
+
+      const data = await c7.get(`/reservation?${params}`);
+      total = data.total ?? 0;
+
+      for (const r of data.reservations ?? []) {
+        await query(
+          `INSERT INTO commerce7.reservation
+             (id, company_id, customer_id, reservation_type_id, reservation_date,
+              start_time, end_time, party_size, status, payment_status, channel,
+              sub_total, tax_total, total, notes, tags, tenders, metadata,
+              c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             customer_id         = EXCLUDED.customer_id,
+             reservation_type_id = EXCLUDED.reservation_type_id,
+             reservation_date    = EXCLUDED.reservation_date,
+             start_time          = EXCLUDED.start_time,
+             end_time            = EXCLUDED.end_time,
+             party_size          = EXCLUDED.party_size,
+             status              = EXCLUDED.status,
+             payment_status      = EXCLUDED.payment_status,
+             channel             = EXCLUDED.channel,
+             sub_total           = EXCLUDED.sub_total,
+             tax_total           = EXCLUDED.tax_total,
+             total               = EXCLUDED.total,
+             notes               = EXCLUDED.notes,
+             tags                = EXCLUDED.tags,
+             tenders             = EXCLUDED.tenders,
+             metadata            = EXCLUDED.metadata,
+             c7_updated_at       = EXCLUDED.c7_updated_at,
+             synced_at           = NOW()`,
+          [
+            r.id, companyId,
+            r.customerId         ?? null,
+            r.reservationTypeId  ?? null,
+            r.reservationDate    ?? null,
+            r.startTime          ?? null,
+            r.endTime            ?? null,
+            r.partySize          ?? null,
+            r.status             ?? null,
+            r.paymentStatus      ?? null,
+            r.channel            ?? null,
+            r.subTotal           ?? null,
+            r.taxTotal           ?? null,
+            r.total              ?? null,
+            r.notes              ?? null,
+            JSON.stringify(r.tags ?? []),
+            r.tenders ? JSON.stringify(r.tenders) : null,
+            r.metaData ? JSON.stringify(r.metaData) : null,
+            r.createdAt ?? null,
+            r.updatedAt ?? null,
+          ]
+        );
+      }
+
+      synced += (data.reservations ?? []).length;
+      console.log(`[c7-sync] reservations page ${page}/${Math.ceil(total / PAGE_SIZE)} — ${synced}/${total}`);
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'reservations' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Gift Cards ────────────────────────────────────────────────────────────────
+
+export async function syncGiftCards(companyId, integration) {
+  const logId = await logStart(companyId, 'gift_cards', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/gift-card?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const gc of data.giftCards ?? []) {
+        await query(
+          `INSERT INTO commerce7.gift_card
+             (id, company_id, customer_id, code, status, balance, original_balance, currency,
+              c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             customer_id      = EXCLUDED.customer_id,
+             code             = EXCLUDED.code,
+             status           = EXCLUDED.status,
+             balance          = EXCLUDED.balance,
+             original_balance = EXCLUDED.original_balance,
+             currency         = EXCLUDED.currency,
+             c7_updated_at    = EXCLUDED.c7_updated_at,
+             synced_at        = NOW()`,
+          [
+            gc.id, companyId,
+            gc.customerId      ?? null,
+            gc.code            ?? null,
+            gc.status          ?? null,
+            gc.balance         ?? null,
+            gc.originalBalance ?? null,
+            gc.currency        ?? null,
+            gc.createdAt       ?? null,
+            gc.updatedAt       ?? null,
+          ]
+        );
+      }
+
+      synced += (data.giftCards ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'gift_cards' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Promotions ────────────────────────────────────────────────────────────────
+
+export async function syncPromotions(companyId, integration) {
+  const logId = await logStart(companyId, 'promotions', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/promotion?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const p of data.promotions ?? []) {
+        await query(
+          `INSERT INTO commerce7.promotion
+             (id, company_id, title, type, status, discount_type, discount_value,
+              start_date, end_date, metadata, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             title          = EXCLUDED.title,
+             type           = EXCLUDED.type,
+             status         = EXCLUDED.status,
+             discount_type  = EXCLUDED.discount_type,
+             discount_value = EXCLUDED.discount_value,
+             start_date     = EXCLUDED.start_date,
+             end_date       = EXCLUDED.end_date,
+             metadata       = EXCLUDED.metadata,
+             c7_updated_at  = EXCLUDED.c7_updated_at,
+             synced_at      = NOW()`,
+          [
+            p.id, companyId,
+            p.title         ?? null,
+            p.type          ?? null,
+            p.status        ?? null,
+            p.discountType  ?? null,
+            p.discountValue ?? null,
+            p.startDate     ?? null,
+            p.endDate       ?? null,
+            p.metaData ? JSON.stringify(p.metaData) : null,
+            p.createdAt ?? null,
+            p.updatedAt ?? null,
+          ]
+        );
+      }
+
+      synced += (data.promotions ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced);
+    return { synced, entity: 'promotions' };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
+// ── Full company sync (all objects) ──────────────────────────────────────────
 
 export async function syncCompany(companyId, integration, opts = {}) {
   console.log(`[c7-sync] starting sync for company ${companyId} (mode=${opts.mode ?? 'incremental'})`);
   const results = {};
 
-  try {
-    results.customers = await syncCustomers(companyId, integration, opts);
-  } catch (err) {
-    console.error(`[c7-sync] customer sync failed for ${companyId}:`, err.message);
-    results.customers = { error: err.message };
-  }
+  const run = async (name, fn) => {
+    try {
+      results[name] = await fn();
+    } catch (err) {
+      console.error(`[c7-sync] ${name} sync failed for ${companyId}:`, err.message);
+      results[name] = { error: err.message };
+    }
+  };
 
-  try {
-    results.orders = await syncOrders(companyId, integration, opts);
-  } catch (err) {
-    console.error(`[c7-sync] order sync failed for ${companyId}:`, err.message);
-    results.orders = { error: err.message };
-  }
+  await run('customers',        () => syncCustomers(companyId, integration, opts));
+  await run('orders',           () => syncOrders(companyId, integration, opts));
+  await run('products',         () => syncProducts(companyId, integration, opts));
+  await run('collections',      () => syncCollections(companyId, integration));
+  await run('vendors',          () => syncVendors(companyId, integration));
+  await run('wine_varietals',   () => syncWineVarietals(companyId, integration));
+  await run('wine_appellations',() => syncWineAppellations(companyId, integration));
+  await run('clubs',            () => syncClubs(companyId, integration));
+  await run('club_memberships', () => syncClubMemberships(companyId, integration, opts));
+  await run('reservations',     () => syncReservations(companyId, integration, opts));
+  await run('gift_cards',       () => syncGiftCards(companyId, integration));
+  await run('promotions',       () => syncPromotions(companyId, integration));
 
   console.log(`[c7-sync] done for company ${companyId}`, results);
   return results;

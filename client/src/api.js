@@ -527,21 +527,10 @@ export async function resetPassword(token, new_password) {
   return data;
 }
 
-export async function squareSync() {
-  const res = await fetch(`${API}/integrations/square/sync`, { method: 'POST', headers: headers() });
+export async function squareGetTeamMembers() {
+  const res = await fetch(`${API}/integrations/square/team-members`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Sync failed');
-  return data;
-}
-
-export async function squareAddUsers(users) {
-  const res = await fetch(`${API}/integrations/square/add-users`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ users }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Add users failed');
+  if (!res.ok) throw new Error(data.error || 'Failed to load team members');
   return data;
 }
 
@@ -842,6 +831,44 @@ export async function getAmazonStats() {
   return data;
 }
 
+export async function runAmazonSync() {
+  const res = await fetch(`${API}/amazon-orders/sync`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Sync failed');
+  return data;
+}
+
+// ── Amazon Business settings ──────────────────────────────────────────────────
+
+export async function getAmazonSettings() {
+  const res = await fetch(`${API}/settings/amazon`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Amazon settings');
+  return data;
+}
+
+export async function putAmazonSettings(body) {
+  const res = await fetch(`${API}/settings/amazon`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save Amazon settings');
+  return data;
+}
+
+export async function testAmazonLogin(body) {
+  const res = await fetch(`${API}/settings/amazon/test`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Test failed');
+  return data;
+}
+
 // ── Card → QBO Account Mappings ───────────────────────────────────────────────
 
 export async function getCardMappings() {
@@ -987,14 +1014,71 @@ export async function removeTaxExemptItem(id) {
   }
 }
 
-export async function getTaxGap(from, to) {
-  const qs = new URLSearchParams();
-  if (from) qs.set('from', from);
-  if (to)   qs.set('to',   to);
-  const res = await fetch(`${API}/products/tax-gap?${qs}`, { headers: headers() });
+export async function getTaxGap() {
+  const res = await fetch(`${API}/products/tax-gap`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to run tax gap check');
-  return data; // { from, to, rows, total_exposure }
+  return data; // { items, total }
+}
+
+// ── Square sync objects ──────────────────────────────────────────────────────
+export async function getSquareSyncObjects() {
+  const res = await fetch(`${API}/square/sync/objects`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load sync objects');
+  return data; // { objects: [...] }
+}
+
+export async function updateSquareSyncObject(id, body) {
+  const res = await fetch(`${API}/square/sync/objects/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update');
+  return data; // { object }
+}
+
+export async function runSquareSyncObject(id) {
+  const res = await fetch(`${API}/square/sync/objects/${id}/run`, {
+    method: 'POST', headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Sync failed');
+  return data;
+}
+
+// ── Commerce7 Sync Objects ────────────────────────────────────────────────────
+
+export async function getC7SyncObjects() {
+  const res = await fetch(`${API}/commerce7/sync/objects`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load C7 sync objects');
+  return data; // { objects: [...] }
+}
+
+export async function updateC7SyncObject(id, body) {
+  const res = await fetch(`${API}/commerce7/sync/objects/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update');
+  return data; // { object }
+}
+
+export async function runC7SyncObject(id) {
+  const res = await fetch(`${API}/commerce7/sync/objects/${id}/run`, {
+    method: 'POST', headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Sync failed');
+  return data;
+}
+
+export async function getCatalogTaxGaps() {
+  const res = await fetch(`${API}/products/catalog-tax-gaps`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load catalog tax gaps');
+  return data; // { items: [...] }
 }
 
 export async function updateProduct(id, data) {

@@ -1,32 +1,21 @@
 import React, { useState } from 'react';
-import { squareSync, squareAddUsers, squareSyncUsers, setSquareUserExcluded } from '../api';
+import { squareGetTeamMembers, squareSyncUsers, setSquareUserExcluded } from '../api';
 import '../pages/SyncUsers.css';
 
-/** Square team sync UI (used under Settings → Square users). */
+/** Square user exclusion management + sync trigger (used under Settings → Square). */
 export function SquareUsersPanel() {
-  const [squareTeamMembers, setSquareTeamMembers] = useState([]);
-  const [squareSelections, setSquareSelections] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const [teamMembers, setTeamMembers]     = useState([]);
+  const [open, setOpen]                   = useState(false);
+  const [loading, setLoading]             = useState(false);
+  const [error, setError]                 = useState('');
+  const [message, setMessage]             = useState('');
 
-  const handleLoadFromSquare = async () => {
+  const loadMembers = async () => {
     setError('');
     setLoading(true);
     try {
-      const r = await squareSync();
-      const list = r.team_members || [];
-      setSquareTeamMembers(list);
-      const next = {};
-      list.forEach((tm) => {
-        next[tm.id] = {
-          role: tm.already_in_system ? (tm.role || 'member') : 'member',
-          addToSystem: false,
-          excluded: !!tm.excluded,
-        };
-      });
-      setSquareSelections(next);
-      setMessage(`Fetched ${list.length} team member(s) from Square`);
+      const r = await squareGetTeamMembers();
+      setTeamMembers(r.team_members || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -34,80 +23,19 @@ export function SquareUsersPanel() {
     }
   };
 
-  const setSquareRole = (id, role) => {
-    setSquareSelections((prev) => ({ ...prev, [id]: { ...prev[id], role } }));
+  const handleOpen = async () => {
+    setOpen(true);
+    setMessage('');
+    await loadMembers();
   };
-  const setSquareAddToSystem = (id, addToSystem) => {
-    setSquareSelections((prev) => ({ ...prev, [id]: { ...prev[id], addToSystem } }));
-  };
-  const setSquareExcluded = async (id, excluded) => {
+
+  const handleExclude = async (id, excluded) => {
     setError('');
     setLoading(true);
     try {
       await setSquareUserExcluded(id, excluded);
-      if (excluded) {
-        // Backend may have removed the existing user record; refetch to refresh `already_in_system`.
-        const refetch = await squareSync();
-        const list = refetch.team_members || [];
-        setSquareTeamMembers(list);
-        const next = {};
-        list.forEach((tm) => {
-          next[tm.id] = {
-            role: tm.already_in_system ? (tm.role || 'member') : 'member',
-            addToSystem: false,
-            excluded: !!tm.excluded,
-          };
-        });
-        setSquareSelections(next);
-      } else {
-        setSquareSelections((prev) => ({
-          ...prev,
-          [id]: { ...prev[id], excluded: false },
-        }));
-      }
-      setMessage(excluded ? 'User excluded from auto-add' : 'User re-enabled for auto-add');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddSelected = async () => {
-    const toAdd = squareTeamMembers.filter(
-      (tm) => !tm.already_in_system && !squareSelections[tm.id]?.excluded && squareSelections[tm.id]?.addToSystem
-    );
-    if (toAdd.length === 0) {
-      setError('Select at least one user to add');
-      return;
-    }
-    setError('');
-    setLoading(true);
-    try {
-      const users = toAdd.map((tm) => ({
-        id: tm.id,
-        email_address: tm.email_address,
-        given_name: tm.given_name,
-        family_name: tm.family_name,
-        phone_number: tm.phone_number,
-        role: squareSelections[tm.id]?.role === 'manager' ? 'manager' : 'member',
-      }));
-      const r = await squareAddUsers(users);
-      setMessage(`Added ${r.added} user(s), ${r.skipped} already in system`);
-      if (r.added > 0) {
-        const refetch = await squareSync();
-        const list = refetch.team_members || [];
-        setSquareTeamMembers(list);
-        const next = {};
-        list.forEach((tm) => {
-          next[tm.id] = {
-            role: tm.already_in_system ? (tm.role || 'member') : 'member',
-            addToSystem: false,
-            excluded: !!tm.excluded,
-          };
-        });
-        setSquareSelections(next);
-      }
+      setMessage(excluded ? 'User excluded from auto-sync.' : 'User re-enabled for auto-sync.');
+      await loadMembers();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -120,7 +48,7 @@ export function SquareUsersPanel() {
     setLoading(true);
     try {
       const r = await squareSyncUsers();
-      setMessage(`Sync: ${r.added || 0} added, ${r.updated} updated, ${r.skipped} skipped, ${r.removed} removed, ${r.excluded || 0} excluded`);
+      setMessage(`Sync: ${r.added || 0} added, ${r.updated} updated, ${r.removed} removed`);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -130,55 +58,49 @@ export function SquareUsersPanel() {
 
   return (
     <section className="sync-users-section settings-square-panel">
-      <p className="settings-intro">Load users from Square, then add selected users to the system or run Sync to update/remove existing users.</p>
-      {error && <p className="sync-users-error">{error}</p>}
-      {message && <p className="sync-users-message">{message}</p>}
-      <button type="button" onClick={handleLoadFromSquare} disabled={loading}>
-        {loading ? 'Loading…' : 'Load users from Square'}
-      </button>
+      <p className="settings-intro">
+        Square team members are automatically synced to TeamHub. Use the buttons below to run a
+        manual sync or exclude specific users from auto-add.
+      </p>
 
-      {squareTeamMembers.length > 0 && (
+      {error   && <p className="sync-users-error">{error}</p>}
+      {message && <p className="sync-users-message">{message}</p>}
+
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button type="button" onClick={handleOpen} disabled={loading}>
+          {loading && open ? 'Loading…' : 'Exclude Square Users'}
+        </button>
+        <button type="button" onClick={handleSync} disabled={loading} className="btn-sync">
+          {loading && !open ? 'Syncing…' : 'Sync Now'}
+        </button>
+      </div>
+
+      {open && (
         <div className="square-team-members">
           <h3>Square team members</h3>
+          {teamMembers.length === 0 && !loading && (
+            <p>No active team members found. Run a team member sync first.</p>
+          )}
           <ul className="square-team-list">
-            {squareTeamMembers.map((tm) => {
+            {teamMembers.map((tm) => {
               const displayName = [tm.given_name, tm.family_name].filter(Boolean).join(' ') || tm.email_address || '—';
-              const alreadyIn = !!tm.already_in_system;
-              const sel = squareSelections[tm.id] || { role: 'member', addToSystem: false, excluded: false };
               return (
                 <li key={tm.id} className="square-team-row">
                   <span className="square-team-name">
-                    {displayName} {tm.email_address && `(${tm.email_address})`} {tm.phone_number && ` · ${tm.phone_number}`}
-                    {sel.excluded && <span className="square-team-badge-excluded">Excluded</span>}
+                    {displayName}
+                    {tm.email_address && ` (${tm.email_address})`}
+                    {tm.phone_number  && ` · ${tm.phone_number}`}
+                    {tm.excluded && <span className="square-team-badge-excluded">Excluded</span>}
+                    {tm.already_in_system && !tm.excluded && (
+                      <span className="square-team-status">In system</span>
+                    )}
                   </span>
-                  {alreadyIn && !sel.excluded && (
-                    <span className="square-team-status">Already in system</span>
-                  )}
-                  {!alreadyIn && !sel.excluded && (
-                    <>
-                      <select
-                        value={sel.role}
-                        onChange={(e) => setSquareRole(tm.id, e.target.value)}
-                        className="square-team-role"
-                      >
-                        <option value="member">User</option>
-                        <option value="manager">Manager</option>
-                      </select>
-                      <label className="square-team-add">
-                        <input
-                          type="checkbox"
-                          checked={sel.addToSystem}
-                          onChange={(e) => setSquareAddToSystem(tm.id, e.target.checked)}
-                        />
-                        Add to system
-                      </label>
-                    </>
-                  )}
                   <label className="square-team-add">
                     <input
                       type="checkbox"
-                      checked={!!sel.excluded}
-                      onChange={(e) => setSquareExcluded(tm.id, e.target.checked)}
+                      checked={!!tm.excluded}
+                      disabled={loading}
+                      onChange={(e) => handleExclude(tm.id, e.target.checked)}
                     />
                     Exclude from auto-add
                   </label>
@@ -186,12 +108,6 @@ export function SquareUsersPanel() {
               );
             })}
           </ul>
-          <button type="button" onClick={handleAddSelected} disabled={loading} className="btn-add-selected">
-            Add selected
-          </button>
-          <button type="button" onClick={handleSync} disabled={loading} className="btn-sync">
-            Sync
-          </button>
         </div>
       )}
     </section>
