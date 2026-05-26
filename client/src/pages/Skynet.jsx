@@ -124,17 +124,21 @@ function TestPanel({ agents, onSaveAsSchedule }) {
   );
 }
 
-function ScheduleForm({ agents, onSave, onCancel, initial }) {
+function ScheduleForm({ agents, onSave, onCancel, initial, isEditing }) {
+  // `initial` can be a DB schedule row (snake_case) or a test-panel prefill (camelCase)
+  const cfg = initial?.schedule_config || {};
   const [name,         setName]         = useState(initial?.name || '');
-  const [agentId,      setAgentId]      = useState(initial?.agent_id || '');
+  const [agentId,      setAgentId]      = useState(initial?.agent_id || initial?.agentId || '');
   const [prompt,       setPrompt]       = useState(initial?.prompt || '');
   const [schedType,    setSchedType]    = useState(initial?.schedule_type || 'daily');
-  const [fireAt,       setFireAt]       = useState('');
-  const [hour,         setHour]         = useState(8);
-  const [minute,       setMinute]       = useState(0);
-  const [dayOfWeek,    setDayOfWeek]    = useState(1);
-  const [dayOfMonth,   setDayOfMonth]   = useState(1);
-  const [month,        setMonth]        = useState(1);
+  const [fireAt,       setFireAt]       = useState(
+    initial?.fire_at ? new Date(initial.fire_at).toISOString().slice(0, 16) : ''
+  );
+  const [hour,         setHour]         = useState(cfg.hour ?? 8);
+  const [minute,       setMinute]       = useState(cfg.minute ?? 0);
+  const [dayOfWeek,    setDayOfWeek]    = useState(cfg.dayOfWeek ?? 1);
+  const [dayOfMonth,   setDayOfMonth]   = useState(cfg.dayOfMonth ?? 1);
+  const [month,        setMonth]        = useState(cfg.month ?? 1);
   const [saving,       setSaving]       = useState(false);
   const [error,        setError]        = useState('');
 
@@ -249,7 +253,7 @@ function ScheduleForm({ agents, onSave, onCancel, initial }) {
       <div className="skynet-form-actions">
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : 'Save Schedule'}
+          {saving ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Schedule'}
         </button>
       </div>
     </form>
@@ -311,14 +315,15 @@ function ConfigPanel({ onConfigured }) {
 }
 
 export function Skynet() {
-  const [agents,      setAgents]      = useState([]);
-  const [schedules,   setSchedules]   = useState([]);
-  const [configured,  setConfigured]  = useState(null); // null=loading, true/false
-  const [showForm,    setShowForm]    = useState(false);
-  const [prefillForm, setPrefillForm] = useState(null); // { agentId, prompt } from test panel
-  const [loadError,   setLoadError]   = useState('');
-  const [runningId,   setRunningId]   = useState(null);
-  const [deletingId,  setDeletingId]  = useState(null);
+  const [agents,          setAgents]          = useState([]);
+  const [schedules,       setSchedules]       = useState([]);
+  const [configured,      setConfigured]      = useState(null); // null=loading, true/false
+  const [showForm,        setShowForm]        = useState(false);
+  const [prefillForm,     setPrefillForm]     = useState(null); // { agentId, prompt } from test panel
+  const [editingSchedule, setEditingSchedule] = useState(null); // full schedule row being edited
+  const [loadError,       setLoadError]       = useState('');
+  const [runningId,       setRunningId]       = useState(null);
+  const [deletingId,      setDeletingId]      = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -339,15 +344,34 @@ export function Skynet() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleCreate(data) {
-    await createSkynetSchedule(data);
+  function closeForm() {
     setShowForm(false);
     setPrefillForm(null);
+    setEditingSchedule(null);
+  }
+
+  async function handleCreate(data) {
+    await createSkynetSchedule(data);
+    closeForm();
     load();
+  }
+
+  async function handleUpdate(data) {
+    await updateSkynetSchedule(editingSchedule.id, data);
+    closeForm();
+    load();
+  }
+
+  function handleEdit(s) {
+    setEditingSchedule(s);
+    setPrefillForm(null);
+    setShowForm(true);
+    setTimeout(() => document.querySelector('.skynet-form-wrapper')?.scrollIntoView({ behavior: 'smooth' }), 50);
   }
 
   function handleSaveAsSchedule({ agentId, prompt }) {
     setPrefillForm({ agentId, prompt });
+    setEditingSchedule(null);
     setShowForm(true);
     // Scroll to form
     setTimeout(() => document.querySelector('.skynet-form-wrapper')?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -409,12 +433,13 @@ export function Skynet() {
 
       {showForm && (
         <div className="skynet-form-wrapper">
-          <h2>New Schedule</h2>
+          <h2>{editingSchedule ? 'Edit Schedule' : 'New Schedule'}</h2>
           <ScheduleForm
             agents={agents}
-            onSave={handleCreate}
-            onCancel={() => { setShowForm(false); setPrefillForm(null); }}
-            initial={prefillForm}
+            onSave={editingSchedule ? handleUpdate : handleCreate}
+            onCancel={closeForm}
+            initial={editingSchedule || prefillForm}
+            isEditing={!!editingSchedule}
           />
         </div>
       )}
@@ -440,6 +465,13 @@ export function Skynet() {
                     title="Run now"
                   >
                     {runningId === s.id ? '…' : '▶'}
+                  </button>
+                  <button
+                    className="btn-edit"
+                    onClick={() => handleEdit(s)}
+                    title="Edit"
+                  >
+                    ✎
                   </button>
                   <label className="skynet-toggle" title={s.enabled ? 'Enabled' : 'Disabled'}>
                     <input type="checkbox" checked={s.enabled} onChange={() => handleToggle(s)} />
