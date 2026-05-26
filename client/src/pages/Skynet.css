@@ -258,6 +258,18 @@
 
 .btn-delete:hover:not(:disabled) { background: #fee2e2; color: #c0392b; border-color: #fca5a5; }
 
+.btn-edit {
+  padding: 0.3rem 0.65rem;
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btn-edit:hover { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+
 /* ── Toggle switch ── */
 .skynet-toggle {
   position: relative;
