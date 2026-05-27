@@ -554,7 +554,7 @@ export function Settings() {
             <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setSettingsTab('integrations')}>Integrations</button>
           </>
         )}
-        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>Square</button>
+        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>AiRon</button>
         {isOwner && (
           <button type="button" className={tab === 'commerce7' ? 'active' : ''} onClick={() => setSettingsTab('commerce7')}>Commerce7</button>
         )}
@@ -641,16 +641,16 @@ export function Settings() {
 
       {tab === 'integrations' && (
         <>
-          <p className="settings-intro">Configure API credentials for Square, Twilio, and Commerce7. Values are stored per company. Leave a field blank to keep the current value.</p>
-          <p className="settings-help">Square: get an <strong>access token</strong> from the <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer">Square Developer Dashboard</a> (Open your app → Credentials → Access token). Use <strong>sandbox</strong> for testing.</p>
+          <p className="settings-intro">Configure API credentials for AiRon, Twilio, and Commerce7. Values are stored per company. Leave a field blank to keep the current value.</p>
+          <p className="settings-help">AiRon: get an <strong>access token</strong> from the <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer">Square Developer Dashboard</a> (Open your app → Credentials → Access token). Use <strong>sandbox</strong> for testing.</p>
           <form onSubmit={handleSubmit} className="settings-form">
             <fieldset>
-              <legend>Square</legend>
+              <legend>AiRon</legend>
           <label>
             Application ID
             <input
               type="text"
-              placeholder="Square Application ID (from your app)"
+              placeholder="AiRon Application ID"
               value={squareApplicationId}
               onChange={(e) => setSquareApplicationId(e.target.value)}
               autoComplete="off"
@@ -660,7 +660,7 @@ export function Settings() {
             Access token
             <input
               type="password"
-              placeholder={settings?.square_configured ? 'Leave blank to keep current' : 'Square access token'}
+              placeholder={settings?.square_configured ? 'Leave blank to keep current' : 'AiRon access token'}
               value={squareAccessToken}
               onChange={(e) => setSquareAccessToken(e.target.value)}
               autoComplete="off"
@@ -674,7 +674,7 @@ export function Settings() {
             </select>
           </label>
           <button type="button" className="btn-test" onClick={handleTestSquare} disabled={testingSquare || (!settings?.square_configured && !squareAccessToken.trim())} title="Test using saved token or the token entered above">
-            {testingSquare ? 'Testing…' : 'Test Square connection'}
+            {testingSquare ? 'Testing…' : 'Test AiRon connection'}
           </button>
           {squareTestResult && <p className="test-result success">{squareTestResult}</p>}
         </fieldset>

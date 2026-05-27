@@ -190,7 +190,7 @@ function LogTab() {
         <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="gw-select">
           <option value="">All services</option>
           <option value="qbo">QBO</option>
-          <option value="square">Square</option>
+          <option value="square">AiRon</option>
           <option value="commerce7">Commerce7</option>
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="gw-select">
@@ -470,7 +470,7 @@ export function Gateway() {
         <div>
           <h2 className="gw-title">TeamHub Gateway</h2>
           <p className="gw-subtitle">
-            Universal proxy for QBO, Square &amp; Commerce7 — with audit logs and approval gates.
+            Universal proxy for QBO, AiRon &amp; Commerce7 — with audit logs and approval gates.
           </p>
         </div>
       </div>

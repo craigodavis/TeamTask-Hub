@@ -382,7 +382,7 @@ export function Manager() {
             {scheduleLoading ? (
               <p className="schedule-loading">Loading schedule…</p>
             ) : squareSchedule === null ? null : squareSchedule.length === 0 ? (
-              <p className="schedule-empty">No shifts found in Square for this date.</p>
+              <p className="schedule-empty">No shifts found for this date.</p>
             ) : (
               <ul className="schedule-list">
                 {squareSchedule.map((s, i) => {
@@ -697,7 +697,7 @@ export function Manager() {
       {tab === 'integrations' && (
         <section className="manager-section">
           <h2>SMS Send</h2>
-          <p className="hint">Send SMS via Twilio. Manage Square user exclusions under <Link to="/settings?tab=square">Settings → Square</Link>.</p>
+          <p className="hint">Send SMS via Twilio. Manage AiRon user exclusions under <Link to="/settings?tab=square">Settings → AiRon</Link>.</p>
           <SmsSendForm
             users={companyUsers}
             loading={loading}

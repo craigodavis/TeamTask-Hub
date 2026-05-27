@@ -546,14 +546,14 @@ function MappingsTab({ token }) {
       <div className="sq-mappings-header">
         <div>
           <p className="sq-mappings-desc">
-            Pre-2023 Square catalog items were organized by vintage year rather than format (750ml Bottle, Glass Pour, etc.).
+            Pre-2023 catalog items were organized by vintage year rather than format (750ml Bottle, Glass Pour, etc.).
             This table corrects those categories so all historical queries work consistently.
           </p>
         </div>
         <div className="sq-mappings-actions">
           {seedResult && <span className="sq-seed-result">{seedResult}</span>}
           <button className="sq-seed-btn" onClick={handleSeed} disabled={seeding}>
-            {seeding ? 'Seeding…' : '⚡ Auto-seed from Square data'}
+            {seeding ? 'Seeding…' : '⚡ Auto-seed from AiRon data'}
           </button>
         </div>
       </div>
@@ -562,7 +562,7 @@ function MappingsTab({ token }) {
 
       {!loading && mappings.length === 0 && (
         <div className="sq-state">
-          No mappings yet. Click <strong>Auto-seed</strong> to populate from Square data.
+          No mappings yet. Click <strong>Auto-seed</strong> to populate from AiRon data.
         </div>
       )}
 
