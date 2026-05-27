@@ -16,12 +16,12 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [taskTab, setTaskTab] = useState('active'); // 'active' | 'reviewed'
-  const [announcementTab, setAnnouncementTab] = useState('unread'); // 'unread' | 'read'
   const [taskSectionsOpen, setTaskSectionsOpen] = useState({ daily: true, weekly: true, monthly: true, yearly: true, adhoc: true });
   const [reasonInput, setReasonInput] = useState({}); // `${assignmentId}:${taskTemplateId}` → text
-  const [showReasonFor, setShowReasonFor] = useState(null); // key of task showing reason input
-  const [closeNoteFor, setCloseNoteFor] = useState(null); // assignmentId showing close-list note prompt
-  const [closeNoteInput, setCloseNoteInput] = useState({}); // assignmentId → note text
+  const [showReasonFor, setShowReasonFor] = useState(null);
+  const [closeNoteFor, setCloseNoteFor] = useState(null);
+  const [closeNoteInput, setCloseNoteInput] = useState({});
+  const [showPastAnnouncements, setShowPastAnnouncements] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -101,7 +101,6 @@ export function Dashboard() {
     setReasonInput((prev) => { const n = { ...prev }; delete n[key]; return n; });
   };
 
-  // Close list early — if tasks remain, a note is required
   const handleCloseListClick = (assignmentId, hasIncompleteTasks) => {
     if (hasIncompleteTasks) {
       setCloseNoteFor(assignmentId);
@@ -114,7 +113,6 @@ export function Dashboard() {
   const handleCloseListSubmit = async (assignmentId, note) => {
     try {
       await closeAssignment(assignmentId, note);
-      // Remove the assignment from active view (it's now archived)
       setDaySummary((prev) => ({
         ...prev,
         assignments: prev.assignments.map((a) =>
@@ -141,8 +139,6 @@ export function Dashboard() {
 
   const isToday = date === todayStr();
 
-  // "To Do" = no completion record (my_status is null)
-  // "Reviewed" = completed OR not_completed
   const assignmentsWithActiveTasks = daySummary.assignments?.map((a) => ({
     ...a,
     tasks: (a.tasks || []).filter((t) => !t.my_status),
@@ -394,96 +390,94 @@ export function Dashboard() {
       {error && <p className="dashboard-error">{error}</p>}
 
       <div className="dashboard-main">
-        <section className="section-tasks">
-          <h2>Tasks</h2>
-          {loading ? (
-            <p>Loading…</p>
-          ) : daySummary.assignments?.length === 0 ? (
-            <p className="empty">No tasks assigned for this day.</p>
-          ) : (
-            <>
-              <div className="task-tabs">
-                <button
-                  type="button"
-                  className={taskTab === 'active' ? 'active' : ''}
-                  onClick={() => setTaskTab('active')}
-                >
-                  To do
-                </button>
-                <button
-                  type="button"
-                  className={taskTab === 'reviewed' ? 'active' : ''}
-                  onClick={() => setTaskTab('reviewed')}
-                >
-                  Reviewed {reviewedCount > 0 && `(${reviewedCount})`}
-                </button>
-              </div>
-              {taskTab === 'active'
-                ? renderTaskSections(false)
-                : renderTaskSections(true)}
-            </>
-          )}
-        </section>
+        {loading ? (
+          <p className="dashboard-loading">Loading…</p>
+        ) : unreadAnnouncements.length > 0 ? (
+          /* ── Announcement Gate ── must acknowledge all before seeing tasks */
+          <div className="announcement-gate">
+            <div className="gate-header">
+              <div className="gate-icon" aria-hidden>📢</div>
+              <h2 className="gate-title">
+                {unreadAnnouncements.length === 1
+                  ? 'You have 1 announcement'
+                  : `You have ${unreadAnnouncements.length} announcements`}
+              </h2>
+              <p className="gate-subtitle">
+                Please read and acknowledge {unreadAnnouncements.length === 1 ? 'it' : 'each one'} before starting your tasks.
+              </p>
+            </div>
+            <div className="gate-list">
+              {unreadAnnouncements.map((a) => (
+                <div key={a.id} className="gate-card">
+                  <h3 className="gate-card-title">{a.title}</h3>
+                  {a.body && <p className="gate-card-body">{a.body}</p>}
+                  <button
+                    type="button"
+                    className="btn-ack"
+                    onClick={() => handleAck(a.id)}
+                  >
+                    Mark as Read
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* ── Tasks View ── */
+          <section className="section-tasks">
+            <h2>Tasks</h2>
+            {daySummary.assignments?.length === 0 ? (
+              <p className="empty">No tasks assigned for this day.</p>
+            ) : (
+              <>
+                <div className="task-tabs">
+                  <button
+                    type="button"
+                    className={taskTab === 'active' ? 'active' : ''}
+                    onClick={() => setTaskTab('active')}
+                  >
+                    To do
+                  </button>
+                  <button
+                    type="button"
+                    className={taskTab === 'reviewed' ? 'active' : ''}
+                    onClick={() => setTaskTab('reviewed')}
+                  >
+                    Reviewed {reviewedCount > 0 && `(${reviewedCount})`}
+                  </button>
+                </div>
+                {taskTab === 'active'
+                  ? renderTaskSections(false)
+                  : renderTaskSections(true)}
+              </>
+            )}
 
-        <section className="section-announcements">
-          <h2>Announcements</h2>
-          {loading ? (
-            <p>Loading…</p>
-          ) : announcements.length === 0 ? (
-            <p className="empty">No announcements for this day.</p>
-          ) : (
-            <>
-              <div className="announcement-tabs">
+            {/* Past Announcements — collapsible, always accessible */}
+            {readAnnouncements.length > 0 && (
+              <div className="past-announcements-wrap">
                 <button
                   type="button"
-                  className={announcementTab === 'unread' ? 'active' : ''}
-                  onClick={() => setAnnouncementTab('unread')}
+                  className="btn-past-toggle"
+                  onClick={() => setShowPastAnnouncements((v) => !v)}
+                  aria-expanded={showPastAnnouncements}
                 >
-                  Unread {unreadAnnouncements.length > 0 && `(${unreadAnnouncements.length})`}
+                  <span>📢 Past Announcements ({readAnnouncements.length})</span>
+                  <span className="past-chevron" aria-hidden>{showPastAnnouncements ? '−' : '+'}</span>
                 </button>
-                <button
-                  type="button"
-                  className={announcementTab === 'read' ? 'active' : ''}
-                  onClick={() => setAnnouncementTab('read')}
-                >
-                  Read
-                </button>
-              </div>
-              {announcementTab === 'unread' && (
-                unreadAnnouncements.length === 0 ? (
-                  <p className="empty">No unread announcements.</p>
-                ) : (
-                  <ul className="announcement-list">
-                    {unreadAnnouncements.map((a) => (
-                      <li key={a.id} className="announcement-card">
-                        <h4>{a.title}</h4>
-                        {a.body && <p className="announcement-body">{a.body}</p>}
-                        <button type="button" className="btn-ack btn-mark-read" onClick={() => handleAck(a.id)}>
-                          Mark Read
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )
-              )}
-              {announcementTab === 'read' && (
-                readAnnouncements.length === 0 ? (
-                  <p className="empty">No read announcements yet. Mark items as read from the Unread tab.</p>
-                ) : (
-                  <ul className="announcement-list">
+                {showPastAnnouncements && (
+                  <ul className="past-announcement-list">
                     {readAnnouncements.map((a) => (
-                      <li key={a.id} className="announcement-card announcement-read">
-                        <h4>{a.title}</h4>
+                      <li key={a.id} className="past-announcement-card">
+                        <h4 className="past-card-title">{a.title}</h4>
                         {a.body && <p className="announcement-body">{a.body}</p>}
-                        <p className="ack-status">Read</p>
                       </li>
                     ))}
                   </ul>
-                )
-              )}
-            </>
-          )}
-        </section>
+                )}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );
