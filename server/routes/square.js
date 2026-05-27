@@ -7,7 +7,13 @@ const router = express.Router();
 // ── Schema context for AI ────────────────────────────────────────────────────
 const SQUARE_SCHEMA_CONTEXT = `
 You are a SQL analyst for Kindred Vineyards, a winery and tasting room in Sunnyslope, Idaho.
-You query a PostgreSQL database with Square POS data synced directly from the Square API into the team_square schema.
+You query a PostgreSQL database with two primary data sources:
+  • team_square  — in-person Square POS data (tasting room sales, catalog, timeclock)
+  • commerce7    — online store, wine club, and DTC order data + full product catalog
+
+CRITICAL money difference:
+  team_square  → money stored in CENTS  (divide by 100.0 for dollars)
+  commerce7    → money stored in DOLLARS (use directly — no division needed)
 
 === KEY TABLES ===
 
@@ -57,6 +63,116 @@ teamtask_hub.square_catalog_category_map  ← CUSTOM CORRECTION TABLE
   categories ('Main Creek Menu', 'Main Vineyard Menu', vintage years) instead of
   the current format-based categories ('750ml Bottle', 'Glass Pour', etc.)
 
+=== COMMERCE7 SCHEMA (online store, wine club, DTC) ===
+
+commerce7.orders  ← DOLLARS, not cents
+  id, company_id, order_number,
+  order_submitted_date (TIMESTAMPTZ), order_paid_date (TIMESTAMPTZ), order_fulfilled_date (TIMESTAMPTZ),
+  order_source  ('Tasting Room'|'Website'|'Wine Club'|'Phone'|'Import'|'Admin'),
+  customer_type ('Member'|'Guest'|'Trade'),
+  purchase_type ('Club'|'Bottle'|'Allocation'|'Gift Card'|etc.),
+  channel       ('pos'|'web'|'api'),
+  payment_status ('Paid'|'Unpaid'|'Partial'|'Refunded'),
+  fulfillment_status ('Fulfilled'|'Unfulfilled'|'Partial'),
+  shipping_status ('Shipped'|'Unshipped'|'Partial'|null),
+  sub_total, ship_total, tax_total, duty_total, tip_total, total, total_after_tip (all DOLLARS),
+  customer_id (FK → commerce7.customers),
+  bill_to_first_name, bill_to_last_name, bill_to_city, bill_to_state_code, bill_to_zip_code,
+  sales_attribute_code, club (JSONB — club shipment detail if purchase_type='Club'),
+  tenders (JSONB), promotions (JSONB), coupons (JSONB), tags (TEXT[])
+
+commerce7.order_items  ← DOLLARS, not cents
+  id, company_id, order_id,
+  product_title, product_slug, item_type,
+  product_id (FK → commerce7.product), product_variant_id (FK → commerce7.product_variant),
+  product_variant_title, sku,
+  price, original_price, compare_price (DOLLARS),
+  quantity (INTEGER), quantity_fulfilled,
+  tax, tax_type, bottle_deposit,
+  volume_in_ml, alcohol_percentage,
+  department_code, department_id, allocation_id,
+  is_price_override, notes
+
+commerce7.product
+  id, company_id,
+  title, slug, type ('Wine'|'Beer'|'Merchandise'|'Food'|'Bundle'|etc.),
+  admin_status ('Active'|'Inactive'), web_status ('Active'|'Inactive'|'Unlisted'),
+  price, compare_price (DOLLARS),
+  short_description, description,
+  vintage (INTEGER — the wine vintage year, e.g. 2021),
+  alcohol_percentage, volume_in_ml, weight,
+  wine_varietal_ids (UUID[]), wine_appellation_id,
+  collection_ids (UUID[]), vendor_id,
+  country_code, region,
+  tags (TEXT[]), image, images (JSONB)
+
+commerce7.product_variant
+  id, company_id, product_id,
+  title, sku,
+  price, compare_price (DOLLARS),
+  on_hand_count, reserve_count, allocated_count, available_count (inventory),
+  is_default, attributes (JSONB)
+
+commerce7.customers
+  id, company_id,
+  first_name, last_name, honorific, birth_date,
+  city, state_code, zip_code, country_code,
+  email_marketing_status ('Subscribed'|'Unsubscribed'|'Never'),
+  has_account (BOOLEAN),
+  last_activity_date,
+  emails (JSONB array — look for isPrimary:true for main email),
+  phones (JSONB), clubs (JSONB — current club memberships summary),
+  order_information (JSONB — lifetime stats: orderCount, totalSpent, lastOrderDate),
+  tags (TEXT[])
+
+commerce7.club
+  id, company_id, title, slug, status ('Active'|'Inactive'), description
+
+commerce7.club_membership
+  id, company_id, customer_id, club_id,
+  status ('Active'|'Cancelled'|'Paused'|'Pending'),
+  signup_date, cancel_date, next_process_date,
+  frequency ('Monthly'|'Quarterly'|'Biannual'|'Annual'),
+  shipment_count (how many club shipments sent to this member)
+
+commerce7.wine_varietal
+  id, company_id, title  (e.g. 'Merlot', 'Cabernet Sauvignon', 'Viognier')
+
+commerce7.wine_appellation
+  id, company_id, title  (e.g. 'Snake River Valley', 'Idaho')
+
+commerce7.collection
+  id, company_id, title, slug, status  (product groupings / categories)
+
+=== WHEN TO USE WHICH SOURCE ===
+
+Use team_square for:
+  - In-person tasting room sales (POS transactions)
+  - Employee timeclock / shift data
+  - Real-time sales during open hours
+  - Square-specific category breakdown (glass pour vs bottle vs flight)
+
+Use commerce7 for:
+  - Online store orders (order_source = 'Website')
+  - Wine club shipments (purchase_type = 'Club' or order_source = 'Wine Club')
+  - Full product catalog with vintage, varietal, appellation detail
+  - Customer lifetime value / order history
+  - Club membership counts and status
+  - Inventory / on-hand counts
+
+Use BOTH for total combined revenue across all channels.
+
+Example combined revenue:
+  SELECT
+    COALESCE(sq.sq_total, 0) + COALESCE(c7.c7_total, 0) AS total_revenue
+  FROM (
+    SELECT ROUND(SUM(total_money_amount) / 100.0, 2) AS sq_total
+    FROM team_square.order WHERE state = 'COMPLETED'
+  ) sq, (
+    SELECT ROUND(SUM(total), 2) AS c7_total
+    FROM commerce7.orders WHERE payment_status = 'Paid'
+  ) c7
+
 === CRITICAL JOINS ===
 
 Order line item → category (ALWAYS use this pattern for category queries):
@@ -83,13 +199,15 @@ Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Ki
 
 === IMPORTANT FACTS ===
 
-- All money amounts are stored in CENTS — divide by 100.0 for dollars
-- quantity is NUMERIC — no cast needed
-- Pre-2023 orders (before 2023-03-05) used 'Main Creek Menu' / 'Main Vineyard Menu' categories
-- 2023+ orders use '750ml Bottle', 'Glass Pour', '5 Flight Tasting', etc.
-- The mapping table bridges this gap — always COALESCE(cc.name, cmap.category_name)
+- team_square money: CENTS — divide by 100.0 for dollars
+- commerce7 money: DOLLARS — use directly, no division needed
+- team_square.order_line_item quantity is NUMERIC — no cast needed
+- Pre-2023 Square orders (before 2023-03-05) used 'Main Creek Menu' / 'Main Vineyard Menu' categories
+- 2023+ Square orders use '750ml Bottle', 'Glass Pour', '5 Flight Tasting', etc.
+- The mapping table bridges this gap — always COALESCE(cc.name, cmap.category_name) for Square queries
 - Kindred Vineyards sells wine (750ml bottles and glass pours), wine flights, food (pizza, etc.), beer, and boutique items
-- Only query COMPLETED orders unless explicitly asked otherwise: WHERE o.state = 'COMPLETED'
+- Only query COMPLETED Square orders unless asked: WHERE o.state = 'COMPLETED'
+- Only query Paid Commerce7 orders unless asked: WHERE o.payment_status = 'Paid'
 - The database also has fivetran_metadata, metabase, cellarpilot, wine, club_steward schemas — ignore these unless asked
 - No duplicate category rows — each catalog_item has exactly one category_id
 
@@ -260,7 +378,7 @@ async function logJournal({ question, generated_sql, success, error_message, row
 const SQUARE_TOOLS = [
   {
     name: 'run_sql',
-    description: 'Run a read-only SQL SELECT query against the Square PostgreSQL database. Returns rows and field names.',
+    description: 'Run a read-only SQL SELECT query against the PostgreSQL database (team_square and commerce7 schemas). Returns rows and field names.',
     input_schema: {
       type: 'object',
       properties: {
