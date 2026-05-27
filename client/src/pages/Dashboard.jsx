@@ -45,10 +45,6 @@ export function Dashboard() {
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    const id = setInterval(load, 30_000);
-    return () => clearInterval(id);
-  }, [load]);
 
   const goDate = (delta) => {
     const d = new Date(date);
