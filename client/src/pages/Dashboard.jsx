@@ -15,9 +15,12 @@ export function Dashboard() {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [taskTab, setTaskTab] = useState('active'); // 'active' | 'reviewed'
-  const [taskSectionsOpen, setTaskSectionsOpen] = useState({ daily: true, weekly: true, monthly: true, yearly: true, adhoc: true });
-  const [reasonInput, setReasonInput] = useState({}); // `${assignmentId}:${taskTemplateId}` → text
+
+  // Per-assignment state: tab ('active'|'reviewed') and open/collapsed
+  const [assignmentTabs, setAssignmentTabs] = useState({});   // { [id]: 'active'|'reviewed' }
+  const [assignmentOpen, setAssignmentOpen] = useState({});   // { [id]: bool }
+
+  const [reasonInput, setReasonInput] = useState({});
   const [showReasonFor, setShowReasonFor] = useState(null);
   const [closeNoteFor, setCloseNoteFor] = useState(null);
   const [closeNoteInput, setCloseNoteInput] = useState({});
@@ -42,7 +45,6 @@ export function Dashboard() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll every 30 s so teammates' completions appear automatically
   useEffect(() => {
     const id = setInterval(load, 30_000);
     return () => clearInterval(id);
@@ -54,6 +56,13 @@ export function Dashboard() {
     setDate(d.toISOString().slice(0, 10));
   };
 
+  // ── Per-assignment helpers ───────────────────────────────
+  const getTab = (id) => assignmentTabs[id] || 'active';
+  const setTab = (id, tab) => setAssignmentTabs((prev) => ({ ...prev, [id]: tab }));
+  const isOpen = (id) => assignmentOpen[id] !== false; // default open
+  const toggleOpen = (id) => setAssignmentOpen((prev) => ({ ...prev, [id]: !isOpen(id) }));
+
+  // ── Task state helpers ───────────────────────────────────
   const updateTaskInState = (assignmentId, taskTemplateId, patch) => {
     setDaySummary((prev) => ({
       ...prev,
@@ -132,41 +141,10 @@ export function Dashboard() {
     try {
       await acknowledgeAnnouncement(id);
       setAnnouncements((prev) => prev.map((a) => (a.id === id ? { ...a, _acknowledged: true } : a)));
-    } catch (err) {
-      setError(err.message);
-    }
+    } catch (err) { setError(err.message); }
   };
 
   const isToday = date === todayStr();
-
-  const assignmentsWithActiveTasks = daySummary.assignments?.map((a) => ({
-    ...a,
-    tasks: (a.tasks || []).filter((t) => !t.my_status),
-  })).filter((a) => a.tasks.length > 0) ?? [];
-
-  const assignmentsWithReviewedTasks = daySummary.assignments?.map((a) => ({
-    ...a,
-    tasks: (a.tasks || []).filter((t) => !!t.my_status),
-  })).filter((a) => a.tasks.length > 0) ?? [];
-
-  const reviewedCount = assignmentsWithReviewedTasks.reduce((n, a) => n + a.tasks.length, 0);
-
-  const periodSectionOrder = ['daily', 'weekly', 'monthly', 'yearly', 'adhoc'];
-  const periodSectionLabel = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly', adhoc: 'Ad-Hoc' };
-  const periodTypeToSection = (period_type) => (period_type === 'one_time' ? 'adhoc' : (period_type || 'adhoc'));
-
-  const getAssignmentsBySection = (assignments) => {
-    const bySection = { daily: [], weekly: [], monthly: [], yearly: [], adhoc: [] };
-    for (const a of assignments) {
-      const section = periodTypeToSection(a.period_type);
-      if (bySection[section]) bySection[section].push(a);
-    }
-    return bySection;
-  };
-
-  const toggleTaskSection = (section) => {
-    setTaskSectionsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
-  };
 
   const isRead = (a) => !!(a.my_acknowledged_at || a._acknowledged);
   const unreadAnnouncements = announcements.filter((a) => !isRead(a));
@@ -176,187 +154,208 @@ export function Dashboard() {
     return db.localeCompare(da);
   });
 
-  const renderActiveTasks = (assignments) => (
-    assignments.length === 0 ? (
-      <p className="empty">No tasks to do for this day.</p>
-    ) : (
-      assignments.map((a) => {
-        const showingCloseNote = closeNoteFor === a.id;
-        return (
-        <div key={a.id} className="assignment-block">
-          <div className="assignment-block-header">
-            <h3 className="template-name">
-              {a.template_name}
-              {a.archived_at && <span className="badge-archived">Archived</span>}
-            </h3>
-            {isManager && !a.archived_at && (
-              showingCloseNote ? (
-                <div className="close-list-note-row">
-                  <input
-                    className="close-list-note-input"
-                    type="text"
-                    placeholder="Why are you closing early?"
-                    value={closeNoteInput[a.id] || ''}
-                    onChange={(e) => setCloseNoteInput((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && closeNoteInput[a.id]?.trim()) handleCloseListSubmit(a.id, closeNoteInput[a.id]);
-                      if (e.key === 'Escape') handleCloseNoteCancel(a.id);
-                    }}
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    className="btn-close-list-confirm"
-                    disabled={!closeNoteInput[a.id]?.trim()}
-                    onClick={() => handleCloseListSubmit(a.id, closeNoteInput[a.id])}
-                  >
-                    Close List
-                  </button>
-                  <button type="button" className="btn-close-list-cancel" onClick={() => handleCloseNoteCancel(a.id)}>
-                    Cancel
-                  </button>
-                </div>
-              ) : (
+  // ── Task item renderer (shared by active + reviewed) ────
+  const renderTaskItems = (a, tasks, isActiveTab) => (
+    <ul className="task-list">
+      {tasks.map((t) => {
+        const key = `${a.id}:${t.task_template_id}`;
+        const showingReason = showReasonFor === key;
+
+        if (!isActiveTab) {
+          // Reviewed tab
+          return (
+            <li
+              key={t.task_template_id}
+              className={`task-card ${t.my_status === 'completed' ? 'task-done' : 'task-not-done'}`}
+            >
+              <div className="task-title-block">
+                <span className="task-title">{t.title}</span>
+                {t.my_status === 'not_completed' && t.my_reason && (
+                  <span className="task-not-done-reason">Reason: {t.my_reason}</span>
+                )}
+                {t.completed_by_name && !t.completed_by_me && (
+                  <span className="task-completed-by">✓ {t.completed_by_name}</span>
+                )}
+              </div>
+              {(t.completed_by_me || isManager) && (
                 <button
                   type="button"
-                  className="btn-close-list"
-                  onClick={() => handleCloseListClick(a.id, a.tasks.length > 0)}
-                  title="Close this task list"
+                  className="toggle-incomplete"
+                  onClick={() => handleUndo(a.id, t.task_template_id)}
+                  aria-label="Undo"
+                  title="Undo — return to To Do"
                 >
-                  Close List
+                  Undo
                 </button>
-              )
+              )}
+            </li>
+          );
+        }
+
+        // Active tab
+        return (
+          <li key={t.task_template_id} className="task-card">
+            <span className="task-title">
+              {t.title}
+              {t.priority === 'try' && <span className="task-optional-badge">Optional</span>}
+            </span>
+            {showingReason ? (
+              <div className="reason-input-row">
+                <input
+                  className="reason-input"
+                  type="text"
+                  placeholder="Why wasn't this done?"
+                  value={reasonInput[key] || ''}
+                  onChange={(e) => setReasonInput((prev) => ({ ...prev, [key]: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleNotDoneSubmit(a.id, t.task_template_id);
+                    if (e.key === 'Escape') handleReasonCancel(key);
+                  }}
+                  autoFocus
+                />
+                <button type="button" className="btn-reason-submit" onClick={() => handleNotDoneSubmit(a.id, t.task_template_id)}>Submit</button>
+                <button type="button" className="btn-reason-cancel" onClick={() => handleReasonCancel(key)}>Cancel</button>
+              </div>
+            ) : (
+              <div className="task-actions">
+                <button
+                  type="button"
+                  className="toggle-complete"
+                  onClick={() => handleMarkComplete(a.id, t.task_template_id)}
+                  aria-label="Mark complete"
+                  title="Mark complete"
+                >
+                  <span className="circle" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="toggle-not-done"
+                  onClick={() => handleNotDoneClick(a.id, t.task_template_id)}
+                  aria-label="Mark not done"
+                  title="Mark as not done (requires reason)"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  // ── Assignment card ──────────────────────────────────────
+  const renderAssignmentCard = (a) => {
+    const tab = getTab(a.id);
+    const open = isOpen(a.id);
+    const activeTasks = (a.tasks || []).filter((t) => !t.my_status);
+    const reviewedTasks = (a.tasks || []).filter((t) => !!t.my_status);
+    const showingCloseNote = closeNoteFor === a.id;
+
+    return (
+      <div key={a.id} className={`assignment-card${a.archived_at ? ' assignment-archived' : ''}`}>
+        {/* ── Card header ── */}
+        <div
+          className="assignment-card-header"
+          onClick={() => toggleOpen(a.id)}
+          role="button"
+          aria-expanded={open}
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(a.id); } }}
+        >
+          {/* Left: name + location */}
+          <div className="assignment-card-title">
+            <span className="assignment-card-name">
+              {a.template_name}
+              {a.archived_at && <span className="badge-archived">Archived</span>}
+            </span>
+            {a.location_names && (
+              <span className="assignment-location-badge">{a.location_names}</span>
             )}
           </div>
-          <ul className="task-list">
-            {a.tasks.map((t) => {
-              const key = `${a.id}:${t.task_template_id}`;
-              const showingReason = showReasonFor === key;
-              return (
-                <li key={t.task_template_id} className="task-card">
-                  <span className="task-title">
-                    {t.title}
-                    {t.priority === 'try' && <span className="task-optional-badge">Optional</span>}
-                  </span>
-                  {showingReason ? (
-                    <div className="reason-input-row">
-                      <input
-                        className="reason-input"
-                        type="text"
-                        placeholder="Why wasn't this done?"
-                        value={reasonInput[key] || ''}
-                        onChange={(e) => setReasonInput((prev) => ({ ...prev, [key]: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleNotDoneSubmit(a.id, t.task_template_id); if (e.key === 'Escape') handleReasonCancel(key); }}
-                        autoFocus
-                      />
-                      <button type="button" className="btn-reason-submit" onClick={() => handleNotDoneSubmit(a.id, t.task_template_id)}>Submit</button>
-                      <button type="button" className="btn-reason-cancel" onClick={() => handleReasonCancel(key)}>Cancel</button>
-                    </div>
-                  ) : (
-                    <div className="task-actions">
-                      <button
-                        type="button"
-                        className="toggle-complete"
-                        onClick={() => handleMarkComplete(a.id, t.task_template_id)}
-                        aria-label="Mark complete"
-                        title="Mark complete"
-                      >
-                        <span className="circle" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        className="toggle-not-done"
-                        onClick={() => handleNotDoneClick(a.id, t.task_template_id)}
-                        aria-label="Mark not done"
-                        title="Mark as not done (requires reason)"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-        );
-      })
-    )
-  );
 
-  const renderReviewedTasks = (assignments) => (
-    assignments.length === 0 ? (
-      <p className="empty">No reviewed tasks for this day.</p>
-    ) : (
-      assignments.map((a) => (
-        <div key={a.id} className="assignment-block">
-          <h3 className="template-name">
-            {a.template_name}
-            {a.archived_at && <span className="badge-archived">Archived</span>}
-          </h3>
-          <ul className="task-list">
-            {a.tasks.map((t) => (
-              <li
-                key={t.task_template_id}
-                className={`task-card ${t.my_status === 'completed' ? 'task-done' : 'task-not-done'}`}
+          {/* Right: todo/reviewed tabs + close list + chevron */}
+          <div className="assignment-card-controls" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className={`btn-tab-mini${tab === 'active' ? ' active' : ''}`}
+              onClick={() => { setTab(a.id, 'active'); setAssignmentOpen((prev) => ({ ...prev, [a.id]: true })); }}
+            >
+              To Do{activeTasks.length > 0 ? ` (${activeTasks.length})` : ''}
+            </button>
+            <button
+              type="button"
+              className={`btn-tab-mini${tab === 'reviewed' ? ' active' : ''}`}
+              onClick={() => { setTab(a.id, 'reviewed'); setAssignmentOpen((prev) => ({ ...prev, [a.id]: true })); }}
+            >
+              Reviewed{reviewedTasks.length > 0 ? ` (${reviewedTasks.length})` : ''}
+            </button>
+            {isManager && !a.archived_at && (
+              <button
+                type="button"
+                className="btn-close-list"
+                onClick={(e) => { e.stopPropagation(); handleCloseListClick(a.id, activeTasks.length > 0); }}
+                title="Close this task list"
               >
-                <div className="task-title-block">
-                  <span className="task-title">{t.title}</span>
-                  {t.my_status === 'not_completed' && t.my_reason && (
-                    <span className="task-not-done-reason">Reason: {t.my_reason}</span>
-                  )}
-                  {t.completed_by_name && !t.completed_by_me && (
-                    <span className="task-completed-by">✓ {t.completed_by_name}</span>
-                  )}
-                </div>
-                {(t.completed_by_me || isManager) && (
-                  <button
-                    type="button"
-                    className="toggle-incomplete"
-                    onClick={() => handleUndo(a.id, t.task_template_id)}
-                    aria-label="Undo"
-                    title="Undo — return to To Do"
-                  >
-                    Undo
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+                Close
+              </button>
+            )}
+            <span
+              className="assignment-chevron"
+              aria-hidden
+              onClick={(e) => { e.stopPropagation(); toggleOpen(a.id); }}
+            >
+              {open ? '−' : '+'}
+            </span>
+          </div>
         </div>
-      ))
-    )
-  );
 
-  const activeBySection = getAssignmentsBySection(assignmentsWithActiveTasks);
-  const reviewedBySection = getAssignmentsBySection(assignmentsWithReviewedTasks);
+        {/* Close list note row (shown below header when needed) */}
+        {showingCloseNote && (
+          <div className="close-list-note-row">
+            <input
+              className="close-list-note-input"
+              type="text"
+              placeholder="Why are you closing early?"
+              value={closeNoteInput[a.id] || ''}
+              onChange={(e) => setCloseNoteInput((prev) => ({ ...prev, [a.id]: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && closeNoteInput[a.id]?.trim()) handleCloseListSubmit(a.id, closeNoteInput[a.id]);
+                if (e.key === 'Escape') handleCloseNoteCancel(a.id);
+              }}
+              autoFocus
+            />
+            <button
+              type="button"
+              className="btn-close-list-confirm"
+              disabled={!closeNoteInput[a.id]?.trim()}
+              onClick={() => handleCloseListSubmit(a.id, closeNoteInput[a.id])}
+            >
+              Close List
+            </button>
+            <button type="button" className="btn-close-list-cancel" onClick={() => handleCloseNoteCancel(a.id)}>
+              Cancel
+            </button>
+          </div>
+        )}
 
-  const renderTaskSections = (reviewed) =>
-    periodSectionOrder.map((sectionKey) => {
-      const assignments = reviewed ? reviewedBySection[sectionKey] : activeBySection[sectionKey];
-      const isOpen = taskSectionsOpen[sectionKey];
-      const label = periodSectionLabel[sectionKey];
-      const count = assignments.length;
-      return (
-        <div key={sectionKey} className="task-section">
-          <button
-            type="button"
-            className="task-section-header"
-            onClick={() => toggleTaskSection(sectionKey)}
-            aria-expanded={isOpen}
-          >
-            <span className="task-section-title">{label}</span>
-            <span className="task-section-count">{count}</span>
-            <span className="task-section-chevron" aria-hidden>{isOpen ? '−' : '+'}</span>
-          </button>
-          {isOpen && (
-            <div className="task-section-content">
-              {reviewed ? renderReviewedTasks(assignments) : renderActiveTasks(assignments)}
-            </div>
-          )}
-        </div>
-      );
-    });
+        {/* ── Card body ── */}
+        {open && (
+          <div className="assignment-card-body">
+            {tab === 'active' ? (
+              activeTasks.length === 0
+                ? <p className="empty">All tasks reviewed.</p>
+                : renderTaskItems(a, activeTasks, true)
+            ) : (
+              reviewedTasks.length === 0
+                ? <p className="empty">No reviewed tasks yet.</p>
+                : renderTaskItems(a, reviewedTasks, false)
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="dashboard">
@@ -393,7 +392,7 @@ export function Dashboard() {
         {loading ? (
           <p className="dashboard-loading">Loading…</p>
         ) : unreadAnnouncements.length > 0 ? (
-          /* ── Announcement Gate ── must acknowledge all before seeing tasks */
+          /* ── Announcement Gate ── */
           <div className="announcement-gate">
             <div className="gate-header">
               <div className="gate-icon" aria-hidden>📢</div>
@@ -411,11 +410,7 @@ export function Dashboard() {
                 <div key={a.id} className="gate-card">
                   <h3 className="gate-card-title">{a.title}</h3>
                   {a.body && <p className="gate-card-body">{a.body}</p>}
-                  <button
-                    type="button"
-                    className="btn-ack"
-                    onClick={() => handleAck(a.id)}
-                  >
+                  <button type="button" className="btn-ack" onClick={() => handleAck(a.id)}>
                     Mark as Read
                   </button>
                 </div>
@@ -425,34 +420,17 @@ export function Dashboard() {
         ) : (
           /* ── Tasks View ── */
           <section className="section-tasks">
-            <h2>Tasks</h2>
-            {daySummary.assignments?.length === 0 ? (
+            {daySummary.no_shift ? (
+              <p className="empty">You have no shift scheduled for this day.</p>
+            ) : daySummary.assignments?.length === 0 ? (
               <p className="empty">No tasks assigned for this day.</p>
             ) : (
-              <>
-                <div className="task-tabs">
-                  <button
-                    type="button"
-                    className={taskTab === 'active' ? 'active' : ''}
-                    onClick={() => setTaskTab('active')}
-                  >
-                    To do
-                  </button>
-                  <button
-                    type="button"
-                    className={taskTab === 'reviewed' ? 'active' : ''}
-                    onClick={() => setTaskTab('reviewed')}
-                  >
-                    Reviewed {reviewedCount > 0 && `(${reviewedCount})`}
-                  </button>
-                </div>
-                {taskTab === 'active'
-                  ? renderTaskSections(false)
-                  : renderTaskSections(true)}
-              </>
+              <div className="assignment-card-list">
+                {daySummary.assignments.map(renderAssignmentCard)}
+              </div>
             )}
 
-            {/* Past Announcements — collapsible, always accessible */}
+            {/* Past Announcements */}
             {readAnnouncements.length > 0 && (
               <div className="past-announcements-wrap">
                 <button
