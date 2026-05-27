@@ -340,7 +340,7 @@ function AskTab({ token }) {
         <textarea
           className={`sq-input${listening ? ' sq-input-listening' : ''}`}
           rows={2}
-          placeholder={listening ? 'Listening…' : 'Ask anything about your Square data…'}
+          placeholder={listening ? 'Listening…' : 'Ask AiRon anything about Kindred…'}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
@@ -546,14 +546,14 @@ function MappingsTab({ token }) {
       <div className="sq-mappings-header">
         <div>
           <p className="sq-mappings-desc">
-            Pre-2023 Square catalog items were organized by vintage year rather than format (750ml Bottle, Glass Pour, etc.).
+            Pre-2023 catalog items were organized by vintage year rather than format (750ml Bottle, Glass Pour, etc.).
             This table corrects those categories so all historical queries work consistently.
           </p>
         </div>
         <div className="sq-mappings-actions">
           {seedResult && <span className="sq-seed-result">{seedResult}</span>}
           <button className="sq-seed-btn" onClick={handleSeed} disabled={seeding}>
-            {seeding ? 'Seeding…' : '⚡ Auto-seed from Square data'}
+            {seeding ? 'Seeding…' : '⚡ Auto-seed from AiRon data'}
           </button>
         </div>
       </div>
@@ -562,7 +562,7 @@ function MappingsTab({ token }) {
 
       {!loading && mappings.length === 0 && (
         <div className="sq-state">
-          No mappings yet. Click <strong>Auto-seed</strong> to populate from Square data.
+          No mappings yet. Click <strong>Auto-seed</strong> to populate from AiRon data.
         </div>
       )}
 
@@ -1019,7 +1019,7 @@ export function Square() {
   const [tab, setTab] = useState('ask');
 
   const TABS = [
-    { id: 'ask',       label: '✦ Ask Square' },
+    { id: 'ask',       label: '✦ Ask AiRon' },
     { id: 'knowledge', label: '🧠 Knowledge' },
     { id: 'tables',    label: '⬡ Tables' },
     { id: 'mappings',  label: '⟳ Mappings' },
@@ -1030,10 +1030,10 @@ export function Square() {
     <div className="sq-page">
       <div className="sq-page-header">
         <div className="sq-page-title">
-          <span className="sq-logo">◼</span>
+          <span className="sq-logo">✨</span>
           <div>
-            <h1>Square</h1>
-            <p className="sq-subtitle">Query your Square data, manage syncs, and correct historical categories.</p>
+            <h1>Kindred AI</h1>
+            <p className="sq-subtitle">Ask AiRon anything about Kindred.</p>
           </div>
         </div>
         <div className="sq-tabs">
