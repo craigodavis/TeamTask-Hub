@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment } from '../api';
+import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule } from '../api';
 import './Dashboard.css';
 
 function todayStr() {
@@ -26,17 +26,24 @@ export function Dashboard() {
   const [closeNoteFor, setCloseNoteFor] = useState(null);
   const [closeNoteInput, setCloseNoteInput] = useState({});
   const [showPastAnnouncements, setShowPastAnnouncements] = useState(false);
+  const [showStaff, setShowStaff] = useState(false);
+  const [staffData, setStaffData] = useState([]);         // { user_id, display_name, role, location_name }
+  const [staffLocationFilter, setStaffLocationFilter] = useState(null); // null = all; string = location name
 
   const load = useCallback(async () => {
     setError('');
     setLoading(true);
     try {
-      const [summaryRes, annRes] = await Promise.all([
+      const [summaryRes, annRes, staffRes] = await Promise.all([
         getDaySummary(date),
         getActiveAnnouncements(date),
+        getStaffSchedule(date),
       ]);
       setDaySummary(summaryRes);
       setAnnouncements(annRes.announcements || []);
+      setStaffData(staffRes.staff || []);
+      // Default filter to user's own location for the day (null if no shift / manager)
+      setStaffLocationFilter(staffRes.my_location || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -462,6 +469,103 @@ export function Dashboard() {
                 {visibleAssignments.map(renderAssignmentCard)}
               </div>
             )}
+
+            {/* Staff & Roles */}
+            {staffData.length > 0 && (() => {
+              const locationNames = [...new Set(staffData.map((s) => s.location_name).filter(Boolean))].sort();
+              const filtered = staffLocationFilter
+                ? staffData.filter((s) => s.location_name === staffLocationFilter)
+                : staffData;
+              // When showing all, group by location
+              const grouped = staffLocationFilter
+                ? null
+                : locationNames.reduce((acc, loc) => {
+                    acc[loc] = staffData.filter((s) => s.location_name === loc);
+                    return acc;
+                  }, {});
+              const unlocated = staffData.filter((s) => !s.location_name);
+
+              return (
+                <div className="staff-section-wrap">
+                  <button
+                    type="button"
+                    className="btn-past-toggle"
+                    onClick={() => setShowStaff((v) => !v)}
+                    aria-expanded={showStaff}
+                  >
+                    <span>👥 Staff Today ({staffData.length})</span>
+                    <span className="past-chevron" aria-hidden>{showStaff ? '−' : '+'}</span>
+                  </button>
+                  {showStaff && (
+                    <div className="staff-section-body">
+                      {locationNames.length > 1 && (
+                        <div className="staff-location-pills">
+                          <button
+                            type="button"
+                            className={`btn-role-pill${!staffLocationFilter ? ' active' : ''}`}
+                            onClick={() => setStaffLocationFilter(null)}
+                          >
+                            All
+                          </button>
+                          {locationNames.map((loc) => (
+                            <button
+                              key={loc}
+                              type="button"
+                              className={`btn-role-pill${staffLocationFilter === loc ? ' active' : ''}`}
+                              onClick={() => setStaffLocationFilter(loc)}
+                            >
+                              {loc}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {staffLocationFilter ? (
+                        // Single location — flat list
+                        <ul className="staff-list">
+                          {filtered.map((s, i) => (
+                            <li key={`${s.user_id}-${i}`} className="staff-row">
+                              <span className="staff-name">{s.display_name}</span>
+                              {s.role && <span className="staff-role">{s.role}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        // All locations — grouped
+                        <>
+                          {locationNames.map((loc) => (
+                            <div key={loc} className="staff-group">
+                              <p className="staff-group-label">{loc}</p>
+                              <ul className="staff-list">
+                                {grouped[loc].map((s, i) => (
+                                  <li key={`${s.user_id}-${i}`} className="staff-row">
+                                    <span className="staff-name">{s.display_name}</span>
+                                    {s.role && <span className="staff-role">{s.role}</span>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                          {unlocated.length > 0 && (
+                            <div className="staff-group">
+                              <p className="staff-group-label">Unassigned location</p>
+                              <ul className="staff-list">
+                                {unlocated.map((s, i) => (
+                                  <li key={`${s.user_id}-${i}`} className="staff-row">
+                                    <span className="staff-name">{s.display_name}</span>
+                                    {s.role && <span className="staff-role">{s.role}</span>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Past Announcements */}
             {readAnnouncements.length > 0 && (

@@ -604,6 +604,76 @@
 
 .btn-reason-cancel:hover { background: #f0f0f0; }
 
+/* ── Staff Today section ─────────────────────────────────── */
+
+.staff-section-wrap {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card);
+}
+
+.staff-section-body {
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 1rem 0.75rem;
+}
+
+.staff-location-pills {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.staff-group {
+  margin-bottom: 0.75rem;
+}
+
+.staff-group:last-child {
+  margin-bottom: 0;
+}
+
+.staff-group-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.staff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.staff-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--primary-soft);
+  border-radius: 8px;
+}
+
+.staff-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.staff-role {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* ── Past Announcements accordion ───────────────────────── */
 
 .past-announcements-wrap {

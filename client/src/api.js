@@ -118,6 +118,13 @@ export async function getWageTitles() {
   return data;
 }
 
+export async function getStaffSchedule(date) {
+  const res = await fetch(`${API}/task-lists/staff-schedule?date=${encodeURIComponent(date)}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load staff schedule');
+  return data;
+}
+
 export async function getActiveAnnouncements(date) {
   const q = date ? `?date=${encodeURIComponent(date)}` : '';
   const res = await fetch(`${API}/announcements/active${q}`, { headers: headers() });

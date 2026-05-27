@@ -126,6 +126,54 @@ router.get('/square-schedule', requireManager, async (req, res) => {
   }
 });
 
+// ---------- Staff schedule for a date (scheduled shifts from Square sync) ----------
+// Returns all TeamHub users scheduled that day with their role + location.
+// Also returns the calling user's location(s) for that day so the client can default to it.
+router.get('/staff-schedule', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
+    const cId = companyId(req);
+    const userId = req.userId;
+
+    const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
+    const tz = tzRes.rows[0]?.timezone || 'UTC';
+
+    const r = await query(
+      `SELECT
+         u.id AS user_id,
+         u.display_name,
+         COALESCE(ja.job_title, ss.pub_job_id) AS role,
+         l.name AS location_name,
+         l.id AS location_id,
+         ss.pub_start_at AS start_at,
+         ss.pub_end_at AS end_at
+       FROM team_square.scheduled_shift ss
+       JOIN users u ON u.square_team_member_id = ss.pub_team_member_id AND u.company_id = $1
+       LEFT JOIN team_square.team_member_job_assignment ja
+         ON ja.team_member_id = ss.pub_team_member_id AND ja.job_id = ss.pub_job_id
+       LEFT JOIN locations l
+         ON l.square_location_id = ss.pub_location_id AND l.company_id = $1
+       WHERE ss.pub_is_deleted = false
+         AND DATE(ss.pub_start_at AT TIME ZONE $2) = $3::date
+       ORDER BY l.name NULLS LAST, COALESCE(ja.job_title, ss.pub_job_id), u.display_name`,
+      [cId, tz, date]
+    );
+
+    // Determine the calling user's location for this day (to set default filter on client)
+    const myRows = r.rows.filter((row) => row.user_id === userId);
+    const myLocationName = myRows.find((row) => row.location_name)?.location_name || null;
+
+    res.json({ date, staff: r.rows, my_location: myLocationName });
+  } catch (err) {
+    // Gracefully handle missing team_square schema
+    if (err.message && (err.message.includes('scheduled_shift') || err.message.includes('team_square'))) {
+      return res.json({ date: req.query.date, staff: [], my_location: null });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Templates (manager) ----------
 router.get('/templates', async (req, res) => {
   try {
