@@ -158,10 +158,10 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
             <NavLink
               to="/square"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="◼"
-              title="Square"
+              data-icon="✨"
+              title="Kindred AI"
             >
-              <span>Square</span>
+              <span>Kindred AI</span>
             </NavLink>
           )}
           {isManager && (

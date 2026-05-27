@@ -340,7 +340,7 @@ function AskTab({ token }) {
         <textarea
           className={`sq-input${listening ? ' sq-input-listening' : ''}`}
           rows={2}
-          placeholder={listening ? 'Listening…' : 'Ask anything about your Square data…'}
+          placeholder={listening ? 'Listening…' : 'Ask AiRon anything about Kindred…'}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
@@ -1019,7 +1019,7 @@ export function Square() {
   const [tab, setTab] = useState('ask');
 
   const TABS = [
-    { id: 'ask',       label: '✦ Ask Square' },
+    { id: 'ask',       label: '✦ Ask AiRon' },
     { id: 'knowledge', label: '🧠 Knowledge' },
     { id: 'tables',    label: '⬡ Tables' },
     { id: 'mappings',  label: '⟳ Mappings' },
@@ -1030,10 +1030,10 @@ export function Square() {
     <div className="sq-page">
       <div className="sq-page-header">
         <div className="sq-page-title">
-          <span className="sq-logo">◼</span>
+          <span className="sq-logo">✨</span>
           <div>
-            <h1>Square</h1>
-            <p className="sq-subtitle">Query your Square data, manage syncs, and correct historical categories.</p>
+            <h1>Kindred AI</h1>
+            <p className="sq-subtitle">Ask AiRon anything about Kindred.</p>
           </div>
         </div>
         <div className="sq-tabs">
