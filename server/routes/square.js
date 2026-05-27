@@ -261,6 +261,48 @@ to be silently excluded due to catalog data inconsistencies (missing or duplicat
 links). Only join the category tables if the user specifically asks to break down by
 format (bottle vs glass pour vs flight).
 
+── CROSS-SOURCE QUERIES: USE ONE CTE QUERY ──
+When a question spans BOTH sources (total sales, total bottles, combined revenue, etc.),
+write a SINGLE SQL query using CTEs that returns all breakdowns in one result set.
+Never make two separate run_sql calls when one combined query will do.
+
+Template for combined totals:
+  WITH sq AS (
+    SELECT ... FROM team_square.order o
+    JOIN team_square.order_line_item oli ON oli.order_id = o.id
+    WHERE o.state = 'COMPLETED' AND <date filter>
+  ),
+  c7 AS (
+    SELECT ... FROM commerce7.orders o
+    JOIN commerce7.order_items oi ON oi.order_id = o.id
+    WHERE o.payment_status = 'Paid' AND <date filter>
+  )
+  SELECT
+    'Square (POS)'   AS source, sq.total_qty, sq.total_revenue FROM sq
+  UNION ALL
+  SELECT
+    'Commerce7 (Online/Club)', c7.total_qty, c7.total_revenue FROM c7
+  UNION ALL
+  SELECT
+    'Combined', sq.total_qty + c7.total_qty, sq.total_revenue + c7.total_revenue
+  FROM sq, c7
+
+For "bottles sold": Square = category '750ml Bottle'; Commerce7 = volume_in_ml = 750
+  or product type 'Wine' with a bottle purchase_type
+
+── CUSTOMER DATA: IMPORTANT LIMITATIONS ──
+Commerce7 is the SOURCE OF TRUTH for customer data.
+Square (team_square) tasting room orders are MOSTLY ANONYMOUS — customer_id is NULL
+on the majority of Square orders. Do NOT try to join customers across the two systems
+unless the user explicitly asks for a cross-platform match.
+
+For customer questions:
+  - "who are our top customers" → use commerce7.customers + commerce7.orders
+  - "customer lifetime value" → use commerce7.customers.order_information JSONB
+    (contains: orderCount, totalSpent, lastOrderDate)
+  - "club members" → commerce7.club_membership + commerce7.club
+  - "cross-platform customer" → match by email only (lossy — most Square orders have no email)
+
 ── BUSINESS KNOWLEDGE: USE FOR KINDRED-SPECIFIC FACTS ──
 The BUSINESS KNOWLEDGE section holds facts specific to Kindred that you cannot know from
 general training — exact product names, staff names, hours, business rules, etc.
@@ -441,7 +483,22 @@ router.post('/ask', async (req, res) => {
   const ai = new Anthropic({ apiKey });
 
   const [facts, lessons] = await Promise.all([buildFactsBlock(), buildLessonsBlock()]);
-  const systemPrompt = SQUARE_SCHEMA_CONTEXT + facts + lessons;
+
+  // ── Prompt caching ─────────────────────────────────────────────────────────
+  // The static schema context (~3k tokens) is marked as cacheable.
+  // Anthropic caches it for 5 min — subsequent calls within the window pay 1/10th
+  // the input token cost for that block.  Facts/lessons are dynamic so they are
+  // appended as a second uncached block.
+  const systemBlocks = [
+    {
+      type: 'text',
+      text: SQUARE_SCHEMA_CONTEXT,
+      cache_control: { type: 'ephemeral' },
+    },
+  ];
+  if (facts || lessons) {
+    systemBlocks.push({ type: 'text', text: facts + lessons });
+  }
 
   // History from frontend is [{role, content}] with string content — safe for multi-turn
   const messages = [
@@ -457,9 +514,10 @@ router.post('/ask', async (req, res) => {
       const response = await ai.messages.create({
         model: 'claude-sonnet-4-5',
         max_tokens: 2048,
-        system: systemPrompt,
+        system: systemBlocks,
         tools: SQUARE_TOOLS,
         messages,
+        betas: ['prompt-caching-2024-07-31'],
       });
 
       // Collect any text from this turn
