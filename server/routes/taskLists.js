@@ -166,6 +166,10 @@ router.post('/templates', requireManager, async (req, res) => {
     if (!name || !type || !period_type) {
       return res.status(400).json({ error: 'name, type, period_type required' });
     }
+    const locationIdList = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
+    if (locationIdList.length === 0) {
+      return res.status(400).json({ error: 'At least one location is required for a task list template.' });
+    }
     if (!wage_title?.trim()) {
       return res.status(400).json({ error: 'wage_title (role) is required' });
     }
@@ -531,6 +535,46 @@ router.get('/day-summary', async (req, res) => {
     await ensureWeeklyAssignmentsForDate(cId, date);
     await ensureMonthlyAssignmentsForDate(cId, date);
     await ensureYearlyAssignmentsForDate(cId, date);
+
+    // For regular members (non-managers), filter by their scheduled shift today
+    let shiftFilter = null; // null = no filter (managers/owners see all)
+    const userRes = await query(
+      `SELECT role, square_team_member_id FROM users WHERE id = $1`,
+      [userId]
+    );
+    const userRole = userRes.rows[0]?.role;
+    const squareTmId = userRes.rows[0]?.square_team_member_id;
+
+    if (userRole === 'member' && squareTmId) {
+      const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
+      const tz = tzRes.rows[0]?.timezone || 'UTC';
+
+      const shiftRes = await query(
+        `SELECT
+           l.id AS location_id,
+           COALESCE(ja.job_title, ss.pub_job_id) AS wage_title
+         FROM team_square.scheduled_shift ss
+         LEFT JOIN team_square.team_member_job_assignment ja
+           ON ja.team_member_id = ss.pub_team_member_id AND ja.job_id = ss.pub_job_id
+         LEFT JOIN locations l
+           ON l.square_location_id = ss.pub_location_id AND l.company_id = $1
+         WHERE ss.pub_team_member_id = $2
+           AND ss.pub_is_deleted = false
+           AND DATE(ss.pub_start_at AT TIME ZONE $3) = $4::date`,
+        [cId, squareTmId, tz, date]
+      );
+
+      if (shiftRes.rows.length === 0) {
+        // No shift scheduled today — show nothing
+        return res.json({ date, assignments: [], no_shift: true });
+      }
+
+      shiftFilter = {
+        wageTitles: [...new Set(shiftRes.rows.map((r) => r.wage_title).filter(Boolean))],
+        locationIds: [...new Set(shiftRes.rows.map((r) => r.location_id).filter(Boolean))],
+      };
+    }
+
     const assignmentsResult = await query(
       `SELECT ta.id, ta.template_id, ta.assigned_date, ta.assignee_id,
               tlt.name as template_name, tlt.type as template_type, tlt.period_type,
@@ -539,8 +583,19 @@ router.get('/day-summary', async (req, res) => {
        JOIN task_list_templates tlt ON tlt.id = ta.template_id
        LEFT JOIN users u ON u.id = ta.assignee_id
        WHERE ta.company_id = $1 AND ta.assigned_date = $2
+         AND ($3::text[]  IS NULL OR tlt.wage_title = ANY($3::text[]))
+         AND (
+           $4::uuid[] IS NULL
+           OR NOT EXISTS (SELECT 1 FROM task_list_template_locations tll WHERE tll.template_id = tlt.id)
+           OR EXISTS (
+             SELECT 1 FROM task_list_template_locations tll
+             WHERE tll.template_id = tlt.id AND tll.location_id = ANY($4::uuid[])
+           )
+         )
        ORDER BY tlt.name`,
-      [cId, date]
+      [cId, date,
+       shiftFilter ? shiftFilter.wageTitles : null,
+       shiftFilter ? shiftFilter.locationIds : null]
     );
     const assignments = assignmentsResult.rows;
     const out = [];

@@ -6,27 +6,58 @@ const router = express.Router();
 const companyId = (req) => req.companyId;
 
 // Active announcements for main screen (effective today or in range); includes my_acknowledged_at.
-// Filtered by location: show if announcement has no location restriction (all locations) or overlaps user's locations.
+// Managers see all; members see only announcements for their scheduled location today.
 router.get('/active', async (req, res) => {
   try {
     const { date } = req.query;
     const d = date || new Date().toISOString().slice(0, 10);
+    const cId = companyId(req);
+    const userId = req.userId;
+
+    // Check user role and get shift location for members
+    const userRes = await query(
+      `SELECT role, square_team_member_id FROM users WHERE id = $1`,
+      [userId]
+    );
+    const userRole = userRes.rows[0]?.role;
+    const squareTmId = userRes.rows[0]?.square_team_member_id;
+
+    let userLocationIds = null; // null = manager/owner, sees all
+
+    if (userRole === 'member' && squareTmId) {
+      const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
+      const tz = tzRes.rows[0]?.timezone || 'UTC';
+
+      const shiftRes = await query(
+        `SELECT l.id AS location_id
+         FROM team_square.scheduled_shift ss
+         JOIN locations l ON l.square_location_id = ss.pub_location_id AND l.company_id = $1
+         WHERE ss.pub_team_member_id = $2
+           AND ss.pub_is_deleted = false
+           AND DATE(ss.pub_start_at AT TIME ZONE $3) = $4::date`,
+        [cId, squareTmId, tz, d]
+      );
+      userLocationIds = shiftRes.rows.map((r) => r.location_id).filter(Boolean);
+    }
+
     const r = await query(
       `SELECT a.id, a.company_id, a.title, a.body, a.effective_from, a.effective_until, a.created_by, a.created_at,
               aa.acknowledged_at AS my_acknowledged_at
        FROM announcements a
        LEFT JOIN announcement_acknowledgments aa ON aa.announcement_id = a.id AND aa.user_id = $2
-       WHERE a.company_id = $1 AND a.effective_from <= $3::date AND a.effective_until >= $3::date
+       WHERE a.company_id = $1
+         AND a.effective_from <= $3::date
+         AND a.effective_until >= $3::date
          AND (
-           NOT EXISTS (SELECT 1 FROM announcement_locations al WHERE al.announcement_id = a.id)
+           $4::uuid[] IS NULL
+           OR NOT EXISTS (SELECT 1 FROM announcement_locations al WHERE al.announcement_id = a.id)
            OR EXISTS (
              SELECT 1 FROM announcement_locations al
-             INNER JOIN user_locations ul ON ul.location_id = al.location_id AND ul.user_id = $2
-             WHERE al.announcement_id = a.id
+             WHERE al.announcement_id = a.id AND al.location_id = ANY($4::uuid[])
            )
          )
        ORDER BY a.created_at DESC`,
-      [companyId(req), req.userId, d]
+      [cId, userId, d, userLocationIds]
     );
     const announcements = r.rows.map((row) => {
       const { my_acknowledged_at, ...rest } = row;
@@ -68,6 +99,10 @@ router.post('/', requireManager, async (req, res) => {
     const { title, body, effective_from, effective_until, location_ids } = req.body;
     if (!title || !effective_from || !effective_until) {
       return res.status(400).json({ error: 'title, effective_from, effective_until required' });
+    }
+    const locationIdList = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
+    if (locationIdList.length === 0) {
+      return res.status(400).json({ error: 'At least one location is required for an announcement.' });
     }
     const cId = companyId(req);
     const r = await query(

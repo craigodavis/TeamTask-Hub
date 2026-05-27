@@ -49,11 +49,19 @@ export async function getLocations() {
   return data;
 }
 
-export async function createLocation(name) {
+export async function getSquareLocations() {
+  const res = await fetch(`${API}/locations/square`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Square locations');
+  return data;
+}
+
+export async function createLocation(body) {
+  const payload = typeof body === 'string' ? { name: body.trim() } : body;
   const res = await fetch(`${API}/locations`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ name: String(name).trim() }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create location');

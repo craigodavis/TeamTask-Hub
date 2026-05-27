@@ -1645,6 +1645,20 @@ const MIGRATIONS = [
   `ALTER TABLE teamtask_hub.company_integrations
      ADD COLUMN IF NOT EXISTS amazon_email    VARCHAR(255),
      ADD COLUMN IF NOT EXISTS amazon_password TEXT`,
+
+  // ── Migration 256: Link locations to Square location IDs ─────────────────
+  `ALTER TABLE teamtask_hub.locations
+     ADD COLUMN IF NOT EXISTS square_location_id VARCHAR(255)`,
+
+  // Auto-populate square_location_id by partial name match (best-effort)
+  `UPDATE teamtask_hub.locations l
+   SET square_location_id = sq.id
+   FROM team_square.location sq
+   WHERE l.square_location_id IS NULL
+     AND (
+       LOWER(sq.name) LIKE '%' || LOWER(l.name) || '%'
+       OR LOWER(l.name) LIKE '%' || LOWER(sq.name) || '%'
+     )`,
 ];
 
 export async function runMigrations() {
