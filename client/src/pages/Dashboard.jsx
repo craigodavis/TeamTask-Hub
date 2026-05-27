@@ -63,9 +63,7 @@ export function Dashboard() {
   // ── Per-assignment helpers ───────────────────────────────
   const getTab = (id) => assignmentTabs[id] || 'active';
   const setTab = (id, tab) => setAssignmentTabs((prev) => ({ ...prev, [id]: tab }));
-  // Default open on large screens, collapsed on mobile — respects any explicit user toggle
-  const defaultOpen = () => window.innerWidth > 640;
-  const isOpen = (id) => assignmentOpen[id] === undefined ? defaultOpen() : assignmentOpen[id];
+  const isOpen = (id) => !!assignmentOpen[id]; // default collapsed on all screen sizes
   const toggleOpen = (id) => setAssignmentOpen((prev) => ({ ...prev, [id]: !isOpen(id) }));
 
   // ── Task state helpers ───────────────────────────────────
