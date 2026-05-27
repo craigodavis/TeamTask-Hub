@@ -369,7 +369,7 @@ export function Dashboard() {
         {loading ? (
           <p className="dashboard-loading">Loading…</p>
         ) : unreadAnnouncements.length > 0 && !emulateRole ? (
-          /* ── Announcement Gate ── (skipped when manager is emulating a role) */
+          /* ── Announcement Gate ── (skipped when emulating a role) */
           <div className="announcement-gate">
             <div className="gate-header">
               <div className="gate-icon" aria-hidden>📢</div>

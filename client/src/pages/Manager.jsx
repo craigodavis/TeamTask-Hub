@@ -487,8 +487,6 @@ export function Manager() {
           <ul className="announcement-list">
             {announcements.map((a) => (
               <li key={a.id}>
-                <strong>{a.title}</strong> {a.effective_from} – {a.effective_until}
-                <WhoRead id={a.id} />
                 <AnnouncementEditDelete announcement={a} locations={locations} onUpdate={loadAnnouncements} />
               </li>
             ))}
@@ -1545,14 +1543,39 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
 
   if (editing) {
     return (
-      <form onSubmit={handleSave} className="form-announcement-inline">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} required />
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} />
-        <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      <form onSubmit={handleSave} className="form-announcement-edit">
+        <div className="ann-edit-field">
+          <label className="ann-edit-label">Title</label>
+          <input
+            className="ann-edit-input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
+        </div>
+        <div className="ann-edit-field">
+          <label className="ann-edit-label">Body</label>
+          <textarea
+            className="ann-edit-textarea"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={7}
+            placeholder="Optional — additional detail shown on the announcement card"
+          />
+        </div>
+        <div className="ann-edit-dates">
+          <label className="ann-edit-label-inline">
+            From
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="ann-edit-label-inline">
+            To
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </div>
         {locations && locations.length > 0 && (
           <div className="form-locations">
-            Locations (empty = all):{' '}
+            <span className="ann-edit-label">Locations</span>
             {locations.map((loc) => (
               <label key={loc.id} className="location-checkbox">
                 <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
@@ -1561,16 +1584,31 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
             ))}
           </div>
         )}
-        <button type="submit" disabled={loading}>Save</button>
-        <button type="button" onClick={() => setEditing(false)}>Cancel</button>
+        <div className="ann-edit-actions">
+          <button type="submit" className="btn-primary" disabled={loading}>Save changes</button>
+          <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
+        </div>
       </form>
     );
   }
+
   return (
-    <span>
-      <button type="button" className="btn-small" onClick={() => setEditing(true)}>Edit</button>
-      <button type="button" className="btn-remove btn-small" onClick={handleDelete}>Delete</button>
-    </span>
+    <div className="announcement-item-card">
+      <div className="announcement-item-row">
+        <div className="announcement-item-info">
+          <strong className="announcement-item-title">{announcement.title}</strong>
+          <span className="announcement-item-dates">{announcement.effective_from} – {announcement.effective_until}</span>
+          {announcement.body && (
+            <p className="announcement-item-body">{announcement.body}</p>
+          )}
+        </div>
+        <div className="announcement-item-actions">
+          <WhoRead id={announcement.id} />
+          <button type="button" className="btn-small" onClick={() => setEditing(true)}>Edit</button>
+          <button type="button" className="btn-remove btn-small" onClick={handleDelete}>Delete</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
