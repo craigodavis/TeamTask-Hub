@@ -982,7 +982,7 @@ async function sendClosureSms(assignmentId, cId, { reason = null, triggeredBy = 
   // Build message
   let message;
   if (allDone) {
-    message = `✅ "${templateName}" — all ${total} task${total === 1 ? '' : 's'} completed!`;
+    message = `🎉 "${templateName}" — all ${total} task${total === 1 ? '' : 's'} completed!`;
   } else {
     message = `⚠️ "${templateName}" (${assigned_date}) closed with ${nNotDone} incomplete task${nNotDone === 1 ? '' : 's'}.`;
     if (reason) message += `\nReason: ${reason}`;
