@@ -17,6 +17,8 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
 
+  const [dashboardExpanded, setDashboardExpanded] = useState(false);
+
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
     if (isMobile()) return true; // always start hidden on mobile
@@ -68,17 +70,30 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
 
       <div className="app-shell-body">
         <nav className="app-shell-sidebar" id="app-sidebar" aria-label="Main navigation">
-          {/* Dashboard + sub-items */}
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-            data-icon="🏠"
-            title="Dashboard"
-          >
-            <span>Dashboard</span>
-          </NavLink>
-          {isManager && (
+          {/* Dashboard + collapsible sub-items */}
+          <div className="nav-item-row">
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🏠"
+              title="Dashboard"
+            >
+              <span>Dashboard</span>
+            </NavLink>
+            {isManager && (
+              <button
+                type="button"
+                className="nav-sub-chevron"
+                onClick={() => setDashboardExpanded((v) => !v)}
+                aria-expanded={dashboardExpanded}
+                aria-label={dashboardExpanded ? 'Collapse Dashboard menu' : 'Expand Dashboard menu'}
+              >
+                {dashboardExpanded ? '−' : '+'}
+              </button>
+            )}
+          </div>
+          {isManager && dashboardExpanded && (
             <div className="nav-sub-group">
               <Link
                 to="/manage?tab=announcements"

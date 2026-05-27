@@ -161,6 +161,47 @@
   opacity: 1;
 }
 
+/* ── Dashboard nav row with collapse chevron ─────────────── */
+
+.nav-item-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.nav-item-row .app-shell-nav-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-sub-chevron {
+  flex-shrink: 0;
+  padding: 0 0.75rem;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-sub-chevron:hover {
+  background: var(--bg);
+  color: var(--primary);
+}
+
+/* In icon-only collapsed mode hide chevron; revert row to block */
+.app-shell-collapsed .nav-item-row {
+  display: block;
+}
+
+.app-shell-collapsed .nav-sub-chevron {
+  display: none;
+}
+
 /* ── Sidebar sub-nav (manager sub-items under Dashboard) ─── */
 
 .nav-sub-group {
