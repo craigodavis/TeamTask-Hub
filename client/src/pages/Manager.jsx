@@ -20,6 +20,7 @@ import {
   createLocation,
   updateLocation,
   deleteLocation,
+  getSquareLocations,
   getFoodWasteReport,
   getTaskReport,
   createTaskListTemplate,
@@ -718,8 +719,15 @@ export function Manager() {
 
 function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, onMessage }) {
   const [newLocationName, setNewLocationName] = useState('');
+  const [newSquareLocationId, setNewSquareLocationId] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState('');
+  const [editingSquareId, setEditingSquareId] = useState('');
+  const [squareLocations, setSquareLocations] = useState([]);
+
+  useEffect(() => {
+    getSquareLocations().then((r) => setSquareLocations(r.locations || [])).catch(() => {});
+  }, []);
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -728,8 +736,9 @@ function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, o
     onError('');
     onSavingChange(true);
     try {
-      await createLocation(name);
+      await createLocation({ name, square_location_id: newSquareLocationId || null });
       setNewLocationName('');
+      setNewSquareLocationId('');
       onUpdate();
       onMessage('Location added.');
     } catch (err) {
@@ -747,9 +756,10 @@ function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, o
     onError('');
     onSavingChange(true);
     try {
-      await updateLocation(editingId, { name });
+      await updateLocation(editingId, { name, square_location_id: editingSquareId || null });
       setEditingId(null);
       setEditingName('');
+      setEditingSquareId('');
       onUpdate();
       onMessage('Location updated.');
     } catch (err) {
@@ -767,6 +777,7 @@ function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, o
       await deleteLocation(id);
       setEditingId(null);
       setEditingName('');
+      setEditingSquareId('');
       onUpdate();
       onMessage('Location deleted.');
     } catch (err) {
@@ -775,6 +786,15 @@ function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, o
       onSavingChange(false);
     }
   };
+
+  const squareSelect = (value, onChange) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ minWidth: '12rem' }}>
+      <option value="">— No Square location —</option>
+      {squareLocations.map((sl) => (
+        <option key={sl.id} value={sl.id}>{sl.name}</option>
+      ))}
+    </select>
+  );
 
   return (
     <>
@@ -786,6 +806,7 @@ function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, o
           onChange={(e) => setNewLocationName(e.target.value)}
           autoComplete="off"
         />
+        {squareSelect(newSquareLocationId, setNewSquareLocationId)}
         <button type="submit" disabled={saving || !newLocationName.trim()}>{saving ? 'Adding…' : 'Add location'}</button>
       </form>
       {locations.length === 0 ? (
@@ -803,13 +824,23 @@ function LocationsCrud({ locations, onUpdate, saving, onSavingChange, onError, o
                     autoFocus
                     autoComplete="off"
                   />
+                  {squareSelect(editingSquareId, setEditingSquareId)}
                   <button type="submit" disabled={saving}>Save</button>
-                  <button type="button" onClick={() => { setEditingId(null); setEditingName(''); }}>Cancel</button>
+                  <button type="button" onClick={() => { setEditingId(null); setEditingName(''); setEditingSquareId(''); }}>Cancel</button>
                 </form>
               ) : (
                 <>
                   <span>{loc.name}</span>
-                  <button type="button" className="btn-small" onClick={() => { setEditingId(loc.id); setEditingName(loc.name); }}>Edit</button>
+                  {loc.square_location_id && (
+                    <span className="hint" style={{ fontSize: '0.8em', marginLeft: '0.5rem' }}>
+                      ({squareLocations.find((sl) => sl.id === loc.square_location_id)?.name || loc.square_location_id})
+                    </span>
+                  )}
+                  <button type="button" className="btn-small" onClick={() => {
+                    setEditingId(loc.id);
+                    setEditingName(loc.name);
+                    setEditingSquareId(loc.square_location_id || '');
+                  }}>Edit</button>
                   <button type="button" className="btn-remove btn-small" onClick={() => handleDelete(loc.id)}>Delete</button>
                 </>
               )}
@@ -931,9 +962,13 @@ function AnnouncementForm({ locations, onCreated }) {
   const submit = async (e) => {
     e.preventDefault();
     setErr('');
+    if (locationIds.length === 0) {
+      setErr('Select at least one location for this announcement.');
+      return;
+    }
     setLoading(true);
     try {
-      await createAnnouncement(title, body, from, to, locationIds.length > 0 ? locationIds : undefined);
+      await createAnnouncement(title, body, from, to, locationIds);
       setTitle('');
       setBody('');
       setLocationIds([]);
@@ -951,21 +986,19 @@ function AnnouncementForm({ locations, onCreated }) {
       <textarea placeholder="Body" value={body} onChange={(e) => setBody(e.target.value)} />
       <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
       <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-      {locations && locations.length > 0 && (
-        <div className="form-locations">
-          <span>Locations (leave empty = all):</span>
-          {locations.map((loc) => (
-            <label key={loc.id} className="location-checkbox">
-              <input
-                type="checkbox"
-                checked={locationIds.includes(loc.id)}
-                onChange={() => toggleLocation(loc.id)}
-              />
-              {loc.name}
-            </label>
-          ))}
-        </div>
-      )}
+      <div className="form-locations">
+        <span>Location <span className="required-star">*</span></span>
+        {locations && locations.length > 0 ? locations.map((loc) => (
+          <label key={loc.id} className="location-checkbox">
+            <input
+              type="checkbox"
+              checked={locationIds.includes(loc.id)}
+              onChange={() => toggleLocation(loc.id)}
+            />
+            {loc.name}
+          </label>
+        )) : <span className="hint"> No locations configured.</span>}
+      </div>
       {err && <p className="form-error">{err}</p>}
       <button type="submit" disabled={loading}>Create announcement</button>
     </form>
@@ -1035,13 +1068,17 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
       setErr('A role is required for this task list.');
       return;
     }
+    if (locationIds.length === 0) {
+      setErr('Select at least one location for this task list.');
+      return;
+    }
     setLoading(true);
     try {
       const options = {};
       if (period_type === 'weekly') options.day_of_week = day_of_week;
       if (period_type === 'monthly') options.day_of_month = day_of_month;
       if (period_type === 'yearly') { options.recur_month = recur_month; options.recur_day = recur_day; }
-      if (locationIds.length > 0) options.location_ids = locationIds;
+      options.location_ids = locationIds;
       if (wageTitle) options.wage_title = wageTitle;
       await createTaskListTemplate(name.trim(), type.trim(), period_type, options);
       setName('');
@@ -1126,17 +1163,15 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
           />
         )}
       </label>
-      {locations && locations.length > 0 && (
-        <span className="form-locations-inline">
-          Locations (empty = all):{' '}
-          {locations.map((loc) => (
-            <label key={loc.id} className="location-checkbox">
-              <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
-              {loc.name}
-            </label>
-          ))}
-        </span>
-      )}
+      <span className="form-locations-inline">
+        Location <span className="required-star">*</span>{' '}
+        {locations && locations.length > 0 ? locations.map((loc) => (
+          <label key={loc.id} className="location-checkbox">
+            <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
+            {loc.name}
+          </label>
+        )) : <span className="hint">No locations configured.</span>}
+      </span>
       {err && <span className="form-error">{err}</span>}
       <button type="submit" disabled={loading}>Create template</button>
     </form>
