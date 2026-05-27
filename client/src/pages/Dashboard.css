@@ -79,6 +79,54 @@
   cursor: default;
 }
 
+/* ── Role emulation row ──────────────────────────────────── */
+
+.emulate-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1rem 0.6rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+}
+
+.emulate-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.25rem;
+  white-space: nowrap;
+}
+
+.btn-role-pill {
+  padding: 0.25rem 0.75rem;
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--card);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.btn-role-pill.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.btn-role-pill:not(.active):hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 /* ── Main layout ─────────────────────────────────────────── */
 
 .dashboard-error {

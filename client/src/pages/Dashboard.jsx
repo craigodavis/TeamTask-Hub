@@ -19,6 +19,7 @@ export function Dashboard() {
   // Per-assignment state: tab ('active'|'reviewed') and open/collapsed
   const [assignmentTabs, setAssignmentTabs] = useState({});   // { [id]: 'active'|'reviewed' }
   const [assignmentOpen, setAssignmentOpen] = useState({});   // { [id]: bool }
+  const [emulateRole, setEmulateRole] = useState(null);       // null = manager view; string = role name
 
   const [reasonInput, setReasonInput] = useState({});
   const [showReasonFor, setShowReasonFor] = useState(null);
@@ -143,6 +144,16 @@ export function Dashboard() {
   };
 
   const isToday = date === todayStr();
+
+  // Roles available today (unique wage_titles from all assignments, for manager emulation)
+  const availableRoles = isManager
+    ? [...new Set((daySummary.assignments || []).map((a) => a.wage_title).filter(Boolean))].sort()
+    : [];
+
+  // When emulating, filter assignments to the selected role; otherwise show all
+  const visibleAssignments = emulateRole
+    ? (daySummary.assignments || []).filter((a) => a.wage_title === emulateRole)
+    : (daySummary.assignments || []);
 
   const isRead = (a) => !!(a.my_acknowledged_at || a._acknowledged);
   const unreadAnnouncements = announcements.filter((a) => !isRead(a));
@@ -382,6 +393,28 @@ export function Dashboard() {
             </div>
           )}
         </div>
+        {isManager && availableRoles.length > 0 && (
+          <div className="emulate-row">
+            <span className="emulate-label">View as:</span>
+            <button
+              type="button"
+              className={`btn-role-pill${!emulateRole ? ' active' : ''}`}
+              onClick={() => setEmulateRole(null)}
+            >
+              All
+            </button>
+            {availableRoles.map((role) => (
+              <button
+                key={role}
+                type="button"
+                className={`btn-role-pill${emulateRole === role ? ' active' : ''}`}
+                onClick={() => setEmulateRole(role)}
+              >
+                {role}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {error && <p className="dashboard-error">{error}</p>}
@@ -389,8 +422,8 @@ export function Dashboard() {
       <div className="dashboard-main">
         {loading ? (
           <p className="dashboard-loading">Loading…</p>
-        ) : unreadAnnouncements.length > 0 ? (
-          /* ── Announcement Gate ── */
+        ) : unreadAnnouncements.length > 0 && !emulateRole ? (
+          /* ── Announcement Gate ── (skipped when manager is emulating a role) */
           <div className="announcement-gate">
             <div className="gate-header">
               <div className="gate-icon" aria-hidden>📢</div>
@@ -418,13 +451,15 @@ export function Dashboard() {
         ) : (
           /* ── Tasks View ── */
           <section className="section-tasks">
-            {daySummary.no_shift ? (
+            {daySummary.no_shift && !emulateRole ? (
               <p className="empty">You have no shift scheduled for this day.</p>
-            ) : daySummary.assignments?.length === 0 ? (
-              <p className="empty">No tasks assigned for this day.</p>
+            ) : visibleAssignments.length === 0 ? (
+              <p className="empty">
+                {emulateRole ? `No tasks assigned for "${emulateRole}" on this day.` : 'No tasks assigned for this day.'}
+              </p>
             ) : (
               <div className="assignment-card-list">
-                {daySummary.assignments.map(renderAssignmentCard)}
+                {visibleAssignments.map(renderAssignmentCard)}
               </div>
             )}
 

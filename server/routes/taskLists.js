@@ -578,6 +578,7 @@ router.get('/day-summary', async (req, res) => {
     const assignmentsResult = await query(
       `SELECT ta.id, ta.template_id, ta.assigned_date, ta.assignee_id,
               tlt.name as template_name, tlt.type as template_type, tlt.period_type,
+              tlt.wage_title,
               u.display_name as assignee_name,
               (SELECT string_agg(l.name, ', ' ORDER BY l.name)
                FROM task_list_template_locations tll
