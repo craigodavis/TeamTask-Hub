@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule } from '../api';
 import './Dashboard.css';
 
@@ -8,9 +8,9 @@ function todayStr() {
 }
 
 export function Dashboard() {
-  const { user } = useOutletContext();
+  const { user, emulateRole, setAvailableRoles } = useOutletContext();
   const isManager = user?.role === 'manager' || user?.role === 'owner';
-  const [date, setDate] = useState(todayStr());
+  const date = todayStr();
   const [daySummary, setDaySummary] = useState({ assignments: [] });
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +19,6 @@ export function Dashboard() {
   // Per-assignment state: tab ('active'|'reviewed') and open/collapsed
   const [assignmentTabs, setAssignmentTabs] = useState({});   // { [id]: 'active'|'reviewed' }
   const [assignmentOpen, setAssignmentOpen] = useState({});   // { [id]: bool }
-  const [emulateRole, setEmulateRole] = useState(null);       // null = manager view; string = role name
 
   const [reasonInput, setReasonInput] = useState({});
   const [showReasonFor, setShowReasonFor] = useState(null);
@@ -39,7 +38,12 @@ export function Dashboard() {
         getActiveAnnouncements(date),
         getStaffSchedule(date),
       ]);
+      // Derive available roles for sidebar emulation picker
+      const roles = isManager
+        ? [...new Set((summaryRes.assignments || []).map((a) => a.wage_title).filter(Boolean))].sort()
+        : [];
       setDaySummary(summaryRes);
+      setAvailableRoles(roles);
       setAnnouncements(annRes.announcements || []);
       setStaffData(staffRes.staff || []);
       // Default filter to user's own location for the day (null if no shift / manager)
@@ -49,16 +53,9 @@ export function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, isManager, setAvailableRoles]);
 
   useEffect(() => { load(); }, [load]);
-
-
-  const goDate = (delta) => {
-    const d = new Date(date);
-    d.setDate(d.getDate() + delta);
-    setDate(d.toISOString().slice(0, 10));
-  };
 
   // ── Per-assignment helpers ───────────────────────────────
   const getTab = (id) => assignmentTabs[id] || 'active';
@@ -147,13 +144,6 @@ export function Dashboard() {
       setAnnouncements((prev) => prev.map((a) => (a.id === id ? { ...a, _acknowledged: true } : a)));
     } catch (err) { setError(err.message); }
   };
-
-  const isToday = date === todayStr();
-
-  // Roles available today (unique wage_titles from all assignments, for manager emulation)
-  const availableRoles = isManager
-    ? [...new Set((daySummary.assignments || []).map((a) => a.wage_title).filter(Boolean))].sort()
-    : [];
 
   // When emulating, filter assignments to the selected role; otherwise show all
   const visibleAssignments = emulateRole
@@ -373,55 +363,6 @@ export function Dashboard() {
 
   return (
     <div className="dashboard">
-      <header className="dashboard-header">
-        <div className="dashboard-header-inner">
-          <div className="header-row">
-            <button type="button" className="nav-date" onClick={() => goDate(-1)} aria-label="Previous day">
-              &lt;
-            </button>
-            <span className="date-label">{date}</span>
-            <button type="button" className="nav-date" onClick={() => goDate(1)} aria-label="Next day">
-              &gt;
-            </button>
-            <button type="button" className="btn-today" onClick={() => setDate(todayStr())} disabled={isToday}>
-              Today
-            </button>
-          </div>
-          {isManager && (
-            <div className="dashboard-header-actions">
-              <Link to="/manage?tab=announcements" className="btn-manage-tasks">
-                Announcements
-              </Link>
-              <Link to="/manage?tab=tasks" className="btn-manage-tasks">
-                Manage Tasks
-              </Link>
-            </div>
-          )}
-        </div>
-        {isManager && availableRoles.length > 0 && (
-          <div className="emulate-row">
-            <span className="emulate-label">View as:</span>
-            <button
-              type="button"
-              className={`btn-role-pill${!emulateRole ? ' active' : ''}`}
-              onClick={() => setEmulateRole(null)}
-            >
-              All
-            </button>
-            {availableRoles.map((role) => (
-              <button
-                key={role}
-                type="button"
-                className={`btn-role-pill${emulateRole === role ? ' active' : ''}`}
-                onClick={() => setEmulateRole(role)}
-              >
-                {role}
-              </button>
-            ))}
-          </div>
-        )}
-      </header>
-
       {error && <p className="dashboard-error">{error}</p>}
 
       <div className="dashboard-main">

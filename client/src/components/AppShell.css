@@ -161,6 +161,110 @@
   opacity: 1;
 }
 
+/* ── Sidebar sub-nav (manager sub-items under Dashboard) ─── */
+
+.nav-sub-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 0.1rem 0.5rem 0.25rem 1.5rem;
+  padding: 0.1rem 0 0.1rem 0.75rem;
+  border-left: 2px solid var(--border);
+}
+
+.nav-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: default;
+}
+
+a.nav-sub-item {
+  cursor: pointer;
+}
+
+a.nav-sub-item:hover {
+  background: var(--bg);
+  color: var(--primary);
+}
+
+a.nav-sub-item.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.nav-sub-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  width: 1.2rem;
+  text-align: center;
+}
+
+/* "View As" sub-item — stacks label + pills vertically */
+.nav-view-as {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.nav-view-as-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.nav-role-pills {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.nav-role-pill {
+  padding: 0.2rem 0.55rem;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--card);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.nav-role-pill.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.nav-role-pill:not(.active):hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Hide sub-nav in icon-only collapsed mode (desktop) */
+.app-shell-collapsed .nav-sub-group {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .app-shell-title {
     font-size: 0.95rem;
@@ -210,5 +314,36 @@
 
   .app-shell-collapsed .app-shell-nav-item[title]::after {
     display: none;
+  }
+
+  /* Mobile: sub-nav flows as full-width section */
+  .nav-sub-group {
+    width: 100%;
+    border-left: none;
+    margin: 0;
+    padding: 0.25rem 0.5rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  a.nav-sub-item {
+    flex: 1 1 auto;
+    min-width: 44%;
+    justify-content: center;
+    text-align: center;
+    border-radius: 8px;
+  }
+
+  .nav-view-as {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.4rem;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
   }
 }
