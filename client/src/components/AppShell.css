@@ -9,8 +9,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
   padding: 0.65rem 1rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
@@ -45,9 +45,9 @@
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   text-align: center;
-  min-width: 8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
