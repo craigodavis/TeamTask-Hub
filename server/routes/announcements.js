@@ -22,7 +22,7 @@ router.get('/active', async (req, res) => {
     const userRole = userRes.rows[0]?.role;
     const squareTmId = userRes.rows[0]?.square_team_member_id;
 
-    let userLocationIds = null; // null = manager/owner, sees all
+    let userLocationIds = null; // null = no location filter, sees all
 
     if (userRole === 'member' && squareTmId) {
       const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
@@ -37,7 +37,11 @@ router.get('/active', async (req, res) => {
            AND DATE(ss.pub_start_at AT TIME ZONE $3) = $4::date`,
         [cId, squareTmId, tz, d]
       );
-      userLocationIds = shiftRes.rows.map((r) => r.location_id).filter(Boolean);
+      const locIds = shiftRes.rows.map((r) => r.location_id).filter(Boolean);
+      // Only apply location filtering when we actually resolved locations.
+      // If the member has no shift today or their shift location isn't in our
+      // locations table, fall back to showing all announcements (null = no filter).
+      userLocationIds = locIds.length > 0 ? locIds : null;
     }
 
     const r = await query(
