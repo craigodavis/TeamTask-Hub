@@ -15,13 +15,24 @@ function isManageTabActive(location, tab) {
 
 export function AppShell({ user, onLogout, children }) {
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== 'undefined' && localStorage.getItem(STORAGE_KEY) === 'true'
-  );
+  const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
+
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (isMobile()) return true; // always start hidden on mobile
+    return localStorage.getItem(STORAGE_KEY) === 'true';
+  });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, collapsed ? 'true' : 'false');
+    if (!isMobile()) {
+      localStorage.setItem(STORAGE_KEY, collapsed ? 'true' : 'false');
+    }
   }, [collapsed]);
+
+  // Auto-close menu on mobile when navigating
+  useEffect(() => {
+    if (isMobile()) setCollapsed(true);
+  }, [location.pathname, location.search]);
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
   const isOwner = user?.role === 'owner';

@@ -170,6 +170,7 @@
     flex-direction: column;
   }
 
+  /* Mobile: sidebar is a full-width dropdown menu */
   .app-shell-sidebar {
     width: 100% !important;
     flex-direction: row;
@@ -179,8 +180,9 @@
     border-bottom: 1px solid var(--border);
   }
 
+  /* Mobile: collapsed = hidden */
   .app-shell-collapsed .app-shell-sidebar {
-    width: 100% !important;
+    display: none;
   }
 
   .app-shell-nav-item {
@@ -196,6 +198,7 @@
     box-shadow: inset 0 0 0 2px var(--primary);
   }
 
+  /* Override icon-only mode from collapsed class — show full labels on mobile */
   .app-shell-collapsed .app-shell-nav-item span {
     display: inline;
     margin-left: 0.35rem;
