@@ -804,34 +804,12 @@ router.post('/assignments/:id/close', requireManager, async (req, res) => {
         );
       }
 
-      // SMS managers + assignee
-      try {
-        const taskNames = incompleteTasks.rows.map((t) => `• ${t.title}`).join('\n');
-        const message = `⚠️ Task list closed early: "${a.template_name}" (${a.assigned_date})\n${taskNames}\nReason: ${reason}\nAssigned to: ${a.assignee_name || 'Unassigned'}`;
-
-        const managers = await query(
-          `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner') AND phone IS NOT NULL AND phone != ''`,
-          [cId]
-        );
-        const managerIds = new Set(managers.rows.map((r) => r.id));
-        const recipientIds = [...managerIds];
-        if (a.assignee_id && !managerIds.has(a.assignee_id)) {
-          const assigneeHasPhone = await query(
-            `SELECT id FROM users WHERE id = $1 AND phone IS NOT NULL AND phone != ''`,
-            [a.assignee_id]
-          );
-          if (assigneeHasPhone.rows.length) recipientIds.push(a.assignee_id);
-        }
-        if (recipientIds.length) {
-          await sendSmsToUsers(cId, recipientIds, message, req.userId || null);
-        }
-      } catch (smsErr) {
-        console.error('[close] SMS error:', smsErr.message);
-      }
     }
 
-    // Archive the assignment
+    // Archive the assignment, then fire closure SMS (once-only guard inside)
     await query(`UPDATE task_assignments SET archived_at = NOW() WHERE id = $1`, [a.id]);
+    sendClosureSms(id, cId, { reason: note?.trim() || null, triggeredBy: req.userId })
+      .catch((e) => console.error('[close] SMS error:', e.message));
 
     res.json({ ok: true, assignment_id: a.id, incomplete_closed: incompleteTasks.rows.length });
   } catch (err) {
@@ -928,84 +906,117 @@ router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (r
     );
     res.json(r.rows[0]);
 
-    // Fire-and-forget: check if all tasks in the assignment are now addressed and send SMS
-    checkAndSendCompletionSms(assignmentId, companyId(req), userId).catch((e) =>
-      console.error('[taskLists] completion SMS error:', e.message)
-    );
+    // Fire-and-forget: send closure SMS only when every task has been addressed
+    sendClosureSms(assignmentId, companyId(req), { triggeredBy: userId, checkAllAddressed: true })
+      .catch((e) => console.error('[taskLists] completion SMS error:', e.message));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * After a task status change, check if every task in the assignment has been
- * addressed (completed or not_completed).  If so — and we haven't sent SMS
- * for this assignment yet — send the celebratory/summary message.
+ * Send a single closure SMS for a task list assignment.
+ *
+ * Rules:
+ *   - Fully completed  → assignee only:            "✅ [Name] — all N tasks completed!"
+ *   - Any not-completed → assignee + managers:      "⚠️ [Name] closed with N incomplete tasks.\nReason: [reason]"
+ *   - Fires at most once per assignment (completion_sms_sent_at guard).
+ *   - When checkAllAddressed=true (natural completion path), only fires once every
+ *     task has a status — prevents premature sends after each individual toggle.
+ *
+ * @param {string}  assignmentId
+ * @param {string}  cId            company id
+ * @param {object}  opts
+ * @param {string}  [opts.reason]             Manager note (close-early or archive reason)
+ * @param {string}  [opts.triggeredBy]        userId who triggered the action
+ * @param {boolean} [opts.checkAllAddressed]  If true, abort unless every task has a status
  */
-async function checkAndSendCompletionSms(assignmentId, cId, triggeredByUserId) {
-  // Fetch assignment info + SMS-sent flag in one query
-  const assignRes = await query(
-    `SELECT ta.id, ta.completion_sms_sent_at, ta.template_id, ta.company_id,
-            c.ops_manager_name
-     FROM task_assignments ta
-     JOIN companies c ON c.id = ta.company_id
-     WHERE ta.id = $1 AND ta.company_id = $2`,
-    [assignmentId, cId]
-  );
-  const assignment = assignRes.rows[0];
-  if (!assignment || assignment.completion_sms_sent_at) return; // already sent
-
-  // Count total tasks on the template vs how many have a status record
-  const countRes = await query(
-    `SELECT
-       COUNT(tt.id)                                                       AS total,
-       COUNT(tc.status) FILTER (WHERE tc.status = 'completed')           AS n_completed,
-       COUNT(tc.status) FILTER (WHERE tc.status = 'not_completed')       AS n_not_done
-     FROM task_templates tt
-     LEFT JOIN task_completions tc
-       ON tc.task_template_id = tt.id
-      AND tc.assignment_id = $1
-     WHERE tt.template_id = $2`,
-    [assignmentId, assignment.template_id]
-  );
-  const { total, n_completed, n_not_done } = countRes.rows[0];
-  const totalNum    = parseInt(total,       10);
-  const completedNum = parseInt(n_completed, 10);
-  const notDoneNum  = parseInt(n_not_done,  10);
-  const addressedNum = completedNum + notDoneNum;
-
-  if (addressedNum < totalNum) return; // still tasks left without a status
-
-  // All tasks addressed — build message
-  let message;
-  const managerName = assignment.ops_manager_name || 'your manager';
-  if (notDoneNum === 0) {
-    // Everyone completed everything 🎉
-    message = `🎉 Hurrah! All ${totalNum} task${totalNum === 1 ? '' : 's'} on your list have been completed. Great work, team!`;
-  } else {
-    const remaining = notDoneNum;
-    message = `Hey, good job completing ${completedNum} of ${totalNum} task${totalNum === 1 ? '' : 's'}. You still have ${remaining} task${remaining === 1 ? '' : 's'} remaining. Please contact ${managerName}.`;
+async function sendClosureSms(assignmentId, cId, { reason = null, triggeredBy = null, checkAllAddressed = false } = {}) {
+  // When called from the natural completion path, first verify all tasks are addressed
+  // without yet touching completion_sms_sent_at (avoids premature lock).
+  if (checkAllAddressed) {
+    const check = await query(
+      `SELECT ta.template_id, ta.completion_sms_sent_at,
+              (SELECT COUNT(*) FROM task_templates tt WHERE tt.template_id = ta.template_id) AS total,
+              (SELECT COUNT(*) FROM task_completions tc WHERE tc.assignment_id = ta.id)      AS addressed
+       FROM task_assignments ta
+       WHERE ta.id = $1 AND ta.company_id = $2`,
+      [assignmentId, cId]
+    );
+    const row = check.rows[0];
+    if (!row || row.completion_sms_sent_at) return;
+    if (parseInt(row.addressed, 10) < parseInt(row.total, 10)) return; // still tasks without a status
   }
 
-  // Gather the distinct users who touched any task in this assignment
-  const usersRes = await query(
-    `SELECT DISTINCT user_id FROM task_completions WHERE assignment_id = $1`,
-    [assignmentId]
-  );
-  const userIds = usersRes.rows.map((r) => r.user_id);
-
-  if (userIds.length === 0) return;
-
-  // Mark as sent before firing (prevent race double-sends)
-  const updateRes = await query(
+  // Atomically claim the send slot — only one caller wins
+  const claim = await query(
     `UPDATE task_assignments SET completion_sms_sent_at = NOW()
-     WHERE id = $1 AND completion_sms_sent_at IS NULL
-     RETURNING id`,
-    [assignmentId]
+     WHERE id = $1 AND company_id = $2 AND completion_sms_sent_at IS NULL
+     RETURNING assignee_id, template_id, assigned_date`,
+    [assignmentId, cId]
   );
-  if (updateRes.rowCount === 0) return; // another process beat us to it
+  if (claim.rowCount === 0) return; // already sent or not found
 
-  await sendSmsToUsers(cId, userIds, message, triggeredByUserId);
+  const { assignee_id, template_id, assigned_date } = claim.rows[0];
+
+  // Template name
+  const tplRes = await query(`SELECT name FROM task_list_templates WHERE id = $1`, [template_id]);
+  const templateName = tplRes.rows[0]?.name || 'Task list';
+
+  // Task stats
+  const countRes = await query(
+    `SELECT
+       COUNT(tt.id)                                             AS total,
+       COUNT(tc.id) FILTER (WHERE tc.status = 'completed')     AS n_completed,
+       COUNT(tc.id) FILTER (WHERE tc.status = 'not_completed') AS n_not_done
+     FROM task_templates tt
+     LEFT JOIN task_completions tc ON tc.task_template_id = tt.id AND tc.assignment_id = $1
+     WHERE tt.template_id = $2`,
+    [assignmentId, template_id]
+  );
+  const total      = parseInt(countRes.rows[0]?.total      || 0, 10);
+  const nCompleted = parseInt(countRes.rows[0]?.n_completed || 0, 10);
+  const nNotDone   = parseInt(countRes.rows[0]?.n_not_done  || 0, 10);
+  const allDone    = nNotDone === 0 && nCompleted === total && total > 0;
+
+  // Build message
+  let message;
+  if (allDone) {
+    message = `✅ "${templateName}" — all ${total} task${total === 1 ? '' : 's'} completed!`;
+  } else {
+    message = `⚠️ "${templateName}" (${assigned_date}) closed with ${nNotDone} incomplete task${nNotDone === 1 ? '' : 's'}.`;
+    if (reason) message += `\nReason: ${reason}`;
+  }
+
+  // Recipients: assignee always; managers only when not fully completed
+  const recipientIds = [];
+
+  if (assignee_id) {
+    const hasPhone = await query(
+      `SELECT id FROM users WHERE id = $1 AND phone IS NOT NULL AND phone != ''`,
+      [assignee_id]
+    );
+    if (hasPhone.rows.length) recipientIds.push(assignee_id);
+  }
+
+  if (!allDone) {
+    const managers = await query(
+      `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner')
+       AND phone IS NOT NULL AND phone != ''`,
+      [cId]
+    );
+    for (const mgr of managers.rows) {
+      if (!recipientIds.includes(mgr.id)) recipientIds.push(mgr.id);
+    }
+  }
+
+  if (recipientIds.length === 0) {
+    console.log(`[sms] No recipients with phones for assignment ${assignmentId}`);
+    return;
+  }
+
+  await sendSmsToUsers(cId, recipientIds, message, triggeredBy);
+  console.log(`[sms] Closure SMS sent — "${templateName}" (${assigned_date}), allDone=${allDone}, recipients=${recipientIds.length}`);
 }
 
 // ---------- Task report (manager): completions in date range ----------
@@ -1086,38 +1097,6 @@ async function archivePreviousDayAssignments() {
         [a.template_id, a.id]
       );
 
-      // Send SMS if anything was left incomplete
-      if (incompleteTasks.rows.length > 0) {
-        try {
-          const taskNames = incompleteTasks.rows.map((t) => `• ${t.title}`).join('\n');
-          const message = `⚠️ Incomplete task list: "${a.template_name}" (${a.assigned_date})\n${taskNames}\nAssigned to: ${a.assignee_name || 'Unassigned'}`;
-
-          // Get managers + owners
-          const managers = await query(
-            `SELECT id FROM users WHERE company_id = $1 AND role IN ('manager','owner') AND phone IS NOT NULL AND phone != ''`,
-            [a.company_id]
-          );
-
-          // Include the assignee if they have a phone and aren't already a manager
-          const managerIds = new Set(managers.rows.map((r) => r.id));
-          const recipientIds = [...managerIds];
-          if (a.assignee_id && !managerIds.has(a.assignee_id)) {
-            const assigneeHasPhone = await query(
-              `SELECT id FROM users WHERE id = $1 AND phone IS NOT NULL AND phone != ''`,
-              [a.assignee_id]
-            );
-            if (assigneeHasPhone.rows.length) recipientIds.push(a.assignee_id);
-          }
-
-          if (recipientIds.length) {
-            await sendSmsToUsers(a.company_id, recipientIds, message, null);
-            console.log(`[archive] SMS sent for incomplete "${a.template_name}" (${a.assigned_date}) to ${recipientIds.length} recipient(s)`);
-          }
-        } catch (smsErr) {
-          console.error(`[archive] SMS error for assignment ${a.id}:`, smsErr.message);
-        }
-      }
-
       // Auto-mark each incomplete task as not_completed
       for (const t of incompleteTasks.rows) {
         await query(
@@ -1131,11 +1110,9 @@ async function archivePreviousDayAssignments() {
         );
       }
 
-      // Mark the assignment as archived
-      await query(
-        `UPDATE task_assignments SET archived_at = NOW() WHERE id = $1`,
-        [a.id]
-      );
+      // Mark the assignment as archived, then send closure SMS (tasks are already marked above)
+      await query(`UPDATE task_assignments SET archived_at = NOW() WHERE id = $1`, [a.id]);
+      await sendClosureSms(a.id, a.company_id, { reason: 'Not completed by end of day' });
     }
 
     console.log(`[archive] Archived ${openAssignments.rows.length} assignment(s) from before ${today}.`);
