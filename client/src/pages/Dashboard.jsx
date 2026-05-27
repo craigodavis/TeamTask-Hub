@@ -368,8 +368,8 @@ export function Dashboard() {
       <div className="dashboard-main">
         {loading ? (
           <p className="dashboard-loading">Loading…</p>
-        ) : unreadAnnouncements.length > 0 ? (
-          /* ── Announcement Gate ── */
+        ) : unreadAnnouncements.length > 0 && !emulateRole ? (
+          /* ── Announcement Gate ── (skipped when emulating a role) */
           <div className="announcement-gate">
             <div className="gate-header">
               <div className="gate-icon" aria-hidden>📢</div>
