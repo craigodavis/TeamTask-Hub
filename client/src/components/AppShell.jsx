@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import { UserMenu } from './UserMenu';
 import { appHubTitle } from '../appHubTitle';
 import './AppShell.css';
@@ -13,9 +13,11 @@ function isManageTabActive(location, tab) {
   return t === tab;
 }
 
-export function AppShell({ user, onLogout, children }) {
+export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
+
+  const [dashboardExpanded, setDashboardExpanded] = useState(false);
 
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -68,15 +70,70 @@ export function AppShell({ user, onLogout, children }) {
 
       <div className="app-shell-body">
         <nav className="app-shell-sidebar" id="app-sidebar" aria-label="Main navigation">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-            data-icon="🏠"
-            title="Dashboard"
-          >
-            <span>Dashboard</span>
-          </NavLink>
+          {/* Dashboard + collapsible sub-items */}
+          <div className="nav-item-row">
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🏠"
+              title="Dashboard"
+            >
+              <span>Dashboard</span>
+            </NavLink>
+            {isManager && (
+              <button
+                type="button"
+                className="nav-sub-chevron"
+                onClick={() => setDashboardExpanded((v) => !v)}
+                aria-expanded={dashboardExpanded}
+                aria-label={dashboardExpanded ? 'Collapse Dashboard menu' : 'Expand Dashboard menu'}
+              >
+                {dashboardExpanded ? '−' : '+'}
+              </button>
+            )}
+          </div>
+          {isManager && dashboardExpanded && (
+            <div className="nav-sub-group">
+              <Link
+                to="/manage?tab=announcements"
+                className={`nav-sub-item${location.pathname === '/manage' && new URLSearchParams(location.search).get('tab') === 'announcements' ? ' active' : ''}`}
+                onClick={() => { if (isMobile()) setCollapsed(true); }}
+              >
+                <span className="nav-sub-icon">📢</span>
+                <span>Announcements</span>
+              </Link>
+              <Link
+                to="/manage?tab=tasks"
+                className={`nav-sub-item${location.pathname === '/manage' && new URLSearchParams(location.search).get('tab') === 'tasks' ? ' active' : ''}`}
+                onClick={() => { if (isMobile()) setCollapsed(true); }}
+              >
+                <span className="nav-sub-icon">✓</span>
+                <span>Manage Tasks</span>
+              </Link>
+              <div className="nav-sub-item nav-view-as">
+                <span className="nav-sub-icon">👁</span>
+                <span className="nav-view-as-label">View As</span>
+                {availableRoles && availableRoles.length > 0 && (
+                  <div className="nav-role-pills">
+                    <button
+                      type="button"
+                      className={`nav-role-pill${!emulateRole ? ' active' : ''}`}
+                      onClick={() => setEmulateRole(null)}
+                    >All</button>
+                    {availableRoles.map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        className={`nav-role-pill${emulateRole === role ? ' active' : ''}`}
+                        onClick={() => setEmulateRole(role)}
+                      >{role}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <NavLink
             to="/food"
             className={({ isActive }) =>

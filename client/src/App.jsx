@@ -31,9 +31,17 @@ function AuthGate({ user }) {
 }
 
 function AppShellLayout({ user, onLogout }) {
+  const [emulateRole, setEmulateRole] = useState(null);
+  const [availableRoles, setAvailableRoles] = useState([]);
   return (
-    <AppShell user={user} onLogout={onLogout}>
-      <Outlet context={{ user, onLogout }} />
+    <AppShell
+      user={user}
+      onLogout={onLogout}
+      emulateRole={emulateRole}
+      setEmulateRole={setEmulateRole}
+      availableRoles={availableRoles}
+    >
+      <Outlet context={{ user, onLogout, emulateRole, setEmulateRole, availableRoles, setAvailableRoles }} />
     </AppShell>
   );
 }

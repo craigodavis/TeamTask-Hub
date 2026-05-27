@@ -42,6 +42,17 @@
   padding: 0.35rem 0;
 }
 
+@media (max-width: 640px) {
+  .user-menu-dropdown {
+    /* Fixed to viewport so it's always top-right regardless of trigger position */
+    position: fixed;
+    top: 3.25rem;
+    right: 0.5rem;
+    left: auto;
+    min-width: min(220px, calc(100vw - 1rem));
+  }
+}
+
 .user-menu-item {
   display: block;
   width: 100%;
