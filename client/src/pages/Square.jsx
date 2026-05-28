@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import './Square.css';
 
 // ── Table metadata ──────────────────────────────────────────────────────────
@@ -1015,16 +1016,21 @@ function KnowledgeTab({ token }) {
 
 // ── Main Square Page ─────────────────────────────────────────────────────────
 export function Square() {
+  const { user } = useOutletContext();
   const token = localStorage.getItem('teamtask_token');
   const [tab, setTab] = useState('ask');
 
-  const TABS = [
-    { id: 'ask',       label: '✦ Ask AiRon' },
-    { id: 'knowledge', label: '🧠 Knowledge' },
-    { id: 'tables',    label: '⬡ Tables' },
-    { id: 'mappings',  label: '⟳ Mappings' },
-    { id: 'journal',   label: '📓 Journal' },
+  const isManager = user?.role === 'manager' || user?.role === 'owner';
+
+  const ALL_TABS = [
+    { id: 'ask',       label: '✦ Ask AiRon',   managerOnly: false },
+    { id: 'knowledge', label: '🧠 Knowledge',   managerOnly: true  },
+    { id: 'tables',    label: '⬡ Tables',       managerOnly: true  },
+    { id: 'mappings',  label: '⟳ Mappings',     managerOnly: true  },
+    { id: 'journal',   label: '📓 Journal',     managerOnly: true  },
   ];
+
+  const TABS = ALL_TABS.filter((t) => !t.managerOnly || isManager);
 
   return (
     <div className="sq-page">
