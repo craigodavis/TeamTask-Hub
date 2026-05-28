@@ -29,8 +29,8 @@ jobs:
             ~/.nvm/versions/node/v22.22.0/bin/npm install
 
             cd ../client
-            /home/kindredv/nodevenv/teamhub/22/bin/npm install
-            /home/kindredv/nodevenv/teamhub/22/bin/npm run build
+            ~/.nvm/versions/node/v22.22.0/bin/npm install
+            ~/.nvm/versions/node/v22.22.0/bin/npm run build
 
             cd ..
             mkdir -p tmp
