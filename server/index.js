@@ -44,7 +44,11 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // Serve uploaded files (announcement images, etc.)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// /api/uploads is used for production (nginx proxies /api/* to Express)
+// /uploads kept for backward compat with existing announcement image URLs
+const uploadsStatic = express.static(path.join(__dirname, 'uploads'));
+app.use('/api/uploads', uploadsStatic);
+app.use('/uploads', uploadsStatic);
 
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 const servingClient = fs.existsSync(clientDist);
