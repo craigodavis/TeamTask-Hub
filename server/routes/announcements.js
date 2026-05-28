@@ -32,7 +32,7 @@ const companyId = (req) => req.companyId;
 // Upload an image for use in an announcement body (managers only)
 router.post('/upload-image', requireManager, imgUpload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.json({ url: `/uploads/announcements/${req.file.filename}` });
+  res.json({ url: `/api/uploads/announcements/${req.file.filename}` });
 });
 
 // Active announcements for main screen (effective today or in range); includes my_acknowledged_at.
