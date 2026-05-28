@@ -52,14 +52,18 @@
 
 .rich-editor-content {
   padding: 10px 12px;
-  min-height: 130px;
+  min-height: 260px;
+  max-height: 800px;
+  overflow-y: auto;
+  resize: vertical;
+  box-sizing: border-box;
   cursor: text;
 }
 
 /* ProseMirror editor area */
 .rich-editor-content .ProseMirror {
   outline: none;
-  min-height: 110px;
+  min-height: 240px;
   font-size: 0.9rem;
   line-height: 1.65;
   color: var(--text, #1e293b);
