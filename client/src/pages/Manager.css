@@ -482,14 +482,16 @@
   font-size: 0.9rem;
   color: var(--text-muted);
   line-height: 1.5;
-  white-space: pre-wrap;
-  max-height: 3.6em;
+  max-height: 4.8em;
   overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
 }
+
+/* Reset nested HTML elements in the card preview */
+.announcement-item-body p { margin: 0 0 0.3em; }
+.announcement-item-body ul, .announcement-item-body ol { margin: 0; padding-left: 1.2em; }
+.announcement-item-body h2 { font-size: 0.95em; margin: 0; }
 
 .announcement-item-actions {
   display: flex;
@@ -536,7 +538,18 @@
   margin-top: 0.5rem;
 }
 
-.form-announcement, .form-entry {
+.form-announcement {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+}
+
+.form-entry {
   margin-bottom: 1rem;
   display: flex;
   flex-wrap: wrap;
@@ -544,17 +557,10 @@
   align-items: center;
 }
 
-.form-announcement input[type="text"],
-.form-announcement textarea,
 .form-entry input {
   padding: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-}
-
-.form-announcement textarea {
-  width: 100%;
-  min-height: 80px;
 }
 
 .form-error {

@@ -292,6 +292,21 @@ export async function getAnnouncements(from, to) {
   return data;
 }
 
+export async function uploadAnnouncementImage(file) {
+  const form = new FormData();
+  form.append('image', file);
+  const res = await fetch(`${API}/announcements/upload-image`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Image upload failed');
+  }
+  return res.json(); // { url }
+}
+
 export async function createAnnouncement(title, body, effective_from, effective_until, location_ids) {
   const payload = { title, body, effective_from, effective_until };
   if (location_ids != null && Array.isArray(location_ids)) payload.location_ids = location_ids;

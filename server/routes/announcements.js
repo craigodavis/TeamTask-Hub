@@ -1,9 +1,39 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const annUploadsDir = path.join(__dirname, '..', 'uploads', 'announcements');
+fs.mkdirSync(annUploadsDir, { recursive: true });
+
+const imgStorage = multer.diskStorage({
+  destination: annUploadsDir,
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+const imgUpload = multer({
+  storage: imgStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) return cb(new Error('Only image files are allowed'));
+    cb(null, true);
+  },
+});
+
 const router = express.Router();
 const companyId = (req) => req.companyId;
+
+// Upload an image for use in an announcement body (managers only)
+router.post('/upload-image', requireManager, imgUpload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  res.json({ url: `/uploads/announcements/${req.file.filename}` });
+});
 
 // Active announcements for main screen (effective today or in range); includes my_acknowledged_at.
 // Managers see all; members see only announcements for their scheduled location today.

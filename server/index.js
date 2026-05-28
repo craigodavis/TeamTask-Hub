@@ -43,6 +43,9 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+// Serve uploaded files (announcement images, etc.)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 const servingClient = fs.existsSync(clientDist);
 
