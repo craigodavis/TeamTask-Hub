@@ -201,6 +201,7 @@ export async function createTaskListTemplate(name, type, period_type, options = 
   if (period_type === 'yearly' && options.recur_month != null) body.recur_month = options.recur_month;
   if (period_type === 'yearly' && options.recur_day != null) body.recur_day = options.recur_day;
   if (options.location_ids != null && Array.isArray(options.location_ids)) body.location_ids = options.location_ids;
+  if (options.wage_title != null) body.wage_title = options.wage_title;
   const res = await fetch(`${API}/task-lists/templates`, {
     method: 'POST',
     headers: headers(),
