@@ -489,9 +489,18 @@
 }
 
 /* Reset nested HTML elements in the card preview */
-.announcement-item-body p { margin: 0 0 0.3em; }
-.announcement-item-body ul, .announcement-item-body ol { margin: 0; padding-left: 1.2em; }
+.announcement-item-body p  { margin: 0 0 0.3em; }
+.announcement-item-body p:last-child { margin-bottom: 0; }
+.announcement-item-body ul,
+.announcement-item-body ol { margin: 0; padding-left: 1.2em; }
 .announcement-item-body h2 { font-size: 0.95em; margin: 0; }
+.announcement-item-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 0.3rem 0;
+}
 
 .announcement-item-actions {
   display: flex;
