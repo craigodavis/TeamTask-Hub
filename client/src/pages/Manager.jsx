@@ -35,9 +35,11 @@ import {
   getWageTitles,
   reorderTemplateTasks,
   getSquareSchedule,
+  uploadAnnouncementImage,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
+import { RichEditor } from '../components/RichEditor';
 import './Manager.css';
 
 function todayStr() {
@@ -950,11 +952,17 @@ function AnnouncementForm({ locations, onCreated }) {
   const [locationIds, setLocationIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  // Bump to force RichEditor remount (clears content) after successful save
+  const [editorKey, setEditorKey] = useState(0);
 
   const toggleLocation = (id) => {
     setLocationIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
+
+  const handleImageUpload = async (file) => {
+    return uploadAnnouncementImage(file);
   };
 
   const submit = async (e) => {
@@ -970,6 +978,7 @@ function AnnouncementForm({ locations, onCreated }) {
       setTitle('');
       setBody('');
       setLocationIds([]);
+      setEditorKey((k) => k + 1);
       onCreated();
     } catch (e) {
       setErr(e.message);
@@ -980,12 +989,38 @@ function AnnouncementForm({ locations, onCreated }) {
 
   return (
     <form onSubmit={submit} className="form-announcement">
-      <input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-      <textarea placeholder="Body" value={body} onChange={(e) => setBody(e.target.value)} />
-      <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-      <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      <div className="ann-edit-field">
+        <label className="ann-edit-label">Title <span className="required-star">*</span></label>
+        <input
+          className="ann-edit-input"
+          placeholder="Announcement title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+      </div>
+      <div className="ann-edit-field">
+        <label className="ann-edit-label">Body</label>
+        <RichEditor
+          key={editorKey}
+          initialContent=""
+          onChange={setBody}
+          onImageUpload={handleImageUpload}
+          placeholder="Optional — additional detail, formatting, or images"
+        />
+      </div>
+      <div className="ann-edit-dates">
+        <label className="ann-edit-label-inline">
+          From
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="ann-edit-label-inline">
+          To
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+      </div>
       <div className="form-locations">
-        <span>Location <span className="required-star">*</span></span>
+        <span className="ann-edit-label">Location <span className="required-star">*</span></span>
         {locations && locations.length > 0 ? locations.map((loc) => (
           <label key={loc.id} className="location-checkbox">
             <input
@@ -1555,12 +1590,12 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
         </div>
         <div className="ann-edit-field">
           <label className="ann-edit-label">Body</label>
-          <textarea
-            className="ann-edit-textarea"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={7}
-            placeholder="Optional — additional detail shown on the announcement card"
+          <RichEditor
+            key={announcement.id}
+            initialContent={body}
+            onChange={setBody}
+            onImageUpload={uploadAnnouncementImage}
+            placeholder="Optional — additional detail, formatting, or images"
           />
         </div>
         <div className="ann-edit-dates">
@@ -1599,7 +1634,10 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
           <strong className="announcement-item-title">{announcement.title}</strong>
           <span className="announcement-item-dates">{announcement.effective_from} – {announcement.effective_until}</span>
           {announcement.body && (
-            <p className="announcement-item-body">{announcement.body}</p>
+            <div
+              className="announcement-item-body"
+              dangerouslySetInnerHTML={{ __html: announcement.body }}
+            />
           )}
         </div>
         <div className="announcement-item-actions">

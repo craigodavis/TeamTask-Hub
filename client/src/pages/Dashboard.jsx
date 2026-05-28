@@ -386,7 +386,12 @@ export function Dashboard() {
               {unreadAnnouncements.map((a) => (
                 <div key={a.id} className="gate-card">
                   <h3 className="gate-card-title">{a.title}</h3>
-                  {a.body && <p className="gate-card-body">{a.body}</p>}
+                  {a.body && (
+                    <div
+                      className="gate-card-body"
+                      dangerouslySetInnerHTML={{ __html: a.body }}
+                    />
+                  )}
                   <button type="button" className="btn-ack" onClick={() => handleAck(a.id)}>
                     Mark as Read
                   </button>
@@ -523,7 +528,12 @@ export function Dashboard() {
                     {readAnnouncements.map((a) => (
                       <li key={a.id} className="past-announcement-card">
                         <h4 className="past-card-title">{a.title}</h4>
-                        {a.body && <p className="announcement-body">{a.body}</p>}
+                        {a.body && (
+                          <div
+                            className="announcement-body"
+                            dangerouslySetInnerHTML={{ __html: a.body }}
+                          />
+                        )}
                       </li>
                     ))}
                   </ul>
