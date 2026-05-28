@@ -1070,13 +1070,24 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
   const [recur_month, setRecurMonth] = useState(1);
   const [recur_day, setRecurDay] = useState(1);
   const [locationIds, setLocationIds] = useState([]);
-  const [wageTitle, setWageTitle] = useState(() => wageTitles?.[0] || '');
+  const [wageTitle, setWageTitle] = useState('');
+  const [customRole, setCustomRole] = useState('');
+  const [useCustomRole, setUseCustomRole] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
-  // Keep wageTitle in sync when wageTitles loads after first render
-  React.useEffect(() => {
-    if (!wageTitle && wageTitles?.length > 0) setWageTitle(wageTitles[0]);
-  }, [wageTitles]);
+
+  const effectiveWageTitle = useCustomRole ? customRole : wageTitle;
+
+  const handleRoleSelect = (e) => {
+    if (e.target.value === '__custom__') {
+      setUseCustomRole(true);
+      setWageTitle('__custom__');
+    } else {
+      setUseCustomRole(false);
+      setWageTitle(e.target.value);
+    }
+  };
+
   const toggleLocation = (id) => {
     setLocationIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -1097,12 +1108,8 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
       setErr('Select month and day for yearly tasks.');
       return;
     }
-    if (!wageTitle.trim()) {
+    if (!effectiveWageTitle.trim()) {
       setErr('A role is required for this task list.');
-      return;
-    }
-    if (locationIds.length === 0) {
-      setErr('Select at least one location for this task list.');
       return;
     }
     setLoading(true);
@@ -1112,11 +1119,13 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
       if (period_type === 'monthly') options.day_of_month = day_of_month;
       if (period_type === 'yearly') { options.recur_month = recur_month; options.recur_day = recur_day; }
       options.location_ids = locationIds;
-      if (wageTitle) options.wage_title = wageTitle;
+      options.wage_title = effectiveWageTitle.trim();
       await createTaskListTemplate(name.trim(), type.trim(), period_type, options);
       setName('');
       setLocationIds([]);
       setWageTitle('');
+      setCustomRole('');
+      setUseCustomRole(false);
       onCreated();
     } catch (e) {
       setErr(e.message);
@@ -1180,30 +1189,38 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
       )}
       <label className="form-inline-label">
         Role <span className="required-star">*</span>
-        {wageTitles && wageTitles.length > 0 ? (
-          <select value={wageTitle} onChange={(e) => setWageTitle(e.target.value)} required>
-            {wageTitles.map((wt) => (
-              <option key={wt} value={wt}>{wt}</option>
-            ))}
-          </select>
-        ) : (
+        <select value={useCustomRole ? '__custom__' : wageTitle} onChange={handleRoleSelect} required={!useCustomRole}>
+          <option value="">Select role…</option>
+          {wageTitles.map((wt) => (
+            <option key={wt} value={wt}>{wt}</option>
+          ))}
+          <option value="__custom__">Other (type below)…</option>
+        </select>
+        {useCustomRole && (
           <input
             type="text"
-            value={wageTitle}
-            onChange={(e) => setWageTitle(e.target.value)}
+            value={customRole}
+            onChange={(e) => setCustomRole(e.target.value)}
             placeholder="e.g. Server, Bartender…"
             required
+            autoFocus
+            style={{ marginTop: '0.3rem' }}
           />
         )}
       </label>
       <span className="form-locations-inline">
-        Location <span className="required-star">*</span>{' '}
-        {locations && locations.length > 0 ? locations.map((loc) => (
-          <label key={loc.id} className="location-checkbox">
-            <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
-            {loc.name}
-          </label>
-        )) : <span className="hint">No locations configured.</span>}
+        Locations{' '}
+        {locations && locations.length > 0 ? (
+          <>
+            {locations.map((loc) => (
+              <label key={loc.id} className="location-checkbox">
+                <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
+                {loc.name}
+              </label>
+            ))}
+            {locationIds.length === 0 && <span className="hint"> (all locations)</span>}
+          </>
+        ) : <span className="hint">No locations configured — template will apply to all.</span>}
       </span>
       {err && <span className="form-error">{err}</span>}
       <button type="submit" disabled={loading}>Create template</button>
@@ -1399,23 +1416,25 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
       </span>
       {open && (
         <div className="template-tasks">
-          {wageTitles && wageTitles.length > 0 && (
-            <p className="template-wage-title">
-              Assigned role:{' '}
-              <select
-                value={template.wage_title || ''}
-                onChange={(e) => {
-                  const val = e.target.value || null;
-                  updateTaskListTemplate(template.id, { wage_title: val ?? '' }).then(onUpdate).catch((err) => alert(err.message));
-                }}
-              >
-                <option value="">All roles</option>
-                {wageTitles.map((wt) => (
-                  <option key={wt} value={wt}>{wt}</option>
-                ))}
-              </select>
-            </p>
-          )}
+          <p className="template-wage-title">
+            Assigned role:{' '}
+            <select
+              value={template.wage_title || ''}
+              onChange={(e) => {
+                const val = e.target.value || null;
+                updateTaskListTemplate(template.id, { wage_title: val ?? '' }).then(onUpdate).catch((err) => alert(err.message));
+              }}
+            >
+              <option value="">All roles</option>
+              {wageTitles.map((wt) => (
+                <option key={wt} value={wt}>{wt}</option>
+              ))}
+              {/* Show current value even if not in wageTitles list */}
+              {template.wage_title && !wageTitles.includes(template.wage_title) && (
+                <option value={template.wage_title}>{template.wage_title}</option>
+              )}
+            </select>
+          </p>
           {template.period_type === 'weekly' && (
             <p className="template-weekly-day">
               Show on:{' '}

@@ -1,6 +1,6 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
+import { ImageResize } from 'tiptap-extension-resize-image';
 import Underline from '@tiptap/extension-underline';
 import './RichEditor.css';
 
@@ -8,7 +8,7 @@ export function RichEditor({ initialContent = '', onChange, onImageUpload, place
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Image.configure({ inline: false, allowBase64: false }),
+      ImageResize.configure({ inline: false, allowBase64: false }),
       Underline,
     ],
     content: initialContent || '',

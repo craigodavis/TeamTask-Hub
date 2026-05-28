@@ -10,19 +10,34 @@ function isMissingTableErr(err, tableName) {
   return err.code === '42P01' || (err.message && String(err.message).includes(tableName) && String(err.message).toLowerCase().includes('does not exist'));
 }
 
-// ---------- Wage titles (sourced from Square shift data) ----------
+// ---------- Wage titles (sourced from Square shift data + existing templates) ----------
 router.get('/wage-titles', async (req, res) => {
+  const cId = companyId(req);
+  // Collect titles from two sources and merge them
+  const titles = new Set();
+
+  // 1. Titles used in existing templates for this company (always available)
   try {
-    const r = await query(
+    const tr = await query(
+      `SELECT DISTINCT wage_title FROM task_list_templates
+       WHERE company_id = $1 AND wage_title IS NOT NULL AND wage_title <> ''
+       ORDER BY wage_title`,
+      [cId]
+    );
+    tr.rows.forEach((row) => titles.add(row.wage_title));
+  } catch { /* ignore */ }
+
+  // 2. Titles from Square shift history (may not exist if Square not synced)
+  try {
+    const sr = await query(
       `SELECT DISTINCT wage_title FROM team_square.shift
        WHERE wage_title IS NOT NULL AND wage_title <> ''
        ORDER BY wage_title`
     );
-    res.json({ wage_titles: r.rows.map((row) => row.wage_title) });
-  } catch (err) {
-    // If the square schema isn't accessible, return empty list gracefully
-    res.json({ wage_titles: [] });
-  }
+    sr.rows.forEach((row) => titles.add(row.wage_title));
+  } catch { /* Square schema not accessible — skip */ }
+
+  res.json({ wage_titles: [...titles].sort() });
 });
 
 // ---------- Live Square schedule for a date ----------
@@ -213,10 +228,6 @@ router.post('/templates', requireManager, async (req, res) => {
     const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids, wage_title } = req.body;
     if (!name || !type || !period_type) {
       return res.status(400).json({ error: 'name, type, period_type required' });
-    }
-    const locationIdList = Array.isArray(location_ids) ? location_ids.filter(Boolean) : [];
-    if (locationIdList.length === 0) {
-      return res.status(400).json({ error: 'At least one location is required for a task list template.' });
     }
     if (!wage_title?.trim()) {
       return res.status(400).json({ error: 'wage_title (role) is required' });
