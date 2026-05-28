@@ -517,7 +517,6 @@ router.post('/ask', async (req, res) => {
         system: systemBlocks,
         tools: SQUARE_TOOLS,
         messages,
-        betas: ['prompt-caching-2024-07-31'],
       });
 
       // Collect any text from this turn
