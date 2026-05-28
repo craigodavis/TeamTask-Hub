@@ -29,7 +29,7 @@ export function RichEditor({ initialContent = '', onChange, onImageUpload, place
       try {
         const result = await onImageUpload(file);
         const url = result?.url || result;
-        editor.chain().focus().setImage({ src: url }).run();
+        editor.chain().focus().setImage({ src: url, alt: '' }).run();
       } catch (err) {
         alert('Image upload failed: ' + err.message);
       }

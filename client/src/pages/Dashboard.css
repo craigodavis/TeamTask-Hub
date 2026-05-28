@@ -110,8 +110,21 @@
   margin: 0 0 1rem;
   font-size: 0.95rem;
   color: var(--text-muted);
-  white-space: pre-wrap;
   line-height: 1.55;
+}
+
+/* Rich-text content inside gate cards */
+.gate-card-body p  { margin: 0 0 0.5em; }
+.gate-card-body p:last-child { margin-bottom: 0; }
+.gate-card-body ul,
+.gate-card-body ol { padding-left: 1.4em; margin: 0 0 0.5em; }
+.gate-card-body h2 { font-size: 1em; font-weight: 600; margin: 0 0 0.3em; }
+.gate-card-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5rem 0;
 }
 
 .btn-ack {
@@ -640,8 +653,21 @@
   margin: 0;
   font-size: 0.9rem;
   color: var(--text-muted);
-  white-space: pre-wrap;
   line-height: 1.5;
+}
+
+/* Rich-text content inside past-announcement cards */
+.announcement-body p  { margin: 0 0 0.4em; }
+.announcement-body p:last-child { margin-bottom: 0; }
+.announcement-body ul,
+.announcement-body ol { padding-left: 1.4em; margin: 0 0 0.4em; }
+.announcement-body h2 { font-size: 0.95em; font-weight: 600; margin: 0 0 0.25em; }
+.announcement-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.4rem 0;
 }
 
 .empty {
