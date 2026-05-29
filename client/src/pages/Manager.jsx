@@ -1076,6 +1076,13 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
 
+  // Auto-select first option when wageTitles first populates
+  useEffect(() => {
+    if (wageTitles.length > 0 && !wageTitle) {
+      setWageTitle(wageTitles[0]);
+    }
+  }, [wageTitles]);
+
   const effectiveWageTitle = useCustomRole ? customRole : wageTitle;
 
   const handleRoleSelect = (e) => {
@@ -1189,22 +1196,31 @@ function TaskListTemplateForm({ locations, wageTitles, onCreated }) {
       )}
       <label className="form-inline-label">
         Role <span className="required-star">*</span>
-        <select value={useCustomRole ? '__custom__' : wageTitle} onChange={handleRoleSelect} required={!useCustomRole}>
-          <option value="">Select role…</option>
-          {wageTitles.map((wt) => (
-            <option key={wt} value={wt}>{wt}</option>
-          ))}
-          <option value="__custom__">Other (type below)…</option>
-        </select>
-        {useCustomRole && (
+        {wageTitles.length > 0 ? (
+          <>
+            <select value={useCustomRole ? '__custom__' : wageTitle} onChange={handleRoleSelect}>
+              {wageTitles.map((wt) => (
+                <option key={wt} value={wt}>{wt}</option>
+              ))}
+              <option value="__custom__">Other (type below)…</option>
+            </select>
+            {useCustomRole && (
+              <input
+                type="text"
+                value={customRole}
+                onChange={(e) => setCustomRole(e.target.value)}
+                placeholder="e.g. Server, Bartender…"
+                autoFocus
+                style={{ marginTop: '0.3rem' }}
+              />
+            )}
+          </>
+        ) : (
           <input
             type="text"
-            value={customRole}
-            onChange={(e) => setCustomRole(e.target.value)}
+            value={wageTitle}
+            onChange={(e) => setWageTitle(e.target.value)}
             placeholder="e.g. Server, Bartender…"
-            required
-            autoFocus
-            style={{ marginTop: '0.3rem' }}
           />
         )}
       </label>
