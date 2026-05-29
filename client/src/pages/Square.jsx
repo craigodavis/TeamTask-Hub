@@ -74,9 +74,13 @@ function formatCount(n) {
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
   return n.toLocaleString();
 }
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+function localDateStr(d = new Date()) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dy = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dy}`;
+}
+function todayStr() { return localDateStr(); }
 function ninetyDaysAgoStr() {
-  const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10);
+  const d = new Date(); d.setDate(d.getDate() - 90); return localDateStr(d);
 }
 
 // ── Ask Tab ──────────────────────────────────────────────────────────────────

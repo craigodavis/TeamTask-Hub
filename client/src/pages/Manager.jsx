@@ -43,7 +43,11 @@ import { RichEditor } from '../components/RichEditor';
 import './Manager.css';
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 const VALID_TABS = new Set(['announcements', 'tasks', 'reports', 'integrations', 'users']);
@@ -69,9 +73,10 @@ export function Manager() {
   const [reportFrom, setReportFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
+    const y = d.getFullYear(), mo = String(d.getMonth() + 1).padStart(2, '0'), dy = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${dy}`;
   });
-  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportTo, setReportTo] = useState(todayStr);
   const [reportLocationId, setReportLocationId] = useState('');
   const [foodWasteReport, setFoodWasteReport] = useState(null);
   const [taskReport, setTaskReport] = useState(null);
