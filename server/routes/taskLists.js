@@ -629,8 +629,11 @@ router.get('/day-summary', async (req, res) => {
         return res.json({ date, assignments: [], no_shift: true });
       }
 
+      const resolvedWageTitles = [...new Set(shiftRes.rows.map((r) => r.wage_title).filter(Boolean))];
       shiftFilter = {
-        wageTitles: [...new Set(shiftRes.rows.map((r) => r.wage_title).filter(Boolean))],
+        // If we couldn't resolve any wage titles from the shift data, pass null
+        // so the query skips the wage_title filter rather than matching nothing.
+        wageTitles: resolvedWageTitles.length > 0 ? resolvedWageTitles : null,
         locationIds: [...new Set(shiftRes.rows.map((r) => r.location_id).filter(Boolean))],
       };
     }
