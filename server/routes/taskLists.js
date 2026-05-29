@@ -165,8 +165,10 @@ router.get('/staff-schedule', async (req, res) => {
          ss.pub_end_at AS end_at
        FROM team_square.scheduled_shift ss
        JOIN users u ON u.square_team_member_id = ss.pub_team_member_id AND u.company_id = $1
-       LEFT JOIN team_square.team_member_job_assignment ja
-         ON ja.team_member_id = ss.pub_team_member_id AND ja.job_id = ss.pub_job_id
+       LEFT JOIN LATERAL (
+         SELECT job_title FROM team_square.team_member_job_assignment
+         WHERE job_id = ss.pub_job_id LIMIT 1
+       ) ja ON true
        LEFT JOIN locations l
          ON l.square_location_id = ss.pub_location_id AND l.company_id = $1
        WHERE ss.pub_is_deleted = false
@@ -610,8 +612,10 @@ router.get('/day-summary', async (req, res) => {
            l.id AS location_id,
            COALESCE(ja.job_title, ss.pub_job_id) AS wage_title
          FROM team_square.scheduled_shift ss
-         LEFT JOIN team_square.team_member_job_assignment ja
-           ON ja.team_member_id = ss.pub_team_member_id AND ja.job_id = ss.pub_job_id
+         LEFT JOIN LATERAL (
+           SELECT job_title FROM team_square.team_member_job_assignment
+           WHERE job_id = ss.pub_job_id LIMIT 1
+         ) ja ON true
          LEFT JOIN locations l
            ON l.square_location_id = ss.pub_location_id AND l.company_id = $1
          WHERE ss.pub_team_member_id = $2
