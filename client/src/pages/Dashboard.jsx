@@ -1,20 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule } from '../api';
+import { todayInTimezone } from '../utils/dateUtils';
 import './Dashboard.css';
 
-function todayStr() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 export function Dashboard() {
-  const { user, emulateRole, setAvailableRoles } = useOutletContext();
+  const { user, emulateRole, setAvailableRoles, timezone } = useOutletContext();
   const isManager = user?.role === 'manager' || user?.role === 'owner';
-  const date = todayStr();
+  const date = todayInTimezone(timezone);
   const [daySummary, setDaySummary] = useState({ assignments: [] });
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);

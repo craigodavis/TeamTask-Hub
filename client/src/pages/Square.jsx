@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
+import { todayInTimezone } from '../utils/dateUtils';
 import './Square.css';
 
 // ── Table metadata ──────────────────────────────────────────────────────────
@@ -74,13 +75,12 @@ function formatCount(n) {
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
   return n.toLocaleString();
 }
-function localDateStr(d = new Date()) {
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dy = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dy}`;
-}
-function todayStr() { return localDateStr(); }
-function ninetyDaysAgoStr() {
-  const d = new Date(); d.setDate(d.getDate() - 90); return localDateStr(d);
+function ninetyDaysAgoStr(timezone) {
+  const d = new Date(); d.setDate(d.getDate() - 90);
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+    return `${parts.find(p=>p.type==='year').value}-${parts.find(p=>p.type==='month').value}-${parts.find(p=>p.type==='day').value}`;
+  } catch { return d.toISOString().slice(0, 10); }
 }
 
 // ── Ask Tab ──────────────────────────────────────────────────────────────────
@@ -374,13 +374,13 @@ function AskTab({ token }) {
 }
 
 // ── Tables Tab ───────────────────────────────────────────────────────────────
-function TablesTab({ token }) {
+function TablesTab({ token, timezone }) {
   const [tables, setTables]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [checked, setChecked] = useState({});
-  const [dateFrom, setDateFrom] = useState(ninetyDaysAgoStr);
-  const [dateTo, setDateTo]     = useState(todayStr);
+  const [dateFrom, setDateFrom] = useState(() => ninetyDaysAgoStr(timezone));
+  const [dateTo, setDateTo]     = useState(() => todayInTimezone(timezone));
 
   useEffect(() => {
     fetch('/api/square/tables', { headers: { Authorization: `Bearer ${token}` } })
@@ -436,7 +436,7 @@ function TablesTab({ token }) {
           <span className="sq-date-sep">→</span>
           <div className="sq-date-group">
             <label className="sq-label" htmlFor="sq-to">To</label>
-            <input id="sq-to" type="date" className="sq-date-input" value={dateTo} min={dateFrom} max={todayStr()} onChange={(e) => setDateTo(e.target.value)} />
+            <input id="sq-to" type="date" className="sq-date-input" value={dateTo} min={dateFrom} max={todayInTimezone(timezone)} onChange={(e) => setDateTo(e.target.value)} />
           </div>
         </div>
         <div className="sq-toolbar-right">
@@ -1020,7 +1020,7 @@ function KnowledgeTab({ token }) {
 
 // ── Main Square Page ─────────────────────────────────────────────────────────
 export function Square() {
-  const { user } = useOutletContext();
+  const { user, timezone } = useOutletContext();
   const token = localStorage.getItem('teamtask_token');
   const [tab, setTab] = useState('ask');
 
@@ -1062,7 +1062,7 @@ export function Square() {
       <div className="sq-tab-body">
         {tab === 'ask'       && <AskTab       token={token} />}
         {tab === 'knowledge' && <KnowledgeTab token={token} />}
-        {tab === 'tables'    && <TablesTab    token={token} />}
+        {tab === 'tables'    && <TablesTab    token={token} timezone={timezone} />}
         {tab === 'mappings'  && <MappingsTab  token={token} />}
         {tab === 'journal'   && <JournalTab   token={token} />}
       </div>
