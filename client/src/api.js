@@ -87,8 +87,10 @@ export async function deleteLocation(id) {
   }
 }
 
-export async function getDaySummary(date) {
-  const res = await fetch(`${API}/task-lists/day-summary?date=${encodeURIComponent(date)}`, { headers: headers() });
+export async function getDaySummary(date, asUserId = null) {
+  const params = new URLSearchParams({ date });
+  if (asUserId) params.set('as_user_id', asUserId);
+  const res = await fetch(`${API}/task-lists/day-summary?${params}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load tasks');
   return data;

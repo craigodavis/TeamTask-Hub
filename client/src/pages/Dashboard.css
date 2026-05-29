@@ -675,3 +675,33 @@
   font-size: 0.9rem;
   padding: 0.25rem 0;
 }
+
+/* ── View-as-user bar (manager troubleshooting) ── */
+.view-as-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem;
+  background: var(--surface-alt, #f3f4f6);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+.view-as-bar--active {
+  background: #fef3c7;
+  border-bottom-color: #f59e0b;
+}
+.view-as-bar label { font-weight: 600; white-space: nowrap; }
+.view-as-bar select { font-size: 0.85rem; padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--border,#d1d5db); }
+.view-as-label { color: #92400e; font-size: 0.82rem; }
+.view-as-clear {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.view-as-clear:hover { background: #fde68a; }

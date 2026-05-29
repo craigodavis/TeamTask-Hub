@@ -585,14 +585,24 @@ async function ensureYearlyAssignmentsForDate(cId, date) {
 // ---------- Day summary (main screen: assignments + tasks + my completions for a date) ----------
 router.get('/day-summary', async (req, res) => {
   try {
-    const { date } = req.query;
+    const { date, as_user_id } = req.query;
     if (!date) return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
     const cId = companyId(req);
-    const userId = req.userId;
+    const requesterId = req.userId;
     await ensureDailyAssignmentsForDate(cId, date);
     await ensureWeeklyAssignmentsForDate(cId, date);
     await ensureMonthlyAssignmentsForDate(cId, date);
     await ensureYearlyAssignmentsForDate(cId, date);
+
+    // Managers can pass ?as_user_id= to emulate another user's view for troubleshooting
+    let userId = requesterId;
+    if (as_user_id && as_user_id !== requesterId) {
+      const requesterRes = await query(`SELECT role FROM users WHERE id = $1`, [requesterId]);
+      const requesterRole = requesterRes.rows[0]?.role;
+      if (requesterRole === 'manager' || requesterRole === 'owner') {
+        userId = as_user_id;
+      }
+    }
 
     // For regular members (non-managers), filter by their scheduled shift today
     let shiftFilter = null; // null = no filter (managers/owners see all)

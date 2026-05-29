@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule } from '../api';
+import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule, getCompanyUsers } from '../api';
 import { todayInTimezone } from '../utils/dateUtils';
 import './Dashboard.css';
 
@@ -26,12 +26,25 @@ export function Dashboard() {
   const [staffData, setStaffData] = useState([]);         // { user_id, display_name, role, location_name }
   const [staffLocationFilter, setStaffLocationFilter] = useState(null); // null = all; string = location name
 
+  // Manager-only: emulate another user's dashboard view for troubleshooting
+  const [viewAsUserId, setViewAsUserId] = useState('');
+  const [allUsers, setAllUsers] = useState([]);
+  const viewAsUser = viewAsUserId ? allUsers.find((u) => u.id === viewAsUserId) : null;
+
+  useEffect(() => {
+    if (isManager && user?.company_id) {
+      getCompanyUsers(user.company_id)
+        .then((data) => setAllUsers((data.users || []).filter((u) => u.role === 'member')))
+        .catch(() => {});
+    }
+  }, [isManager, user?.company_id]);
+
   const load = useCallback(async () => {
     setError('');
     setLoading(true);
     try {
       const [summaryRes, annRes, staffRes] = await Promise.all([
-        getDaySummary(date),
+        getDaySummary(date, viewAsUserId || null),
         getActiveAnnouncements(date),
         getStaffSchedule(date),
       ]);
@@ -50,7 +63,7 @@ export function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [date, isManager, setAvailableRoles]);
+  }, [date, isManager, setAvailableRoles, viewAsUserId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -361,6 +374,34 @@ export function Dashboard() {
   return (
     <div className="dashboard">
       {error && <p className="dashboard-error">{error}</p>}
+
+      {isManager && (
+        <div className={`view-as-bar${viewAsUserId ? ' view-as-bar--active' : ''}`}>
+          <label htmlFor="view-as-select">🔍 View as:</label>
+          <select
+            id="view-as-select"
+            value={viewAsUserId}
+            onChange={(e) => setViewAsUserId(e.target.value)}
+          >
+            <option value="">— yourself (manager view) —</option>
+            {allUsers
+              .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''))
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.display_name || u.email}
+                </option>
+              ))}
+          </select>
+          {viewAsUser && (
+            <span className="view-as-label">
+              Viewing as <strong>{viewAsUser.display_name || viewAsUser.email}</strong> — this is exactly what they see
+            </span>
+          )}
+          {viewAsUserId && (
+            <button type="button" className="view-as-clear" onClick={() => setViewAsUserId('')}>✕ Exit</button>
+          )}
+        </div>
+      )}
 
       <div className="dashboard-main">
         {loading ? (
