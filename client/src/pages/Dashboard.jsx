@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule } from '../api';
+import { todayInTimezone } from '../utils/dateUtils';
 import './Dashboard.css';
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function Dashboard() {
-  const { user, emulateRole, setAvailableRoles } = useOutletContext();
+  const { user, emulateRole, setAvailableRoles, timezone } = useOutletContext();
   const isManager = user?.role === 'manager' || user?.role === 'owner';
-  const date = todayStr();
+  const date = todayInTimezone(timezone);
   const [daySummary, setDaySummary] = useState({ assignments: [] });
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -13,6 +13,7 @@ import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
 import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
+import { getGeneralSettings } from './api';
 import { ProductDetail } from './pages/ProductDetail';
 import { BettyComparison } from './pages/BettyComparison';
 import { Gateway } from './pages/Gateway';
@@ -30,7 +31,7 @@ function AuthGate({ user }) {
   return <Outlet />;
 }
 
-function AppShellLayout({ user, onLogout }) {
+function AppShellLayout({ user, onLogout, timezone }) {
   const [emulateRole, setEmulateRole] = useState(null);
   const [availableRoles, setAvailableRoles] = useState([]);
   return (
@@ -41,13 +42,14 @@ function AppShellLayout({ user, onLogout }) {
       setEmulateRole={setEmulateRole}
       availableRoles={availableRoles}
     >
-      <Outlet context={{ user, onLogout, emulateRole, setEmulateRole, availableRoles, setAvailableRoles }} />
+      <Outlet context={{ user, onLogout, emulateRole, setEmulateRole, availableRoles, setAvailableRoles, timezone }} />
     </AppShell>
   );
 }
 
 function App() {
   const [user, setUser] = useState(null);
+  const [timezone, setTimezone] = useState('America/Denver');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -60,7 +62,14 @@ function App() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => setUser(data.user))
+      .then((data) => {
+        setUser(data.user);
+        // Load company timezone immediately after auth
+        return getGeneralSettings();
+      })
+      .then((settings) => {
+        if (settings?.timezone) setTimezone(settings.timezone);
+      })
       .catch(() => localStorage.removeItem('teamtask_token'))
       .finally(() => setLoading(false));
   }, []);
@@ -84,7 +93,7 @@ function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login onLogin={onLogin} />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AuthGate user={user} />}>
-        <Route element={<AppShellLayout user={user} onLogout={onLogout} />}>
+        <Route element={<AppShellLayout user={user} onLogout={onLogout} timezone={timezone} />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/manage" element={<Manager />} />
           <Route path="/food" element={<FoodLayout />}>

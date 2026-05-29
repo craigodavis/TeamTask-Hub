@@ -42,14 +42,12 @@ import { ScheduledReports } from './ScheduledReports';
 import { RichEditor } from '../components/RichEditor';
 import './Manager.css';
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayInTimezone } from '../utils/dateUtils';
 
 const VALID_TABS = new Set(['announcements', 'tasks', 'reports', 'integrations', 'users']);
 
 export function Manager() {
-  const { user } = useOutletContext();
+  const { user, timezone } = useOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const tab = tabParam && VALID_TABS.has(tabParam) ? tabParam : 'announcements';
@@ -59,7 +57,7 @@ export function Manager() {
     else setSearchParams({ tab: t }, { replace: true });
   };
   const [templates, setTemplates] = useState([]);
-  const [assignDate, setAssignDate] = useState(todayStr());
+  const [assignDate, setAssignDate] = useState(() => todayInTimezone(timezone));
   const [assignments, setAssignments] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
@@ -69,9 +67,10 @@ export function Manager() {
   const [reportFrom, setReportFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
+    const y = d.getFullYear(), mo = String(d.getMonth() + 1).padStart(2, '0'), dy = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${dy}`;
   });
-  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportTo, setReportTo] = useState(() => todayInTimezone(timezone));
   const [reportLocationId, setReportLocationId] = useState('');
   const [foodWasteReport, setFoodWasteReport] = useState(null);
   const [taskReport, setTaskReport] = useState(null);
