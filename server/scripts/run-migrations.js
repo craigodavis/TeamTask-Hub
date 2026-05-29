@@ -1659,6 +1659,37 @@ const MIGRATIONS = [
        LOWER(sq.name) LIKE '%' || LOWER(l.name) || '%'
        OR LOWER(l.name) LIKE '%' || LOWER(sq.name) || '%'
      )`,
+
+  // ── Migration 258: Add 'gc' role to users check constraint ───────────────
+  // Drop and re-add the constraint to include gc
+  `DO $$
+   BEGIN
+     ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+     ALTER TABLE users DROP CONSTRAINT IF EXISTS chk_users_role;
+   EXCEPTION WHEN others THEN NULL;
+   END$$`,
+  `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
+  `ALTER TABLE users ADD CONSTRAINT users_role_check
+     CHECK (role IN ('member', 'manager', 'owner', 'gc'))`,
+
+  // ── Migration 259: rachio_schedules (biweekly irrigation schedules) ───────
+  `CREATE TABLE IF NOT EXISTS rachio_schedules (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    zone_id          TEXT        NOT NULL,
+    zone_name        TEXT,
+    device_id        TEXT        NOT NULL,
+    name             TEXT        NOT NULL,
+    duration_minutes INTEGER     NOT NULL,
+    day_of_week      INTEGER     NOT NULL,
+    start_time       TEXT        NOT NULL,
+    next_run_at      TIMESTAMPTZ,
+    last_run_at      TIMESTAMPTZ,
+    enabled          BOOLEAN     NOT NULL DEFAULT true,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rachio_schedules_company ON rachio_schedules(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_rachio_schedules_next_run ON rachio_schedules(next_run_at) WHERE enabled = true`,
 ];
 
 export async function runMigrations() {

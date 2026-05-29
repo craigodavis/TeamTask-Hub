@@ -20,6 +20,7 @@ import { Gateway } from './pages/Gateway';
 import { Skynet } from './pages/Skynet';
 import { AppShell } from './components/AppShell';
 import { appHubTitle } from './appHubTitle';
+import { GroundControl } from './pages/GroundControl';
 
 function LegacyWasteEntryRedirect() {
   const { entryId } = useParams();
@@ -190,6 +191,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Skynet />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/ground-control"
+            element={
+              user?.role === 'gc' || user?.role === 'manager' || user?.role === 'owner' ? (
+                <GroundControl />
               ) : (
                 <Navigate to="/" replace />
               )

@@ -22,6 +22,8 @@ import { teamRouter } from './routes/team.js';
 import { skynetRouter } from './routes/skynet.js';
 import { startSkynetScheduler } from './lib/skynetScheduler.js';
 import { gatewayRouter } from './routes/gateway.js';
+import { groundControlRouter } from './routes/groundControl.js';
+import { startRachioScheduler } from './lib/rachioScheduler.js';
 import { startGatewayAutoApproveScheduler } from './lib/gatewayRules.js';
 import { startC7SyncScheduler } from './lib/commerce7Sync.js';
 import { settingsRouter } from './routes/settings.js';
@@ -81,6 +83,7 @@ app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any a
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/skynet', requireAuth, requireManager, skynetRouter);
 app.use('/api/gateway', requireAuth, gatewayRouter);
+app.use('/api/ground-control', requireAuth, groundControlRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
 
@@ -119,6 +122,7 @@ runMigrations()
     startC7SyncScheduler();
     startSkynetScheduler();
     startDailyArchiveScheduler();
+    startRachioScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -128,4 +132,5 @@ runMigrations()
     startC7SyncScheduler();
     startSkynetScheduler();
     startDailyArchiveScheduler();
+    startRachioScheduler();
   });

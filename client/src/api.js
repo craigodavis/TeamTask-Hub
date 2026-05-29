@@ -1209,3 +1209,63 @@ export async function testSkynetRun({ agentId, prompt, name }) {
   if (!res.ok) throw new Error(d.error || 'Test run failed');
   return d;
 }
+
+// ── Ground Control (Rachio) ───────────────────────────────────────────────────
+export async function getGCZones() {
+  const res = await fetch(`${API}/ground-control/zones`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load zones');
+  return d; // { zones: [...] }
+}
+
+export async function startGCZone(zoneId, duration_minutes) {
+  const res = await fetch(`${API}/ground-control/zones/${zoneId}/start`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ duration_minutes }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to start zone');
+  return d;
+}
+
+export async function stopAllGCZones() {
+  const res = await fetch(`${API}/ground-control/zones/stop-all`, {
+    method: 'PUT', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to stop all zones');
+  return d;
+}
+
+export async function getGCSchedules() {
+  const res = await fetch(`${API}/ground-control/schedules`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load schedules');
+  return d; // { schedules: [...] }
+}
+
+export async function createGCSchedule(data) {
+  const res = await fetch(`${API}/ground-control/schedules`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create schedule');
+  return d;
+}
+
+export async function updateGCSchedule(id, data) {
+  const res = await fetch(`${API}/ground-control/schedules/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(data),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update schedule');
+  return d;
+}
+
+export async function deleteGCSchedule(id) {
+  const res = await fetch(`${API}/ground-control/schedules/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete schedule');
+  return d;
+}

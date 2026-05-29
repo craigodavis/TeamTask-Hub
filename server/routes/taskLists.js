@@ -613,7 +613,7 @@ router.get('/day-summary', async (req, res) => {
     const userRole = userRes.rows[0]?.role;
     const squareTmId = userRes.rows[0]?.square_team_member_id;
 
-    if (userRole === 'member' && squareTmId) {
+    if ((userRole === 'member' || userRole === 'gc') && squareTmId) {
       const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
       const tz = tzRes.rows[0]?.timezone || 'UTC';
 
