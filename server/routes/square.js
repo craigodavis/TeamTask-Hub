@@ -283,7 +283,51 @@ ALWAYS use: wv.id IN (SELECT jsonb_array_elements_text(p.wine_varietal_ids))
 IMPORTANT: A wine's name in Kindred's catalog often does NOT include the varietal.
 For example "11 Sails" is a Tempranillo — its title is "11 Sails", not "11 Sails Tempranillo".
 Always search by title AND optionally by varietal join when looking for a specific wine.
-Always check commerce7.product first when the user asks about a wine by name.
+Use commerce7.product ONLY for catalog info (price, status, inventory). NEVER count sales from it.
+
+── SALES OF A SPECIFIC WINE — ALWAYS QUERY BOTH SOURCES ──
+When asked how many bottles of a specific wine were sold, ALWAYS combine Square + Commerce7.
+Square = tasting room in-person; Commerce7 = online/club/DTC. Never report just one source.
+
+Template — bottles sold of a specific wine (e.g. "11 Sails"):
+  WITH sq AS (
+    SELECT SUM(oli.quantity) AS qty, ROUND(SUM(oli.total_amount)/100.0, 2) AS revenue
+    FROM team_square.order o
+    JOIN team_square.order_line_item oli ON oli.order_id = o.id
+    WHERE o.state = 'COMPLETED'
+      AND oli.name ILIKE '%11 Sails%'
+      AND o.closed_at >= '2025-01-01'
+  ),
+  c7_sold AS (
+    SELECT SUM(oi.quantity) AS qty, ROUND(SUM(oi.price * oi.quantity), 2) AS revenue
+    FROM commerce7.orders o
+    JOIN commerce7.order_items oi ON oi.order_id = o.id
+    WHERE o.payment_status = 'Paid'
+      AND oi.product_title ILIKE '%11 Sails%'
+      AND o.order_submitted_date >= '2025-01-01'
+  ),
+  c7_returned AS (
+    SELECT SUM(oi.quantity) AS qty
+    FROM commerce7.orders o
+    JOIN commerce7.order_items oi ON oi.order_id = o.id
+    WHERE o.payment_status = 'Refunded'
+      AND oi.product_title ILIKE '%11 Sails%'
+      AND o.order_submitted_date >= '2025-01-01'
+  )
+  SELECT
+    'Square (Tasting Room)'   AS source, sq.qty AS bottles_sold, sq.revenue FROM sq
+  UNION ALL
+  SELECT 'Commerce7 Sold',    c7_sold.qty,     c7_sold.revenue     FROM c7_sold
+  UNION ALL
+  SELECT 'Commerce7 Returned', c7_returned.qty, NULL               FROM c7_returned
+  UNION ALL
+  SELECT 'Total Net',
+    COALESCE(sq.qty,0) + COALESCE(c7_sold.qty,0) - COALESCE(c7_returned.qty,0),
+    COALESCE(sq.revenue,0) + COALESCE(c7_sold.revenue,0)
+  FROM sq, c7_sold, c7_returned
+
+NEVER report a count from commerce7.product — that table has 1 row per product, not per sale.
+commerce7.product is the CATALOG. commerce7.order_items is where SALES live.
 
 ── CLASSIFY WINES IN SQL (SALES HISTORY) ──
 For sales questions ("how many bottles sold", "revenue by type"), use ILIKE on the name
