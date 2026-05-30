@@ -236,4 +236,99 @@ router.post('/objects/:id/run', requireAuth, requireManager, async (req, res) =>
   }
 });
 
+// ── Scheduled sync runner ─────────────────────────────────────────────────────
+// Checks every 10 minutes for any sync objects whose next_sync_at has passed.
+async function runDueSquareSyncs() {
+  try {
+    const due = await query(
+      `SELECT sso.*, ci.square_access_token, ci.square_env
+       FROM square_sync_objects sso
+       JOIN company_integrations ci ON ci.company_id = sso.company_id
+       WHERE sso.enabled = true
+         AND sso.next_sync_at IS NOT NULL
+         AND sso.next_sync_at <= NOW()
+         AND (sso.last_sync_status IS NULL OR sso.last_sync_status != 'running')`
+    );
+
+    for (const obj of due.rows) {
+      console.log(`[square-sync-scheduler] Running ${obj.object_type} for company ${obj.company_id}`);
+      await query(`UPDATE square_sync_objects SET last_sync_status = 'running' WHERE id = $1`, [obj.id]);
+      try {
+        let result;
+        const companyId = obj.company_id;
+        if (obj.object_type === 'catalog_item' || obj.object_type === 'catalog_category') {
+          result = await runCatalogSync(companyId);
+        } else if (obj.object_type === 'orders') {
+          result = await runOrdersSync(companyId, obj.last_synced_at);
+        } else if (obj.object_type === 'shifts') {
+          result = await runShiftSync(companyId, obj.last_synced_at);
+        } else if (obj.object_type === 'scheduled_shifts') {
+          result = await runScheduledShiftSync(companyId, obj.last_synced_at);
+        } else if (obj.object_type === 'team_members') {
+          result = await runTeamMemberSync(companyId, obj.last_synced_at);
+        } else if (obj.object_type === 'locations') {
+          result = await runLocationSync(companyId);
+        } else if (obj.object_type === 'customers') {
+          result = await runCustomerSync(companyId, obj.last_synced_at);
+        } else if (obj.object_type === 'payments') {
+          result = await runPaymentSync(companyId, obj.last_synced_at);
+        } else if (obj.object_type === 'invoices') {
+          result = await runInvoiceSync(companyId);
+        } else if (obj.object_type === 'gift_cards') {
+          result = await runGiftCardSync(companyId);
+        } else if (obj.object_type === 'inventory') {
+          result = await runInventorySync(companyId);
+        } else if (obj.object_type === 'payouts') {
+          result = await runPayoutSync(companyId, obj.last_synced_at);
+        } else {
+          throw new Error(`No sync handler for object_type: ${obj.object_type}`);
+        }
+
+        const count = (result.items || 0) + (result.variations || 0)
+                    + (result.categories || 0) + (result.taxes || 0)
+                    + (result.ordersUpserted || 0) + (result.lineItemsUpserted || 0)
+                    + (result.shiftsUpserted || 0) + (result.breaksUpserted || 0)
+                    + (result.scheduledShiftsUpserted || 0)
+                    + (result.teamMembersUpserted || 0) + (result.jobAssignmentsUpserted || 0)
+                    + (result.locationsUpserted || 0)
+                    + (result.customersUpserted || 0)
+                    + (result.paymentsUpserted || 0)
+                    + (result.invoicesUpserted || 0) + (result.paymentRequestsUpserted || 0)
+                    + (result.giftCardsUpserted || 0)
+                    + (result.inventoryCountsUpserted || 0)
+                    + (result.payoutsUpserted || 0) + (result.payoutFeesUpserted || 0);
+
+        const nextAt = computeNextSync(obj.sync_frequency);
+        await query(
+          `UPDATE square_sync_objects
+           SET last_synced_at   = NOW(),
+               last_sync_status = 'ok',
+               last_sync_count  = $1,
+               last_sync_error  = NULL,
+               next_sync_at     = CASE WHEN enabled THEN $2 ELSE next_sync_at END
+           WHERE id = $3`,
+          [count, nextAt, obj.id]
+        );
+        console.log(`[square-sync-scheduler] ${obj.object_type} done — ${count} records, next at ${nextAt?.toISOString()}`);
+      } catch (err) {
+        console.error(`[square-sync-scheduler] ${obj.object_type} failed:`, err.message);
+        await query(
+          `UPDATE square_sync_objects SET last_sync_status = 'error', last_sync_error = $1 WHERE id = $2`,
+          [err.message, obj.id]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[square-sync-scheduler] loop error:', err.message);
+  }
+}
+
+export function startSquareSyncScheduler() {
+  // Run once shortly after startup (catches any overdue syncs from downtime)
+  setTimeout(runDueSquareSyncs, 60 * 1000);
+  // Then check every 10 minutes
+  setInterval(runDueSquareSyncs, 10 * 60 * 1000);
+  console.log('[square-sync-scheduler] started — checking every 10 minutes');
+}
+
 export { router as squareSyncRouter };
