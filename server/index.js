@@ -33,7 +33,7 @@ import { receiptsRouter } from './routes/receipts.js';
 import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
-import { squareSyncRouter } from './routes/squareSync.js';
+import { squareSyncRouter, startSquareSyncScheduler } from './routes/squareSync.js';
 import { productsRouter } from './routes/products.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -117,6 +117,7 @@ runMigrations()
   .then(() => {
     console.log('Schema checks (locations / migration 008) finished.');
     startDailySquareAutoSync();
+    startSquareSyncScheduler();
     startReportScheduler();
     startGatewayAutoApproveScheduler();
     startC7SyncScheduler();
@@ -127,6 +128,7 @@ runMigrations()
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
     startDailySquareAutoSync();
+    startSquareSyncScheduler();
     startReportScheduler();
     startGatewayAutoApproveScheduler();
     startC7SyncScheduler();
