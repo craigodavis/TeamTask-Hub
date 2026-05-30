@@ -291,40 +291,52 @@ Square = tasting room in-person; Commerce7 = online/club/DTC. Never report just 
 
 Template — bottles sold of a specific wine (e.g. "11 Sails"):
   WITH sq AS (
-    SELECT SUM(oli.quantity) AS qty, ROUND(SUM(oli.total_amount)/100.0, 2) AS revenue
+    SELECT COALESCE(SUM(oli.quantity), 0) AS qty,
+           ROUND(COALESCE(SUM(oli.total_amount), 0) / 100.0, 2) AS revenue
     FROM team_square.order o
     JOIN team_square.order_line_item oli ON oli.order_id = o.id
     WHERE o.state = 'COMPLETED'
       AND oli.name ILIKE '%11 Sails%'
-      AND o.closed_at >= '2025-01-01'
+      AND o.created_at >= '2025-01-01'
   ),
   c7_sold AS (
-    SELECT SUM(oi.quantity) AS qty, ROUND(SUM(oi.price * oi.quantity), 2) AS revenue
+    SELECT COALESCE(SUM(oi.quantity), 0) AS qty,
+           ROUND(COALESCE(SUM(oi.price * oi.quantity), 0), 2) AS revenue
     FROM commerce7.orders o
     JOIN commerce7.order_items oi ON oi.order_id = o.id
     WHERE o.payment_status = 'Paid'
       AND oi.product_title ILIKE '%11 Sails%'
+      AND o.company_id = (SELECT id FROM companies LIMIT 1)
       AND o.order_submitted_date >= '2025-01-01'
   ),
   c7_returned AS (
-    SELECT SUM(oi.quantity) AS qty
+    SELECT COALESCE(SUM(oi.quantity), 0) AS qty
     FROM commerce7.orders o
     JOIN commerce7.order_items oi ON oi.order_id = o.id
     WHERE o.payment_status = 'Refunded'
       AND oi.product_title ILIKE '%11 Sails%'
+      AND o.company_id = (SELECT id FROM companies LIMIT 1)
       AND o.order_submitted_date >= '2025-01-01'
   )
   SELECT
-    'Square (Tasting Room)'   AS source, sq.qty AS bottles_sold, sq.revenue FROM sq
+    'Square (Tasting Room)'    AS source, sq.qty  AS bottles, sq.revenue  AS revenue FROM sq
   UNION ALL
-  SELECT 'Commerce7 Sold',    c7_sold.qty,     c7_sold.revenue     FROM c7_sold
+  SELECT 'Commerce7 Sold',     c7_sold.qty,      c7_sold.revenue          FROM c7_sold
   UNION ALL
-  SELECT 'Commerce7 Returned', c7_returned.qty, NULL               FROM c7_returned
+  SELECT 'Commerce7 Returned', c7_returned.qty,  NULL                     FROM c7_returned
   UNION ALL
   SELECT 'Total Net',
-    COALESCE(sq.qty,0) + COALESCE(c7_sold.qty,0) - COALESCE(c7_returned.qty,0),
-    COALESCE(sq.revenue,0) + COALESCE(c7_sold.revenue,0)
+    sq.qty + c7_sold.qty - c7_returned.qty,
+    sq.revenue + c7_sold.revenue
   FROM sq, c7_sold, c7_returned
+
+IMPORTANT date fields:
+  Square:    use o.created_at (NOT o.closed_at — closed_at is often NULL)
+  Commerce7: use o.order_submitted_date
+
+IMPORTANT company filter for Commerce7:
+  Always add: AND o.company_id = (SELECT id FROM companies LIMIT 1)
+  commerce7.orders contains data for all companies — without this filter counts will be wrong.
 
 NEVER report a count from commerce7.product — that table has 1 row per product, not per sale.
 commerce7.product is the CATALOG. commerce7.order_items is where SALES live.
