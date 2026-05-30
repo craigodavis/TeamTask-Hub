@@ -617,6 +617,7 @@ router.get('/day-summary', async (req, res) => {
       const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
       const tz = tzRes.rows[0]?.timezone || 'UTC';
 
+      // PRIMARY: scheduled shifts (future/published shifts from Square scheduling)
       const shiftRes = await query(
         `SELECT
            l.id AS location_id,
@@ -634,17 +635,33 @@ router.get('/day-summary', async (req, res) => {
         [cId, squareTmId, tz, date]
       );
 
-      if (shiftRes.rows.length === 0) {
-        // No shift scheduled today — show nothing
+      // FALLBACK: actual clocked shifts for today — wage_title is stored directly here
+      // (more reliable than scheduled_shift → job_assignment join, and catches cases
+      //  where the scheduled shift sync is stale or the job title doesn't resolve)
+      const clockedRes = await query(
+        `SELECT
+           l.id AS location_id,
+           s.wage_title
+         FROM team_square.shift s
+         LEFT JOIN locations l
+           ON l.square_location_id = s.location_id AND l.company_id = $1
+         WHERE s.team_member_id = $2
+           AND DATE(s.start_at AT TIME ZONE $3) = $4::date
+           AND s.status IN ('OPEN', 'CLOSED')`,
+        [cId, squareTmId, tz, date]
+      ).catch(() => ({ rows: [] }));
+
+      const allShiftRows = [...shiftRes.rows, ...clockedRes.rows];
+
+      if (allShiftRows.length === 0) {
+        // Not scheduled and not clocked in today — show nothing
         return res.json({ date, assignments: [], no_shift: true });
       }
 
-      const resolvedWageTitles = [...new Set(shiftRes.rows.map((r) => r.wage_title).filter(Boolean))];
+      const resolvedWageTitles = [...new Set(allShiftRows.map((r) => r.wage_title).filter(Boolean))];
       shiftFilter = {
-        // If we couldn't resolve any wage titles from the shift data, pass null
-        // so the query skips the wage_title filter rather than matching nothing.
         wageTitles: resolvedWageTitles.length > 0 ? resolvedWageTitles : null,
-        locationIds: [...new Set(shiftRes.rows.map((r) => r.location_id).filter(Boolean))],
+        locationIds: [...new Set(allShiftRows.map((r) => r.location_id).filter(Boolean))],
       };
     }
 
