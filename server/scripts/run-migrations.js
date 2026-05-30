@@ -1690,6 +1690,9 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_rachio_schedules_company ON rachio_schedules(company_id)`,
   `CREATE INDEX IF NOT EXISTS idx_rachio_schedules_next_run ON rachio_schedules(next_run_at) WHERE enabled = true`,
+
+  // ── Migration 260: Anthropic API key on company_integrations ─────────────
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT`,
 ];
 
 export async function runMigrations() {

@@ -174,6 +174,7 @@ export function Settings() {
   const [twilioAccountSid, setTwilioAccountSid] = useState('');
   const [twilioAuthToken, setTwilioAuthToken] = useState('');
   const [twilioPhoneNumber, setTwilioPhoneNumber] = useState('');
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [testingSquare, setTestingSquare] = useState(false);
   const [squareTestResult, setSquareTestResult] = useState(null);
   const [testingTwilio, setTestingTwilio] = useState(false);
@@ -293,11 +294,13 @@ export function Settings() {
       if (squareAccessToken.trim()) body.square_access_token = squareAccessToken.trim();
       if (twilioAccountSid.trim()) body.twilio_account_sid = twilioAccountSid.trim();
       if (twilioAuthToken.trim()) body.twilio_auth_token = twilioAuthToken.trim();
+      if (anthropicApiKey.trim()) body.anthropic_api_key = anthropicApiKey.trim();
       await putIntegrationSettings(body);
       setMessage('Settings saved.');
       setSquareAccessToken('');
       setTwilioAccountSid('');
       setTwilioAuthToken('');
+      setAnthropicApiKey('');
       getIntegrationSettings()
         .then((r) => {
           setSettings(r);
@@ -724,6 +727,25 @@ export function Settings() {
           </button>
           {twilioTestResult && <p className="test-result success">{twilioTestResult}</p>}
         </fieldset>
+
+        <fieldset>
+          <legend>Anthropic (Kindred AI)</legend>
+          <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+            API key for the Kindred AI assistant. Stored securely — never returned after saving.
+            {settings?.anthropic_configured && <span style={{ color: 'green', marginLeft: '0.5rem' }}>✓ Configured</span>}
+          </p>
+          <label>
+            API Key (sk-ant-…)
+            <input
+              type="password"
+              placeholder={settings?.anthropic_configured ? 'Leave blank to keep current' : 'sk-ant-…'}
+              value={anthropicApiKey}
+              onChange={(e) => setAnthropicApiKey(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+        </fieldset>
+
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </form>
 
