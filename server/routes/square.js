@@ -101,10 +101,11 @@ commerce7.product
   short_description, description,
   vintage (INTEGER — the wine vintage year, e.g. 2021),
   alcohol_percentage, volume_in_ml, weight,
-  wine_varietal_ids (UUID[]), wine_appellation_id,
-  collection_ids (UUID[]), vendor_id,
+  wine_varietal_ids (JSONB array of VARCHAR ids — e.g. ["abc123","def456"]),
+  wine_appellation_id (VARCHAR),
+  collection_ids (JSONB array of VARCHAR ids), vendor_id,
   country_code, region,
-  tags (TEXT[]), image, images (JSONB)
+  tags (JSONB), image, images (JSONB)
 
 commerce7.product_variant
   id, company_id, product_id,
@@ -257,23 +258,27 @@ Search by product title:
   WHERE p.title ILIKE '%11 Sails%'
   LIMIT 50
 
-Search by varietal name (wine_varietal_ids is a UUID array — use this join pattern):
+Search by varietal name (wine_varietal_ids is JSONB — use jsonb_array_elements_text):
   SELECT p.title, p.vintage, wv.title AS varietal
   FROM commerce7.product p
-  JOIN commerce7.wine_varietal wv ON wv.id = ANY(p.wine_varietal_ids)
+  JOIN commerce7.wine_varietal wv
+    ON wv.id IN (SELECT jsonb_array_elements_text(p.wine_varietal_ids))
   WHERE wv.title ILIKE '%Tempranillo%'
   ORDER BY p.vintage DESC
 
 Search by both title and varietal (broadest match — use when title alone may not include
 the varietal name):
-  SELECT p.title, p.vintage, p.price, p.admin_status,
-         string_agg(wv.title, ', ') AS varietals
+  SELECT DISTINCT p.title, p.vintage, p.price, p.admin_status
   FROM commerce7.product p
-  LEFT JOIN commerce7.wine_varietal wv ON wv.id = ANY(p.wine_varietal_ids)
+  LEFT JOIN commerce7.wine_varietal wv
+    ON wv.id IN (SELECT jsonb_array_elements_text(p.wine_varietal_ids))
   WHERE p.title ILIKE '%11 Sails%'
      OR wv.title ILIKE '%Tempranillo%'
-  GROUP BY p.id, p.title, p.vintage, p.price, p.admin_status
   ORDER BY p.vintage DESC
+
+CRITICAL: wine_varietal_ids is JSONB, NOT a PostgreSQL array.
+NEVER use = ANY(p.wine_varietal_ids) — it will error.
+ALWAYS use: wv.id IN (SELECT jsonb_array_elements_text(p.wine_varietal_ids))
 
 IMPORTANT: A wine's name in Kindred's catalog often does NOT include the varietal.
 For example "11 Sails" is a Tempranillo — its title is "11 Sails", not "11 Sails Tempranillo".
