@@ -55,6 +55,12 @@ export function requireManager(req, res, next) {
   return res.status(403).json({ error: 'Manager access required' });
 }
 
+// Ground Control: accessible to gc (User + GControl), manager, and owner.
+export function requireGControl(req, res, next) {
+  if (req.role === 'gc' || req.role === 'manager' || req.role === 'owner') return next();
+  return res.status(403).json({ error: 'Ground Control access required' });
+}
+
 export function requireOwner(req, res, next) {
   if (req.role === 'owner') return next();
   return res.status(403).json({ error: 'Owner access required' });

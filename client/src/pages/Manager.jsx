@@ -886,6 +886,7 @@ function UserRow({ user, locations, currentUserId, onRoleChange, onLocationChang
         disabled={loading}
       >
         <option value="member">User</option>
+        <option value="gc">User + GControl</option>
         <option value="manager">Manager</option>
         <option value="owner">Owner</option>
       </select>

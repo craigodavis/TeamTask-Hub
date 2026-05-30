@@ -38,6 +38,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
   const isOwner = user?.role === 'owner';
+  const canAccessGC = user?.role === 'gc' || user?.role === 'manager' || user?.role === 'owner';
   const appTitle = appHubTitle(user);
 
   const managerLinks = isManager
@@ -202,6 +203,16 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               title="Skynet"
             >
               <span>Skynet</span>
+            </NavLink>
+          )}
+          {canAccessGC && (
+            <NavLink
+              to="/ground-control"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🌱"
+              title="Ground Control"
+            >
+              <span>Ground Control</span>
             </NavLink>
           )}
           {managerLinks.map((item) => (

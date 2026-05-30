@@ -54,7 +54,7 @@ router.get('/active', async (req, res) => {
 
     let userLocationIds = null; // null = no location filter, sees all
 
-    if (userRole === 'member' && squareTmId) {
+    if ((userRole === 'member' || userRole === 'gc') && squareTmId) {
       const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
       const tz = tzRes.rows[0]?.timezone || 'UTC';
 
