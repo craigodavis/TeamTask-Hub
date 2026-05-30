@@ -658,7 +658,29 @@ router.get('/day-summary', async (req, res) => {
         return res.json({ date, assignments: [], no_shift: true });
       }
 
-      const resolvedWageTitles = [...new Set(allShiftRows.map((r) => r.wage_title).filter(Boolean))];
+      // Build wage title list from today's shifts first
+      let resolvedWageTitles = [...new Set(allShiftRows.map((r) => r.wage_title).filter(Boolean))];
+
+      // If today's shift data didn't resolve a human-readable wage title
+      // (i.e. only raw job IDs came back), fall back to the member's most
+      // recent actual shift wage_titles — these are the authoritative titles
+      // used when creating templates via the dropdown.
+      const hasRawJobId = (t) => t && (t.startsWith('TMJ:') || t.startsWith('sq:') || /^[0-9A-F]{8,}$/i.test(t));
+      const allRaw = resolvedWageTitles.every(hasRawJobId);
+      if (resolvedWageTitles.length === 0 || allRaw) {
+        const recentRes = await query(
+          `SELECT DISTINCT wage_title
+           FROM team_square.shift
+           WHERE team_member_id = $1
+             AND wage_title IS NOT NULL AND wage_title <> ''
+           ORDER BY wage_title`,
+          [squareTmId]
+        ).catch(() => ({ rows: [] }));
+        if (recentRes.rows.length > 0) {
+          resolvedWageTitles = recentRes.rows.map((r) => r.wage_title);
+        }
+      }
+
       shiftFilter = {
         wageTitles: resolvedWageTitles.length > 0 ? resolvedWageTitles : null,
         locationIds: [...new Set(allShiftRows.map((r) => r.location_id).filter(Boolean))],
