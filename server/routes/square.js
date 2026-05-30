@@ -561,8 +561,16 @@ router.post('/ask', async (req, res) => {
   const { question, history = [] } = req.body;
   if (!question?.trim()) return res.status(400).json({ error: 'Question is required' });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+  // Read API key from DB (company_integrations), fall back to env var
+  let apiKey = process.env.ANTHROPIC_API_KEY;
+  try {
+    const r = await query(
+      `SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`,
+      [req.companyId]
+    );
+    apiKey = r.rows[0]?.anthropic_api_key?.trim() || apiKey;
+  } catch { /* ignore — table may not have column yet */ }
+  if (!apiKey) return res.status(500).json({ error: 'Anthropic API key not configured — add it in Settings → Integrations' });
 
   const ai = new Anthropic({ apiKey });
 

@@ -133,7 +133,8 @@ router.get('/integrations', requireOwner, async (req, res) => {
               mail_host, mail_port, mail_user, mail_from, mail_secure,
               (mail_host IS NOT NULL AND mail_host != '') AS mail_configured,
               qbo_realm_id, qbo_environment,
-              qbo_access_token IS NOT NULL AND qbo_access_token != '' AS qbo_connected
+              qbo_access_token IS NOT NULL AND qbo_access_token != '' AS qbo_connected,
+              anthropic_api_key IS NOT NULL AND anthropic_api_key != '' AS anthropic_configured
        FROM company_integrations WHERE company_id = $1`,
       [companyId(req)]
     );
@@ -173,6 +174,7 @@ router.get('/integrations', requireOwner, async (req, res) => {
       qbo_connected: !!row.qbo_connected,
       qbo_realm_id: row.qbo_realm_id || null,
       qbo_environment: row.qbo_environment || 'production',
+      anthropic_configured: !!row.anthropic_configured,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -201,6 +203,7 @@ router.put('/integrations', requireOwner, async (req, res) => {
       mail_pass,
       mail_from,
       mail_secure,
+      anthropic_api_key,
     } = req.body ?? {};
     const mailSecureParam =
       mail_secure === true || mail_secure === 'true'
@@ -210,8 +213,8 @@ router.put('/integrations', requireOwner, async (req, res) => {
           : null;
     const cId = companyId(req);
     await query(
-      `INSERT INTO company_integrations (company_id, square_application_id, square_access_token, square_env, twilio_account_sid, twilio_auth_token, twilio_phone_number, mail_host, mail_port, mail_user, mail_pass, mail_from, mail_secure, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      `INSERT INTO company_integrations (company_id, square_application_id, square_access_token, square_env, twilio_account_sid, twilio_auth_token, twilio_phone_number, mail_host, mail_port, mail_user, mail_pass, mail_from, mail_secure, anthropic_api_key, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (company_id) DO UPDATE SET
          square_application_id = COALESCE(NULLIF($2, ''), company_integrations.square_application_id),
          square_access_token = COALESCE(NULLIF($3, ''), company_integrations.square_access_token),
@@ -225,8 +228,9 @@ router.put('/integrations', requireOwner, async (req, res) => {
          mail_pass = COALESCE(NULLIF($11, ''), company_integrations.mail_pass),
          mail_from = COALESCE(NULLIF($12, ''), company_integrations.mail_from),
          mail_secure = COALESCE($13, company_integrations.mail_secure),
+         anthropic_api_key = COALESCE(NULLIF($14, ''), company_integrations.anthropic_api_key),
          updated_at = NOW(),
-         updated_by = $14`,
+         updated_by = $15`,
       [
         cId,
         square_application_id ?? null,
@@ -241,6 +245,7 @@ router.put('/integrations', requireOwner, async (req, res) => {
         mail_pass ?? null,
         mail_from ?? null,
         mailSecureParam,
+        anthropic_api_key ?? null,
         req.userId,
       ]
     );
