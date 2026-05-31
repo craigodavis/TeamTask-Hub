@@ -175,6 +175,8 @@ export function Settings() {
   const [twilioAuthToken, setTwilioAuthToken] = useState('');
   const [twilioPhoneNumber, setTwilioPhoneNumber] = useState('');
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [haUrl, setHaUrl] = useState('');
+  const [haToken, setHaToken] = useState('');
   const [testingSquare, setTestingSquare] = useState(false);
   const [squareTestResult, setSquareTestResult] = useState(null);
   const [testingTwilio, setTestingTwilio] = useState(false);
@@ -275,6 +277,7 @@ export function Settings() {
         setC7ApiBaseUrl(c7.c7_api_base_url || '');
         setAmazonSettings(amz);
         setAmazonEmail(amz.amazon_email || '');
+        setHaUrl(r.ha_url || '');
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -295,16 +298,20 @@ export function Settings() {
       if (twilioAccountSid.trim()) body.twilio_account_sid = twilioAccountSid.trim();
       if (twilioAuthToken.trim()) body.twilio_auth_token = twilioAuthToken.trim();
       if (anthropicApiKey.trim()) body.anthropic_api_key = anthropicApiKey.trim();
+      if (haUrl.trim()) body.ha_url = haUrl.trim();
+      if (haToken.trim()) body.ha_token = haToken.trim();
       await putIntegrationSettings(body);
       setMessage('Settings saved.');
       setSquareAccessToken('');
       setTwilioAccountSid('');
       setTwilioAuthToken('');
       setAnthropicApiKey('');
+      setHaToken('');
       getIntegrationSettings()
         .then((r) => {
           setSettings(r);
           setSquareApplicationId(r.square_application_id || '');
+          setHaUrl(r.ha_url || '');
         })
         .catch((e) => setError(e.message || 'Failed to reload settings'));
     } catch (e) {
@@ -741,6 +748,34 @@ export function Settings() {
               placeholder={settings?.anthropic_configured ? 'Leave blank to keep current' : 'sk-ant-…'}
               value={anthropicApiKey}
               onChange={(e) => setAnthropicApiKey(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>KIN (Kindred Intelligence Network)</legend>
+          <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+            Home Assistant connection for smart home control in Ground Control.
+            {settings?.ha_configured && <span style={{ color: 'green', marginLeft: '0.5rem' }}>✓ Configured</span>}
+          </p>
+          <label>
+            Home Assistant URL
+            <input
+              type="text"
+              placeholder="http://localhost:8123"
+              value={haUrl}
+              onChange={(e) => setHaUrl(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            Long-Lived Access Token
+            <input
+              type="password"
+              placeholder={settings?.ha_configured ? 'Leave blank to keep current' : 'Paste token from HA profile'}
+              value={haToken}
+              onChange={(e) => setHaToken(e.target.value)}
               autoComplete="off"
             />
           </label>
