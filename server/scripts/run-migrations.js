@@ -1696,6 +1696,11 @@ const MIGRATIONS = [
 
   // ── Migration 261: PIN quick-login ────────────────────────────────────────
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT`,
+
+  // ── Migration 262: Home Assistant (KIN) credentials on company_integrations ─
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS ha_url   VARCHAR(500),
+     ADD COLUMN IF NOT EXISTS ha_token VARCHAR(500)`,
 ];
 
 export async function runMigrations() {
