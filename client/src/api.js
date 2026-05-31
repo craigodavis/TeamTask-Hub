@@ -1291,3 +1291,20 @@ export async function deleteGCSchedule(id) {
   if (!res.ok) throw new Error(d.error || 'Failed to delete schedule');
   return d;
 }
+
+// ── Home Assistant ────────────────────────────────────────────────────────────
+export async function getHAStates() {
+  const res = await fetch(`${API}/ground-control/ha/states`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load HA states');
+  return d; // { entities: [...] }
+}
+
+export async function callHAService(domain, service, data = {}) {
+  const res = await fetch(`${API}/ground-control/ha/service`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ domain, service, data }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to call HA service');
+  return d;
+}

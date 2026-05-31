@@ -249,5 +249,61 @@ function computeNextRun(dayOfWeek, startTime, startDate) {
   return candidate;
 }
 
+// ── Home Assistant ─────────────────────────────────────────────────────────────
+
+const HA_URL = process.env.HA_URL || 'http://localhost:8123';
+const HA_TOKEN = process.env.HA_TOKEN;
+
+async function haFetch(path, options = {}) {
+  if (!HA_TOKEN) throw Object.assign(new Error('HA_TOKEN not configured'), { status: 503 });
+  const res = await fetch(`${HA_URL}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${HA_TOKEN}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw Object.assign(new Error(`HA API error ${res.status}: ${text}`), { status: res.status });
+  }
+  return res.json();
+}
+
+// GET /ha/states — return lights, switches, and climate entities
+router.get('/ha/states', requireGControl, async (req, res) => {
+  try {
+    const states = await haFetch('/api/states');
+    const entities = states.filter((s) =>
+      s.entity_id.startsWith('light.') ||
+      s.entity_id.startsWith('switch.') ||
+      s.entity_id.startsWith('climate.')
+    );
+    res.json({ entities });
+  } catch (err) {
+    console.error('GET /ground-control/ha/states error:', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// POST /ha/service — call a HA service { domain, service, data }
+router.post('/ha/service', requireGControl, async (req, res) => {
+  try {
+    const { domain, service, data = {} } = req.body;
+    if (!domain || !service) {
+      return res.status(400).json({ error: 'domain and service are required' });
+    }
+    const result = await haFetch(`/api/services/${domain}/${service}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    res.json({ ok: true, result });
+  } catch (err) {
+    console.error('POST /ground-control/ha/service error:', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 export const groundControlRouter = router;
 export { rachioFetch, rachioHeaders };

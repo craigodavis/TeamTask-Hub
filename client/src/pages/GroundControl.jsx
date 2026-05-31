@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getGCZones, startGCZone, stopAllGCZones,
   getGCSchedules, createGCSchedule, updateGCSchedule, deleteGCSchedule,
+  getHAStates, callHAService,
 } from '../api';
 import './GroundControl.css';
 
@@ -272,6 +273,98 @@ function ScheduleRow({ schedule, onToggle, onDelete }) {
   );
 }
 
+// ── Smart Home Panel ──────────────────────────────────────────────────────────
+function friendlyName(entity) {
+  return entity.attributes?.friendly_name || entity.entity_id.split('.')[1].replace(/_/g, ' ');
+}
+
+function SmartHomePanel({ entities, loading, error, onToggle, toggling }) {
+  const lights = entities.filter((e) => e.entity_id.startsWith('light.'));
+  const switches = entities.filter((e) => e.entity_id.startsWith('switch.'));
+  const climate = entities.filter((e) => e.entity_id.startsWith('climate.'));
+
+  if (loading) return <div className="gc-loading">Loading Smart Home…</div>;
+  if (error) return <div className="gc-error">{error}</div>;
+
+  return (
+    <div>
+      {[{ label: 'Lights', items: lights }, { label: 'Switches', items: switches }].map(
+        ({ label, items }) =>
+          items.length > 0 && (
+            <div key={label} className="gc-device-group">
+              <h3 className="gc-device-name">{label}</h3>
+              <div className="gc-zone-grid">
+                {items.map((entity) => (
+                  <div
+                    key={entity.entity_id}
+                    className={`gc-zone-card${entity.state === 'on' ? ' gc-ha-card-on' : ''}`}
+                  >
+                    <div className="gc-zone-header">
+                      <span className="gc-zone-name">{friendlyName(entity)}</span>
+                      {entity.attributes?.brightness != null && (
+                        <span className="gc-ha-brightness">
+                          {Math.round((entity.attributes.brightness / 255) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                    <div className="gc-zone-actions">
+                      <label className="gc-toggle">
+                        <input
+                          type="checkbox"
+                          checked={entity.state === 'on'}
+                          onChange={() => onToggle(entity)}
+                          disabled={toggling === entity.entity_id}
+                        />
+                        <span className="gc-toggle-slider" />
+                      </label>
+                      <span className={`gc-ha-state-label${entity.state === 'on' ? ' gc-ha-state-on' : ''}`}>
+                        {toggling === entity.entity_id ? '…' : entity.state}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+      )}
+
+      {climate.length > 0 && (
+        <div className="gc-device-group">
+          <h3 className="gc-device-name">Climate</h3>
+          <div className="gc-zone-grid">
+            {climate.map((entity) => (
+              <div key={entity.entity_id} className="gc-zone-card">
+                <div className="gc-zone-header">
+                  <span className="gc-zone-name">{friendlyName(entity)}</span>
+                  <span className="gc-ha-mode-badge">
+                    {entity.attributes?.hvac_action || entity.state}
+                  </span>
+                </div>
+                <div className="gc-ha-temps">
+                  {entity.attributes?.current_temperature != null && (
+                    <span className="gc-ha-temp-current">
+                      {entity.attributes.current_temperature}°
+                    </span>
+                  )}
+                  {entity.attributes?.temperature != null && (
+                    <span className="gc-ha-temp-set">
+                      → {entity.attributes.temperature}°
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {entities.length === 0 && !loading && (
+        <p className="gc-empty">No devices found. Add integrations in Home Assistant.</p>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export function GroundControl() {
   const [zones, setZones] = useState([]);
@@ -283,6 +376,12 @@ export function GroundControl() {
   const [stoppingAll, setStoppingAll] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
   const [showNewSchedule, setShowNewSchedule] = useState(false);
+
+  const [haEntities, setHaEntities] = useState([]);
+  const [haLoading, setHaLoading] = useState(true);
+  const [haError, setHaError] = useState(null);
+  const [togglingEntity, setTogglingEntity] = useState(null);
+  const [activeTab, setActiveTab] = useState('rachio');
 
   const showStatus = (msg, isError = false) => {
     setStatusMsg({ msg, isError });
@@ -302,6 +401,43 @@ export function GroundControl() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const loadHAStates = useCallback(async () => {
+    try {
+      const data = await getHAStates();
+      setHaEntities(data.entities || []);
+      setHaError(null);
+    } catch (err) {
+      setHaError(err.message);
+    } finally {
+      setHaLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHAStates();
+    const interval = setInterval(loadHAStates, 30000);
+    return () => clearInterval(interval);
+  }, [loadHAStates]);
+
+  async function handleToggleEntity(entity) {
+    const domain = entity.entity_id.split('.')[0];
+    const service = entity.state === 'on' ? `${domain}.turn_off` : `${domain}.turn_on`;
+    const [svcDomain, svcName] = service.split('.');
+    setTogglingEntity(entity.entity_id);
+    try {
+      await callHAService(svcDomain, svcName, { entity_id: entity.entity_id });
+      setHaEntities((prev) =>
+        prev.map((e) =>
+          e.entity_id === entity.entity_id ? { ...e, state: entity.state === 'on' ? 'off' : 'on' } : e
+        )
+      );
+    } catch (err) {
+      showStatus(`Failed to toggle ${friendlyName(entity)}: ${err.message}`, true);
+    } finally {
+      setTogglingEntity(null);
+    }
+  }
 
   // Group zones by device
   const zonesByDevice = zones.reduce((acc, z) => {
@@ -367,15 +503,33 @@ export function GroundControl() {
       <div className="gc-header">
         <div>
           <h1>Ground Control</h1>
-          <p className="gc-subtitle">Irrigation management via Rachio</p>
         </div>
+        {activeTab === 'rachio' && (
+          <button
+            type="button"
+            className="gc-btn gc-btn-danger"
+            onClick={handleStopAll}
+            disabled={stoppingAll}
+          >
+            {stoppingAll ? 'Stopping…' : 'Stop All Watering'}
+          </button>
+        )}
+      </div>
+
+      <div className="gc-tabs">
         <button
           type="button"
-          className="gc-btn gc-btn-danger"
-          onClick={handleStopAll}
-          disabled={stoppingAll}
+          className={`gc-tab${activeTab === 'rachio' ? ' gc-tab-active' : ''}`}
+          onClick={() => setActiveTab('rachio')}
         >
-          {stoppingAll ? 'Stopping…' : 'Stop All Watering'}
+          Rachio
+        </button>
+        <button
+          type="button"
+          className={`gc-tab${activeTab === 'kin' ? ' gc-tab-active' : ''}`}
+          onClick={() => setActiveTab('kin')}
+        >
+          KIN <span className="gc-tab-sub">(Kindred Intelligence Network)</span>
         </button>
       </div>
 
@@ -385,6 +539,7 @@ export function GroundControl() {
         </div>
       )}
 
+      {activeTab === 'rachio' && <>
       {/* Zones Section */}
       <section className="gc-section">
         <h2>Zones</h2>
@@ -457,6 +612,40 @@ export function GroundControl() {
           ))}
         </div>
       </section>
+
+      </>}
+
+      {activeTab === 'kin' && (
+        <section className="gc-section">
+          <div className="gc-section-header">
+            <h2>KIN <span className="gc-kin-title-sub">(Kindred Intelligence Network)</span></h2>
+            <div className="gc-ha-header-actions">
+              <a
+                href="http://skynet.kindredvineyards.com:8123"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="gc-btn gc-btn-ghost gc-btn-sm"
+              >
+                Open Home Assistant ↗
+              </a>
+              <button
+                type="button"
+                className="gc-btn gc-btn-ghost gc-btn-sm"
+                onClick={loadHAStates}
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+          <SmartHomePanel
+            entities={haEntities}
+            loading={haLoading}
+            error={haError}
+            onToggle={handleToggleEntity}
+            toggling={togglingEntity}
+          />
+        </section>
+      )}
 
       {/* Duration modal */}
       {durationModal && (
