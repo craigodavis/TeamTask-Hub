@@ -1132,7 +1132,26 @@ router.get('/report', requireManager, async (req, res) => {
 //   - Sets archived_at on the assignment
 
 async function archivePreviousDayAssignments() {
-  const today = new Date().toISOString().slice(0, 10);
+  try {
+    // Archive per-company using each company's configured timezone so we
+    // never archive today's assignments just because UTC has rolled over.
+    const companies = await query(`SELECT id, COALESCE(timezone, 'America/Denver') AS tz FROM companies`);
+
+    for (const company of companies.rows) {
+      await archiveForCompany(company.id, company.tz);
+    }
+  } catch (err) {
+    console.error('[archive] Error:', err.message);
+  }
+}
+
+async function archiveForCompany(companyId, tz) {
+  // Compute "today" in the company's local timezone
+  const todayLocal = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());  // returns YYYY-MM-DD
+
   try {
     // Find all open (not yet archived) assignments from before today, with full details
     const openAssignments = await query(
@@ -1142,8 +1161,8 @@ async function archivePreviousDayAssignments() {
        FROM task_assignments ta
        JOIN task_list_templates tlt ON tlt.id = ta.template_id
        LEFT JOIN users u ON u.id = ta.assignee_id
-       WHERE ta.assigned_date < $1 AND ta.archived_at IS NULL`,
-      [today]
+       WHERE ta.company_id = $1 AND ta.assigned_date < $2 AND ta.archived_at IS NULL`,
+      [companyId, todayLocal]
     );
 
     if (!openAssignments.rows.length) {
@@ -1183,9 +1202,9 @@ async function archivePreviousDayAssignments() {
       await sendClosureSms(a.id, a.company_id, { reason: 'Not completed by end of day' });
     }
 
-    console.log(`[archive] Archived ${openAssignments.rows.length} assignment(s) from before ${today}.`);
+    console.log(`[archive] Archived ${openAssignments.rows.length} assignment(s) from before ${todayLocal} (tz: ${tz}).`);
   } catch (err) {
-    console.error('[archive] Error:', err.message);
+    console.error(`[archive] Error for company ${companyId}:`, err.message);
   }
 }
 
@@ -1193,21 +1212,32 @@ export function startDailyArchiveScheduler() {
   // Run once at startup to catch any missed days (e.g. server was down at 9am)
   archivePreviousDayAssignments();
 
-  // Then schedule for 9am every day
-  const msUntil9am = () => {
+  // Schedule for 9am in the primary company's timezone (Mountain).
+  // We recalculate on each fire so DST transitions are handled correctly.
+  const scheduleNext = () => {
+    const tz = 'America/Denver';
     const now = new Date();
-    const next = new Date(now);
-    next.setHours(9, 0, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
-    return next - now;
+    // Find what time it is right now in Mountain
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: 'numeric', minute: 'numeric', second: 'numeric',
+      hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const get = (t) => parts.find((p) => p.type === t)?.value;
+    const localMidnight = new Date(`${get('year')}-${get('month')}-${get('day')}T00:00:00`);
+    // Convert local midnight to UTC by subtracting the offset
+    const offsetMs = now.getTime() - new Date(now.toLocaleString('en-US', { timeZone: tz })).getTime();
+    const next9am = new Date(localMidnight.getTime() + 9 * 60 * 60 * 1000 + offsetMs);
+    if (next9am <= now) next9am.setDate(next9am.getDate() + 1);
+    const delay = next9am - now;
+    console.log(`[archive] Next run scheduled for 9am Mountain (~${Math.round(delay / 60000)} min from now)`);
+    setTimeout(() => {
+      archivePreviousDayAssignments();
+      scheduleNext(); // reschedule for tomorrow
+    }, delay);
   };
 
-  setTimeout(() => {
-    archivePreviousDayAssignments();
-    setInterval(archivePreviousDayAssignments, 24 * 60 * 60 * 1000);
-  }, msUntil9am());
+  scheduleNext();
 
-  console.log(`[archive] Scheduler started — next run at 9am (in ${Math.round(msUntil9am() / 60000)} min)`);
 }
 
 export { router as taskListsRouter };
