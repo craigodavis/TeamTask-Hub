@@ -42,6 +42,28 @@ export async function me() {
   return data;
 }
 
+export async function setPin(pin) {
+  const res = await fetch(`${API}/auth/set-pin`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ pin }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to set PIN');
+  return data;
+}
+
+export async function pinLogin(email, pin) {
+  const res = await fetch(`${API}/auth/pin-login`, {
+    method: 'POST',
+    headers: headers(false),
+    body: JSON.stringify({ email, pin }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Invalid PIN');
+  return data;
+}
+
 export async function getLocations() {
   const res = await fetch(`${API}/locations`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

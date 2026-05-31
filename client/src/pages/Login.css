@@ -82,3 +82,44 @@
   color: var(--text-muted);
   margin-bottom: 0.5rem;
 }
+
+/* PIN quick-login styles */
+.login-pin-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.login-pin-greeting {
+  font-size: 1rem;
+  color: var(--text);
+  margin: 0;
+  text-align: center;
+}
+
+.login-pin-links {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.login-pin-links .link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+/* Override login-card button width for pin pad — keys should NOT be full-width */
+.login-pin-section .pin-pad__key {
+  width: auto;
+  padding: 0;
+  min-height: 64px;
+  background: var(--card, #fff);
+}

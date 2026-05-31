@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { SetPinModal } from './SetPinModal';
 import './UserMenu.css';
 
 /**
@@ -10,6 +11,7 @@ import './UserMenu.css';
  */
 export function UserMenu({ user, onLogout, compact = false }) {
   const [open, setOpen] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
   const wrapRef = useRef(null);
   const navigate = useNavigate();
 
@@ -81,6 +83,17 @@ export function UserMenu({ user, onLogout, compact = false }) {
               Settings
             </Link>
           )}
+          <button
+            type="button"
+            className="user-menu-item"
+            role="menuitem"
+            onClick={() => {
+              close();
+              setShowPinModal(true);
+            }}
+          >
+            {user?.has_pin ? 'Change PIN' : 'Set PIN'}
+          </button>
           <div className="user-menu-divider" />
           <button
             type="button"
@@ -94,6 +107,13 @@ export function UserMenu({ user, onLogout, compact = false }) {
             Log out
           </button>
         </div>
+      )}
+      {showPinModal && (
+        <SetPinModal
+          onClose={() => setShowPinModal(false)}
+          onSuccess={() => setShowPinModal(false)}
+          required={false}
+        />
       )}
     </div>
   );
