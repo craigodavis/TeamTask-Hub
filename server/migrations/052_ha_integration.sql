@@ -1,0 +1,3 @@
+ALTER TABLE company_integrations
+  ADD COLUMN IF NOT EXISTS ha_url   VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS ha_token VARCHAR(500);

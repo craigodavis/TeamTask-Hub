@@ -251,15 +251,23 @@ function computeNextRun(dayOfWeek, startTime, startDate) {
 
 // ── Home Assistant ─────────────────────────────────────────────────────────────
 
-const HA_URL = process.env.HA_URL || 'http://localhost:8123';
-const HA_TOKEN = process.env.HA_TOKEN;
+async function getHAConfig(companyId) {
+  const r = await query(
+    `SELECT ha_url, ha_token FROM company_integrations WHERE company_id = $1`,
+    [companyId]
+  );
+  const row = r.rows[0] || {};
+  const url = row.ha_url?.trim() || process.env.HA_URL || 'http://localhost:8123';
+  const token = row.ha_token?.trim() || process.env.HA_TOKEN || null;
+  return { url, token };
+}
 
-async function haFetch(path, options = {}) {
-  if (!HA_TOKEN) throw Object.assign(new Error('HA_TOKEN not configured'), { status: 503 });
-  const res = await fetch(`${HA_URL}${path}`, {
+async function haFetch(url, token, path, options = {}) {
+  if (!token) throw Object.assign(new Error('Home Assistant token not configured — add it in Settings → Integrations'), { status: 503 });
+  const res = await fetch(`${url}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${HA_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
@@ -274,7 +282,8 @@ async function haFetch(path, options = {}) {
 // GET /ha/states — return lights, switches, and climate entities
 router.get('/ha/states', requireGControl, async (req, res) => {
   try {
-    const states = await haFetch('/api/states');
+    const { url, token } = await getHAConfig(req.companyId);
+    const states = await haFetch(url, token, '/api/states');
     const entities = states.filter((s) =>
       s.entity_id.startsWith('light.') ||
       s.entity_id.startsWith('switch.') ||
@@ -294,7 +303,8 @@ router.post('/ha/service', requireGControl, async (req, res) => {
     if (!domain || !service) {
       return res.status(400).json({ error: 'domain and service are required' });
     }
-    const result = await haFetch(`/api/services/${domain}/${service}`, {
+    const { url, token } = await getHAConfig(req.companyId);
+    const result = await haFetch(url, token, `/api/services/${domain}/${service}`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
