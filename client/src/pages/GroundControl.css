@@ -530,3 +530,112 @@
     margin-left: 0;
   }
 }
+
+/* ── Smart Home ────────────────────────────────────────────────────────────── */
+
+.gc-ha-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.gc-ha-card-on {
+  border-color: #4ade80;
+  background: #f0fdf4;
+}
+
+.gc-ha-brightness {
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.gc-ha-state-label {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  min-width: 24px;
+  text-align: center;
+}
+
+.gc-ha-state-on {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.gc-ha-mode-badge {
+  font-size: 0.7rem;
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 1px 8px;
+  border-radius: 10px;
+  text-transform: capitalize;
+}
+
+.gc-ha-temps {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin-top: 8px;
+}
+
+.gc-ha-temp-current {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.gc-ha-temp-set {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────────── */
+
+.gc-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 24px;
+}
+
+.gc-tab {
+  padding: 10px 24px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #6b7280;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.gc-tab:hover {
+  color: #111827;
+}
+
+.gc-tab-active {
+  color: #111827;
+  border-bottom-color: #111827;
+}
+
+.gc-tab-sub {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.gc-tab-active .gc-tab-sub {
+  opacity: 0.6;
+}
+
+.gc-kin-title-sub {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #6b7280;
+}
