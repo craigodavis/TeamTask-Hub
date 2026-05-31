@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { login, forgotPassword } from '../api';
+import React, { useState, useEffect } from 'react';
+import { login, forgotPassword, pinLogin } from '../api';
+import { PinPad } from '../components/PinPad';
+import { SetPinModal } from '../components/SetPinModal';
 import './Login.css';
 
 export function Login({ onLogin }) {
@@ -10,6 +12,35 @@ export function Login({ onLogin }) {
   const [showForgot, setShowForgot] = useState(false);
   const [forgotMessage, setForgotMessage] = useState('');
 
+  // Remembered user / PIN flow
+  const [rememberedEmail, setRememberedEmail] = useState(() => localStorage.getItem('teamtask_last_email') || '');
+  const [rememberedName, setRememberedName] = useState(() => localStorage.getItem('teamtask_last_name') || '');
+  const [showPinPad, setShowPinPad] = useState(!!(rememberedEmail));
+  const [pinError, setPinError] = useState('');
+  const [usePinPad, setUsePinPad] = useState(!!(rememberedEmail));
+
+  // Post-login PIN setup prompt
+  const [pendingUser, setPendingUser] = useState(null);
+  const [showSetPin, setShowSetPin] = useState(false);
+
+  const finishLogin = (user) => {
+    onLogin(user);
+  };
+
+  const afterLogin = (user) => {
+    // Save last user for PIN quick-login
+    localStorage.setItem('teamtask_last_email', user.email);
+    localStorage.setItem('teamtask_last_name', user.display_name || user.email);
+
+    if (!user.has_pin) {
+      // Prompt to set a PIN before going to the dashboard
+      setPendingUser(user);
+      setShowSetPin(true);
+    } else {
+      finishLogin(user);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -17,11 +48,22 @@ export function Login({ onLogin }) {
     try {
       const { user, token } = await login(email, password);
       localStorage.setItem('teamtask_token', token);
-      onLogin(user);
+      afterLogin(user);
     } catch (err) {
       setError(err.message || 'Login failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePinComplete = async (pin) => {
+    setPinError('');
+    try {
+      const { user, token } = await pinLogin(rememberedEmail, pin);
+      localStorage.setItem('teamtask_token', token);
+      afterLogin(user);
+    } catch (err) {
+      setPinError(err.message || 'Invalid PIN');
     }
   };
 
@@ -40,51 +82,120 @@ export function Login({ onLogin }) {
     }
   };
 
+  const clearRemembered = () => {
+    localStorage.removeItem('teamtask_last_email');
+    localStorage.removeItem('teamtask_last_name');
+    setRememberedEmail('');
+    setRememberedName('');
+    setShowPinPad(false);
+    setUsePinPad(false);
+    setPinError('');
+  };
+
+  // If a PIN setup modal is showing, render that
+  if (showSetPin && pendingUser) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <h1>Team Hub</h1>
+          <SetPinModal
+            required={false}
+            onClose={() => finishLogin(pendingUser)}
+            onSuccess={() => finishLogin(pendingUser)}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="login-page">
       <div className="login-card">
         <h1>Team Hub</h1>
-        <form onSubmit={handleSubmit}>
-          <label>
-            Email
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+
+        {usePinPad && rememberedEmail ? (
+          <div className="login-pin-section">
+            <p className="login-pin-greeting">
+              Welcome back, <strong>{rememberedName || rememberedEmail}</strong>
+            </p>
+            <PinPad
+              label="Enter your PIN"
+              onComplete={handlePinComplete}
+              error={pinError}
             />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-          {error && <p className="login-error">{error}</p>}
-          <button type="submit" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-        <p style={{ marginTop: '0.75rem', fontSize: '0.9rem' }}>
-          <button type="button" className="link-button" onClick={() => setShowForgot(!showForgot)}>
-            Forgot password?
-          </button>
-        </p>
-        {showForgot && (
-          <form onSubmit={handleForgotSubmit} style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
-            <p className="hint">Enter your email to receive a reset link.</p>
-            <label>
-              Email
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </label>
-            {forgotMessage && <p className="login-message">{forgotMessage}</p>}
-            <button type="submit" disabled={loading}>Send reset link</button>
-          </form>
+            <div className="login-pin-links">
+              <button type="button" className="link-button" onClick={clearRemembered}>
+                Not you?
+              </button>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setUsePinPad(false);
+                  setShowPinPad(false);
+                  setPinError('');
+                  setEmail(rememberedEmail);
+                }}
+              >
+                Use password instead
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <form onSubmit={handleSubmit}>
+              <label>
+                Email
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+              {error && <p className="login-error">{error}</p>}
+              <button type="submit" disabled={loading}>
+                {loading ? 'Signing in…' : 'Sign in'}
+              </button>
+            </form>
+            {rememberedEmail && (
+              <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
+                <button type="button" className="link-button" onClick={() => {
+                  setUsePinPad(true);
+                  setShowPinPad(true);
+                }}>
+                  Use PIN instead
+                </button>
+              </p>
+            )}
+            <p style={{ marginTop: '0.75rem', fontSize: '0.9rem' }}>
+              <button type="button" className="link-button" onClick={() => setShowForgot(!showForgot)}>
+                Forgot password?
+              </button>
+            </p>
+            {showForgot && (
+              <form onSubmit={handleForgotSubmit} style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
+                <p className="hint">Enter your email to receive a reset link.</p>
+                <label>
+                  Email
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                </label>
+                {forgotMessage && <p className="login-message">{forgotMessage}</p>}
+                <button type="submit" disabled={loading}>Send reset link</button>
+              </form>
+            )}
+          </>
         )}
       </div>
     </div>

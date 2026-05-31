@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule, getCompanyUsers } from '../api';
 import { todayInTimezone } from '../utils/dateUtils';
+import { SetPinModal } from '../components/SetPinModal';
 import './Dashboard.css';
 
 export function Dashboard() {
@@ -25,6 +26,16 @@ export function Dashboard() {
   const [showStaff, setShowStaff] = useState(false);
   const [staffData, setStaffData] = useState([]);         // { user_id, display_name, role, location_name }
   const [staffLocationFilter, setStaffLocationFilter] = useState(null); // null = all; string = location name
+
+  // PIN setup prompt (once per session for users without a PIN)
+  const [showPinModal, setShowPinModal] = useState(false);
+
+  useEffect(() => {
+    if (user?.has_pin === false && !sessionStorage.getItem('pin_prompt_shown')) {
+      sessionStorage.setItem('pin_prompt_shown', '1');
+      setShowPinModal(true);
+    }
+  }, [user?.has_pin]);
 
   // Manager-only: emulate another user's dashboard view for troubleshooting
   const [viewAsUserId, setViewAsUserId] = useState('');
@@ -373,6 +384,13 @@ export function Dashboard() {
 
   return (
     <div className="dashboard">
+      {showPinModal && (
+        <SetPinModal
+          required={false}
+          onClose={() => setShowPinModal(false)}
+          onSuccess={() => setShowPinModal(false)}
+        />
+      )}
       {error && <p className="dashboard-error">{error}</p>}
 
       {isManager && (

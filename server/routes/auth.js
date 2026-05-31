@@ -48,7 +48,7 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, companyId: user.company_id, role: user.role },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '90d' }
     );
     res.status(201).json({ user: { id: user.id, company_id: user.company_id, email: user.email, display_name: user.display_name, role: user.role }, token });
   } catch (err) {
@@ -68,7 +68,7 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password required' });
     }
-    let q = `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.password_hash, c.slug as company_slug, c.name as company_name
+    let q = `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.password_hash, u.pin_hash, c.slug as company_slug, c.name as company_name
              FROM users u JOIN companies c ON c.id = u.company_id
              WHERE u.email = $1`;
     const params = [email.toLowerCase()];
@@ -95,7 +95,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { userId: row.id, companyId: row.company_id, role: row.role },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '90d' }
     );
     res.json({
       user: {
@@ -106,6 +106,7 @@ router.post('/login', async (req, res) => {
         role: row.role,
         company_slug: row.company_slug,
         company_name: companyDisplayLabel(row.company_name, row.company_slug),
+        has_pin: !!row.pin_hash,
       },
       token,
     });
@@ -122,7 +123,7 @@ router.get('/me', async (req, res) => {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const r = await query(
-      `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.phone, c.name as company_name, c.slug as company_slug
+      `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.phone, u.pin_hash, c.name as company_name, c.slug as company_slug
        FROM users u JOIN companies c ON c.id = u.company_id WHERE u.id = $1`,
       [payload.userId]
     );
@@ -136,6 +137,7 @@ router.get('/me', async (req, res) => {
         display_name: user.display_name,
         role: user.role,
         phone: user.phone,
+        has_pin: !!user.pin_hash,
         company_name: companyDisplayLabel(user.company_name, user.company_slug),
         company_slug: user.company_slug,
       },
@@ -239,6 +241,70 @@ router.post('/send-reset-email', requireAuth, requireManager, async (req, res) =
     }
     res.json({ ok: true, message: 'Reset link sent to user email.' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Set or update PIN for the authenticated user
+router.post('/set-pin', requireAuth, async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin || !/^\d{4}$/.test(String(pin))) {
+      return res.status(400).json({ error: 'pin must be exactly 4 digits' });
+    }
+    const hash = await bcrypt.hash(String(pin), 10);
+    await query(`UPDATE users SET pin_hash = $1, updated_at = NOW() WHERE id = $2`, [hash, req.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('set-pin error:', err.message || err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PIN quick-login: email + pin → JWT (same shape as /login)
+router.post('/pin-login', async (req, res) => {
+  try {
+    const { email, pin } = req.body;
+    if (!email || !pin) {
+      return res.status(400).json({ error: 'email and pin required' });
+    }
+    if (!/^\d{4}$/.test(String(pin))) {
+      return res.status(401).json({ error: 'Invalid PIN' });
+    }
+    const r = await query(
+      `SELECT u.id, u.company_id, u.email, u.display_name, u.role, u.pin_hash, c.slug as company_slug, c.name as company_name
+       FROM users u JOIN companies c ON c.id = u.company_id
+       WHERE u.email = $1 LIMIT 1`,
+      [email.toLowerCase()]
+    );
+    const row = r.rows[0];
+    if (!row || !row.pin_hash) {
+      return res.status(401).json({ error: 'Invalid PIN' });
+    }
+    const ok = await bcrypt.compare(String(pin), row.pin_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid PIN' });
+    }
+    const token = jwt.sign(
+      { userId: row.id, companyId: row.company_id, role: row.role },
+      JWT_SECRET,
+      { expiresIn: '90d' }
+    );
+    res.json({
+      user: {
+        id: row.id,
+        company_id: row.company_id,
+        email: row.email,
+        display_name: row.display_name,
+        role: row.role,
+        company_slug: row.company_slug,
+        company_name: companyDisplayLabel(row.company_name, row.company_slug),
+        has_pin: true,
+      },
+      token,
+    });
+  } catch (err) {
+    console.error('pin-login error:', err.message || err);
     res.status(500).json({ error: err.message });
   }
 });
