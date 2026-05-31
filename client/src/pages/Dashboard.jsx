@@ -395,6 +395,18 @@ export function Dashboard() {
           {viewAsUser && (
             <span className="view-as-label">
               Viewing as <strong>{viewAsUser.display_name || viewAsUser.email}</strong> — this is exactly what they see
+              {daySummary.debug && (
+                <span className="view-as-debug">
+                  {' | '}
+                  {!daySummary.debug.squareTmId
+                    ? '⚠ No Square ID linked'
+                    : daySummary.no_shift
+                    ? `⚠ No shift found today (Square ID: ${daySummary.debug.squareTmId})`
+                    : daySummary.debug.wageTitles?.length
+                    ? `✓ Shift found · roles: ${daySummary.debug.wageTitles.join(', ')}`
+                    : '⚠ Shift found but no wage title resolved'}
+                </span>
+              )}
             </span>
           )}
           {viewAsUserId && (
