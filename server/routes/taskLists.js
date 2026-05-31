@@ -606,12 +606,15 @@ router.get('/day-summary', async (req, res) => {
 
     // For regular members (non-managers), filter by their scheduled shift today
     let shiftFilter = null; // null = no filter (managers/owners see all)
+    const isViewAs = !!as_user_id && as_user_id !== requesterId;
+    let debug = null; // populated when ?as_user_id is used
     const userRes = await query(
       `SELECT role, square_team_member_id FROM users WHERE id = $1`,
       [userId]
     );
     const userRole = userRes.rows[0]?.role;
     const squareTmId = userRes.rows[0]?.square_team_member_id;
+    if (isViewAs) debug = { userId, userRole, squareTmId, shiftRows: 0, wageTitles: [] };
 
     if ((userRole === 'member' || userRole === 'gc') && squareTmId) {
       const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
@@ -653,9 +656,9 @@ router.get('/day-summary', async (req, res) => {
 
       const allShiftRows = [...shiftRes.rows, ...clockedRes.rows];
 
+      if (debug) debug.shiftRows = allShiftRows.length;
       if (allShiftRows.length === 0) {
-        // Not scheduled and not clocked in today — show nothing
-        return res.json({ date, assignments: [], no_shift: true });
+        return res.json({ date, assignments: [], no_shift: true, debug });
       }
 
       // Build wage title list from today's shifts first
@@ -685,6 +688,7 @@ router.get('/day-summary', async (req, res) => {
         wageTitles: resolvedWageTitles.length > 0 ? resolvedWageTitles : null,
         locationIds: [...new Set(allShiftRows.map((r) => r.location_id).filter(Boolean))],
       };
+      if (debug) debug.wageTitles = resolvedWageTitles;
     }
 
     const assignmentsResult = await query(
@@ -739,7 +743,7 @@ router.get('/day-summary', async (req, res) => {
       );
       out.push({ ...a, tasks: tasksResult.rows });
     }
-    res.json({ date, assignments: out });
+    res.json({ date, assignments: out, debug });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
