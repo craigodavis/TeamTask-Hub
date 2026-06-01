@@ -737,6 +737,16 @@ export async function getReceipt(id) {
   return data;
 }
 
+export async function processReceiptWithAI(receiptId) {
+  const res = await fetch(`${API}/receipts/${receiptId}/process`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to process receipt with AI');
+  return data;
+}
+
 export async function saveReceiptItems(receiptId, items) {
   const res = await fetch(`${API}/receipts/${receiptId}/items`, {
     method: 'PATCH',

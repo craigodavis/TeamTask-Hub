@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
-  uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems, deleteReceipt,
+  uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems, deleteReceipt, processReceiptWithAI,
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
   getRules, createRule, updateRule, deleteRule, reapplyRules, reapplyAllRules, suggestRule,
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
@@ -346,6 +346,7 @@ export function Quickbooks({ user }) {
 
   // ── Review ──
   const [reviewingOriginal, setReviewingOriginal] = useState(null); // snapshot of items at open time
+  const [processingAI, setProcessingAI] = useState(false);
 
   const openReview = async (receiptId) => {
     setReviewLoading(true); setReviewing(null); setReviewingOriginal(null);
@@ -1419,6 +1420,28 @@ export function Quickbooks({ user }) {
                       </div>
                       <button type="button" className="qb-modal-close" onClick={() => setReviewing(null)}>✕</button>
                     </div>
+
+                    {reviewing.items.length === 0 && (
+                      <div className="qb-no-items">
+                        <p>No line items extracted yet.</p>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={processingAI}
+                          onClick={async () => {
+                            setProcessingAI(true);
+                            try {
+                              const updated = await processReceiptWithAI(reviewing.id);
+                              setReviewing(updated);
+                              setReviewingOriginal(updated.items.map((it) => ({ id: it.id, qbo_account_id: it.qbo_account_id, qbo_class_id: it.qbo_class_id })));
+                            } catch (e) { setError(e.message); }
+                            finally { setProcessingAI(false); }
+                          }}
+                        >
+                          {processingAI ? 'Processing…' : '✨ Process with AI'}
+                        </button>
+                      </div>
+                    )}
 
                     <div className="qb-review-table-wrap">
                       <table className="qb-review-table">
