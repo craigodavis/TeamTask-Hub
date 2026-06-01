@@ -137,16 +137,6 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Skynet</span>
             </NavLink>
           )}
-          <NavLink
-            to="/food"
-            className={({ isActive }) =>
-              `app-shell-nav-item${isActive || location.pathname.startsWith('/food') ? ' active' : ''}`
-            }
-            data-icon="🍽️"
-            title="Food"
-          >
-            <span>Food</span>
-          </NavLink>
           {isManager && (
             <NavLink
               to="/quickbooks"
@@ -157,6 +147,16 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Receipts</span>
             </NavLink>
           )}
+          <NavLink
+            to="/food"
+            className={({ isActive }) =>
+              `app-shell-nav-item${isActive || location.pathname.startsWith('/food') ? ' active' : ''}`
+            }
+            data-icon="🍽️"
+            title="Food"
+          >
+            <span>Food</span>
+          </NavLink>
           {isManager && (
             <NavLink
               to="/products"
