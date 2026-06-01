@@ -767,6 +767,20 @@ export async function getReceipt(id) {
   return data;
 }
 
+// Fetch the receipt PDF (auth-protected) as a blob and open it in a new tab.
+export async function openReceiptPdf(id) {
+  const res = await fetch(`${API}/receipts/${id}/pdf`, { headers: headers() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to load PDF');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener,noreferrer');
+  // Release the object URL after a delay so the new tab has time to load it
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 export async function processReceiptWithAI(receiptId) {
   const res = await fetch(`${API}/receipts/${receiptId}/process`, {
     method: 'POST',

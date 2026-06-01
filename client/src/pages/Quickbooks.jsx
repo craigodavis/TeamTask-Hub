@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
   getQBOStatus, syncQBO,
-  uploadReceipts, getReceipts, getReceipt, saveReceiptItems, acceptAllItems, deleteReceipt, processReceiptWithAI,
+  uploadReceipts, getReceipts, getReceipt, openReceiptPdf, saveReceiptItems, acceptAllItems, deleteReceipt, processReceiptWithAI,
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
   getRules, createRule, updateRule, deleteRule, reapplyRules, reapplyAllRules, suggestRule,
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
@@ -658,7 +658,7 @@ export function Quickbooks({ user }) {
 
   return (
     <div className="qb-page">
-      <div className="qb-header"><h2>QuickBooks</h2></div>
+      <div className="qb-header"><h2>Receipts</h2></div>
 
       {error && <p className="qb-error">{error}</p>}
       {message && <p className="qb-message">{message}</p>}
@@ -1044,6 +1044,14 @@ export function Quickbooks({ user }) {
                         ✕
                       </button>
                     }
+                    <button
+                      type="button"
+                      className="qb-btn-pdf"
+                      onClick={() => openReceiptPdf(r.id).catch((e) => setError(e.message))}
+                      title="View the original PDF"
+                    >
+                      📄 PDF
+                    </button>
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
                       {activeTab === 'reviewed' || activeTab === 'excluded' ? 'View' : 'Review'}
                     </button>

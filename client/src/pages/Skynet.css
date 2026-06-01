@@ -32,6 +32,18 @@
   font-weight: 700;
 }
 
+.skynet-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.skynet-header-actions .btn-secondary {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .skynet-subtitle {
   margin: 0;
   color: var(--text-secondary, #666);

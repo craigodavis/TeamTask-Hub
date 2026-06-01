@@ -234,6 +234,12 @@
 }
 .qb-btn-review:hover:not(:disabled) { background: #e3f2fd; }
 .qb-btn-review:disabled { opacity: 0.5; cursor: not-allowed; }
+.qb-btn-pdf {
+  background: #fff; border: 1px solid #c62828; color: #c62828;
+  border-radius: 5px; padding: 0.3rem 0.7rem; font-size: 0.85rem;
+  cursor: pointer; font-weight: 500;
+}
+.qb-btn-pdf:hover { background: #ffebee; }
 .qb-btn-accept-all {
   background: #4caf50; border: 1px solid #388e3c; color: #fff;
   border-radius: 5px; padding: 0.3rem 0.85rem; font-size: 0.85rem;
