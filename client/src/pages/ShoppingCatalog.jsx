@@ -137,9 +137,8 @@ export function ShoppingCatalog() {
   const handleSave = async () => {
     if (!form.name?.trim()) return;
     if (categoryAddingNew && !newCategoryInput.trim()) return;
-    const { is_routine: _drop, ...formFields } = form;
     const payload = {
-      ...formFields,
+      ...form,
       category: categoryAddingNew
         ? resolveCategory(newCategoryInput, categories)
         : resolveCategory(form.category, categories),
@@ -496,7 +495,7 @@ export function ShoppingCatalog() {
             <table className="catalog-table">
               <thead>
                 <tr>
-                  <th>Name</th><th>Category</th><th>Par</th><th>Locations</th><th>Last Purchased</th><th></th>
+                  <th>Name</th><th>Category</th><th>Par</th><th>Routine</th><th>Locations</th><th>Last Purchased</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -512,6 +511,17 @@ export function ShoppingCatalog() {
                     <td className="catalog-name">{item.name}</td>
                     <td>{item.category || '—'}</td>
                     <td>{item.par_qty != null ? `${item.par_qty} ${item.par_unit}` : '—'}</td>
+                    <td>
+                      <label className="catalog-toggle" title={item.is_routine ? 'On routine list — click to remove' : 'Not on routine list — click to add'}>
+                        <input type="checkbox" checked={!!item.is_routine} onChange={async () => {
+                          try {
+                            const updated = await updateShoppingItem(item.id, { is_routine: !item.is_routine });
+                            setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, ...updated } : i));
+                          } catch (e) { setError(e.message); }
+                        }} />
+                        <span className="catalog-toggle-slider" />
+                      </label>
+                    </td>
                     <td className="catalog-locations-cell">{formatLocationSummary(item, locations)}</td>
                     <td className="catalog-date">{fmt(item.last_purchase_date)}</td>
                     <td className="catalog-actions">
