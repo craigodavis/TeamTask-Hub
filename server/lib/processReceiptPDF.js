@@ -123,20 +123,21 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
       });
     }
 
-    // 6. Save receipt record
+    // 6. Save receipt record — PDF bytes stored in the DB (pdf_data) so they
+    //    survive deploys/server moves and are backed up with the database.
     const receiptRes = await query(
       `INSERT INTO receipts
          (company_id, order_number, order_date, vendor, subtotal, tax, total,
-          pdf_filename, card_last4, payment_instrument)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          pdf_filename, card_last4, payment_instrument, pdf_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id`,
       [companyId, order_number, order_date || null, vendor || 'Amazon',
        subtotal || null, tax || null, total || null,
-       filename, card_last4 || null, payment_instrument || null]
+       filename, card_last4 || null, payment_instrument || null, buffer]
     );
     const receiptId = receiptRes.rows[0].id;
 
-    // 7. Write PDF to disk (for later QBO attachment)
+    // 7. Also write PDF to disk as a fallback (legacy path / QBO attach)
     try {
       await fs.promises.writeFile(path.join(UPLOAD_DIR, `${receiptId}.pdf`), buffer);
     } catch (fsErr) {

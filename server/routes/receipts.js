@@ -16,6 +16,25 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const router = express.Router();
 
+// Load a receipt's PDF bytes — prefer the DB (pdf_data), fall back to disk
+// for legacy receipts uploaded before DB storage existed.
+async function loadReceiptPdf(cId, id) {
+  const r = await query(
+    `SELECT pdf_data, pdf_filename FROM receipts WHERE id = $1 AND company_id = $2`,
+    [id, cId]
+  );
+  if (!r.rows.length) return { notFound: true };
+  const row = r.rows[0];
+  if (row.pdf_data) {
+    return { buffer: row.pdf_data, filename: row.pdf_filename };
+  }
+  const filePath = path.join(UPLOAD_DIR, `${id}.pdf`);
+  if (fs.existsSync(filePath)) {
+    return { buffer: fs.readFileSync(filePath), filename: row.pdf_filename };
+  }
+  return { buffer: null, filename: row.pdf_filename };
+}
+
 // Store uploaded files in memory (Buffer) — no disk writes needed
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -323,21 +342,14 @@ router.get('/:id/pdf', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
   const { id } = req.params;
   try {
-    const rr = await query(
-      `SELECT pdf_filename FROM receipts WHERE id = $1 AND company_id = $2`,
-      [id, cId]
-    );
-    if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+    const { notFound, buffer, filename } = await loadReceiptPdf(cId, id);
+    if (notFound) return res.status(404).json({ error: 'Receipt not found.' });
+    if (!buffer) return res.status(404).json({ error: 'PDF not available for this receipt.' });
 
-    const filePath = path.join(UPLOAD_DIR, `${id}.pdf`);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'PDF file not available for this receipt.' });
-    }
-
-    const downloadName = (rr.rows[0].pdf_filename || `receipt-${id}.pdf`).replace(/[^\w.\-]/g, '_');
+    const downloadName = (filename || `receipt-${id}.pdf`).replace(/[^\w.\-]/g, '_');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
-    fs.createReadStream(filePath).pipe(res);
+    res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1042,16 +1054,18 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
 
       // Attach PDF only for the first shipment (or non-shipment receipts)
       if (attachPdf) {
-        const pdfPath = path.join(UPLOAD_DIR, `${receipt_id}.pdf`);
         try {
-          const pdfBuffer = await fs.promises.readFile(pdfPath);
-          const fnRes = await query(
-            `SELECT pdf_filename, order_number FROM receipts WHERE id = $1`, [receipt_id]
-          );
-          const { pdf_filename, order_number } = fnRes.rows[0] || {};
-          const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
-          await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
-          await fs.promises.unlink(pdfPath).catch(() => {});
+          const { buffer: pdfBuffer } = await loadReceiptPdf(cId, receipt_id);
+          if (pdfBuffer) {
+            const fnRes = await query(
+              `SELECT pdf_filename, order_number FROM receipts WHERE id = $1`, [receipt_id]
+            );
+            const { pdf_filename, order_number } = fnRes.rows[0] || {};
+            const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
+            await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
+          }
+          // Note: PDF bytes are retained in the DB (pdf_data) so the receipt
+          // remains viewable after export. We no longer delete it.
         } catch (attachErr) {
           console.error('[export] PDF attach failed for receipt', receipt_id, attachErr.message);
           // Non-fatal — don't fail the whole export

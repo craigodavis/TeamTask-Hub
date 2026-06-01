@@ -1720,6 +1720,9 @@ const MIGRATIONS = [
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harvester_sources_company ON harvester_sources(company_id)`,
+
+  // ── Migration 264: store receipt PDF bytes in the database ─────────────────
+  `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS pdf_data BYTEA`,
 ];
 
 export async function runMigrations() {
