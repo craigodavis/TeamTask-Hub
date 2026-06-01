@@ -1801,15 +1801,6 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_company ON shopping_item_raw(company_id, ignored, shopping_item_id)`,
 
-  // ── Migration 271: Shopping — fuzzy matching + unit pricing ─────────────
-  `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
-  `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_trgm ON shopping_item_raw USING gin(description_raw gin_trgm_ops)`,
-  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS quantity_purchased NUMERIC(10,2)`,
-  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit TEXT`,
-  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,4)`,
-  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS similarity_score NUMERIC(4,3)`,
-  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS fuzzy_match_id UUID REFERENCES shopping_items(id) ON DELETE SET NULL`,
-
   // ── Migration 270: Shopping — item stocked per location ───────────────────
   `CREATE TABLE IF NOT EXISTS shopping_item_locations (
     shopping_item_id UUID NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
@@ -1824,6 +1815,29 @@ const MIGRATIONS = [
    JOIN locations l ON l.company_id = si.company_id
    WHERE si.is_routine = true
    ON CONFLICT DO NOTHING`,
+
+  // ── Migration 271: Shopping — fuzzy matching + unit pricing (pg_trgm optional) ─
+  `DO $$
+   BEGIN
+     CREATE EXTENSION IF NOT EXISTS pg_trgm;
+   EXCEPTION
+     WHEN OTHERS THEN
+       RAISE NOTICE 'pg_trgm extension unavailable, skipping: %', SQLERRM;
+   END
+   $$`,
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+       CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_trgm
+         ON shopping_item_raw USING gin (description_raw gin_trgm_ops);
+     END IF;
+   END
+   $$`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS quantity_purchased NUMERIC(10,2)`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit TEXT`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,4)`,
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS similarity_score NUMERIC(4,3)`,
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS fuzzy_match_id UUID REFERENCES shopping_items(id) ON DELETE SET NULL`,
 ];
 
 export async function runMigrations() {
@@ -1865,6 +1879,6 @@ export async function runMigrations() {
 }
 
 // Allow running directly: node scripts/run-migrations.js
-if (process.argv[1].endsWith('run-migrations.js')) {
+if (process.argv[1]?.endsWith('run-migrations.js')) {
   runMigrations().then(() => process.exit(0)).catch(() => process.exit(1));
 }
