@@ -464,7 +464,9 @@ router.post('/amazon/test', requireOwner, async (req, res) => {
 });
 
 // GET /settings/general — company-level general settings (owner only)
-router.get('/general', requireOwner, async (req, res) => {
+// Readable by any authenticated user — the timezone is needed for date
+// calculations across the whole app. (PATCH below stays owner-only.)
+router.get('/general', async (req, res) => {
   try {
     const r = await query(
       `SELECT timezone, ops_manager_name FROM companies WHERE id = $1`,
