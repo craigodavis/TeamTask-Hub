@@ -8,6 +8,7 @@ import {
   getRules, createRule, updateRule, deleteRule, reapplyRules, reapplyAllRules, suggestRule,
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
   getCardMappings, saveCardMapping, deleteCardMapping,
+  getHarvesterSources, updateHarvesterSource, runHarvesterSource,
 } from '../api';
 import './Quickbooks.css';
 
@@ -731,6 +732,7 @@ export function Quickbooks({ user }) {
               <button type="button" className={`qb-tab ${activeTab === 'imported' ? 'active' : ''}`} onClick={() => setActiveTab('imported')}>Imported</button>
               <button type="button" className={`qb-tab qb-tab-excluded ${activeTab === 'excluded' ? 'active' : ''}`} onClick={() => setActiveTab('excluded')}>Excluded</button>
               <button type="button" className={`qb-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</button>
+              <button type="button" className={`qb-tab ${activeTab === 'harvester' ? 'active' : ''}`} onClick={() => setActiveTab('harvester')}>Harvester</button>
               <button type="button" className={`qb-tab ${activeTab === 'amazon' ? 'active' : ''}`} onClick={() => setActiveTab('amazon')}>
                 Amazon
                 {amazonStats && amazonStats.receipts_total > 0 && (
@@ -889,6 +891,8 @@ export function Quickbooks({ user }) {
                 </p>
               </div>
             </div>
+          ) : activeTab === 'harvester' ? (
+            <HarvesterTab />
           ) : activeTab === 'amazon' ? (
             /* ── Amazon Order History Tab ── */
             <div className="qb-amazon-section">
@@ -1510,6 +1514,148 @@ export function Quickbooks({ user }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ── Harvester Tab ─────────────────────────────────────────────────────────────
+
+const SCHEDULE_OPTIONS = [
+  { label: 'Every hour',    cron: '0 * * * *' },
+  { label: 'Every 2 hours', cron: '0 */2 * * *' },
+  { label: 'Every 4 hours', cron: '0 */4 * * *' },
+  { label: 'Every 6 hours', cron: '0 */6 * * *' },
+  { label: 'Every 12 hours',cron: '0 */12 * * *' },
+  { label: 'Daily at 3am',  cron: '0 3 * * *' },
+  { label: 'Daily at 6am',  cron: '0 6 * * *' },
+];
+
+function HarvesterTab() {
+  const [sources, setSources] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState({});
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    try {
+      const d = await getHarvesterSources();
+      setSources(d.sources || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Refresh status every 15s while a source is running
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (sources.some(s => s.last_status === 'running' || s.run_requested_at)) {
+        load();
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [sources]);
+
+  const handleScheduleChange = async (source, cron) => {
+    try {
+      const updated = await updateHarvesterSource(source.id, { cron_schedule: cron });
+      setSources(prev => prev.map(s => s.id === source.id ? { ...s, ...updated } : s));
+      setMessage(`Schedule updated for ${source.name}`);
+    } catch (e) { setError(e.message); }
+  };
+
+  const handleRunNow = async (source) => {
+    setRunning(prev => ({ ...prev, [source.id]: true }));
+    setMessage('');
+    try {
+      const r = await runHarvesterSource(source.id);
+      setMessage(r.message);
+      setTimeout(load, 5000); // refresh after 5s
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRunning(prev => ({ ...prev, [source.id]: false }));
+    }
+  };
+
+  const formatTime = (ts) => {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  const scheduleLabel = (cron) => {
+    const opt = SCHEDULE_OPTIONS.find(o => o.cron === cron);
+    return opt ? opt.label : cron;
+  };
+
+  if (loading) return <div className="qb-loading">Loading harvester sources…</div>;
+
+  return (
+    <div className="harvester-tab">
+      <h3>Harvester — Automated Receipt Collection</h3>
+      <p className="harvester-desc">Harvester runs on skynet and automatically collects invoices from your email and vendor websites.</p>
+      {message && <div className="harvester-message">{message}</div>}
+      {error && <div className="harvester-error">{error}</div>}
+
+      <div className="harvester-sources">
+        {sources.length === 0 && <p className="hint">No harvester sources configured.</p>}
+        {sources.map(source => (
+          <div key={source.id} className={`harvester-source-card harvester-status-${source.last_status || 'idle'}`}>
+            <div className="harvester-source-header">
+              <div>
+                <span className="harvester-source-name">{source.name}</span>
+                <span className="harvester-source-type">{source.connector_type}</span>
+              </div>
+              <div className={`harvester-status-badge harvester-status-${source.last_status || 'idle'}`}>
+                {source.last_status === 'running' ? '⏳ Running…' :
+                 source.run_requested_at ? '⏳ Queued…' :
+                 source.last_status === 'ok' ? '✓ OK' :
+                 source.last_status === 'error' ? '✗ Error' : 'Idle'}
+              </div>
+            </div>
+
+            <div className="harvester-source-meta">
+              <span>Last run: {formatTime(source.last_run_at)}</span>
+              <span>Last success: {formatTime(source.last_success_at)}</span>
+              {source.last_records != null && <span>Records: {source.last_records}</span>}
+            </div>
+
+            {source.last_error && (
+              <div className="harvester-error-detail">{source.last_error}</div>
+            )}
+
+            <div className="harvester-source-controls">
+              <label className="harvester-schedule-label">
+                Schedule:
+                <select
+                  value={source.cron_schedule}
+                  onChange={e => handleScheduleChange(source, e.target.value)}
+                >
+                  {SCHEDULE_OPTIONS.map(opt => (
+                    <option key={opt.cron} value={opt.cron}>{opt.label}</option>
+                  ))}
+                  {!SCHEDULE_OPTIONS.find(o => o.cron === source.cron_schedule) && (
+                    <option value={source.cron_schedule}>{source.cron_schedule}</option>
+                  )}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                className="btn-primary harvester-run-btn"
+                disabled={!!running[source.id] || source.last_status === 'running' || !!source.run_requested_at}
+                onClick={() => handleRunNow(source)}
+              >
+                {running[source.id] ? 'Requesting…' : '▶ Run Now'}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

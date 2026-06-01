@@ -1701,6 +1701,25 @@ const MIGRATIONS = [
   `ALTER TABLE company_integrations
      ADD COLUMN IF NOT EXISTS ha_url   VARCHAR(500),
      ADD COLUMN IF NOT EXISTS ha_token VARCHAR(500)`,
+
+  // ── Migration 263: Harvester — automated receipt/invoice collection ────────
+  `CREATE TABLE IF NOT EXISTS harvester_sources (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name             VARCHAR(255) NOT NULL,
+    connector_type   VARCHAR(100) NOT NULL,
+    cron_schedule    VARCHAR(100),
+    active           BOOLEAN     NOT NULL DEFAULT true,
+    last_run_at      TIMESTAMPTZ,
+    last_success_at  TIMESTAMPTZ,
+    last_status      VARCHAR(50),
+    last_error       TEXT,
+    last_records     INTEGER,
+    run_requested_at TIMESTAMPTZ,
+    config           JSONB,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harvester_sources_company ON harvester_sources(company_id)`,
 ];
 
 export async function runMigrations() {

@@ -702,6 +702,36 @@ export async function disconnectQBO() {
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
 
+// ── Harvester ────────────────────────────────────────────────────────────────
+
+export async function getHarvesterSources() {
+  const res = await fetch(`${API}/harvester/sources`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load harvester sources');
+  return data;
+}
+
+export async function updateHarvesterSource(id, body) {
+  const res = await fetch(`${API}/harvester/sources/${id}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update harvester source');
+  return data;
+}
+
+export async function runHarvesterSource(id) {
+  const res = await fetch(`${API}/harvester/sources/${id}/run`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to trigger harvester run');
+  return data;
+}
+
 export async function uploadReceipts(files) {
   const formData = new FormData();
   for (const file of files) formData.append('pdfs', file);
