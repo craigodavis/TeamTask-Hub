@@ -1723,6 +1723,121 @@ const MIGRATIONS = [
 
   // ── Migration 264: store receipt PDF bytes in the database ─────────────────
   `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS pdf_data BYTEA`,
+
+  // ── Migration 265: Shopping — canonical item catalog ─────────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_items (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name         TEXT        NOT NULL,
+    description  TEXT,
+    category     TEXT,
+    par_qty      NUMERIC(10,2),
+    par_unit     TEXT        DEFAULT 'box',
+    is_routine   BOOLEAN     NOT NULL DEFAULT false,
+    notes        TEXT,
+    created_by   UUID        REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_items_company ON shopping_items(company_id)`,
+
+  // ── Migration 266: Shopping — vendor purchase history per item ────────────
+  `CREATE TABLE IF NOT EXISTS shopping_item_purchases (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shopping_item_id UUID        NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    receipt_item_id  UUID        REFERENCES receipt_items(id) ON DELETE SET NULL,
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    vendor           TEXT,
+    description_raw  TEXT,
+    price            NUMERIC(10,2),
+    quantity         NUMERIC(10,2),
+    purchase_date    DATE,
+    matched_by       TEXT        DEFAULT 'manual' CHECK (matched_by IN ('ai','manual','auto')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_purchases_item ON shopping_item_purchases(shopping_item_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_purchases_company ON shopping_item_purchases(company_id)`,
+
+  // ── Migration 267: Shopping — inventory counts per item per location ──────
+  `CREATE TABLE IF NOT EXISTS shopping_inventory (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shopping_item_id UUID        NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    location_id      UUID        REFERENCES locations(id) ON DELETE CASCADE,
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    sort_order       INTEGER     NOT NULL DEFAULT 0,
+    current_qty      NUMERIC(10,2) DEFAULT 0,
+    last_counted_at  TIMESTAMPTZ,
+    last_counted_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(shopping_item_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_inventory_company ON shopping_inventory(company_id, location_id)`,
+
+  // ── Migration 268: Shopping — count history log ───────────────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_inventory_log (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shopping_item_id UUID        NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    location_id      UUID        REFERENCES locations(id) ON DELETE CASCADE,
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    qty              NUMERIC(10,2) NOT NULL,
+    counted_by       UUID        REFERENCES users(id) ON DELETE SET NULL,
+    counted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_inv_log_item ON shopping_inventory_log(shopping_item_id, counted_at DESC)`,
+
+  // ── Migration 269: Shopping — raw item dedup table ────────────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_item_raw (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    description_raw  TEXT        NOT NULL,
+    vendor           TEXT,
+    last_price       NUMERIC(10,2),
+    last_purchase_date DATE,
+    purchase_count   INTEGER     NOT NULL DEFAULT 1,
+    shopping_item_id UUID        REFERENCES shopping_items(id) ON DELETE SET NULL,
+    ignored          BOOLEAN     NOT NULL DEFAULT false,
+    first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, description_raw, vendor)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_company ON shopping_item_raw(company_id, ignored, shopping_item_id)`,
+
+  // ── Migration 270: Shopping — item stocked per location ───────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_item_locations (
+    shopping_item_id UUID NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    location_id      UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    company_id       UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    PRIMARY KEY (shopping_item_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_locations_company ON shopping_item_locations(company_id, location_id)`,
+  `INSERT INTO shopping_item_locations (shopping_item_id, location_id, company_id)
+   SELECT si.id, l.id, si.company_id
+   FROM shopping_items si
+   JOIN locations l ON l.company_id = si.company_id
+   WHERE si.is_routine = true
+   ON CONFLICT DO NOTHING`,
+
+  // ── Migration 271: Shopping — fuzzy matching + unit pricing (pg_trgm optional) ─
+  `DO $$
+   BEGIN
+     CREATE EXTENSION IF NOT EXISTS pg_trgm;
+   EXCEPTION
+     WHEN OTHERS THEN
+       RAISE NOTICE 'pg_trgm extension unavailable, skipping: %', SQLERRM;
+   END
+   $$`,
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+       CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_trgm
+         ON shopping_item_raw USING gin (description_raw gin_trgm_ops);
+     END IF;
+   END
+   $$`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS quantity_purchased NUMERIC(10,2)`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit TEXT`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,4)`,
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS similarity_score NUMERIC(4,3)`,
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS fuzzy_match_id UUID REFERENCES shopping_items(id) ON DELETE SET NULL`,
 ];
 
 export async function runMigrations() {
@@ -1764,6 +1879,6 @@ export async function runMigrations() {
 }
 
 // Allow running directly: node scripts/run-migrations.js
-if (process.argv[1].endsWith('run-migrations.js')) {
+if (process.argv[1]?.endsWith('run-migrations.js')) {
   runMigrations().then(() => process.exit(0)).catch(() => process.exit(1));
 }

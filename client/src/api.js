@@ -50,6 +50,9 @@ export async function setPin(pin) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to set PIN');
+  // Remember that this device's last user has a PIN, so the login page can
+  // safely show the PIN pad on return.
+  localStorage.setItem('teamtask_has_pin', '1');
   return data;
 }
 
@@ -703,6 +706,162 @@ export async function disconnectQBO() {
 // ── Receipts ──────────────────────────────────────────────────────────────────
 
 // ── Harvester ────────────────────────────────────────────────────────────────
+
+// ── Shopping ──────────────────────────────────────────────────────────────────
+
+export async function getShoppingItems() {
+  const res = await fetch(`${API}/shopping/items`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load shopping items');
+  return data;
+}
+
+export async function createShoppingItem(body) {
+  const res = await fetch(`${API}/shopping/items`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create item');
+  return data;
+}
+
+export async function updateShoppingItem(id, body) {
+  const res = await fetch(`${API}/shopping/items/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update item');
+  return data;
+}
+
+export async function deleteShoppingItem(id) {
+  const res = await fetch(`${API}/shopping/items/${id}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to delete item'); }
+}
+
+export async function getShoppingCategories() {
+  const res = await fetch(`${API}/shopping/categories`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load categories');
+  return data;
+}
+
+export async function mergeShoppingCategories(from_category, to_category) {
+  const res = await fetch(`${API}/shopping/categories/merge`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ from_category, to_category: to_category || null }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update category');
+  return data;
+}
+
+export async function getShoppingItemPurchases(id) {
+  const res = await fetch(`${API}/shopping/items/${id}/purchases`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load purchases');
+  return data;
+}
+
+export async function matchReceiptItem(shoppingItemId, body) {
+  const res = await fetch(`${API}/shopping/items/${shoppingItemId}/match`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to match item');
+  return data;
+}
+
+export async function getRawShoppingItems(matched) {
+  const url = matched !== undefined ? `${API}/shopping/raw?matched=${matched}` : `${API}/shopping/raw`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load raw items');
+  return data;
+}
+
+export async function matchRawShoppingItem(rawId, body) {
+  const res = await fetch(`${API}/shopping/raw/${rawId}/match`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to match item');
+  return data;
+}
+
+export async function ignoreRawShoppingItem(rawId) {
+  const res = await fetch(`${API}/shopping/raw/${rawId}/ignore`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to ignore item');
+  return data;
+}
+
+export async function mergeShoppingItems(keepId, mergeId) {
+  const res = await fetch(`${API}/shopping/items/${keepId}/merge/${mergeId}`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to merge items');
+  return data;
+}
+
+export async function findShoppingDuplicates() {
+  const res = await fetch(`${API}/shopping/items/find-duplicates`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to scan for duplicates');
+  return data;
+}
+
+export async function extractPackSize(itemId, description) {
+  const res = await fetch(`${API}/shopping/items/${itemId}/extract-unit`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ description }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to extract pack size');
+  return data;
+}
+
+export async function getFuzzyMatches() {
+  const res = await fetch(`${API}/shopping/raw/fuzzy`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load fuzzy matches');
+  return data;
+}
+
+export async function syncRawShoppingItems() {
+  const res = await fetch(`${API}/shopping/raw/sync`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to sync');
+  return data;
+}
+
+export async function getUnmatchedReceiptItems() {
+  const res = await fetch(`${API}/shopping/unmatched`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load unmatched items');
+  return data;
+}
+
+export async function getShoppingInventory(locationId) {
+  const url = locationId ? `${API}/shopping/inventory?location_id=${locationId}` : `${API}/shopping/inventory`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load inventory');
+  return data;
+}
+
+export async function updateInventoryCount(itemId, locationId, body) {
+  const res = await fetch(`${API}/shopping/inventory/${itemId}/${locationId}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update count');
+  return data;
+}
+
+export async function reorderInventory(locationId, order) {
+  const res = await fetch(`${API}/shopping/inventory/reorder`, { method: 'POST', headers: headers(), body: JSON.stringify({ location_id: locationId, order }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save order');
+  return data;
+}
+
+export async function getShoppingList(locationId) {
+  const url = locationId ? `${API}/shopping/shopping-list?location_id=${locationId}` : `${API}/shopping/shopping-list`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load shopping list');
+  return data;
+}
 
 export async function getHarvesterSources() {
   const res = await fetch(`${API}/harvester/sources`, { headers: headers() });

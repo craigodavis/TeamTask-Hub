@@ -1,0 +1,51 @@
+.inv-page { padding: 0.75rem; max-width: 600px; margin: 0 auto; }
+.inv-loading { padding: 2rem; text-align: center; color: #666; }
+.inv-error { background: #fdecea; color: #c62828; padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+.inv-empty { text-align: center; padding: 3rem 1rem; color: #666; }
+
+/* Location bar */
+.inv-location-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.inv-loc-btn { flex: 1; padding: 0.6rem; border: 2px solid #e0e0e0; border-radius: 8px; background: #fff;
+  font-size: 0.95rem; cursor: pointer; font-weight: 500; }
+.inv-loc-btn.active { border-color: #1976d2; background: #e3f2fd; color: #1565c0; }
+
+/* Item list */
+.inv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.inv-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem;
+  background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; cursor: grab; }
+.inv-item.needs-reorder { border-color: #f44336; background: #fff8f8; }
+.inv-item.drag-over { border-color: #1976d2; background: #e3f2fd; opacity: 0.8; }
+.inv-drag-handle { color: #bbb; font-size: 1.2rem; cursor: grab; flex-shrink: 0; }
+.inv-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.inv-item-name { font-weight: 600; font-size: 1rem; }
+.inv-item-cat { font-size: 0.75rem; color: #888; }
+.inv-item-par { font-size: 0.8rem; color: #555; }
+.inv-need-badge { color: #f44336; font-weight: 600; }
+.inv-last-count { font-size: 0.75rem; color: #aaa; }
+
+/* Count button — big tap target */
+.inv-count-btn { min-width: 64px; height: 56px; border-radius: 10px; border: 2px solid #1976d2;
+  background: #fff; color: #1976d2; font-size: 1.4rem; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+.inv-count-btn.low { border-color: #f44336; color: #f44336; }
+.inv-count-btn:active { background: #e3f2fd; }
+
+/* Numpad overlay */
+.inv-numpad-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-end; justify-content: center; z-index: 1000; }
+.inv-numpad { background: #fff; border-radius: 20px 20px 0 0; padding: 1.25rem 1rem 2rem;
+  width: 100%; max-width: 400px; }
+.inv-numpad-title { font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; text-align: center; color: #333; }
+.inv-numpad-display { font-size: 2.5rem; font-weight: 700; text-align: center; padding: 0.5rem;
+  background: #f5f5f5; border-radius: 8px; margin-bottom: 1rem; }
+.inv-numpad-unit { font-size: 1rem; font-weight: 400; color: #888; }
+.inv-numpad-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.75rem; }
+.inv-key { height: 64px; border: none; border-radius: 10px; background: #f0f0f0;
+  font-size: 1.5rem; font-weight: 500; cursor: pointer; }
+.inv-key:active { background: #e0e0e0; }
+.inv-key.del { background: #fce4ec; color: #c62828; }
+.inv-numpad-actions { display: flex; gap: 0.5rem; }
+.inv-key-cancel { flex: 1; height: 56px; border: none; border-radius: 10px; background: #f5f5f5;
+  font-size: 1.1rem; cursor: pointer; }
+.inv-key-save { flex: 2; height: 56px; border: none; border-radius: 10px; background: #1976d2;
+  color: #fff; font-size: 1.1rem; font-weight: 600; cursor: pointer; }
+.inv-key-save:active { background: #1565c0; }

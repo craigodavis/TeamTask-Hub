@@ -11,6 +11,8 @@ import { Square } from './pages/Square';
 import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
+import { ShoppingInventory } from './pages/ShoppingInventory';
+import { ShoppingCatalog } from './pages/ShoppingCatalog';
 import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
 import { getGeneralSettings } from './api';
@@ -98,7 +100,9 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/manage" element={<Manager />} />
           <Route path="/food" element={<FoodLayout />}>
-            <Route index element={<Navigate to="waste" replace />} />
+            <Route index element={<Navigate to="inventory" replace />} />
+            <Route path="inventory" element={<ShoppingInventory />} />
+            <Route path="catalog" element={<ShoppingCatalog />} />
             <Route path="ingredients" element={<FoodIngredients />} />
             <Route path="waste" element={<WasteList />} />
             <Route path="waste/:entryId" element={<WasteEntry />} />

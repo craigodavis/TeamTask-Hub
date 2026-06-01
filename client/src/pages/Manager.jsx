@@ -484,7 +484,7 @@ export function Manager() {
       {tab === 'announcements' && (
         <section className="manager-section">
           <h2>Announcements</h2>
-          <AnnouncementForm locations={locations} onCreated={loadAnnouncements} />
+          <AnnouncementForm locations={locations} timezone={timezone} onCreated={loadAnnouncements} />
           <ul className="announcement-list">
             {announcements.map((a) => (
               <li key={a.id}>
@@ -944,11 +944,11 @@ function UserRow({ user, locations, currentUserId, onRoleChange, onLocationChang
   );
 }
 
-function AnnouncementForm({ locations, onCreated }) {
+function AnnouncementForm({ locations, timezone, onCreated }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [from, setFrom] = useState(todayStr());
-  const [to, setTo] = useState(todayStr());
+  const [from, setFrom] = useState(() => todayInTimezone(timezone));
+  const [to, setTo] = useState(() => todayInTimezone(timezone));
   const [locationIds, setLocationIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
