@@ -124,9 +124,9 @@ router.post('/items/:id/match', requireAuth, async (req, res) => {
 router.get('/raw', requireAuth, async (req, res) => {
   try {
     const { matched } = req.query; // matched=true|false|all
-    let where = `company_id = $1 AND ignored = false`;
-    if (matched === 'false' || !matched) where += ` AND shopping_item_id IS NULL`;
-    else if (matched === 'true') where += ` AND shopping_item_id IS NOT NULL`;
+    let where = `sir.company_id = $1 AND sir.ignored = false`;
+    if (matched === 'false' || !matched) where += ` AND sir.shopping_item_id IS NULL`;
+    else if (matched === 'true') where += ` AND sir.shopping_item_id IS NOT NULL`;
 
     const r = await query(
       `SELECT sir.*, si.name AS matched_item_name
