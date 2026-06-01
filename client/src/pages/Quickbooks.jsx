@@ -282,6 +282,10 @@ export function Quickbooks({ user }) {
       getAmazonStats().then(setAmazonStats).catch(() => {});
     } else if (activeTab === 'settings') {
       getCardMappings().then((d) => setCardMappings(d.mappings || [])).catch(() => {});
+    } else if (activeTab === 'rules') {
+      getRules().then((d) => setRules(d.rules || [])).catch(() => {});
+    } else if (activeTab === 'harvester') {
+      // HarvesterTab loads its own data
     } else {
       loadReceipts(activeTab); // works for pending/reviewed/imported/excluded
     }
@@ -730,7 +734,8 @@ export function Quickbooks({ user }) {
               <button type="button" className={`qb-tab ${activeTab === 'reviewed' ? 'active' : ''}`} onClick={() => setActiveTab('reviewed')}>Reviewed</button>
               <button type="button" className={`qb-tab ${activeTab === 'imported' ? 'active' : ''}`} onClick={() => setActiveTab('imported')}>Imported</button>
               <button type="button" className={`qb-tab qb-tab-excluded ${activeTab === 'excluded' ? 'active' : ''}`} onClick={() => setActiveTab('excluded')}>Excluded</button>
-              <button type="button" className={`qb-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</button>
+              <button type="button" className={`qb-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Payment Mapping</button>
+              <button type="button" className={`qb-tab ${activeTab === 'rules' ? 'active' : ''}`} onClick={() => setActiveTab('rules')}>Rules</button>
               <button type="button" className={`qb-tab ${activeTab === 'harvester' ? 'active' : ''}`} onClick={() => setActiveTab('harvester')}>Harvester</button>
               <button type="button" className={`qb-tab ${activeTab === 'amazon' ? 'active' : ''}`} onClick={() => setActiveTab('amazon')}>
                 Amazon
@@ -1110,20 +1115,13 @@ export function Quickbooks({ user }) {
             </div>
           )}
 
-          {/* ── Categorization Rules ── */}
-          <div className="qb-rules-header" onClick={() => setRulesOpen((o) => !o)}>
-            <h3>⚙️ Categorization Rules <span className="qb-rules-count">{rules.length}</span></h3>
-            <span className="qb-rules-toggle">{rulesOpen ? '▲' : '▼'}</span>
-          </div>
-
-          {rulesOpen && (
+          {activeTab === 'rules' && (
             <div className="qb-rules-body">
               <p className="qb-section-sub" style={{ marginBottom: '0.75rem' }}>
                 Rules run after AI categorization, in priority order (lower number = runs first). First match wins.
               </p>
-
+              <button type="button" className="qb-btn-add-rule" onClick={openNewRule} style={{ marginBottom: '1rem' }}>+ Add Rule</button>
               {rules.length === 0 && <p className="qb-empty">No rules yet. Add one below.</p>}
-
               {rules.map((r) => (
                 <div key={r.id} className={`qb-rule-row ${r.active ? '' : 'inactive'}`}>
                   <div className="qb-rule-left">
@@ -1143,8 +1141,6 @@ export function Quickbooks({ user }) {
                   </div>
                 </div>
               ))}
-
-              <button type="button" className="qb-btn-add-rule" onClick={openNewRule}>+ Add Rule</button>
             </div>
           )}
 
