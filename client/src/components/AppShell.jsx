@@ -97,14 +97,6 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           {isManager && dashboardExpanded && (
             <div className="nav-sub-group">
               <Link
-                to="/manage?tab=announcements"
-                className={`nav-sub-item${location.pathname === '/manage' && new URLSearchParams(location.search).get('tab') === 'announcements' ? ' active' : ''}`}
-                onClick={() => { if (isMobile()) setCollapsed(true); }}
-              >
-                <span className="nav-sub-icon">📢</span>
-                <span>Announcements</span>
-              </Link>
-              <Link
                 to="/manage?tab=tasks"
                 className={`nav-sub-item${location.pathname === '/manage' && new URLSearchParams(location.search).get('tab') === 'tasks' ? ' active' : ''}`}
                 onClick={() => { if (isMobile()) setCollapsed(true); }}
@@ -112,28 +104,38 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                 <span className="nav-sub-icon">✓</span>
                 <span>Manage Tasks</span>
               </Link>
-              <div className="nav-sub-item nav-view-as">
-                <span className="nav-sub-icon">👁</span>
-                <span className="nav-view-as-label">View As</span>
-                {availableRoles && availableRoles.length > 0 && (
-                  <div className="nav-role-pills">
-                    <button
-                      type="button"
-                      className={`nav-role-pill${!emulateRole ? ' active' : ''}`}
-                      onClick={() => setEmulateRole(null)}
-                    >All</button>
-                    {availableRoles.map((role) => (
-                      <button
-                        key={role}
-                        type="button"
-                        className={`nav-role-pill${emulateRole === role ? ' active' : ''}`}
-                        onClick={() => setEmulateRole(role)}
-                      >{role}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
+          )}
+          {isManager && (
+            <NavLink
+              to="/manage?tab=announcements"
+              className={() => `app-shell-nav-item${isManageTabActive(location, 'announcements') ? ' active' : ''}`}
+              data-icon="📢"
+              title="Announcements"
+              onClick={() => { if (isMobile()) setCollapsed(true); }}
+            >
+              <span>Announcements</span>
+            </NavLink>
+          )}
+          {isManager && (
+            <NavLink
+              to="/square"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="✨"
+              title="Kindred AI"
+            >
+              <span>Kindred AI</span>
+            </NavLink>
+          )}
+          {isManager && (
+            <NavLink
+              to="/skynet"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🤖"
+              title="Skynet"
+            >
+              <span>Skynet</span>
+            </NavLink>
           )}
           <NavLink
             to="/food"
@@ -153,16 +155,6 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               title="Receipts"
             >
               <span>Receipts</span>
-            </NavLink>
-          )}
-          {isManager && (
-            <NavLink
-              to="/square"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="✨"
-              title="Kindred AI"
-            >
-              <span>Kindred AI</span>
             </NavLink>
           )}
           {isManager && (
@@ -193,16 +185,6 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               title="Gateway"
             >
               <span>Gateway</span>
-            </NavLink>
-          )}
-          {isManager && (
-            <NavLink
-              to="/skynet"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🤖"
-              title="Skynet"
-            >
-              <span>Skynet</span>
             </NavLink>
           )}
           {canAccessGC && (
