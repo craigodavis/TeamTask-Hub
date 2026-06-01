@@ -257,7 +257,7 @@ async function getHAConfig(companyId) {
     [companyId]
   );
   const row = r.rows[0] || {};
-  const url = row.ha_url?.trim() || process.env.HA_URL || 'http://localhost:8123';
+  const url = (row.ha_url?.trim() || process.env.HA_URL || 'http://localhost:8123').replace(/\/+$/, '');
   const token = row.ha_token?.trim() || process.env.HA_TOKEN || null;
   return { url, token };
 }
