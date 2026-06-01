@@ -316,6 +316,57 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── POST /api/receipts/:id/process ────────────────────────────────────────────
+// Run AI extraction on a receipt that was imported by Harvester (has raw_path but no items).
+router.post('/:id/process', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { id } = req.params;
+  try {
+    const rr = await query(`SELECT * FROM receipts WHERE id = $1 AND company_id = $2`, [id, cId]);
+    if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+    const receipt = rr.rows[0];
+
+    if (!receipt.raw_path) {
+      return res.status(400).json({ error: 'No raw PDF path on this receipt.' });
+    }
+
+    if (!fs.existsSync(receipt.raw_path)) {
+      return res.status(400).json({ error: `PDF file not found at: ${receipt.raw_path}` });
+    }
+
+    const pdfBuffer = fs.readFileSync(receipt.raw_path);
+    const filename = receipt.pdf_filename || path.basename(receipt.raw_path);
+
+    // Delete the stub receipt (no items) so processReceiptPDF can create a fresh one with AI extraction
+    await query(`DELETE FROM receipts WHERE id = $1`, [id]);
+
+    const ctx = await loadReceiptContext(cId);
+    const result = await processReceiptPDF(cId, pdfBuffer, filename, ctx);
+
+    if (result.skipped) {
+      return res.status(409).json({ error: 'Receipt already exists with items.' });
+    }
+    if (result.error) {
+      return res.status(500).json({ error: result.error });
+    }
+
+    // Return the newly created receipt with items
+    const newReceipt = await query(`SELECT * FROM receipts WHERE company_id = $1 AND order_number = $2`, [cId, result.order_number]);
+    if (!newReceipt.rows.length) return res.status(500).json({ error: 'Receipt created but could not be retrieved.' });
+
+    const newId = newReceipt.rows[0].id;
+    const items = await query(`SELECT ri.*, qa.name AS account_name, qa.fully_qualified_name AS account_full_name, qc.name AS class_name
+      FROM receipt_items ri
+      LEFT JOIN qbo_accounts qa ON qa.company_id = $2 AND qa.qbo_id = ri.qbo_account_id
+      LEFT JOIN qbo_classes  qc ON qc.company_id = $2 AND qc.qbo_id = ri.qbo_class_id
+      WHERE ri.receipt_id = $1 ORDER BY ri.created_at`, [newId, cId]);
+
+    res.json({ ...newReceipt.rows[0], items: items.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/receipts/:id/accept-all ────────────────────────────────────────
 // Accept all pending items on this receipt and mark it reviewed.
 // Rules are applied immediately before accepting so the latest rules take effect.
