@@ -128,8 +128,8 @@ export function ShoppingInventory() {
 
       {inventory.length === 0 && (
         <div className="inv-empty">
-          <p>No items on the routine shopping list yet.</p>
-          <p>Add items in <strong>Item Catalog</strong> and toggle them as routine.</p>
+          <p>No items stocked at this location yet.</p>
+          <p>In <strong>Item Catalog</strong>, edit an item and check this location under &quot;Stock at locations.&quot;</p>
         </div>
       )}
 

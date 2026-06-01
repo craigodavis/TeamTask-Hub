@@ -732,6 +732,24 @@ export async function deleteShoppingItem(id) {
   if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to delete item'); }
 }
 
+export async function getShoppingCategories() {
+  const res = await fetch(`${API}/shopping/categories`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load categories');
+  return data;
+}
+
+export async function mergeShoppingCategories(from_category, to_category) {
+  const res = await fetch(`${API}/shopping/categories/merge`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ from_category, to_category: to_category || null }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update category');
+  return data;
+}
+
 export async function getShoppingItemPurchases(id) {
   const res = await fetch(`${API}/shopping/items/${id}/purchases`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
@@ -765,6 +783,36 @@ export async function ignoreRawShoppingItem(rawId) {
   const res = await fetch(`${API}/shopping/raw/${rawId}/ignore`, { method: 'POST', headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to ignore item');
+  return data;
+}
+
+export async function mergeShoppingItems(keepId, mergeId) {
+  const res = await fetch(`${API}/shopping/items/${keepId}/merge/${mergeId}`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to merge items');
+  return data;
+}
+
+export async function findShoppingDuplicates() {
+  const res = await fetch(`${API}/shopping/items/find-duplicates`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to scan for duplicates');
+  return data;
+}
+
+export async function extractPackSize(itemId, description) {
+  const res = await fetch(`${API}/shopping/items/${itemId}/extract-unit`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ description }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to extract pack size');
+  return data;
+}
+
+export async function getFuzzyMatches() {
+  const res = await fetch(`${API}/shopping/raw/fuzzy`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load fuzzy matches');
   return data;
 }
 

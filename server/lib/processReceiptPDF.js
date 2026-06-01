@@ -157,8 +157,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
       );
     }
 
-    // 9. Upsert into shopping_item_raw for deduplication catalog
-    // Skip if receipt is from a personal-use card (excluded status)
+    // 9. Upsert into shopping_item_raw with three-layer duplicate detection
     const receiptStatusRes = await query(`SELECT status FROM receipts WHERE id = $1`, [receiptId]);
     const receiptStatus = receiptStatusRes.rows[0]?.status;
     if (receiptStatus !== 'excluded') {
@@ -166,7 +165,10 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
       const vendorName = vendor || 'Amazon';
       for (const item of categorized) {
         if (!item.description?.trim()) continue;
-        await query(
+        const desc = item.description.trim();
+
+        // Layer 1: exact upsert (case-insensitive handled by UNIQUE constraint)
+        const upsertRes = await query(
           `INSERT INTO shopping_item_raw
              (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
            VALUES ($1, $2, $3, $4, $5, 1)
@@ -174,10 +176,46 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
              last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01') THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
              last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
              purchase_count     = shopping_item_raw.purchase_count + 1,
-             updated_at         = NOW()`,
-          [companyId, item.description.trim(), vendorName,
-           item.total ?? null, purchaseDate]
+             updated_at         = NOW()
+           RETURNING id, (xmax = 0) AS is_new`,
+          [companyId, desc, vendorName, item.total ?? null, purchaseDate]
         );
+
+        const rawId = upsertRes.rows[0]?.id;
+        const isNew = upsertRes.rows[0]?.is_new;
+
+        // Layer 2 & 3: only run on new raw items not yet matched to a catalog item
+        if (isNew && rawId) {
+          // Layer 2: fuzzy match via pg_trgm — find existing catalog items with similarity > 0.6
+          const fuzzyRes = await query(
+            `SELECT id, name, similarity(name, $2) AS sim
+             FROM shopping_items
+             WHERE company_id = $1
+               AND similarity(name, $2) > 0.6
+             ORDER BY sim DESC
+             LIMIT 3`,
+            [companyId, desc]
+          ).catch(() => ({ rows: [] })); // graceful fallback if pg_trgm not yet installed
+
+          if (fuzzyRes.rows.length > 0) {
+            const best = fuzzyRes.rows[0];
+            if (best.sim >= 0.85) {
+              // High confidence — auto-flag as fuzzy match for quick confirmation
+              await query(
+                `UPDATE shopping_item_raw
+                 SET fuzzy_match_id = $2, similarity_score = $3
+                 WHERE id = $1`,
+                [rawId, best.id, best.sim]
+              );
+            } else {
+              // Medium confidence (0.6–0.85) — flag for AI review (processed in bulk by background job)
+              await query(
+                `UPDATE shopping_item_raw SET similarity_score = $2 WHERE id = $1`,
+                [rawId, best.sim]
+              );
+            }
+          }
+        }
       }
     }
 

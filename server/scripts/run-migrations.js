@@ -1800,6 +1800,30 @@ const MIGRATIONS = [
     UNIQUE(company_id, description_raw, vendor)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_company ON shopping_item_raw(company_id, ignored, shopping_item_id)`,
+
+  // ── Migration 271: Shopping — fuzzy matching + unit pricing ─────────────
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_trgm ON shopping_item_raw USING gin(description_raw gin_trgm_ops)`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS quantity_purchased NUMERIC(10,2)`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit TEXT`,
+  `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,4)`,
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS similarity_score NUMERIC(4,3)`,
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS fuzzy_match_id UUID REFERENCES shopping_items(id) ON DELETE SET NULL`,
+
+  // ── Migration 270: Shopping — item stocked per location ───────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_item_locations (
+    shopping_item_id UUID NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    location_id      UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    company_id       UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    PRIMARY KEY (shopping_item_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_locations_company ON shopping_item_locations(company_id, location_id)`,
+  `INSERT INTO shopping_item_locations (shopping_item_id, location_id, company_id)
+   SELECT si.id, l.id, si.company_id
+   FROM shopping_items si
+   JOIN locations l ON l.company_id = si.company_id
+   WHERE si.is_routine = true
+   ON CONFLICT DO NOTHING`,
 ];
 
 export async function runMigrations() {
