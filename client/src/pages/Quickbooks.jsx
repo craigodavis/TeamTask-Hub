@@ -676,8 +676,7 @@ export function Quickbooks({ user }) {
           <div className="qb-status-card">
             <div className="qb-status-row">
               <span className="qb-status-dot connected" />
-              <span>Connected — Realm {status.realm_id}</span>
-              <span className="qb-env-badge">{status.environment}</span>
+              <span>QuickBooks {status.environment === 'sandbox' ? 'Sandbox' : 'Live'}</span>
             </div>
             <div className="qb-sync-info">
               {status.last_synced
