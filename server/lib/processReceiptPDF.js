@@ -33,7 +33,7 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
  * Pass the result into processReceiptPDF to avoid repeated DB queries.
  */
 export async function loadReceiptContext(companyId) {
-  const [accountsRes, classesRes, memoryRes, rulesRes] = await Promise.all([
+  const [accountsRes, classesRes, memoryRes, rulesRes, integRes] = await Promise.all([
     query(`SELECT qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active
            FROM qbo_accounts WHERE company_id = $1`, [companyId]),
     query(`SELECT qbo_id, name, fully_qualified_name, active
@@ -41,13 +41,15 @@ export async function loadReceiptContext(companyId) {
     query(`SELECT product_pattern, qbo_account_id, qbo_class_id
            FROM product_memory WHERE company_id = $1`, [companyId]),
     query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [companyId]),
+    query(`SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [companyId]),
   ]);
   return {
-    accounts:    accountsRes.rows,
-    classes:     classesRes.rows,
-    memory:      memoryRes.rows,
-    rules:       rulesRes.rows,
-    rulesPrompt: buildRulesPrompt(rulesRes.rows),
+    accounts:       accountsRes.rows,
+    classes:        classesRes.rows,
+    memory:         memoryRes.rows,
+    rules:          rulesRes.rows,
+    rulesPrompt:    buildRulesPrompt(rulesRes.rows),
+    anthropicApiKey: integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY || null,
   };
 }
 
@@ -61,7 +63,7 @@ export async function loadReceiptContext(companyId) {
  * @returns {object}             — result object (see module docblock)
  */
 export async function processReceiptPDF(companyId, buffer, filename, ctx) {
-  const { accounts, classes, memory, rules, rulesPrompt } = ctx;
+  const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey } = ctx;
 
   try {
     // 1. Extract text from PDF
@@ -71,7 +73,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
     // 2. Claude extracts structured receipt data
     let receiptData;
     try {
-      receiptData = await extractReceiptData(pdfText);
+      receiptData = await extractReceiptData(pdfText, anthropicApiKey);
     } catch (aiErr) {
       return { filename, error: `AI extraction failed: ${aiErr.message}` };
     }
@@ -100,7 +102,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
     let categorized = [];
     if (items?.length && accounts.length) {
       try {
-        categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt);
+        categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt, anthropicApiKey);
       } catch (catErr) {
         console.error('[receipt] categorization failed:', catErr.message);
         categorized = (items || []).map((it) => ({

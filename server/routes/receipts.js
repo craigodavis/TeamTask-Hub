@@ -274,11 +274,12 @@ router.post('/suggest-rule', requireAuth, requireOwner, async (req, res) => {
   const { corrections } = req.body;
   if (!Array.isArray(corrections) || !corrections.length) return res.json({ suggestions: [] });
   try {
-    const accountsRes = await query(
-      `SELECT qbo_id, name, fully_qualified_name, account_type, classification FROM qbo_accounts WHERE company_id = $1`,
-      [cId]
-    );
-    const suggestions = await suggestRulesFromCorrections(corrections, accountsRes.rows);
+    const [accountsRes, integRes] = await Promise.all([
+      query(`SELECT qbo_id, name, fully_qualified_name, account_type, classification FROM qbo_accounts WHERE company_id = $1`, [cId]),
+      query(`SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [cId]),
+    ]);
+    const anthropicApiKey = integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY || null;
+    const suggestions = await suggestRulesFromCorrections(corrections, accountsRes.rows, anthropicApiKey);
     res.json({ suggestions });
   } catch (err) {
     console.error('[suggest-rule]', err.message);
