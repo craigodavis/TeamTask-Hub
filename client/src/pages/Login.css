@@ -116,10 +116,13 @@
   font-size: 0.9rem;
 }
 
-/* Override login-card button width for pin pad — keys should NOT be full-width */
+/* Override login-card button styles for pin pad keys */
 .login-pin-section .pin-pad__key {
   width: auto;
   padding: 0;
   min-height: 64px;
-  background: var(--card, #fff);
+  background: var(--surface, #fff);
+  color: var(--text, #1a1a1a);
+  border: 1px solid var(--border, #ddd);
+  font-weight: 500;
 }
