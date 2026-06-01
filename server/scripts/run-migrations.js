@@ -1723,6 +1723,66 @@ const MIGRATIONS = [
 
   // ── Migration 264: store receipt PDF bytes in the database ─────────────────
   `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS pdf_data BYTEA`,
+
+  // ── Migration 265: Shopping — canonical item catalog ─────────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_items (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name         TEXT        NOT NULL,
+    description  TEXT,
+    category     TEXT,
+    par_qty      NUMERIC(10,2),
+    par_unit     TEXT        DEFAULT 'box',
+    is_routine   BOOLEAN     NOT NULL DEFAULT false,
+    notes        TEXT,
+    created_by   UUID        REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_items_company ON shopping_items(company_id)`,
+
+  // ── Migration 266: Shopping — vendor purchase history per item ────────────
+  `CREATE TABLE IF NOT EXISTS shopping_item_purchases (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shopping_item_id UUID        NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    receipt_item_id  UUID        REFERENCES receipt_items(id) ON DELETE SET NULL,
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    vendor           TEXT,
+    description_raw  TEXT,
+    price            NUMERIC(10,2),
+    quantity         NUMERIC(10,2),
+    purchase_date    DATE,
+    matched_by       TEXT        DEFAULT 'manual' CHECK (matched_by IN ('ai','manual','auto')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_purchases_item ON shopping_item_purchases(shopping_item_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_purchases_company ON shopping_item_purchases(company_id)`,
+
+  // ── Migration 267: Shopping — inventory counts per item per location ──────
+  `CREATE TABLE IF NOT EXISTS shopping_inventory (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shopping_item_id UUID        NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    location_id      UUID        REFERENCES locations(id) ON DELETE CASCADE,
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    sort_order       INTEGER     NOT NULL DEFAULT 0,
+    current_qty      NUMERIC(10,2) DEFAULT 0,
+    last_counted_at  TIMESTAMPTZ,
+    last_counted_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(shopping_item_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_inventory_company ON shopping_inventory(company_id, location_id)`,
+
+  // ── Migration 268: Shopping — count history log ───────────────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_inventory_log (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shopping_item_id UUID        NOT NULL REFERENCES shopping_items(id) ON DELETE CASCADE,
+    location_id      UUID        REFERENCES locations(id) ON DELETE CASCADE,
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    qty              NUMERIC(10,2) NOT NULL,
+    counted_by       UUID        REFERENCES users(id) ON DELETE SET NULL,
+    counted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_inv_log_item ON shopping_inventory_log(shopping_item_id, counted_at DESC)`,
 ];
 
 export async function runMigrations() {

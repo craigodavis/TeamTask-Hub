@@ -704,6 +704,85 @@ export async function disconnectQBO() {
 
 // ── Harvester ────────────────────────────────────────────────────────────────
 
+// ── Shopping ──────────────────────────────────────────────────────────────────
+
+export async function getShoppingItems() {
+  const res = await fetch(`${API}/shopping/items`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load shopping items');
+  return data;
+}
+
+export async function createShoppingItem(body) {
+  const res = await fetch(`${API}/shopping/items`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create item');
+  return data;
+}
+
+export async function updateShoppingItem(id, body) {
+  const res = await fetch(`${API}/shopping/items/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update item');
+  return data;
+}
+
+export async function deleteShoppingItem(id) {
+  const res = await fetch(`${API}/shopping/items/${id}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to delete item'); }
+}
+
+export async function getShoppingItemPurchases(id) {
+  const res = await fetch(`${API}/shopping/items/${id}/purchases`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load purchases');
+  return data;
+}
+
+export async function matchReceiptItem(shoppingItemId, body) {
+  const res = await fetch(`${API}/shopping/items/${shoppingItemId}/match`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to match item');
+  return data;
+}
+
+export async function getUnmatchedReceiptItems() {
+  const res = await fetch(`${API}/shopping/unmatched`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load unmatched items');
+  return data;
+}
+
+export async function getShoppingInventory(locationId) {
+  const url = locationId ? `${API}/shopping/inventory?location_id=${locationId}` : `${API}/shopping/inventory`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load inventory');
+  return data;
+}
+
+export async function updateInventoryCount(itemId, locationId, body) {
+  const res = await fetch(`${API}/shopping/inventory/${itemId}/${locationId}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update count');
+  return data;
+}
+
+export async function reorderInventory(locationId, order) {
+  const res = await fetch(`${API}/shopping/inventory/reorder`, { method: 'POST', headers: headers(), body: JSON.stringify({ location_id: locationId, order }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save order');
+  return data;
+}
+
+export async function getShoppingList(locationId) {
+  const url = locationId ? `${API}/shopping/shopping-list?location_id=${locationId}` : `${API}/shopping/shopping-list`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load shopping list');
+  return data;
+}
+
 export async function getHarvesterSources() {
   const res = await fetch(`${API}/harvester/sources`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

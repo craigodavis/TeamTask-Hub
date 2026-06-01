@@ -152,10 +152,10 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
             className={({ isActive }) =>
               `app-shell-nav-item${isActive || location.pathname.startsWith('/food') ? ' active' : ''}`
             }
-            data-icon="🍽️"
-            title="Food"
+            data-icon="🛒"
+            title="Shopping"
           >
-            <span>Food</span>
+            <span>Shopping</span>
           </NavLink>
           {isManager && (
             <NavLink

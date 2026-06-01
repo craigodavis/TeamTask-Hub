@@ -11,8 +11,22 @@ export function FoodLayout() {
 
   return (
     <div className="food-layout">
-      <h1 className="food-layout-title">Food</h1>
-      <nav className="food-layout-tabs" aria-label="Food sections">
+      <h1 className="food-layout-title">Shopping</h1>
+      <nav className="food-layout-tabs" aria-label="Shopping sections">
+        <NavLink
+          to="/food/inventory"
+          className={({ isActive }) => (isActive ? 'active' : '')}
+        >
+          Inventory
+        </NavLink>
+        {isManager && (
+          <NavLink
+            to="/food/catalog"
+            className={({ isActive }) => (isActive ? 'active' : '')}
+          >
+            Item Catalog
+          </NavLink>
+        )}
         {isManager && (
           <NavLink
             to="/food/ingredients"
