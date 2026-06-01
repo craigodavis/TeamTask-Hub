@@ -157,6 +157,30 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
       );
     }
 
+    // 9. Upsert into shopping_item_raw for deduplication catalog
+    // Skip if receipt is from a personal-use card (excluded status)
+    const receiptStatusRes = await query(`SELECT status FROM receipts WHERE id = $1`, [receiptId]);
+    const receiptStatus = receiptStatusRes.rows[0]?.status;
+    if (receiptStatus !== 'excluded') {
+      const purchaseDate = order_date || null;
+      const vendorName = vendor || 'Amazon';
+      for (const item of categorized) {
+        if (!item.description?.trim()) continue;
+        await query(
+          `INSERT INTO shopping_item_raw
+             (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+           VALUES ($1, $2, $3, $4, $5, 1)
+           ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+             last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01') THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+             last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+             purchase_count     = shopping_item_raw.purchase_count + 1,
+             updated_at         = NOW()`,
+          [companyId, item.description.trim(), vendorName,
+           item.total ?? null, purchaseDate]
+        );
+      }
+    }
+
     return {
       filename, order_number, order_date,
       vendor: vendor || 'Amazon', total,

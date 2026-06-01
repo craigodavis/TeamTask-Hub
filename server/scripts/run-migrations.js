@@ -1783,6 +1783,23 @@ const MIGRATIONS = [
     counted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_shopping_inv_log_item ON shopping_inventory_log(shopping_item_id, counted_at DESC)`,
+
+  // ── Migration 269: Shopping — raw item dedup table ────────────────────────
+  `CREATE TABLE IF NOT EXISTS shopping_item_raw (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id       UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    description_raw  TEXT        NOT NULL,
+    vendor           TEXT,
+    last_price       NUMERIC(10,2),
+    last_purchase_date DATE,
+    purchase_count   INTEGER     NOT NULL DEFAULT 1,
+    shopping_item_id UUID        REFERENCES shopping_items(id) ON DELETE SET NULL,
+    ignored          BOOLEAN     NOT NULL DEFAULT false,
+    first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, description_raw, vendor)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_company ON shopping_item_raw(company_id, ignored, shopping_item_id)`,
 ];
 
 export async function runMigrations() {

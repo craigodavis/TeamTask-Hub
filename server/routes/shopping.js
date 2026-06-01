@@ -118,7 +118,118 @@ router.post('/items/:id/match', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Unmatched receipt items ───────────────────────────────────────────────────
+// ── Raw items queue ───────────────────────────────────────────────────────────
+
+// List unmatched raw items (the matching queue)
+router.get('/raw', requireAuth, async (req, res) => {
+  try {
+    const { matched } = req.query; // matched=true|false|all
+    let where = `company_id = $1 AND ignored = false`;
+    if (matched === 'false' || !matched) where += ` AND shopping_item_id IS NULL`;
+    else if (matched === 'true') where += ` AND shopping_item_id IS NOT NULL`;
+
+    const r = await query(
+      `SELECT sir.*, si.name AS matched_item_name
+       FROM shopping_item_raw sir
+       LEFT JOIN shopping_items si ON si.id = sir.shopping_item_id
+       WHERE ${where}
+       ORDER BY sir.purchase_count DESC, sir.last_purchase_date DESC NULLS LAST
+       LIMIT 500`,
+      [cId(req)]
+    );
+    res.json({ raw: r.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Match raw item to existing shopping_item OR create a new one
+router.post('/raw/:id/match', requireAuth, async (req, res) => {
+  try {
+    const { shopping_item_id, create_new } = req.body;
+    const company = cId(req);
+    let itemId = shopping_item_id;
+
+    // Get the raw item
+    const rawRes = await query(
+      `SELECT * FROM shopping_item_raw WHERE id = $1 AND company_id = $2`,
+      [req.params.id, company]
+    );
+    if (!rawRes.rows.length) return res.status(404).json({ error: 'Raw item not found' });
+    const raw = rawRes.rows[0];
+
+    // Create new shopping_item if requested
+    if (create_new) {
+      const newItem = await query(
+        `INSERT INTO shopping_items (company_id, name, par_unit, created_by)
+         VALUES ($1, $2, 'box', $3) RETURNING id`,
+        [company, create_new.name || raw.description_raw, req.userId]
+      );
+      itemId = newItem.rows[0].id;
+    }
+
+    if (!itemId) return res.status(400).json({ error: 'shopping_item_id or create_new required' });
+
+    // Link raw item to shopping item
+    await query(
+      `UPDATE shopping_item_raw SET shopping_item_id = $2, updated_at = NOW() WHERE id = $1`,
+      [req.params.id, itemId]
+    );
+
+    // Also create a purchase record
+    await query(
+      `INSERT INTO shopping_item_purchases
+         (shopping_item_id, company_id, vendor, price, purchase_date, matched_by)
+       VALUES ($1,$2,$3,$4,$5,'manual')
+       ON CONFLICT DO NOTHING`,
+      [itemId, company, raw.vendor, raw.last_price, raw.last_purchase_date]
+    ).catch(() => {}); // ignore conflict
+
+    const item = await query(`SELECT * FROM shopping_items WHERE id = $1`, [itemId]);
+    res.json({ ok: true, shopping_item: item.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Ignore a raw item (personal item, not relevant)
+router.post('/raw/:id/ignore', requireAuth, async (req, res) => {
+  try {
+    await query(
+      `UPDATE shopping_item_raw SET ignored = true, updated_at = NOW()
+       WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cId(req)]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sync historical receipt_items into shopping_item_raw
+router.post('/raw/sync', requireAuth, async (req, res) => {
+  try {
+    const company = cId(req);
+    const r = await query(
+      `INSERT INTO shopping_item_raw
+         (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+       SELECT
+         r.company_id,
+         ri.description,
+         COALESCE(r.vendor, 'Unknown'),
+         ri.total,
+         r.order_date,
+         1
+       FROM receipt_items ri
+       JOIN receipts r ON r.id = ri.receipt_id AND r.company_id = $1
+       WHERE r.status != 'excluded'
+         AND ri.description IS NOT NULL AND ri.description != ''
+       ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+         last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01') THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+         last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+         purchase_count     = shopping_item_raw.purchase_count + 1,
+         updated_at         = NOW()`,
+      [company]
+    );
+    res.json({ ok: true, synced: r.rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Unmatched receipt items (legacy) ─────────────────────────────────────────
 
 router.get('/unmatched', requireAuth, async (req, res) => {
   try {

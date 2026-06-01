@@ -746,6 +746,35 @@ export async function matchReceiptItem(shoppingItemId, body) {
   return data;
 }
 
+export async function getRawShoppingItems(matched) {
+  const url = matched !== undefined ? `${API}/shopping/raw?matched=${matched}` : `${API}/shopping/raw`;
+  const res = await fetch(url, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load raw items');
+  return data;
+}
+
+export async function matchRawShoppingItem(rawId, body) {
+  const res = await fetch(`${API}/shopping/raw/${rawId}/match`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to match item');
+  return data;
+}
+
+export async function ignoreRawShoppingItem(rawId) {
+  const res = await fetch(`${API}/shopping/raw/${rawId}/ignore`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to ignore item');
+  return data;
+}
+
+export async function syncRawShoppingItems() {
+  const res = await fetch(`${API}/shopping/raw/sync`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to sync');
+  return data;
+}
+
 export async function getUnmatchedReceiptItems() {
   const res = await fetch(`${API}/shopping/unmatched`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
