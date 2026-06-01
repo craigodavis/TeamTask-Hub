@@ -78,9 +78,9 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               end
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
               data-icon="🏠"
-              title="Dashboard"
+              title="Tasks"
             >
-              <span>Dashboard</span>
+              <span>Tasks</span>
             </NavLink>
             {isManager && (
               <button
@@ -88,7 +88,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                 className="nav-sub-chevron"
                 onClick={() => setDashboardExpanded((v) => !v)}
                 aria-expanded={dashboardExpanded}
-                aria-label={dashboardExpanded ? 'Collapse Dashboard menu' : 'Expand Dashboard menu'}
+                aria-label={dashboardExpanded ? 'Collapse Tasks menu' : 'Expand Tasks menu'}
               >
                 {dashboardExpanded ? '−' : '+'}
               </button>
@@ -149,10 +149,10 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
             <NavLink
               to="/quickbooks"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="📒"
-              title="QuickBooks"
+              data-icon="🧾"
+              title="Receipts"
             >
-              <span>QuickBooks</span>
+              <span>Receipts</span>
             </NavLink>
           )}
           {isManager && (

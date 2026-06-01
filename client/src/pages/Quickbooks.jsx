@@ -658,7 +658,7 @@ export function Quickbooks({ user }) {
 
   return (
     <div className="qb-page">
-      <div className="qb-header"><h2>QuickBooks</h2></div>
+      <div className="qb-header"><h2>Receipts</h2></div>
 
       {error && <p className="qb-error">{error}</p>}
       {message && <p className="qb-message">{message}</p>}

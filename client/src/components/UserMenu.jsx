@@ -56,7 +56,7 @@ export function UserMenu({ user, onLogout, compact = false }) {
           {!compact && (
             <>
               <Link to="/" className="user-menu-item" role="menuitem" onClick={close}>
-                Dashboard
+                Tasks
               </Link>
               {isManager && (
                 <Link to="/manage" className="user-menu-item" role="menuitem" onClick={close}>
