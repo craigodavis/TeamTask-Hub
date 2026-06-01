@@ -317,6 +317,32 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── GET /api/receipts/:id/pdf ─────────────────────────────────────────────────
+// Serve the stored receipt PDF inline so it can be viewed in the browser.
+router.get('/:id/pdf', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { id } = req.params;
+  try {
+    const rr = await query(
+      `SELECT pdf_filename FROM receipts WHERE id = $1 AND company_id = $2`,
+      [id, cId]
+    );
+    if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
+
+    const filePath = path.join(UPLOAD_DIR, `${id}.pdf`);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'PDF file not available for this receipt.' });
+    }
+
+    const downloadName = (rr.rows[0].pdf_filename || `receipt-${id}.pdf`).replace(/[^\w.\-]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/receipts/:id/process ────────────────────────────────────────────
 // Run AI extraction on a receipt that was imported by Harvester (has raw_path but no items).
 router.post('/:id/process', requireAuth, requireOwner, async (req, res) => {
