@@ -1838,6 +1838,18 @@ const MIGRATIONS = [
   `ALTER TABLE shopping_item_purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,4)`,
   `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS similarity_score NUMERIC(4,3)`,
   `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS fuzzy_match_id UUID REFERENCES shopping_items(id) ON DELETE SET NULL`,
+
+  // ── Migration 272: Extended receipt_items for vendor-specific structured data ──
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS vendor_item_number TEXT`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS pack_size          TEXT`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS brand              TEXT`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_cases     NUMERIC(10,2)`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS unit_size          TEXT`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS price_per_unit     NUMERIC(10,4)`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS price_unit_type    TEXT`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS delivery_date      DATE`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS submitted_by       TEXT`,
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS vendor_data        JSONB`,
 ];
 
 export async function runMigrations() {
