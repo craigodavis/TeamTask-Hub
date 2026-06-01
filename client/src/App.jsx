@@ -67,11 +67,11 @@ function App() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => {
         setUser(data.user);
-        // Load company timezone immediately after auth
-        return getGeneralSettings();
-      })
-      .then((settings) => {
-        if (settings?.timezone) setTimezone(settings.timezone);
+        // Load company timezone separately — a failure here (e.g. permissions,
+        // transient error) must NEVER clear the auth token. Swallow its errors.
+        getGeneralSettings()
+          .then((settings) => { if (settings?.timezone) setTimezone(settings.timezone); })
+          .catch(() => {});
       })
       .catch(() => localStorage.removeItem('teamtask_token'))
       .finally(() => setLoading(false));
