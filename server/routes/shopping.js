@@ -205,23 +205,28 @@ router.post('/raw/sync', requireAuth, async (req, res) => {
   try {
     const company = cId(req);
     const r = await query(
-      `INSERT INTO shopping_item_raw
+      `WITH agg AS (
+         SELECT
+           r.company_id,
+           ri.description                    AS description_raw,
+           COALESCE(r.vendor, 'Unknown')      AS vendor,
+           MAX(r.order_date)                  AS last_purchase_date,
+           COUNT(*)::integer                  AS purchase_count,
+           (array_agg(ri.total ORDER BY r.order_date DESC NULLS LAST))[1] AS last_price
+         FROM receipt_items ri
+         JOIN receipts r ON r.id = ri.receipt_id AND r.company_id = $1
+         WHERE r.status != 'excluded'
+           AND ri.description IS NOT NULL AND ri.description != ''
+         GROUP BY r.company_id, ri.description, COALESCE(r.vendor, 'Unknown')
+       )
+       INSERT INTO shopping_item_raw
          (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
-       SELECT
-         r.company_id,
-         ri.description,
-         COALESCE(r.vendor, 'Unknown'),
-         ri.total,
-         r.order_date,
-         1
-       FROM receipt_items ri
-       JOIN receipts r ON r.id = ri.receipt_id AND r.company_id = $1
-       WHERE r.status != 'excluded'
-         AND ri.description IS NOT NULL AND ri.description != ''
+       SELECT company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count
+       FROM agg
        ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
-         last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01') THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+         last_price         = COALESCE(EXCLUDED.last_price, shopping_item_raw.last_price),
          last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
-         purchase_count     = shopping_item_raw.purchase_count + 1,
+         purchase_count     = EXCLUDED.purchase_count,
          updated_at         = NOW()`,
       [company]
     );
