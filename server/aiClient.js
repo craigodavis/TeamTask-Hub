@@ -4,18 +4,18 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 
-function getClient() {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set.');
-  return new Anthropic({ apiKey });
+function getClient(apiKey) {
+  const key = apiKey || process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error('Anthropic API key not configured. Set it in Settings → Integrations.');
+  return new Anthropic({ apiKey: key });
 }
 
 /**
  * Extract structured receipt data from raw PDF text.
  * Returns: { order_number, order_date, vendor, subtotal, tax, total, items[] }
  */
-export async function extractReceiptData(pdfText) {
-  const client = getClient();
+export async function extractReceiptData(pdfText, apiKey) {
+  const client = getClient(apiKey);
 
   const message = await client.messages.create({
     model: 'claude-haiku-4-5',
@@ -73,9 +73,9 @@ ${pdfText}`,
  * @param {Array} accounts     All qbo_accounts for the company
  * @returns {Array}            Suggested rule objects (name, if_description_contains, then_account_id, ...)
  */
-export async function suggestRulesFromCorrections(corrections, accounts) {
+export async function suggestRulesFromCorrections(corrections, accounts, apiKey) {
   if (!corrections.length) return [];
-  const client = getClient();
+  const client = getClient(apiKey);
 
   const accountMap = new Map(
     accounts.map((a) => [a.qbo_id, `${a.fully_qualified_name || a.name} [${a.classification || a.account_type || ''}]`])
@@ -129,10 +129,10 @@ Return [] if no clear category pattern can be inferred.`,
   try { return JSON.parse(json); } catch { return []; }
 }
 
-export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '') {
+export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '', apiKey) {
   if (!items.length) return [];
 
-  const client = getClient();
+  const client = getClient(apiKey);
 
   // Build compact references to keep the prompt small.
   // Format: id: Name [Classification > AccountType > SubType]
