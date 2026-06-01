@@ -31,11 +31,11 @@ export function Dashboard() {
   const [showPinModal, setShowPinModal] = useState(false);
 
   useEffect(() => {
-    if (user?.has_pin === false && !sessionStorage.getItem('pin_prompt_shown')) {
+    if (user && !user.has_pin && !sessionStorage.getItem('pin_prompt_shown')) {
       sessionStorage.setItem('pin_prompt_shown', '1');
       setShowPinModal(true);
     }
-  }, [user?.has_pin]);
+  }, [user]);
 
   // Manager-only: emulate another user's dashboard view for troubleshooting
   const [viewAsUserId, setViewAsUserId] = useState('');
