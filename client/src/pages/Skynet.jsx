@@ -324,10 +324,12 @@ export function Skynet() {
   const [loadError,       setLoadError]       = useState('');
   const [runningId,       setRunningId]       = useState(null);
   const [deletingId,      setDeletingId]      = useState(null);
+  const [baseUrl,         setBaseUrl]         = useState('');
 
   const load = useCallback(async () => {
     try {
       const cfg = await getSkynetConfig();
+      if (cfg.baseUrl) setBaseUrl(cfg.baseUrl);
       if (!cfg.baseUrl || !cfg.companyId || !cfg.hasApiKey) {
         setConfigured(false);
         return;
@@ -426,7 +428,19 @@ export function Skynet() {
           <h1>Skynet</h1>
           <p className="skynet-subtitle">Schedule tasks for your AI agents on Paperclip</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Schedule</button>
+        <div className="skynet-header-actions">
+          {baseUrl && (
+            <a
+              className="btn-secondary"
+              href={baseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Skynet ↗
+            </a>
+          )}
+          <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Schedule</button>
+        </div>
       </div>
 
       <TestPanel agents={agents} onSaveAsSchedule={handleSaveAsSchedule} />
