@@ -50,6 +50,9 @@ export async function setPin(pin) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to set PIN');
+  // Remember that this device's last user has a PIN, so the login page can
+  // safely show the PIN pad on return.
+  localStorage.setItem('teamtask_has_pin', '1');
   return data;
 }
 

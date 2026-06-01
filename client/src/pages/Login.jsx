@@ -12,12 +12,15 @@ export function Login({ onLogin }) {
   const [showForgot, setShowForgot] = useState(false);
   const [forgotMessage, setForgotMessage] = useState('');
 
-  // Remembered user / PIN flow
+  // Remembered user / PIN flow — only offer the PIN pad if this device's
+  // last user actually has a PIN set (teamtask_has_pin), otherwise it would
+  // reject every entry and trap the user on the pad.
   const [rememberedEmail, setRememberedEmail] = useState(() => localStorage.getItem('teamtask_last_email') || '');
   const [rememberedName, setRememberedName] = useState(() => localStorage.getItem('teamtask_last_name') || '');
-  const [showPinPad, setShowPinPad] = useState(!!(rememberedEmail));
+  const hasPinFlag = () => !!localStorage.getItem('teamtask_has_pin');
+  const [showPinPad, setShowPinPad] = useState(!!(rememberedEmail) && hasPinFlag());
   const [pinError, setPinError] = useState('');
-  const [usePinPad, setUsePinPad] = useState(!!(rememberedEmail));
+  const [usePinPad, setUsePinPad] = useState(!!(rememberedEmail) && hasPinFlag());
 
   // Post-login PIN setup prompt
   const [pendingUser, setPendingUser] = useState(null);
@@ -31,6 +34,9 @@ export function Login({ onLogin }) {
     // Save last user for PIN quick-login
     localStorage.setItem('teamtask_last_email', user.email);
     localStorage.setItem('teamtask_last_name', user.display_name || user.email);
+    // Keep the has-pin flag in sync with server truth
+    if (user.has_pin) localStorage.setItem('teamtask_has_pin', '1');
+    else localStorage.removeItem('teamtask_has_pin');
 
     if (!user.has_pin) {
       // Prompt to set a PIN before going to the dashboard
@@ -85,6 +91,7 @@ export function Login({ onLogin }) {
   const clearRemembered = () => {
     localStorage.removeItem('teamtask_last_email');
     localStorage.removeItem('teamtask_last_name');
+    localStorage.removeItem('teamtask_has_pin');
     setRememberedEmail('');
     setRememberedName('');
     setShowPinPad(false);
