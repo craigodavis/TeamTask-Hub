@@ -1843,6 +1843,11 @@ const MIGRATIONS = [
   `ALTER TABLE categorization_rules ADD COLUMN IF NOT EXISTS is_ai_rule BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE categorization_rules ADD COLUMN IF NOT EXISTS ai_condition TEXT`,
 
+  // ── Migration 274: Shopping — buy frequency ───────────────────────────────
+  `ALTER TABLE shopping_items ADD COLUMN IF NOT EXISTS buy_frequency    TEXT CHECK (buy_frequency IN ('daily','weekly','biweekly','monthly','adhoc'))`,
+  `ALTER TABLE shopping_items ADD COLUMN IF NOT EXISTS buy_day_of_week  INTEGER CHECK (buy_day_of_week BETWEEN 0 AND 6)`,
+  `ALTER TABLE shopping_items ADD COLUMN IF NOT EXISTS buy_day_of_month INTEGER CHECK (buy_day_of_month BETWEEN 1 AND 31)`,
+
   // ── Migration 272: Extended receipt_items for vendor-specific structured data ──
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS vendor_item_number TEXT`,
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS pack_size          TEXT`,

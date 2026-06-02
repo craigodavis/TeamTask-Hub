@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  getShoppingItems, createShoppingItem, updateShoppingItem, deleteShoppingItem,
+  getShoppingItems, createShoppingItem, updateShoppingItem, deleteShoppingItem, bulkUpdateShoppingItems,
   getRawShoppingItems, matchRawShoppingItem, ignoreRawShoppingItem, syncRawShoppingItems,
   mergeShoppingCategories, getLocations,
   findShoppingDuplicates, mergeShoppingItems,
@@ -10,6 +10,26 @@ import './ShoppingCatalog.css';
 const BLANK = { name: '', category: '', par_qty: '', par_unit: 'box', notes: '', location_ids: [] };
 const ADD_CATEGORY = '__add_new__';
 const UNCATEGORIZED_FILTER = '__uncategorized__';
+
+const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const BUY_FREQUENCIES = [
+  { value: '',          label: '— not set —' },
+  { value: 'daily',     label: 'Daily' },
+  { value: 'weekly',    label: 'Weekly on…' },
+  { value: 'biweekly',  label: 'Bi-Weekly on…' },
+  { value: 'monthly',   label: 'Monthly on the…' },
+  { value: 'adhoc',     label: 'Ad-Hoc' },
+];
+
+function buyFrequencyLabel(item) {
+  if (!item.buy_frequency) return '—';
+  if (item.buy_frequency === 'daily')    return 'Daily';
+  if (item.buy_frequency === 'adhoc')    return 'Ad-Hoc';
+  if (item.buy_frequency === 'weekly')   return `Weekly — ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
+  if (item.buy_frequency === 'biweekly') return `Bi-Weekly — ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
+  if (item.buy_frequency === 'monthly')  return `Monthly — ${item.buy_day_of_month ? `${item.buy_day_of_month}${['th','st','nd','rd'][Math.min(item.buy_day_of_month % 10,3)] || 'th'}` : '?'}`;
+  return item.buy_frequency;
+}
 
 function normName(s) {
   return (s || '').trim().toLowerCase();
@@ -55,7 +75,13 @@ export function ShoppingCatalog() {
   const [saving, setSaving] = useState(false);
   const [addingId, setAddingId] = useState(null);
   const [syncing, setSyncing] = useState(false);
-  const [dupGroups, setDupGroups] = useState(null); // null=not scanned, []=none found, [...]= groups
+  const [dupGroups, setDupGroups] = useState(null);
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkFreq, setBulkFreq] = useState('');
+  const [bulkDayOfWeek, setBulkDayOfWeek] = useState(1);
+  const [bulkDayOfMonth, setBulkDayOfMonth] = useState(1);
+  const [bulkApplying, setBulkApplying] = useState(false); // null=not scanned, []=none found, [...]= groups
   const [scanningDups, setScanningDups] = useState(false);
   const [mergingIds, setMergingIds] = useState(null); // {keepId, mergeId}
   const [search, setSearch] = useState('');
@@ -491,26 +517,84 @@ export function ShoppingCatalog() {
             </div>
           )}
 
+          {/* ── Bulk action bar ── */}
+          {selectedIds.size > 0 && (
+            <div className="catalog-bulk-bar">
+              <span className="catalog-bulk-count">{selectedIds.size} selected</span>
+              <label>Buy Frequency
+                <select value={bulkFreq} onChange={(e) => setBulkFreq(e.target.value)}>
+                  {BUY_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+              </label>
+              {(bulkFreq === 'weekly' || bulkFreq === 'biweekly') && (
+                <label>Day
+                  <select value={bulkDayOfWeek} onChange={(e) => setBulkDayOfWeek(Number(e.target.value))}>
+                    {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                </label>
+              )}
+              {bulkFreq === 'monthly' && (
+                <label>Day of month
+                  <select value={bulkDayOfMonth} onChange={(e) => setBulkDayOfMonth(Number(e.target.value))}>
+                    {Array.from({length:31},(_,i)=>i+1).map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </label>
+              )}
+              <button type="button" className="btn-primary btn-small" disabled={!bulkFreq || bulkApplying}
+                onClick={async () => {
+                  setBulkApplying(true);
+                  try {
+                    const updates = { buy_frequency: bulkFreq || null };
+                    if (bulkFreq === 'weekly' || bulkFreq === 'biweekly') updates.buy_day_of_week = bulkDayOfWeek;
+                    if (bulkFreq === 'monthly') updates.buy_day_of_month = bulkDayOfMonth;
+                    await bulkUpdateShoppingItems([...selectedIds], updates);
+                    await loadCatalog();
+                    setSelectedIds(new Set());
+                    setBulkFreq('');
+                  } catch (e) { setError(e.message); }
+                  finally { setBulkApplying(false); }
+                }}>
+                {bulkApplying ? 'Applying…' : 'Apply'}
+              </button>
+              <button type="button" className="btn-small" onClick={() => setSelectedIds(new Set())}>Clear</button>
+            </div>
+          )}
+
           {loading ? <div className="catalog-loading">Loading…</div> : (
             <table className="catalog-table">
               <thead>
                 <tr>
-                  <th>Name</th><th>Category</th><th>Par</th><th>Routine</th><th>Locations</th><th>Last Purchased</th><th></th>
+                  <th style={{width:'2rem'}}>
+                    <input type="checkbox"
+                      checked={filtered.length > 0 && filtered.every((i) => selectedIds.has(i.id))}
+                      onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((i) => i.id)) : new Set())}
+                    />
+                  </th>
+                  <th>Name</th><th>Category</th><th>Par</th><th>Buy Frequency</th><th>Routine</th><th>Locations</th><th>Last Purchased</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="catalog-empty">
+                    <td colSpan={9} className="catalog-empty">
                       {items.length === 0 ? 'No items yet.' : 'No items match your filters.'}
                     </td>
                   </tr>
                 )}
                 {filtered.map((item) => (
-                  <tr key={item.id} className={(item.location_ids?.length ?? 0) > 0 ? '' : 'catalog-row-inactive'}>
+                  <tr key={item.id} className={`${(item.location_ids?.length ?? 0) > 0 ? '' : 'catalog-row-inactive'}${selectedIds.has(item.id) ? ' catalog-row-selected' : ''}`}>
+                    <td>
+                      <input type="checkbox" checked={selectedIds.has(item.id)}
+                        onChange={(e) => setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          e.target.checked ? next.add(item.id) : next.delete(item.id);
+                          return next;
+                        })} />
+                    </td>
                     <td className="catalog-name">{item.name}</td>
                     <td>{item.category || '—'}</td>
                     <td>{item.par_qty != null ? `${item.par_qty} ${item.par_unit}` : '—'}</td>
+                    <td className="catalog-freq">{buyFrequencyLabel(item)}</td>
                     <td>
                       <label className="catalog-toggle" title={item.is_routine ? 'On routine list — click to remove' : 'Not on routine list — click to add'}>
                         <input type="checkbox" checked={!!item.is_routine} onChange={async () => {

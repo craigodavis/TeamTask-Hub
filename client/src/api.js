@@ -723,6 +723,15 @@ export async function createShoppingItem(body) {
   return data;
 }
 
+export async function bulkUpdateShoppingItems(item_ids, updates) {
+  const res = await fetch(`${API}/shopping/items/bulk`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify({ item_ids, updates }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to bulk update');
+  return data;
+}
+
 export async function updateShoppingItem(id, body) {
   const res = await fetch(`${API}/shopping/items/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));

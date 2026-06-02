@@ -95,3 +95,13 @@
 .catalog-dup-group { background: #fff; border: 1px solid #ffe0b2; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; }
 .catalog-dup-reason { font-size: 0.8rem; color: #888; margin-bottom: 0.5rem; font-style: italic; }
 .catalog-dup-item { display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0; font-size: 0.9rem; }
+
+/* Bulk action bar */
+.catalog-bulk-bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  background: #e3f2fd; border: 1px solid #90caf9; border-radius: 8px;
+  padding: 0.6rem 1rem; margin-bottom: 0.75rem; }
+.catalog-bulk-count { font-weight: 600; font-size: 0.9rem; color: #1565c0; white-space: nowrap; }
+.catalog-bulk-bar label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 500; color: #555; }
+.catalog-bulk-bar select { padding: 0.3rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
+.catalog-row-selected td { background: #e8f4fd !important; }
+.catalog-freq { font-size: 0.82rem; color: #555; white-space: nowrap; }
