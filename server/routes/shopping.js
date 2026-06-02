@@ -138,7 +138,7 @@ router.patch('/items/bulk', requireAuth, async (req, res) => {
     const { item_ids, updates } = req.body;
     if (!Array.isArray(item_ids) || !item_ids.length) return res.status(400).json({ error: 'item_ids array required' });
 
-    const allowed = ['buy_frequency','buy_day_of_week','buy_day_of_month','par_qty','par_unit','category','is_routine'];
+    const allowed = ['buy_frequency','buy_day_of_week','buy_day_of_month','buy_week_of_month','par_qty','par_unit','category','is_routine'];
     const setClauses = [];
     const values = [item_ids, cId(req)];
 

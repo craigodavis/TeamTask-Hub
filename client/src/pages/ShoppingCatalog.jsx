@@ -12,22 +12,33 @@ const ADD_CATEGORY = '__add_new__';
 const UNCATEGORIZED_FILTER = '__uncategorized__';
 
 const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const WEEK_ORDINALS = ['','1st','2nd','3rd','4th','5th'];
+
 const BUY_FREQUENCIES = [
-  { value: '',          label: '— not set —' },
-  { value: 'daily',     label: 'Daily' },
-  { value: 'weekly',    label: 'Weekly on…' },
-  { value: 'biweekly',  label: 'Bi-Weekly on…' },
-  { value: 'monthly',   label: 'Monthly on the…' },
-  { value: 'adhoc',     label: 'Ad-Hoc' },
+  { value: '',                 label: '— not set —' },
+  { value: 'daily',            label: 'Daily' },
+  { value: 'weekly',           label: 'Weekly on…' },
+  { value: 'biweekly',         label: 'Bi-Weekly on…' },
+  { value: 'monthly',          label: 'Monthly on day…' },
+  { value: 'monthly_weekday',  label: 'Monthly on Nth weekday…' },
+  { value: 'adhoc',            label: 'Ad-Hoc' },
 ];
+
+function ordinal(n) {
+  if (!n) return '?';
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 function buyFrequencyLabel(item) {
   if (!item.buy_frequency) return '—';
-  if (item.buy_frequency === 'daily')    return 'Daily';
-  if (item.buy_frequency === 'adhoc')    return 'Ad-Hoc';
-  if (item.buy_frequency === 'weekly')   return `Weekly — ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
-  if (item.buy_frequency === 'biweekly') return `Bi-Weekly — ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
-  if (item.buy_frequency === 'monthly')  return `Monthly — ${item.buy_day_of_month ? `${item.buy_day_of_month}${['th','st','nd','rd'][Math.min(item.buy_day_of_month % 10,3)] || 'th'}` : '?'}`;
+  if (item.buy_frequency === 'daily')            return 'Daily';
+  if (item.buy_frequency === 'adhoc')            return 'Ad-Hoc';
+  if (item.buy_frequency === 'weekly')           return `Weekly — ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
+  if (item.buy_frequency === 'biweekly')         return `Bi-Weekly — ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
+  if (item.buy_frequency === 'monthly')          return `Monthly — ${ordinal(item.buy_day_of_month)}`;
+  if (item.buy_frequency === 'monthly_weekday')  return `Monthly — ${WEEK_ORDINALS[item.buy_week_of_month] || '?'} ${WEEKDAYS[item.buy_day_of_week] || '?'}`;
   return item.buy_frequency;
 }
 
@@ -81,6 +92,7 @@ export function ShoppingCatalog() {
   const [bulkFreq, setBulkFreq] = useState('');
   const [bulkDayOfWeek, setBulkDayOfWeek] = useState(1);
   const [bulkDayOfMonth, setBulkDayOfMonth] = useState(1);
+  const [bulkWeekOfMonth, setBulkWeekOfMonth] = useState(1);
   const [bulkApplying, setBulkApplying] = useState(false); // null=not scanned, []=none found, [...]= groups
   const [scanningDups, setScanningDups] = useState(false);
   const [mergingIds, setMergingIds] = useState(null); // {keepId, mergeId}
@@ -526,17 +538,24 @@ export function ShoppingCatalog() {
                   {BUY_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
               </label>
-              {(bulkFreq === 'weekly' || bulkFreq === 'biweekly') && (
+              {(bulkFreq === 'weekly' || bulkFreq === 'biweekly' || bulkFreq === 'monthly_weekday') && (
                 <label>Day
                   <select value={bulkDayOfWeek} onChange={(e) => setBulkDayOfWeek(Number(e.target.value))}>
                     {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
                   </select>
                 </label>
               )}
+              {bulkFreq === 'monthly_weekday' && (
+                <label>Which
+                  <select value={bulkWeekOfMonth} onChange={(e) => setBulkWeekOfMonth(Number(e.target.value))}>
+                    {[1,2,3,4,5].map((w) => <option key={w} value={w}>{WEEK_ORDINALS[w]}</option>)}
+                  </select>
+                </label>
+              )}
               {bulkFreq === 'monthly' && (
                 <label>Day of month
                   <select value={bulkDayOfMonth} onChange={(e) => setBulkDayOfMonth(Number(e.target.value))}>
-                    {Array.from({length:31},(_,i)=>i+1).map((d) => <option key={d} value={d}>{d}</option>)}
+                    {Array.from({length:31},(_,i)=>i+1).map((d) => <option key={d} value={d}>{ordinal(d)}</option>)}
                   </select>
                 </label>
               )}
@@ -546,6 +565,7 @@ export function ShoppingCatalog() {
                   try {
                     const updates = { buy_frequency: bulkFreq || null };
                     if (bulkFreq === 'weekly' || bulkFreq === 'biweekly') updates.buy_day_of_week = bulkDayOfWeek;
+                    if (bulkFreq === 'monthly_weekday') { updates.buy_day_of_week = bulkDayOfWeek; updates.buy_week_of_month = bulkWeekOfMonth; }
                     if (bulkFreq === 'monthly') updates.buy_day_of_month = bulkDayOfMonth;
                     await bulkUpdateShoppingItems([...selectedIds], updates);
                     await loadCatalog();
