@@ -132,6 +132,34 @@ router.post('/items', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Bulk update items — MUST be before /:id or Express matches 'bulk' as an id
+router.patch('/items/bulk', requireAuth, async (req, res) => {
+  try {
+    const { item_ids, updates } = req.body;
+    if (!Array.isArray(item_ids) || !item_ids.length) return res.status(400).json({ error: 'item_ids array required' });
+
+    const allowed = ['buy_frequency','buy_day_of_week','buy_day_of_month','par_qty','par_unit','category','is_routine'];
+    const setClauses = [];
+    const values = [item_ids, cId(req)];
+
+    for (const [key, val] of Object.entries(updates || {})) {
+      if (!allowed.includes(key)) continue;
+      values.push(val);
+      setClauses.push(`${key} = $${values.length}`);
+    }
+    if (!setClauses.length) return res.status(400).json({ error: 'No valid fields to update' });
+
+    setClauses.push(`updated_at = NOW()`);
+    const r = await query(
+      `UPDATE shopping_items SET ${setClauses.join(', ')}
+       WHERE id = ANY($1::uuid[]) AND company_id = $2
+       RETURNING id`,
+      values
+    );
+    res.json({ ok: true, updated: r.rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.patch('/items/:id', requireAuth, async (req, res) => {
   try {
     const { name, description, category, par_qty, par_unit, is_routine, notes, location_ids } = req.body;
@@ -158,34 +186,6 @@ router.patch('/items/:id', requireAuth, async (req, res) => {
       await setItemLocations(req.params.id, company, location_ids);
     }
     res.json(await itemWithLocationIds(r.rows[0]));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Bulk update items
-router.patch('/items/bulk', requireAuth, async (req, res) => {
-  try {
-    const { item_ids, updates } = req.body;
-    if (!Array.isArray(item_ids) || !item_ids.length) return res.status(400).json({ error: 'item_ids array required' });
-
-    const allowed = ['buy_frequency','buy_day_of_week','buy_day_of_month','par_qty','par_unit','category','is_routine'];
-    const setClauses = [];
-    const values = [item_ids, cId(req)];
-
-    for (const [key, val] of Object.entries(updates || {})) {
-      if (!allowed.includes(key)) continue;
-      values.push(val);
-      setClauses.push(`${key} = $${values.length}`);
-    }
-    if (!setClauses.length) return res.status(400).json({ error: 'No valid fields to update' });
-
-    setClauses.push(`updated_at = NOW()`);
-    const r = await query(
-      `UPDATE shopping_items SET ${setClauses.join(', ')}
-       WHERE id = ANY($1::uuid[]) AND company_id = $2
-       RETURNING id`,
-      values
-    );
-    res.json({ ok: true, updated: r.rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
