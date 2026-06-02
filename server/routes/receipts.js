@@ -285,6 +285,78 @@ router.post('/reapply-all-rules', requireAuth, requireOwner, async (req, res) =>
   }
 });
 
+// ── POST /api/receipts/categorize-all ────────────────────────────────────────
+// Run full AI categorization (+ AI condition rules) on ALL pending receipts
+// that have uncategorized line items. Expensive — runs once to bootstrap.
+router.post('/categorize-all', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  try {
+    const [receiptsRes, accountsRes, classesRes, memoryRes, rulesRes, integRes] = await Promise.all([
+      query(`SELECT r.id, r.vendor FROM receipts r WHERE r.company_id = $1 AND r.status = 'pending'
+             AND EXISTS (SELECT 1 FROM receipt_items ri WHERE ri.receipt_id = r.id AND ri.qbo_account_id IS NULL)`, [cId]),
+      query(`SELECT qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active FROM qbo_accounts WHERE company_id = $1`, [cId]),
+      query(`SELECT qbo_id, name, fully_qualified_name, active FROM qbo_classes WHERE company_id = $1`, [cId]),
+      query(`SELECT product_pattern, qbo_account_id, qbo_class_id FROM product_memory WHERE company_id = $1`, [cId]),
+      query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
+      query(`SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [cId]),
+    ]);
+
+    const apiKey = integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not configured in Settings → Integrations' });
+
+    const { categorizeLineItems } = await import('../aiClient.js');
+    const { applyRulesAsync, buildRulesPrompt } = await import('../rulesEngine.js');
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const getClient = () => new Anthropic({ apiKey });
+
+    const accounts   = accountsRes.rows;
+    const classes    = classesRes.rows;
+    const memory     = memoryRes.rows;
+    const rules      = rulesRes.rows;
+    const rulesPrompt = buildRulesPrompt(rules);
+
+    let itemsUpdated = 0, receiptsProcessed = 0;
+
+    for (const receipt of receiptsRes.rows) {
+      const itemsRes = await query(
+        `SELECT * FROM receipt_items WHERE receipt_id = $1 AND qbo_account_id IS NULL`,
+        [receipt.id]
+      );
+      if (!itemsRes.rows.length) continue;
+
+      // First apply AI condition rules, then run general AI categorization
+      let categorized;
+      try {
+        categorized = await categorizeLineItems(itemsRes.rows, accounts, classes, memory, rulesPrompt, apiKey);
+      } catch {
+        categorized = itemsRes.rows.map((it) => ({ ...it, qbo_account_id: null, qbo_class_id: null, confidence: 0, reasoning: '' }));
+      }
+
+      for (let i = 0; i < itemsRes.rows.length; i++) {
+        const item = { ...itemsRes.rows[i], ...categorized[i] };
+        // Apply rules (including AI condition rules) on top of AI suggestion
+        const override = await applyRulesAsync(item, receipt.vendor, rules, accounts, getClient);
+        await query(
+          `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3, rule_applied = $4,
+           ai_confidence = $5 WHERE id = $1`,
+          [itemsRes.rows[i].id,
+           override.qbo_account_id ?? categorized[i]?.qbo_account_id ?? null,
+           override.qbo_class_id   ?? categorized[i]?.qbo_class_id   ?? null,
+           override.rule_applied   ?? null,
+           categorized[i]?.confidence ?? null]
+        );
+        itemsUpdated++;
+      }
+      receiptsProcessed++;
+    }
+
+    res.json({ ok: true, receipts_processed: receiptsProcessed, items_updated: itemsUpdated });
+  } catch (err) {
+    console.error('[categorize-all]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/receipts/suggest-rule ──────────────────────────────────────────
 // AI suggests categorization rules based on user corrections.
 // Body: { corrections: [{ description, total, old_account_id, new_account_id, new_class_id }] }

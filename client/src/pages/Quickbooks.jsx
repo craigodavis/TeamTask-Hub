@@ -5,7 +5,7 @@ import {
   getQBOStatus, syncQBO,
   uploadReceipts, getReceipts, getReceipt, openReceiptPdf, saveReceiptItems, acceptAllItems, deleteReceipt, processReceiptWithAI,
   getPaymentAccounts, savePaymentAccount, previewExport, confirmExport, searchQBOPurchases,
-  getRules, createRule, updateRule, deleteRule, reapplyRules, reapplyAllRules, suggestRule,
+  getRules, createRule, updateRule, deleteRule, reapplyRules, reapplyAllRules, suggestRule, categorizeAllReceipts,
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
   getCardMappings, saveCardMapping, deleteCardMapping,
   getHarvesterSources, updateHarvesterSource, runHarvesterSource,
@@ -171,6 +171,7 @@ function AccountSelect({ value, onChange, accounts, placeholder = 'Search accoun
 
 const BLANK_RULE = {
   name: '', priority: 100,
+  is_ai_rule: false, ai_condition: '',
   if_description_contains: '', if_vendor: '', if_account_type_contains: '',
   then_account_id: '', then_class_id: '', then_clear: false,
   notes: '', active: true,
@@ -225,6 +226,7 @@ export function Quickbooks({ user }) {
   // Re-apply rules
   const [reapplying, setReapplying] = useState(null); // receipt id being reapplied
   const [reapplyingAll, setReapplyingAll] = useState(false);
+  const [categorizingAll, setCategorizingAll] = useState(false);
 
   // Rule suggestions (generated after user corrects categories)
   const [ruleSuggestions, setRuleSuggestions] = useState([]); // [{name, if_description_contains, then_account_id, ...}]
@@ -557,6 +559,18 @@ export function Quickbooks({ user }) {
     finally { setReapplyingAll(false); }
   };
 
+  // ── Bulk AI categorization ──
+  const handleCategorizeAll = async () => {
+    if (!confirm('Run AI categorization on all pending uncategorized receipts? This may take a minute and will use your Anthropic API credits.')) return;
+    setCategorizingAll(true); setError(''); setMessage('');
+    try {
+      const r = await categorizeAllReceipts();
+      setMessage(`AI categorization complete — ${r.items_updated} item${r.items_updated !== 1 ? 's' : ''} categorized across ${r.receipts_processed} receipt${r.receipts_processed !== 1 ? 's' : ''}.`);
+      loadReceipts(activeTab);
+    } catch (e) { setError(e.message); }
+    finally { setCategorizingAll(false); }
+  };
+
   // ── Rules ──
   const handleReapplyRules = async (receiptId) => {
     setReapplying(receiptId);
@@ -645,15 +659,17 @@ export function Quickbooks({ user }) {
   };
 
   const describeRule = (r) => {
-    const conds = [];
-    if (r.if_description_contains) conds.push(`description contains "${r.if_description_contains}"`);
-    if (r.if_vendor) conds.push(`vendor is "${r.if_vendor}"`);
-    if (r.if_account_type_contains) conds.push(`account type contains "${r.if_account_type_contains}"`);
     const acts = [];
     if (r.then_clear) acts.push('clear suggestion');
     if (r.then_account_name || r.then_account_full_name) acts.push(`account → ${r.then_account_full_name || r.then_account_name}`);
     if (r.then_class_name) acts.push(`class → ${r.then_class_name}`);
-    return `IF ${conds.join(' AND ') || '(any)'} → THEN ${acts.join(', ') || '(no action)'}`;
+    const actStr = acts.join(', ') || '(no action)';
+    if (r.is_ai_rule) return `✨ AI: "${r.ai_condition}" → ${actStr}`;
+    const conds = [];
+    if (r.if_description_contains) conds.push(`description contains "${r.if_description_contains}"`);
+    if (r.if_vendor) conds.push(`vendor is "${r.if_vendor}"`);
+    if (r.if_account_type_contains) conds.push(`account type contains "${r.if_account_type_contains}"`);
+    return `IF ${conds.join(' AND ') || '(any)'} → THEN ${actStr}`;
   };
 
   if (!isOwner) {
@@ -787,6 +803,9 @@ export function Quickbooks({ user }) {
               )}
               <button type="button" className="qb-btn-reapply-all" onClick={handleReapplyAllRules} disabled={reapplyingAll}>
                 {reapplyingAll ? 'Re-applying…' : '⚙ Reapply All Rules'}
+              </button>
+              <button type="button" className="qb-btn-ai-categorize" onClick={handleCategorizeAll} disabled={categorizingAll}>
+                {categorizingAll ? '✨ Categorizing…' : '✨ Run AI Categorization'}
               </button>
             </div>
           )}
@@ -1163,21 +1182,42 @@ export function Quickbooks({ user }) {
                     <input type="number" value={ruleForm.priority} onChange={(e) => handleRuleFormChange('priority', parseInt(e.target.value) || 100)} min={1} />
                   </div>
 
-                  <div className="qb-form-section">IF (conditions — all must match)</div>
+                  {/* Rule type toggle */}
+                  <div className="qb-form-row">
+                    <label style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="checkbox" checked={!!ruleForm.is_ai_rule} onChange={(e) => handleRuleFormChange('is_ai_rule', e.target.checked)} />
+                      <span>✨ AI condition rule <span className="qb-form-hint">(Claude evaluates a natural language question)</span></span>
+                    </label>
+                  </div>
 
-                  <div className="qb-form-row">
-                    <label>Description contains</label>
-                    <input type="text" value={ruleForm.if_description_contains} onChange={(e) => handleRuleFormChange('if_description_contains', e.target.value)} placeholder='e.g. food   or   food AND (label OR container)' />
-                    <span className="qb-form-hint">Words are AND'd by default. Use AND, OR, and ( ) for logic.</span>
-                  </div>
-                  <div className="qb-form-row">
-                    <label>Vendor is</label>
-                    <input type="text" value={ruleForm.if_vendor} onChange={(e) => handleRuleFormChange('if_vendor', e.target.value)} placeholder="e.g. Amazon" />
-                  </div>
-                  <div className="qb-form-row">
-                    <label>AI-suggested account type contains</label>
-                    <input type="text" value={ruleForm.if_account_type_contains} onChange={(e) => handleRuleFormChange('if_account_type_contains', e.target.value)} placeholder="e.g. Asset, Other Asset, Fixed Asset" />
-                  </div>
+                  {ruleForm.is_ai_rule ? (
+                    <>
+                      <div className="qb-form-section">IF (AI condition)</div>
+                      <div className="qb-form-row">
+                        <label>Ask Claude</label>
+                        <input type="text" value={ruleForm.ai_condition} onChange={(e) => handleRuleFormChange('ai_condition', e.target.value)}
+                          placeholder='e.g. Is this a food ingredient or food product?' />
+                        <span className="qb-form-hint">Claude answers YES/NO for each item. YES → apply the THEN actions below.</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="qb-form-section">IF (conditions — all must match)</div>
+                      <div className="qb-form-row">
+                        <label>Description contains</label>
+                        <input type="text" value={ruleForm.if_description_contains} onChange={(e) => handleRuleFormChange('if_description_contains', e.target.value)} placeholder='e.g. food   or   food AND (label OR container)' />
+                        <span className="qb-form-hint">Words are AND'd by default. Use AND, OR, and ( ) for logic.</span>
+                      </div>
+                      <div className="qb-form-row">
+                        <label>Vendor is</label>
+                        <input type="text" value={ruleForm.if_vendor} onChange={(e) => handleRuleFormChange('if_vendor', e.target.value)} placeholder="e.g. Amazon" />
+                      </div>
+                      <div className="qb-form-row">
+                        <label>AI-suggested account type contains</label>
+                        <input type="text" value={ruleForm.if_account_type_contains} onChange={(e) => handleRuleFormChange('if_account_type_contains', e.target.value)} placeholder="e.g. Asset, Other Asset, Fixed Asset" />
+                      </div>
+                    </>
+                  )}
 
                   <div className="qb-form-section">THEN (actions)</div>
 

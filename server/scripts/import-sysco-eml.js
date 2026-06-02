@@ -62,7 +62,7 @@ async function htmlToPdf(html) {
 
 // ── Sysco text parser ─────────────────────────────────────────────────────────
 
-function parseSyscoText(text) {
+function parseSyscoText(text, subject) {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 
   const result = {
@@ -75,53 +75,94 @@ function parseSyscoText(text) {
     items:         [],
   };
 
-  // Submitted by
+  // ── Order number ──
+  // Subject formats:
+  //   "Sysco Order #01161585 - Order Confirmation - KINDRED BY THE CREEK"
+  //   "01376515 Order #KINDRED BY THE CREEK - Order Confirmation"  ← # is NOT the order#
+  // Body format: "Order May 12 2026 12:56 PM | #01418833"
+
+  // Try subject: "Sysco Order #DIGITS"
+  if (subject) {
+    const subjMatch = subject.match(/Sysco Order #(\d+)/i);
+    if (subjMatch) result.order_number = subjMatch[1];
+
+    // Try subject: 8-digit number at very start
+    if (!result.order_number) {
+      const startMatch = subject.match(/^(\d{8})\b/);
+      if (startMatch) result.order_number = startMatch[1];
+    }
+  }
+
+  // Body fallback: "| #01418833"
+  if (!result.order_number) {
+    const orderLine = lines.find((l) => /\|\s*#\d{7,}/.test(l));
+    if (orderLine) {
+      const m = orderLine.match(/#(\d{7,})/);
+      if (m) result.order_number = m[1];
+    }
+  }
+
+  // ── Submitted by ──
   const subLine = lines.find((l) => /^Submitted by /i.test(l));
   if (subLine) result.submitted_by = subLine.replace(/^Submitted by /i, '').trim();
 
-  // Order number + order date — "Order May 12 2026 12:56 PM | #01418833"
-  const orderLine = lines.find((l) => /Order.*#\d+/i.test(l));
-  if (orderLine) {
-    const numMatch = orderLine.match(/#(\d+)/);
-    if (numMatch) result.order_number = numMatch[1];
-    const dateMatch = orderLine.match(/(\w+ \d{1,2} \d{4})/);
+  // ── Order date ──
+  // Body: "Order May 12 2026 12:56 PM | #..."
+  const orderBodyLine = lines.find((l) => /^Order\s+\w+ \d{1,2} \d{4}/i.test(l));
+  if (orderBodyLine) {
+    const dateMatch = orderBodyLine.match(/(\w+ \d{1,2} \d{4})/);
     if (dateMatch) {
       const d = new Date(dateMatch[1]);
       if (!isNaN(d)) result.order_date = d.toISOString().slice(0, 10);
     }
   }
-
-  // Submitted date (fallback for order date) — "Submitted05/12/2026"
+  // Fallback: "Submitted05/12/2026"
   if (!result.order_date) {
     for (const l of lines) {
-      const m = l.match(/Submitted(\d{2})\/(\d{2})\/(\d{4})/i);
+      const m = l.match(/Submitted(\d{2})\/(\d{2})\/(\d{4})/i)
+             || l.match(/(\d{2})\/(\d{2})\/(\d{4})/);
       if (m) { result.order_date = `${m[3]}-${m[1]}-${m[2]}`; break; }
     }
   }
 
-  // Delivery date — "Delivery Date05/14/2026" or label + next line
+  // ── Delivery date ──
   for (let i = 0; i < lines.length; i++) {
-    const inline = lines[i].match(/Delivery Date(\d{2})\/(\d{2})\/(\d{4})/i);
+    const inline = lines[i].match(/Delivery\s*Date\s*(\d{2})\/(\d{2})\/(\d{4})/i);
     if (inline) {
       result.delivery_date = `${inline[3]}-${inline[1]}-${inline[2]}`;
       break;
     }
-    if (/^Delivery Date$/i.test(lines[i]) && lines[i + 1]) {
-      const d = new Date(lines[i + 1]);
+    if (/^Delivery\s*Date$/i.test(lines[i])) {
+      // Next line may be the date
+      const next = lines[i + 1] || '';
+      const m = next.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (m) { result.delivery_date = `${m[3]}-${m[1]}-${m[2]}`; break; }
+      const d = new Date(next);
       if (!isNaN(d)) { result.delivery_date = d.toISOString().slice(0, 10); break; }
     }
   }
 
-  // Order total — "Total$691.55"
-  for (const l of lines) {
-    const m = l.match(/^Total\$([\d,]+\.?\d*)/);
-    if (m) { result.total = parseFloat(m[1].replace(',', '')); break; }
+  // ── Order total ──
+  // Formats: "Total$691.55"  or  "Order Total\n(Excluding Tax)\n$691.55"
+  for (let i = 0; i < lines.length; i++) {
+    // Inline: "Total$691.55"
+    const inline = lines[i].match(/^Total\$([\d,]+\.?\d*)/);
+    if (inline) { result.total = parseFloat(inline[1].replace(',', '')); break; }
+
+    // Multi-line: "Order Total" then skip "(Excluding Tax)" then find "$..."
+    if (/^Order Total/i.test(lines[i])) {
+      for (let j = i + 1; j <= i + 3 && j < lines.length; j++) {
+        const m = lines[j].match(/^\$([\d,]+\.?\d*)$/);
+        if (m) { result.total = parseFloat(m[1].replace(',', '')); break; }
+      }
+      if (result.total) break;
+    }
   }
 
-  // Credit card surcharge
+  // ── Credit card surcharge ──
   for (let i = 0; i < lines.length; i++) {
     if (/surcharge/i.test(lines[i])) {
-      const combined = lines[i] + ' ' + (lines[i + 1] || '');
+      const combined = lines[i] + ' ' + (lines[i + 1] || '') + ' ' + (lines[i + 2] || '');
       const m = combined.match(/\$([\d,]+\.?\d*)/);
       if (m) { result.surcharge = parseFloat(m[1].replace(',', '')); break; }
     }
@@ -191,7 +232,7 @@ function parseSyscoText(text) {
 
 // ── DB insert ─────────────────────────────────────────────────────────────────
 
-async function insertOrder(order, pdfBuffer, filename) {
+async function insertOrder(order, pdfBuffer, filename, extended = true) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -208,6 +249,11 @@ async function insertOrder(order, pdfBuffer, filename) {
       }
     }
 
+    if (!order.order_number) {
+      await client.query('ROLLBACK');
+      return { skipped: true, reason: 'could not parse order number' };
+    }
+
     const receiptRes = await client.query(
       `INSERT INTO teamtask_hub.receipts
          (company_id, order_number, order_date, vendor, total, status, pdf_filename, pdf_data)
@@ -218,50 +264,54 @@ async function insertOrder(order, pdfBuffer, filename) {
     );
     const receiptId = receiptRes.rows[0].id;
 
-    // Line items with all extended columns
+    // Line items
     for (const item of order.items) {
-      const description = [item.product_name, item.brand].filter(Boolean).join(' — ');
+      const description = [
+        item.product_name,
+        item.brand,
+        item.sysco_item_number ? `[${item.sysco_item_number}]` : null,
+        item.pack_size,
+      ].filter(Boolean).join(' · ');
 
-      const vendorData = {
-        sysco_item_number: item.sysco_item_number,
-        pack_size:         item.pack_size,
-        pack_count:        item.pack_count,
-        unit_size:         item.unit_size,
-        brand:             item.brand,
-        quantity_cases:    item.quantity_cases,
-        price_unit_type:   item.price_unit_type,
-        delivery_date:     order.delivery_date,
-        submitted_by:      order.submitted_by,
-      };
-
-      await client.query(
-        `INSERT INTO teamtask_hub.receipt_items
-           (receipt_id, description,
-            quantity, unit_price, total,
-            vendor_item_number, pack_size, brand,
-            quantity_cases, unit_size,
-            price_per_unit, price_unit_type,
-            delivery_date, submitted_by,
-            vendor_data, item_status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')`,
-        [
-          receiptId,
-          description,
-          item.quantity_cases,            // quantity = cases ordered
-          item.price_value,               // unit_price = price per case or per lb
-          item.line_total,
-          item.sysco_item_number,
-          item.pack_size,
-          item.brand,
-          item.quantity_cases,
-          item.unit_size,
-          item.price_value,
-          item.price_unit_type,
-          order.delivery_date,
-          order.submitted_by,
-          JSON.stringify(vendorData),
-        ]
-      );
+      if (extended) {
+        const vendorData = {
+          sysco_item_number: item.sysco_item_number,
+          pack_size:         item.pack_size,
+          pack_count:        item.pack_count,
+          unit_size:         item.unit_size,
+          brand:             item.brand,
+          quantity_cases:    item.quantity_cases,
+          price_unit_type:   item.price_unit_type,
+          delivery_date:     order.delivery_date,
+          submitted_by:      order.submitted_by,
+        };
+        await client.query(
+          `INSERT INTO teamtask_hub.receipt_items
+             (receipt_id, description,
+              quantity, unit_price, total,
+              vendor_item_number, pack_size, brand,
+              quantity_cases, unit_size,
+              price_per_unit, price_unit_type,
+              delivery_date, submitted_by,
+              vendor_data, item_status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')`,
+          [receiptId, description,
+           item.quantity_cases, item.price_value, item.line_total,
+           item.sysco_item_number, item.pack_size, item.brand,
+           item.quantity_cases, item.unit_size,
+           item.price_value, item.price_unit_type,
+           order.delivery_date, order.submitted_by,
+           JSON.stringify(vendorData)]
+        );
+      } else {
+        // Basic insert — migration not yet applied
+        await client.query(
+          `INSERT INTO teamtask_hub.receipt_items
+             (receipt_id, description, quantity, unit_price, total, item_status)
+           VALUES ($1,$2,$3,$4,$5,'pending')`,
+          [receiptId, description, item.quantity_cases, item.price_value, item.line_total]
+        );
+      }
     }
 
     // Credit card surcharge
@@ -291,6 +341,23 @@ if (!folder || !fs.existsSync(folder)) {
   console.error('Usage: node scripts/import-sysco-eml.js /path/to/eml/folder');
   process.exit(1);
 }
+
+// Check if extended columns exist (migration 272)
+let hasExtendedColumns = false;
+try {
+  const colCheck = await pool.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'teamtask_hub' AND table_name = 'receipt_items'
+     AND column_name = 'vendor_item_number'`
+  );
+  hasExtendedColumns = colCheck.rows.length > 0;
+  if (!hasExtendedColumns) {
+    console.warn('⚠ Extended columns not yet applied (migration 272 pending).');
+    console.warn('  Receipts will be imported with basic fields only.\n');
+  } else {
+    console.log('✓ Extended columns available\n');
+  }
+} catch (e) { /* ignore */ }
 
 const files = fs.readdirSync(folder).filter((f) => f.toLowerCase().endsWith('.eml'));
 console.log(`Found ${files.length} .eml file(s) in ${folder}\n`);
@@ -324,7 +391,7 @@ for (const file of files) {
     });
   }
 
-  const order = parseSyscoText(text);
+  const order = parseSyscoText(text, parsed.subject);
   console.log(`    Order #${order.order_number} | ${order.items.length} items | $${order.total} | delivery ${order.delivery_date}`);
 
   // Generate PDF from HTML (or text if no HTML)
@@ -341,7 +408,7 @@ for (const file of files) {
   const filename = `Sysco_${order.order_number || path.basename(file, '.eml')}.pdf`;
 
   try {
-    const result = await insertOrder(order, pdfBuffer, filename);
+    const result = await insertOrder(order, pdfBuffer, filename, hasExtendedColumns);
     if (result.skipped) {
       console.log(`    ↩ Already imported (order #${result.order_number})`);
       skipped++;

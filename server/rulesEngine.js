@@ -3,12 +3,14 @@
  * Applies company-defined rules after AI suggestions, in priority order.
  * First matching rule wins.
  *
+ * Two rule types:
+ *   1. Text rules: if_description_contains, if_vendor, if_account_type_contains (fast, no AI cost)
+ *   2. AI condition rules: is_ai_rule=true, ai_condition = natural language question Claude evaluates
+ *
  * Description expressions support full boolean logic:
  *   food AND storage
  *   food OR container
  *   food AND (label OR container)
- *   (cleaning OR sanitizer) AND supply
- *   Space-separated words are implicitly AND'd: "food storage" = "food AND storage"
  */
 
 // ── Boolean expression parser ─────────────────────────────────────────────────
@@ -51,8 +53,7 @@ class Parser {
     while (true) {
       const tok = this.peek();
       if (!tok || tok.type === 'OR' || tok.type === 'RPAREN') break;
-      if (tok.type === 'AND') this.consume(); // explicit AND keyword
-      // else implicit AND (consecutive words or groups)
+      if (tok.type === 'AND') this.consume();
       const right = this.parsePrimary();
       if (!right) break;
       left = { type: 'AND', left, right };
@@ -84,10 +85,6 @@ function evaluate(node, text) {
   }
 }
 
-/**
- * Test a description expression against a product description string.
- * Falls back to simple substring match if the expression can't be parsed.
- */
 function matchesExpr(expr, description) {
   if (!expr?.trim()) return true;
   const text = description.toLowerCase();
@@ -101,56 +98,123 @@ function matchesExpr(expr, description) {
   }
 }
 
+// ── AI condition evaluation ───────────────────────────────────────────────────
+
+/**
+ * Ask Claude whether an item description matches an AI condition rule.
+ * Batches multiple AI rules into a single API call for efficiency.
+ *
+ * @param {string}   description  - item description
+ * @param {Array}    aiRules      - rules with is_ai_rule=true and ai_condition
+ * @param {Function} getClient    - returns an Anthropic client
+ * @returns {Array}  matched AI rules
+ */
+async function evaluateAiRules(description, aiRules, getClient) {
+  if (!aiRules.length) return [];
+  try {
+    const client = getClient();
+    const conditions = aiRules.map((r, i) => `${i + 1}. ${r.ai_condition}`).join('\n');
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 256,
+      messages: [{
+        role: 'user',
+        content: `For this product description, answer YES or NO for each question. Return ONLY a JSON array of booleans in order.
+
+Product: "${description}"
+
+Questions:
+${conditions}`,
+      }],
+    });
+    const raw = msg.content[0].text.trim().replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+    const answers = JSON.parse(raw);
+    return aiRules.filter((_, i) => answers[i] === true);
+  } catch {
+    return []; // graceful fallback — don't block categorization on AI rule failure
+  }
+}
+
 // ── Rule application ──────────────────────────────────────────────────────────
 
 /**
- * Apply rules to a single line item.
- *
- * @param {object} item      - { description, qbo_account_id, qbo_class_id, ... }
- * @param {string} vendor    - e.g. "Amazon"
- * @param {Array}  rules     - from DB, sorted by priority ASC
- * @param {Array}  accounts  - all qbo_accounts for this company
- * @returns {{ qbo_account_id, qbo_class_id, rule_applied: string|null }}
+ * Apply text-only rules to a single line item (synchronous, no AI cost).
  */
 export function applyRules(item, vendor, rules, accounts) {
-  const vendorLower = (vendor || '').toLowerCase();
+  const vendorLower      = (vendor || '').toLowerCase();
   const suggestedAccount = accounts.find((a) => a.qbo_id === item.qbo_account_id);
-  const suggestedAccountType = (suggestedAccount?.account_type || '').toLowerCase();
+  const suggestedType    = (suggestedAccount?.account_type || '').toLowerCase();
 
-  let result = {
+  const result = {
     qbo_account_id: item.qbo_account_id,
     qbo_class_id:   item.qbo_class_id,
     rule_applied:   null,
   };
 
   for (const rule of rules) {
-    if (!rule.active) continue;
+    if (!rule.active || rule.is_ai_rule) continue; // skip AI rules here
 
     let matches = true;
-
-    // IF description expression
-    if (rule.if_description_contains) {
-      if (!matchesExpr(rule.if_description_contains, item.description || '')) matches = false;
-    }
-
-    // IF vendor is — substring match so "Amazon" matches "Amazon Business", "Amazon.com", etc.
-    if (matches && rule.if_vendor) {
-      if (!vendorLower.includes(rule.if_vendor.toLowerCase())) matches = false;
-    }
-
-    // IF AI-suggested account type contains
-    if (matches && rule.if_account_type_contains) {
-      if (!suggestedAccountType.includes(rule.if_account_type_contains.toLowerCase())) matches = false;
-    }
-
+    if (rule.if_description_contains && !matchesExpr(rule.if_description_contains, item.description || '')) matches = false;
+    if (matches && rule.if_vendor && !vendorLower.includes(rule.if_vendor.toLowerCase())) matches = false;
+    if (matches && rule.if_account_type_contains && !suggestedType.includes(rule.if_account_type_contains.toLowerCase())) matches = false;
     if (!matches) continue;
 
-    // Apply actions
     if (rule.then_clear) { result.qbo_account_id = null; result.qbo_class_id = null; }
     if (rule.then_account_id) result.qbo_account_id = rule.then_account_id;
     if (rule.then_class_id)   result.qbo_class_id   = rule.then_class_id;
     result.rule_applied = rule.name;
-    break; // first match wins
+    break;
+  }
+
+  return result;
+}
+
+/**
+ * Apply ALL rules (text + AI) to a single item. Async because AI rules need API calls.
+ * AI rules run first (highest priority), then text rules.
+ */
+export async function applyRulesAsync(item, vendor, rules, accounts, getClient) {
+  const vendorLower      = (vendor || '').toLowerCase();
+  const suggestedAccount = accounts.find((a) => a.qbo_id === item.qbo_account_id);
+  const suggestedType    = (suggestedAccount?.account_type || '').toLowerCase();
+
+  const result = {
+    qbo_account_id: item.qbo_account_id,
+    qbo_class_id:   item.qbo_class_id,
+    rule_applied:   null,
+  };
+
+  const activeRules = rules.filter((r) => r.active).sort((a, b) => a.priority - b.priority);
+
+  // Phase 1: AI condition rules (batched into one API call per item)
+  const aiRules = activeRules.filter((r) => r.is_ai_rule && r.ai_condition);
+  if (aiRules.length && getClient) {
+    const matched = await evaluateAiRules(item.description || '', aiRules, getClient);
+    if (matched.length) {
+      const rule = matched[0]; // first matching AI rule wins
+      if (rule.then_clear) { result.qbo_account_id = null; result.qbo_class_id = null; }
+      if (rule.then_account_id) result.qbo_account_id = rule.then_account_id;
+      if (rule.then_class_id)   result.qbo_class_id   = rule.then_class_id;
+      result.rule_applied = rule.name;
+      return result; // AI rule matched — done
+    }
+  }
+
+  // Phase 2: Text rules
+  const textRules = activeRules.filter((r) => !r.is_ai_rule);
+  for (const rule of textRules) {
+    let matches = true;
+    if (rule.if_description_contains && !matchesExpr(rule.if_description_contains, item.description || '')) matches = false;
+    if (matches && rule.if_vendor && !vendorLower.includes(rule.if_vendor.toLowerCase())) matches = false;
+    if (matches && rule.if_account_type_contains && !suggestedType.includes(rule.if_account_type_contains.toLowerCase())) matches = false;
+    if (!matches) continue;
+
+    if (rule.then_clear) { result.qbo_account_id = null; result.qbo_class_id = null; }
+    if (rule.then_account_id) result.qbo_account_id = rule.then_account_id;
+    if (rule.then_class_id)   result.qbo_class_id   = rule.then_class_id;
+    result.rule_applied = rule.name;
+    break;
   }
 
   return result;
@@ -163,14 +227,20 @@ export function buildRulesPrompt(rules) {
   const active = rules.filter((r) => r.active);
   if (!active.length) return '';
   const lines = active.map((r) => {
+    if (r.is_ai_rule) {
+      const acts = [];
+      if (r.then_account_id) acts.push(`use account ID ${r.then_account_id}`);
+      if (r.then_class_id)   acts.push(`use class ID ${r.then_class_id}`);
+      return `- AI Rule "${r.name}": IF "${r.ai_condition}" → THEN ${acts.join(' AND ')}`;
+    }
     const conds = [];
     if (r.if_description_contains) conds.push(`description matches "${r.if_description_contains}"`);
     if (r.if_vendor)                conds.push(`vendor is "${r.if_vendor}"`);
     if (r.if_account_type_contains) conds.push(`suggested account type contains "${r.if_account_type_contains}"`);
     const acts = [];
-    if (r.then_clear)       acts.push('clear the account/class suggestion');
-    if (r.then_account_id)  acts.push(`use account ID ${r.then_account_id}`);
-    if (r.then_class_id)    acts.push(`use class ID ${r.then_class_id}`);
+    if (r.then_clear)      acts.push('clear the account/class suggestion');
+    if (r.then_account_id) acts.push(`use account ID ${r.then_account_id}`);
+    if (r.then_class_id)   acts.push(`use class ID ${r.then_class_id}`);
     return `- Rule "${r.name}": IF ${conds.join(' AND ') || '(any)'} → THEN ${acts.join(' AND ')}`;
   });
   return `\nBusiness rules (MUST follow — these override your judgment):\n${lines.join('\n')}`;

@@ -1061,6 +1061,13 @@ export async function reapplyAllRules() {
   return data;
 }
 
+export async function categorizeAllReceipts() {
+  const res = await fetch(`${API}/receipts/categorize-all`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to run AI categorization');
+  return data;
+}
+
 export async function suggestRule(corrections) {
   const res = await fetch(`${API}/receipts/suggest-rule`, {
     method: 'POST', headers: headers(), body: JSON.stringify({ corrections }),
