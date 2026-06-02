@@ -23,13 +23,13 @@ export async function extractReceiptData(pdfText, apiKey) {
     messages: [
       {
         role: 'user',
-        content: `You are a receipt parser. Extract structured data from this Amazon order PDF text and return ONLY valid JSON — no markdown, no explanation.
+        content: `You are a receipt parser. Extract structured data from this order/invoice text and return ONLY valid JSON — no markdown, no explanation.
 
 The JSON must have this shape:
 {
   "order_number": "string or null",
   "order_date": "YYYY-MM-DD or null",
-  "vendor": "Amazon",
+  "vendor": "vendor/supplier name extracted from the document",
   "subtotal": number or null,
   "tax": number or null,
   "total": number or null,
@@ -167,9 +167,16 @@ export async function categorizeLineItems(items, accounts, classes, memory, rule
     messages: [
       {
         role: 'user',
-        content: `You are an accounting assistant helping categorize Amazon purchase line items for a winery's QuickBooks Online.
+        content: `You are an accounting assistant helping categorize vendor purchase line items for a winery and tasting room's QuickBooks Online.
 ${rulesPrompt}
 ${memoryContext}
+
+CATEGORY GUIDANCE:
+- Food ingredients, produce, meat, seafood, dairy, spices, baking supplies, cooking oils, condiments, beverages for kitchen use → use the Grocery account
+- Wine, beer, or spirits for resale → use a COGS or Beverage account
+- Cleaning supplies, paper goods, disposables → use a Supplies account
+- Equipment or tools with multi-year useful life → use an Asset account
+- Everything else → best-matching Expense account
 
 Available QBO Accounts (id: name [Classification > AccountType > SubType]):
 Classification tells you whether an account hits the P&L (Revenue, Expense, Cost of Goods Sold) or the balance sheet (Asset, Liability, Equity).
