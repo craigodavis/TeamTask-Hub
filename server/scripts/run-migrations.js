@@ -1839,6 +1839,10 @@ const MIGRATIONS = [
   `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS similarity_score NUMERIC(4,3)`,
   `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS fuzzy_match_id UUID REFERENCES shopping_items(id) ON DELETE SET NULL`,
 
+  // ── Migration 273: AI condition rules ─────────────────────────────────────
+  `ALTER TABLE categorization_rules ADD COLUMN IF NOT EXISTS is_ai_rule BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE categorization_rules ADD COLUMN IF NOT EXISTS ai_condition TEXT`,
+
   // ── Migration 272: Extended receipt_items for vendor-specific structured data ──
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS vendor_item_number TEXT`,
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS pack_size          TEXT`,
