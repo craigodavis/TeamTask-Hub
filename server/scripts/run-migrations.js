@@ -1860,6 +1860,9 @@ const MIGRATIONS = [
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS delivery_date      DATE`,
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS submitted_by       TEXT`,
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS vendor_data        JSONB`,
+
+  // ── Migration 275: Model selection on skynet_schedules ───────────────────
+  `ALTER TABLE skynet_schedules ADD COLUMN IF NOT EXISTS model VARCHAR(100) NOT NULL DEFAULT 'claude-haiku-3-5'`,
 ];
 
 export async function runMigrations() {

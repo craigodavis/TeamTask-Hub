@@ -9,6 +9,55 @@ import './Skynet.css';
 const DAYS_OF_WEEK = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+const MODELS = [
+  { id: 'claude-haiku-3-5',  label: 'Haiku 3.5',  input: '$0.80/MTok', output: '$4/MTok',   speed: '⚡ Fast',      desc: 'Simple lookups, summaries, quick classification' },
+  { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5',  input: '$3/MTok',   output: '$15/MTok',  speed: '✦ Balanced',  desc: 'Default workhorse — most coding, analysis' },
+  { id: 'claude-sonnet-4-7', label: 'Sonnet 4.7',  input: '$3/MTok',   output: '$15/MTok',  speed: '✦ Balanced',  desc: 'Sonnet 4 generation, extended thinking capable' },
+  { id: 'claude-opus-4-5',   label: 'Opus 4.5',    input: '$15/MTok',  output: '$75/MTok',  speed: '🐢 Slower',   desc: 'Deep reasoning, hard problems, architecture' },
+  { id: 'claude-opus-4-7',   label: 'Opus 4.7',    input: '$15/MTok',  output: '$75/MTok',  speed: '🐢 Slower',   desc: 'Most capable, extended thinking, complex multi-step' },
+];
+
+function ModelSelect({ value, onChange }) {
+  const [showInfo, setShowInfo] = useState(false);
+  return (
+    <div className="skynet-model-wrap">
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="skynet-model-select">
+        {MODELS.map((m) => (
+          <option key={m.id} value={m.id}>{m.label}</option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="skynet-model-info-btn"
+        onClick={() => setShowInfo((v) => !v)}
+        title="Model pricing & capabilities"
+        aria-label="Model info"
+      >ℹ</button>
+      {showInfo && (
+        <div className="skynet-model-info-popup">
+          <table className="skynet-model-table">
+            <thead>
+              <tr><th>Model</th><th>Input</th><th>Output</th><th>Speed</th><th>Best for</th></tr>
+            </thead>
+            <tbody>
+              {MODELS.map((m) => (
+                <tr key={m.id} className={m.id === value ? 'skynet-model-active' : ''}>
+                  <td>{m.label}</td>
+                  <td>{m.input}</td>
+                  <td>{m.output}</td>
+                  <td style={{whiteSpace:'nowrap'}}>{m.speed}</td>
+                  <td>{m.desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" className="skynet-model-info-close" onClick={() => setShowInfo(false)}>✕ Close</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function scheduleLabel(s) {
   const cfg = s.schedule_config || {};
   const t = (h, m) => `${String(h).padStart(2,'0')}:${String(m||0).padStart(2,'0')}`;
@@ -139,6 +188,7 @@ function ScheduleForm({ agents, onSave, onCancel, initial, isEditing }) {
   const [dayOfWeek,    setDayOfWeek]    = useState(cfg.dayOfWeek ?? 1);
   const [dayOfMonth,   setDayOfMonth]   = useState(cfg.dayOfMonth ?? 1);
   const [month,        setMonth]        = useState(cfg.month ?? 1);
+  const [model,        setModel]        = useState(initial?.model || 'claude-haiku-3-5');
   const [saving,       setSaving]       = useState(false);
   const [error,        setError]        = useState('');
 
@@ -153,6 +203,7 @@ function ScheduleForm({ agents, onSave, onCancel, initial, isEditing }) {
         agentId,
         agentName: agent?.name || agentId,
         prompt,
+        model,
         scheduleType: schedType,
         fireAt:       schedType === 'once' ? fireAt : undefined,
         scheduleConfig: { hour, minute, dayOfWeek, dayOfMonth, month },
@@ -188,6 +239,10 @@ function ScheduleForm({ agents, onSave, onCancel, initial, isEditing }) {
           rows={5}
           required
         />
+      </div>
+      <div className="skynet-form-row">
+        <label>Model</label>
+        <ModelSelect value={model} onChange={setModel} />
       </div>
       <div className="skynet-form-row">
         <label>Frequency</label>

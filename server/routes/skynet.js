@@ -174,7 +174,7 @@ router.get('/schedules', async (req, res) => {
 
 // ── POST /api/skynet/schedules ────────────────────────────────────────────────
 router.post('/schedules', async (req, res) => {
-  const { name, agentId, agentName, prompt, scheduleType, fireAt, scheduleConfig } = req.body;
+  const { name, agentId, agentName, prompt, scheduleType, fireAt, scheduleConfig, model } = req.body;
 
   if (!name?.trim())       return res.status(400).json({ error: 'name is required' });
   if (!agentId?.trim())    return res.status(400).json({ error: 'agentId is required' });
@@ -186,15 +186,16 @@ router.post('/schedules', async (req, res) => {
   if (scheduleType === 'once' && !fireAt) return res.status(400).json({ error: 'fireAt is required for one-time schedules' });
 
   const nextRunAt = computeNextRunAt(scheduleType, fireAt, scheduleConfig);
+  const chosenModel = model || 'claude-haiku-3-5';
 
   try {
     const r = await query(
       `INSERT INTO skynet_schedules
-         (company_id, name, agent_id, agent_name, prompt, schedule_type, fire_at, next_run_at, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         (company_id, name, agent_id, agent_name, prompt, schedule_type, fire_at, next_run_at, model, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [cid(req), name.trim(), agentId.trim(), agentName || null, prompt.trim(),
-       scheduleType, fireAt || null, nextRunAt, req.userId || null]
+       scheduleType, fireAt || null, nextRunAt, chosenModel, req.userId || null]
     );
     res.status(201).json({ schedule: r.rows[0] });
   } catch (err) {
@@ -204,7 +205,7 @@ router.post('/schedules', async (req, res) => {
 
 // ── PATCH /api/skynet/schedules/:id ──────────────────────────────────────────
 router.patch('/schedules/:id', async (req, res) => {
-  const { name, prompt, enabled, scheduleType, fireAt, scheduleConfig } = req.body;
+  const { name, prompt, enabled, scheduleType, fireAt, scheduleConfig, model } = req.body;
   const fields = [];
   const vals   = [];
   let i = 1;
@@ -212,6 +213,7 @@ router.patch('/schedules/:id', async (req, res) => {
   if (name    !== undefined) { fields.push(`name = $${i++}`);    vals.push(name.trim()); }
   if (prompt  !== undefined) { fields.push(`prompt = $${i++}`);  vals.push(prompt.trim()); }
   if (enabled !== undefined) { fields.push(`enabled = $${i++}`); vals.push(enabled); }
+  if (model   !== undefined) { fields.push(`model = $${i++}`);   vals.push(model || 'claude-haiku-3-5'); }
 
   if (scheduleType !== undefined) {
     fields.push(`schedule_type = $${i++}`); vals.push(scheduleType);
