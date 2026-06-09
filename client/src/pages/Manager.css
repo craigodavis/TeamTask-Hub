@@ -511,6 +511,140 @@
   justify-content: flex-end;
 }
 
+/* ── Announcement approval flow ─────────────────────────────────── */
+.form-approvers {
+  margin-top: 0.75rem;
+}
+.form-approvers .approver-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-top: 0.3rem;
+}
+.pending-approvals-section {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.pending-approvals-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #7d5a00;
+  margin: 0 0 0.75rem;
+}
+.pending-approval-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid #ffe58f;
+}
+.pending-approval-card:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.pending-approval-info strong {
+  display: block;
+  font-size: 0.95rem;
+}
+.ann-meta {
+  font-size: 0.8rem;
+  color: #888;
+}
+.pending-approval-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.approval-comment {
+  width: 100%;
+  font-size: 0.85rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  resize: vertical;
+}
+.approval-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+.btn-approve {
+  background: #52c41a;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.btn-approve:hover { background: #389e0d; }
+.btn-approve:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-reject {
+  background: #ff4d4f;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.btn-reject:hover { background: #cf1322; }
+.btn-reject:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-publish {
+  background: #1677ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.btn-publish:hover { background: #0958d9; }
+/* Status badges */
+.status-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+.badge-draft        { background: #f5f5f5; color: #666; border: 1px solid #ddd; }
+.badge-pending      { background: #fffbe6; color: #7d5a00; border: 1px solid #ffe58f; }
+.badge-published    { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+/* Announcement header (title + badge inline) */
+.announcement-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+/* Approval chips */
+.approval-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+.approval-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 12px;
+  gap: 0.25rem;
+}
+.approval-chip--pending  { background: #f0f0f0; color: #555; border: 1px solid #d9d9d9; }
+.approval-chip--approved { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+.approval-chip--rejected { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
+.approval-chip-comment {
+  font-style: italic;
+  opacity: 0.85;
+}
+
 .sms-send-form {
   margin: 1rem 0;
 }

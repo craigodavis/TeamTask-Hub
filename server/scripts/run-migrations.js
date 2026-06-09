@@ -1863,6 +1863,33 @@ const MIGRATIONS = [
 
   // ── Migration 275: Model selection on skynet_schedules ───────────────────
   `ALTER TABLE skynet_schedules ADD COLUMN IF NOT EXISTS model VARCHAR(100) NOT NULL DEFAULT 'claude-haiku-3-5'`,
+
+  // ── Migration 276: AI model settings per company per process ─────────────
+  `CREATE TABLE IF NOT EXISTS ai_model_settings (
+  company_id   UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  process_key  VARCHAR(100) NOT NULL,
+  model        VARCHAR(100) NOT NULL,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, process_key)
+)`,
+
+  // ── Migration 277: Announcement approval flow ─────────────────────────────
+  // status: 'draft' | 'pending_approval' | 'published' (default 'published' = backward compat)
+  `ALTER TABLE announcements ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'published'`,
+  `CREATE TABLE IF NOT EXISTS announcement_approvals (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    announcement_id UUID        NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    approver_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status          VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected')),
+    comment         TEXT,
+    responded_at    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(announcement_id, approver_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ann_approvals_announcement ON announcement_approvals(announcement_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ann_approvals_approver     ON announcement_approvals(approver_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ann_approvals_pending      ON announcement_approvals(approver_id) WHERE status = 'pending'`,
 ];
 
 export async function runMigrations() {

@@ -21,6 +21,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db.js';
 import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
+import { getModelForProcess } from './aiModelSettings.js';
 
 const require    = createRequire(import.meta.url);
 const pdfParse   = require('pdf-parse');
@@ -43,13 +44,23 @@ export async function loadReceiptContext(companyId) {
     query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [companyId]),
     query(`SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [companyId]),
   ]);
+
+  const [modelExtraction, modelCategorization, modelAiRules] = await Promise.all([
+    getModelForProcess(companyId, 'receipt_extraction', 'claude-haiku-4-5'),
+    getModelForProcess(companyId, 'receipt_categorization', 'claude-haiku-4-5'),
+    getModelForProcess(companyId, 'ai_rules', 'claude-haiku-4-5'),
+  ]);
+
   return {
-    accounts:       accountsRes.rows,
-    classes:        classesRes.rows,
-    memory:         memoryRes.rows,
-    rules:          rulesRes.rows,
-    rulesPrompt:    buildRulesPrompt(rulesRes.rows),
+    accounts:        accountsRes.rows,
+    classes:         classesRes.rows,
+    memory:          memoryRes.rows,
+    rules:           rulesRes.rows,
+    rulesPrompt:     buildRulesPrompt(rulesRes.rows),
     anthropicApiKey: integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY || null,
+    model_extraction:    modelExtraction,
+    model_categorization: modelCategorization,
+    model_ai_rules:      modelAiRules,
   };
 }
 
@@ -63,7 +74,8 @@ export async function loadReceiptContext(companyId) {
  * @returns {object}             — result object (see module docblock)
  */
 export async function processReceiptPDF(companyId, buffer, filename, ctx) {
-  const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey } = ctx;
+  const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
+          model_extraction, model_categorization } = ctx;
 
   try {
     // 1. Extract text from PDF
@@ -73,7 +85,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
     // 2. Claude extracts structured receipt data
     let receiptData;
     try {
-      receiptData = await extractReceiptData(pdfText, anthropicApiKey);
+      receiptData = await extractReceiptData(pdfText, anthropicApiKey, model_extraction);
     } catch (aiErr) {
       return { filename, error: `AI extraction failed: ${aiErr.message}` };
     }
@@ -102,7 +114,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
     let categorized = [];
     if (items?.length && accounts.length) {
       try {
-        categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt, anthropicApiKey);
+        categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt, anthropicApiKey, model_categorization);
       } catch (catErr) {
         console.error('[receipt] categorization failed:', catErr.message);
         categorized = (items || []).map((it) => ({

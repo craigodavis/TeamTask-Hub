@@ -1,6 +1,7 @@
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { pool, query } from '../db.js';
+import { getModelForProcess } from '../lib/aiModelSettings.js';
 
 const router = express.Router();
 
@@ -584,6 +585,7 @@ router.post('/ask', async (req, res) => {
   } catch { /* ignore — table may not have column yet */ }
   if (!apiKey) return res.status(500).json({ error: 'Anthropic API key not configured — add it in Settings → Integrations' });
 
+  const kindredAiModel = await getModelForProcess(req.companyId, 'kindred_ai', 'claude-sonnet-4-5');
   const ai = new Anthropic({ apiKey });
 
   const [facts, lessons] = await Promise.all([buildFactsBlock(), buildLessonsBlock()]);
@@ -616,7 +618,7 @@ router.post('/ask', async (req, res) => {
   try {
     while (true) {
       const response = await ai.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: kindredAiModel,
         max_tokens: 2048,
         system: systemBlocks,
         tools: SQUARE_TOOLS,

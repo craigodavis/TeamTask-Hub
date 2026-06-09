@@ -20,6 +20,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import Anthropic from '@anthropic-ai/sdk';
+import { getModelForProcess } from '../lib/aiModelSettings.js';
 
 const router = express.Router();
 const cId = (req) => req.companyId;
@@ -610,11 +611,12 @@ router.post('/items/find-duplicates', requireAuth, async (req, res) => {
     const items = itemsRes.rows;
     if (items.length < 2) return res.json({ groups: [] });
 
+    const model = await getModelForProcess(company, 'shopping_duplicates', 'claude-haiku-4-5');
     const client = new Anthropic({ apiKey });
     const list = items.map((i, idx) => `${idx + 1}. [${i.id}] ${i.name}`).join('\n');
 
     const msg = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model,
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -660,9 +662,10 @@ router.post('/items/:id/extract-unit', requireAuth, async (req, res) => {
     const apiKey = integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return res.json({ quantity: null, unit: null }); // graceful fallback
 
+    const model = await getModelForProcess(cId(req), 'shopping_unit_extract', 'claude-haiku-4-5');
     const client = new Anthropic({ apiKey });
     const msg = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model,
       max_tokens: 128,
       messages: [{
         role: 'user',

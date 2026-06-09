@@ -14,11 +14,11 @@ function getClient(apiKey) {
  * Extract structured receipt data from raw PDF text.
  * Returns: { order_number, order_date, vendor, subtotal, tax, total, items[] }
  */
-export async function extractReceiptData(pdfText, apiKey) {
+export async function extractReceiptData(pdfText, apiKey, model = 'claude-haiku-4-5') {
   const client = getClient(apiKey);
 
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5',
+    model,
     max_tokens: 2048,
     messages: [
       {
@@ -73,7 +73,7 @@ ${pdfText}`,
  * @param {Array} accounts     All qbo_accounts for the company
  * @returns {Array}            Suggested rule objects (name, if_description_contains, then_account_id, ...)
  */
-export async function suggestRulesFromCorrections(corrections, accounts, apiKey) {
+export async function suggestRulesFromCorrections(corrections, accounts, apiKey, model = 'claude-haiku-4-5') {
   if (!corrections.length) return [];
   const client = getClient(apiKey);
 
@@ -90,7 +90,7 @@ export async function suggestRulesFromCorrections(corrections, accounts, apiKey)
   }).join('\n');
 
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5',
+    model,
     max_tokens: 2048,
     messages: [{
       role: 'user',
@@ -129,7 +129,7 @@ Return [] if no clear category pattern can be inferred.`,
   try { return JSON.parse(json); } catch { return []; }
 }
 
-export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '', apiKey) {
+export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '', apiKey, model = 'claude-haiku-4-5') {
   if (!items.length) return [];
 
   const client = getClient(apiKey);
@@ -162,7 +162,7 @@ export async function categorizeLineItems(items, accounts, classes, memory, rule
   const itemList = items.map((it, i) => `${i + 1}. ${it.description} ($${it.total ?? '?'})`).join('\n');
 
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5',
+    model,
     max_tokens: 4096,
     messages: [
       {

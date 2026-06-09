@@ -335,15 +335,13 @@ export async function uploadAnnouncementImage(file) {
   return res.json(); // { url }
 }
 
-export async function createAnnouncement(title, body, effective_from, effective_until, location_ids) {
-  const payload = { title, body, effective_from, effective_until };
-  if (location_ids != null && Array.isArray(location_ids)) payload.location_ids = location_ids;
+export async function createAnnouncement(title, body, effective_from, effective_until, location_ids, approver_ids) {
   const res = await fetch(`${API}/announcements`, {
     method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(payload),
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, body, effective_from, effective_until, location_ids, approver_ids }),
   });
-  const data = await res.json().catch(() => ({}));
+  const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to create announcement');
   return data;
 }
@@ -365,6 +363,34 @@ export async function deleteAnnouncement(id) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || 'Failed to delete announcement');
   }
+}
+
+export async function approveAnnouncement(id, status, comment) {
+  const res = await fetch(`${API}/announcements/${id}/approve`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, comment }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to submit approval');
+  return data;
+}
+
+export async function publishAnnouncement(id) {
+  const res = await fetch(`${API}/announcements/${id}/publish`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to publish announcement');
+  return data;
+}
+
+export async function getPendingMyApproval() {
+  const res = await fetch(`${API}/announcements/pending-my-approval`, { headers: headers() });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to load pending approvals');
+  return data;
 }
 
 export async function getAnnouncementAcknowledgments(id) {
@@ -1535,5 +1561,21 @@ export async function callHAService(domain, service, data = {}) {
   });
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(d.error || 'Failed to call HA service');
+  return d;
+}
+
+export async function getAiModelSettings() {
+  const res = await fetch(`${API}/settings/ai-models`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load AI model settings');
+  return d;
+}
+
+export async function saveAiModelSettings(settings) {
+  const res = await fetch(`${API}/settings/ai-models`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ settings }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save AI model settings');
   return d;
 }

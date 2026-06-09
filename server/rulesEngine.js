@@ -109,13 +109,13 @@ function matchesExpr(expr, description) {
  * @param {Function} getClient    - returns an Anthropic client
  * @returns {Array}  matched AI rules
  */
-async function evaluateAiRules(description, aiRules, getClient) {
+async function evaluateAiRules(description, aiRules, getClient, model = 'claude-haiku-4-5') {
   if (!aiRules.length) return [];
   try {
     const client = getClient();
     const conditions = aiRules.map((r, i) => `${i + 1}. ${r.ai_condition}`).join('\n');
     const msg = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model,
       max_tokens: 256,
       messages: [{
         role: 'user',
@@ -174,7 +174,7 @@ export function applyRules(item, vendor, rules, accounts) {
  * Apply ALL rules (text + AI) to a single item. Async because AI rules need API calls.
  * AI rules run first (highest priority), then text rules.
  */
-export async function applyRulesAsync(item, vendor, rules, accounts, getClient) {
+export async function applyRulesAsync(item, vendor, rules, accounts, getClient, model = 'claude-haiku-4-5') {
   const vendorLower      = (vendor || '').toLowerCase();
   const suggestedAccount = accounts.find((a) => a.qbo_id === item.qbo_account_id);
   const suggestedType    = (suggestedAccount?.account_type || '').toLowerCase();
@@ -190,7 +190,7 @@ export async function applyRulesAsync(item, vendor, rules, accounts, getClient) 
   // Phase 1: AI condition rules (batched into one API call per item)
   const aiRules = activeRules.filter((r) => r.is_ai_rule && r.ai_condition);
   if (aiRules.length && getClient) {
-    const matched = await evaluateAiRules(item.description || '', aiRules, getClient);
+    const matched = await evaluateAiRules(item.description || '', aiRules, getClient, model);
     if (matched.length) {
       const rule = matched[0]; // first matching AI rule wins
       if (rule.then_clear) { result.qbo_account_id = null; result.qbo_class_id = null; }
