@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
+import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const annUploadsDir = path.join(__dirname, '..', 'uploads', 'announcements');
@@ -44,21 +45,40 @@ async function getApprovals(announcementId) {
   return r.rows;
 }
 
+// Returns array of newly inserted approver IDs (excludes already-existing ones).
 async function upsertApprovers(announcementId, approverIds, companyId) {
-  if (!Array.isArray(approverIds) || approverIds.length === 0) return;
+  if (!Array.isArray(approverIds) || approverIds.length === 0) return [];
   const valid = await query(
     `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND company_id = $2`,
     [approverIds, companyId]
   );
   const validIds = valid.rows.map((r) => r.id);
-  if (validIds.length === 0) return;
+  if (validIds.length === 0) return [];
+  const newIds = [];
   for (const id of validIds) {
-    await query(
+    const r = await query(
       `INSERT INTO announcement_approvals (announcement_id, approver_id)
-       VALUES ($1, $2) ON CONFLICT (announcement_id, approver_id) DO NOTHING`,
+       VALUES ($1, $2) ON CONFLICT (announcement_id, approver_id) DO NOTHING
+       RETURNING approver_id`,
       [announcementId, id]
     );
+    if (r.rows.length > 0) newIds.push(id);
   }
+  return newIds;
+}
+
+// Send approval-request SMS to newly assigned approvers.
+async function sendApprovalSms(companyId, newApproverIds, announcementTitle, sentByUserId) {
+  if (!newApproverIds.length) return;
+  const appUrl = process.env.APP_BASE_URL || 'https://team.kindredvineyards.com';
+  const link = `${appUrl}/manage?tab=announcements`;
+  // Get creator display name
+  const creatorRes = await query(`SELECT display_name FROM users WHERE id = $1`, [sentByUserId]);
+  const creator = creatorRes.rows[0]?.display_name || 'Someone';
+  const message = `${creator} is requesting your approval for an announcement: "${announcementTitle}". Review & approve here: ${link}`;
+  await sendSmsToUsers(companyId, newApproverIds, message, sentByUserId).catch((err) => {
+    console.warn('[announcements] SMS send failed:', err.message);
+  });
 }
 
 async function removeApprovers(announcementId, keepIds) {
@@ -240,9 +260,10 @@ router.post('/', requireManager, async (req, res) => {
       }
     }
 
-    // Approvers
+    // Approvers — insert and notify new ones via SMS
     if (hasApprovers) {
-      await upsertApprovers(announcement.id, approver_ids, companyId);
+      const newApproverIds = await upsertApprovers(announcement.id, approver_ids, companyId);
+      sendApprovalSms(companyId, newApproverIds, announcement.title, req.userId);
     }
 
     const locAgg = await query(
@@ -315,7 +336,10 @@ router.patch('/:id', requireManager, async (req, res) => {
     if (approver_ids !== undefined) {
       const ids = Array.isArray(approver_ids) ? approver_ids.filter(Boolean) : [];
       await removeApprovers(id, ids);
-      if (ids.length > 0) await upsertApprovers(id, ids, companyId);
+      if (ids.length > 0) {
+        const newApproverIds = await upsertApprovers(id, ids, companyId);
+        sendApprovalSms(companyId, newApproverIds, announcement.title, req.userId);
+      }
     }
 
     const locAgg = await query(
