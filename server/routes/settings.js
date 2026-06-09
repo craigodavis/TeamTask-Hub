@@ -514,4 +514,96 @@ router.get('/square-employees', requireOwner, async (req, res) => {
   }
 });
 
+// ── AI model settings ─────────────────────────────────────────────────────────
+
+const AI_PROCESSES = [
+  {
+    key: 'receipt_extraction',
+    name: 'Receipt Extraction',
+    description: 'Pulls order numbers, dates, vendors, and line items from uploaded PDFs and emails',
+    default_model: 'claude-haiku-3-5',
+  },
+  {
+    key: 'receipt_categorization',
+    name: 'Receipt Categorization',
+    description: 'Suggests QuickBooks accounts and classes for each line item',
+    default_model: 'claude-haiku-3-5',
+  },
+  {
+    key: 'rule_suggestions',
+    name: 'Rule Suggestions',
+    description: 'Generates categorization rules from your manual corrections',
+    default_model: 'claude-haiku-3-5',
+  },
+  {
+    key: 'ai_rules',
+    name: 'AI Rule Evaluation',
+    description: 'Evaluates natural-language categorization rules against line items',
+    default_model: 'claude-haiku-3-5',
+  },
+  {
+    key: 'kindred_ai',
+    name: 'Kindred AI Chat',
+    description: 'Powers the AI assistant for sales data queries',
+    default_model: 'claude-sonnet-4-5',
+  },
+  {
+    key: 'shopping_duplicates',
+    name: 'Shopping Duplicate Detection',
+    description: 'Finds duplicate items in the product catalog',
+    default_model: 'claude-haiku-3-5',
+  },
+  {
+    key: 'shopping_unit_extract',
+    name: 'Shopping Unit Extraction',
+    description: 'Extracts pack sizes and unit quantities from descriptions',
+    default_model: 'claude-haiku-3-5',
+  },
+];
+
+// GET /settings/ai-models — return all processes with current model (owner only)
+router.get('/ai-models', requireOwner, async (req, res) => {
+  try {
+    const cId = companyId(req);
+    const r = await query(
+      `SELECT process_key, model FROM ai_model_settings WHERE company_id = $1`,
+      [cId]
+    );
+    const saved = Object.fromEntries(r.rows.map((row) => [row.process_key, row.model]));
+    const processes = AI_PROCESSES.map((p) => ({
+      key:           p.key,
+      name:          p.name,
+      description:   p.description,
+      model:         saved[p.key] || p.default_model,
+      default_model: p.default_model,
+    }));
+    res.json({ processes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /settings/ai-models — upsert model preferences (owner only)
+// Body: { settings: { process_key: model, ... } }
+router.put('/ai-models', requireOwner, async (req, res) => {
+  try {
+    const cId = companyId(req);
+    const { settings } = req.body;
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({ error: 'settings object required' });
+    }
+    for (const [processKey, model] of Object.entries(settings)) {
+      await query(
+        `INSERT INTO ai_model_settings (company_id, process_key, model, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (company_id, process_key) DO UPDATE SET model = EXCLUDED.model, updated_at = NOW()`,
+        [cId, processKey, model]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as settingsRouter };

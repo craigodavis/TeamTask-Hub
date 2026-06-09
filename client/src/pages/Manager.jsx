@@ -36,6 +36,9 @@ import {
   reorderTemplateTasks,
   getSquareSchedule,
   uploadAnnouncementImage,
+  approveAnnouncement,
+  publishAnnouncement,
+  getPendingMyApproval,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
@@ -184,6 +187,7 @@ export function Manager() {
     } else if (tab === 'announcements') {
       loadAnnouncements();
       loadLocations();
+      loadUsers();
     } else if (tab === 'users') {
       loadUsers();
       loadLocations();
@@ -482,17 +486,18 @@ export function Manager() {
       )}
 
       {tab === 'announcements' && (
-        <section className="manager-section">
+        <div>
           <h2>Announcements</h2>
-          <AnnouncementForm locations={locations} timezone={timezone} onCreated={loadAnnouncements} />
+          <PendingMyApproval userId={user?.id} onUpdate={loadAnnouncements} />
+          <AnnouncementForm locations={locations} timezone={timezone} users={companyUsers} onCreated={loadAnnouncements} />
           <ul className="announcement-list">
             {announcements.map((a) => (
               <li key={a.id}>
-                <AnnouncementEditDelete announcement={a} locations={locations} onUpdate={loadAnnouncements} />
+                <AnnouncementEditDelete announcement={a} locations={locations} users={companyUsers} currentUserId={user?.id} onUpdate={loadAnnouncements} />
               </li>
             ))}
           </ul>
-        </section>
+        </div>
       )}
 
       {tab === 'reports' && (
@@ -944,26 +949,95 @@ function UserRow({ user, locations, currentUserId, onRoleChange, onLocationChang
   );
 }
 
-function AnnouncementForm({ locations, timezone, onCreated }) {
+function PendingMyApproval({ userId, onUpdate }) {
+  const [items, setItems] = useState([]);
+  const [comments, setComments] = useState({});
+  const [loading, setLoading] = useState({});
+
+  useEffect(() => {
+    getPendingMyApproval()
+      .then((r) => setItems(r.announcements || []))
+      .catch(() => {});
+  }, [userId]);
+
+  const handleDecision = async (id, status) => {
+    setLoading((prev) => ({ ...prev, [id]: true }));
+    try {
+      await approveAnnouncement(id, status, comments[id] || '');
+      setItems((prev) => prev.filter((a) => a.id !== id));
+      onUpdate();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setLoading((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="pending-approvals-section">
+      <h3 className="pending-approvals-title">Awaiting Your Approval</h3>
+      {items.map((a) => (
+        <div key={a.id} className="pending-approval-card">
+          <div className="pending-approval-info">
+            <strong>{a.title}</strong>
+            <span className="ann-meta">
+              {a.effective_from} – {a.effective_until} &middot; by {a.created_by_name || 'unknown'}
+            </span>
+          </div>
+          <div className="pending-approval-actions">
+            <textarea
+              className="approval-comment"
+              placeholder="Optional comment…"
+              value={comments[a.id] || ''}
+              onChange={(e) => setComments((prev) => ({ ...prev, [a.id]: e.target.value }))}
+              rows={2}
+            />
+            <div className="approval-buttons">
+              <button
+                type="button"
+                className="btn-approve"
+                disabled={loading[a.id]}
+                onClick={() => handleDecision(a.id, 'approved')}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                className="btn-reject"
+                disabled={loading[a.id]}
+                onClick={() => handleDecision(a.id, 'rejected')}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AnnouncementForm({ locations, timezone, users, onCreated }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [from, setFrom] = useState(() => todayInTimezone(timezone));
   const [to, setTo] = useState(() => todayInTimezone(timezone));
   const [locationIds, setLocationIds] = useState([]);
+  const [approverIds, setApproverIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
-  // Bump to force RichEditor remount (clears content) after successful save
   const [editorKey, setEditorKey] = useState(0);
 
   const toggleLocation = (id) => {
-    setLocationIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setLocationIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+  const toggleApprover = (id) => {
+    setApproverIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
-  const handleImageUpload = async (file) => {
-    return uploadAnnouncementImage(file);
-  };
+  const handleImageUpload = async (file) => uploadAnnouncementImage(file);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -974,10 +1048,11 @@ function AnnouncementForm({ locations, timezone, onCreated }) {
     }
     setLoading(true);
     try {
-      await createAnnouncement(title, body, from, to, locationIds);
+      await createAnnouncement(title, body, from, to, locationIds, approverIds);
       setTitle('');
       setBody('');
       setLocationIds([]);
+      setApproverIds([]);
       setEditorKey((k) => k + 1);
       onCreated();
     } catch (e) {
@@ -986,6 +1061,9 @@ function AnnouncementForm({ locations, timezone, onCreated }) {
       setLoading(false);
     }
   };
+
+  const isDraft = approverIds.length > 0;
+  const managers = (users || []).filter((u) => u.role === 'manager' || u.role === 'owner');
 
   return (
     <form onSubmit={submit} className="form-announcement">
@@ -1032,8 +1110,30 @@ function AnnouncementForm({ locations, timezone, onCreated }) {
           </label>
         )) : <span className="hint"> No locations configured.</span>}
       </div>
+      {managers.length > 0 && (
+        <div className="form-approvers">
+          <span className="ann-edit-label">Request approval from (optional)</span>
+          <div className="approver-list">
+            {managers.map((u) => (
+              <label key={u.id} className="location-checkbox">
+                <input
+                  type="checkbox"
+                  checked={approverIds.includes(u.id)}
+                  onChange={() => toggleApprover(u.id)}
+                />
+                {u.display_name || u.email}
+              </label>
+            ))}
+          </div>
+          {isDraft && (
+            <p className="hint">Announcement will be saved as a draft until you publish it.</p>
+          )}
+        </div>
+      )}
       {err && <p className="form-error">{err}</p>}
-      <button type="submit" disabled={loading}>Create announcement</button>
+      <button type="submit" disabled={loading}>
+        {isDraft ? 'Save as draft' : 'Publish announcement'}
+      </button>
     </form>
   );
 }
@@ -1572,26 +1672,36 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
   );
 }
 
-function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
+function AnnouncementEditDelete({ announcement, locations, users, currentUserId, onUpdate }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(announcement.title);
   const [body, setBody] = useState(announcement.body || '');
   const [from, setFrom] = useState(announcement.effective_from);
   const [to, setTo] = useState(announcement.effective_until);
   const [locationIds, setLocationIds] = useState(Array.isArray(announcement.location_ids) ? announcement.location_ids : []);
+  const [approverIds, setApproverIds] = useState(
+    Array.isArray(announcement.approvals) ? announcement.approvals.map((a) => a.approver_id) : []
+  );
   const [loading, setLoading] = useState(false);
 
   const toggleLocation = (id) => {
-    setLocationIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setLocationIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+  const toggleApprover = (id) => {
+    setApproverIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await updateAnnouncement(announcement.id, { title, body, effective_from: from, effective_until: to, location_ids: locationIds });
+      await updateAnnouncement(announcement.id, {
+        title, body,
+        effective_from: from,
+        effective_until: to,
+        location_ids: locationIds,
+        approver_ids: approverIds,
+      });
       setEditing(false);
       onUpdate();
     } catch (e) {
@@ -1611,17 +1721,29 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
     }
   };
 
+  const handlePublish = async () => {
+    if (!window.confirm('Publish this announcement now? It will become visible to staff.')) return;
+    try {
+      await publishAnnouncement(announcement.id);
+      onUpdate();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const status = announcement.status || 'published';
+  const approvals = Array.isArray(announcement.approvals) ? announcement.approvals : [];
+  const managers = (users || []).filter((u) => u.role === 'manager' || u.role === 'owner');
+
+  const statusLabel = { draft: 'Draft', pending_approval: 'Pending Approval', published: 'Published' };
+  const statusClass = { draft: 'badge-draft', pending_approval: 'badge-pending', published: 'badge-published' };
+
   if (editing) {
     return (
       <form onSubmit={handleSave} className="form-announcement-edit">
         <div className="ann-edit-field">
           <label className="ann-edit-label">Title</label>
-          <input
-            className="ann-edit-input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-          />
+          <input className="ann-edit-input" value={title} onChange={(e) => setTitle(e.target.value)} required />
         </div>
         <div className="ann-edit-field">
           <label className="ann-edit-label">Body</label>
@@ -1634,14 +1756,8 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
           />
         </div>
         <div className="ann-edit-dates">
-          <label className="ann-edit-label-inline">
-            From
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </label>
-          <label className="ann-edit-label-inline">
-            To
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </label>
+          <label className="ann-edit-label-inline">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label className="ann-edit-label-inline">To<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         </div>
         {locations && locations.length > 0 && (
           <div className="form-locations">
@@ -1650,6 +1766,17 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
               <label key={loc.id} className="location-checkbox">
                 <input type="checkbox" checked={locationIds.includes(loc.id)} onChange={() => toggleLocation(loc.id)} />
                 {loc.name}
+              </label>
+            ))}
+          </div>
+        )}
+        {managers.length > 0 && (
+          <div className="form-approvers">
+            <span className="ann-edit-label">Approvers</span>
+            {managers.map((u) => (
+              <label key={u.id} className="location-checkbox">
+                <input type="checkbox" checked={approverIds.includes(u.id)} onChange={() => toggleApprover(u.id)} />
+                {u.display_name || u.email}
               </label>
             ))}
           </div>
@@ -1666,16 +1793,36 @@ function AnnouncementEditDelete({ announcement, locations, onUpdate }) {
     <div className="announcement-item-card">
       <div className="announcement-item-row">
         <div className="announcement-item-info">
-          <strong className="announcement-item-title">{announcement.title}</strong>
+          <div className="announcement-item-header">
+            <strong className="announcement-item-title">{announcement.title}</strong>
+            <span className={`status-badge ${statusClass[status] || 'badge-published'}`}>
+              {statusLabel[status] || status}
+            </span>
+          </div>
           <span className="announcement-item-dates">{announcement.effective_from} – {announcement.effective_until}</span>
           {announcement.body && (
-            <div
-              className="announcement-item-body"
-              dangerouslySetInnerHTML={{ __html: announcement.body }}
-            />
+            <div className="announcement-item-body" dangerouslySetInnerHTML={{ __html: announcement.body }} />
+          )}
+          {approvals.length > 0 && (
+            <div className="approval-status-row">
+              {approvals.map((ap) => (
+                <span key={ap.approver_id} className={`approval-chip approval-chip--${ap.status}`} title={ap.comment || ''}>
+                  {ap.display_name || ap.email}
+                  {ap.status === 'approved' && ' ✓'}
+                  {ap.status === 'rejected' && ' ✗'}
+                  {ap.status === 'pending' && ' …'}
+                  {ap.comment && <span className="approval-chip-comment"> "{ap.comment}"</span>}
+                </span>
+              ))}
+            </div>
           )}
         </div>
         <div className="announcement-item-actions">
+          {status !== 'published' && (
+            <button type="button" className="btn-publish btn-small" onClick={handlePublish}>
+              Publish
+            </button>
+          )}
           <WhoRead id={announcement.id} />
           <button type="button" className="btn-small" onClick={() => setEditing(true)}>Edit</button>
           <button type="button" className="btn-remove btn-small" onClick={handleDelete}>Delete</button>

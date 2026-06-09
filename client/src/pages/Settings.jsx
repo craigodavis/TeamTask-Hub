@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getAiModelSettings, saveAiModelSettings } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
 import './Settings.css';
 
-const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7'];
+const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7', 'ai-models'];
 
 // Common IANA timezone list — covers all US zones plus a broad international set
 const TIMEZONES = [
@@ -228,6 +228,13 @@ export function Settings() {
   const [amazonTesting, setAmazonTesting]     = useState(false);
   const [amazonTestResult, setAmazonTestResult] = useState('');
 
+  // AI Models
+  const [aiModelProcesses, setAiModelProcesses] = useState([]);
+  const [aiModelDirty, setAiModelDirty]         = useState({});
+  const [aiModelSaving, setAiModelSaving]       = useState(false);
+  const [aiModelMessage, setAiModelMessage]     = useState('');
+  const [aiModelInfoOpen, setAiModelInfoOpen]   = useState(false);
+
   useEffect(() => {
     // Managers can only see the square tab; owners see all tabs
     if (!isOwner && isManager && tabParam && tabParam !== 'square') {
@@ -395,6 +402,14 @@ export function Settings() {
   };
 
   useEffect(() => { if (isOwner && tab === 'integrations') loadServiceTokens(); }, [tab]);
+
+  useEffect(() => {
+    if (isOwner && tab === 'ai-models' && aiModelProcesses.length === 0) {
+      getAiModelSettings()
+        .then((d) => setAiModelProcesses(d.processes || []))
+        .catch(() => {});
+    }
+  }, [tab, isOwner]);
 
   const handleCreateToken = async (e) => {
     e.preventDefault();
@@ -567,6 +582,9 @@ export function Settings() {
         <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>AiRon</button>
         {isOwner && (
           <button type="button" className={tab === 'commerce7' ? 'active' : ''} onClick={() => setSettingsTab('commerce7')}>Commerce7</button>
+        )}
+        {isOwner && (
+          <button type="button" className={tab === 'ai-models' ? 'active' : ''} onClick={() => setSettingsTab('ai-models')}>AI Models</button>
         )}
       </nav>
       {error && <p className="settings-error">{error}</p>}
@@ -1134,6 +1152,106 @@ export function Settings() {
 
       {tab === 'commerce7' && isOwner && (
         <Commerce7SyncPanel />
+      )}
+
+      {tab === 'ai-models' && isOwner && (
+        <div className="settings-section">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <h2 style={{ margin: 0 }}>AI Models</h2>
+            <button
+              type="button"
+              title="Model pricing and capabilities"
+              onClick={() => setAiModelInfoOpen((v) => !v)}
+              style={{ background: 'none', border: '1px solid #555', borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer', fontSize: '0.75rem', color: '#aaa', lineHeight: 1 }}
+            >
+              ℹ
+            </button>
+          </div>
+
+          {aiModelInfoOpen && (
+            <div style={{ marginBottom: '1.25rem', overflowX: 'auto' }}>
+              <table className="service-token-table">
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Speed</th>
+                    <th>Best for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>claude-haiku-3-5</td><td>$0.80/MTok</td><td>$4/MTok</td><td>⚡ Fast</td><td>Simple lookups, summaries, quick classification</td></tr>
+                  <tr><td>claude-sonnet-4-5</td><td>$3/MTok</td><td>$15/MTok</td><td>✦ Balanced</td><td>Default workhorse — most coding, analysis</td></tr>
+                  <tr><td>claude-sonnet-4-7</td><td>$3/MTok</td><td>$15/MTok</td><td>✦ Balanced</td><td>Sonnet 4 generation, extended thinking capable</td></tr>
+                  <tr><td>claude-opus-4-5</td><td>$15/MTok</td><td>$75/MTok</td><td>🐢 Slower</td><td>Deep reasoning, hard problems, architecture</td></tr>
+                  <tr><td>claude-opus-4-7</td><td>$15/MTok</td><td>$75/MTok</td><td>🐢 Slower</td><td>Most capable, extended thinking, complex multi-step</td></tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <table className="service-token-table">
+            <thead>
+              <tr>
+                <th>Process</th>
+                <th>Where Used</th>
+                <th>Model</th>
+              </tr>
+            </thead>
+            <tbody>
+              {aiModelProcesses.map((p) => {
+                const currentModel = aiModelDirty[p.key] !== undefined ? aiModelDirty[p.key] : p.model;
+                return (
+                  <tr key={p.key}>
+                    <td><strong>{p.name}</strong></td>
+                    <td style={{ color: '#aaa', fontSize: '0.875em' }}>{p.description}</td>
+                    <td>
+                      <select
+                        value={currentModel}
+                        onChange={(e) => setAiModelDirty((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                        style={{ background: '#1e1e1e', color: '#eee', border: '1px solid #444', borderRadius: '4px', padding: '4px 8px' }}
+                      >
+                        <option value="claude-haiku-3-5">Haiku 3.5</option>
+                        <option value="claude-sonnet-4-5">Sonnet 4.5</option>
+                        <option value="claude-sonnet-4-7">Sonnet 4.7</option>
+                        <option value="claude-opus-4-5">Opus 4.5</option>
+                        <option value="claude-opus-4-7">Opus 4.7</option>
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <button
+              type="button"
+              className="btn-save"
+              disabled={aiModelSaving || Object.keys(aiModelDirty).length === 0}
+              onClick={async () => {
+                setAiModelSaving(true);
+                setAiModelMessage('');
+                try {
+                  await saveAiModelSettings(aiModelDirty);
+                  setAiModelProcesses((prev) =>
+                    prev.map((p) => aiModelDirty[p.key] !== undefined ? { ...p, model: aiModelDirty[p.key] } : p)
+                  );
+                  setAiModelDirty({});
+                  setAiModelMessage('Model settings saved.');
+                } catch (e) {
+                  setAiModelMessage(`Error: ${e.message}`);
+                } finally {
+                  setAiModelSaving(false);
+                }
+              }}
+            >
+              {aiModelSaving ? 'Saving…' : 'Save'}
+            </button>
+            {aiModelMessage && <span style={{ color: aiModelMessage.startsWith('Error') ? '#e77' : '#6c6' }}>{aiModelMessage}</span>}
+          </div>
+        </div>
       )}
 
     </div>
