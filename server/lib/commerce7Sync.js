@@ -647,12 +647,13 @@ export async function syncClubs(companyId, integration) {
       for (const club of data.clubs ?? []) {
         await query(
           `INSERT INTO commerce7.club
-             (id, company_id, title, slug, status, description, image, metadata, c7_created_at, c7_updated_at, synced_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+             (id, company_id, title, slug, status, admin_status, description, image, metadata, c7_created_at, c7_updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
            ON CONFLICT (id) DO UPDATE SET
              title         = EXCLUDED.title,
              slug          = EXCLUDED.slug,
              status        = EXCLUDED.status,
+             admin_status  = EXCLUDED.admin_status,
              description   = EXCLUDED.description,
              image         = EXCLUDED.image,
              metadata      = EXCLUDED.metadata,
@@ -660,11 +661,12 @@ export async function syncClubs(companyId, integration) {
              synced_at     = NOW()`,
           [
             club.id, companyId,
-            club.title       ?? null,
-            club.slug        ?? null,
-            club.status      ?? null,
-            club.description ?? null,
-            club.image  ? JSON.stringify(club.image)  : null,
+            club.title        ?? null,
+            club.slug         ?? null,
+            club.webStatus    ?? null,   // C7 field is webStatus, not status
+            club.adminStatus  ?? null,
+            club.description  ?? null,
+            club.image   ? JSON.stringify(club.image)   : null,
             club.metaData ? JSON.stringify(club.metaData) : null,
             club.createdAt ?? null,
             club.updatedAt ?? null,
