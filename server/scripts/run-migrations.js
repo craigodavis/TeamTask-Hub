@@ -1873,6 +1873,12 @@ const MIGRATIONS = [
   PRIMARY KEY (company_id, process_key)
 )`,
 
+  // ── Migration 278: commerce7.club — store webStatus + adminStatus separately ─
+  // C7 clubs have no 'status' field; they use 'webStatus' and 'adminStatus'.
+  // The sync was writing club.status (always undefined) → always NULL.
+  // Now writes club.webStatus → status, club.adminStatus → admin_status.
+  `ALTER TABLE commerce7.club ADD COLUMN IF NOT EXISTS admin_status VARCHAR(50)`,
+
   // ── Migration 277: Announcement approval flow ─────────────────────────────
   // status: 'draft' | 'pending_approval' | 'published' (default 'published' = backward compat)
   `ALTER TABLE announcements ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'published'`,
