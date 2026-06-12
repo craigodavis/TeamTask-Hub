@@ -37,6 +37,19 @@ const pool = new Pool({
 
 const COMPANY_ID = '8d2df498-b5c0-4f73-94cd-323956036113';
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Parse M/D/YY or MM/DD/YY or MM/DD/YYYY → "YYYY-MM-DD"
+function parseDate(m, d, y) {
+  const year = y.length === 4 ? y : `20${y.padStart(2, '0')}`;
+  return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+function extractDate(str) {
+  const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  return m ? parseDate(m[1], m[2], m[3]) : null;
+}
+
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 function parseSyscoInvoice(text, filenameBase) {
@@ -76,25 +89,15 @@ function parseSyscoInvoice(text, filenameBase) {
       if (m) result.invoice_number = m[1];
     }
 
-    // ── Delivery date: standalone MM/DD/YY line near header ──
-    if (!foundDeliveryDate) {
-      const m = line.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
-      if (m) {
-        result.delivery_date = `20${m[3]}-${m[1]}-${m[2]}`;
-        foundDeliveryDate = true;
-      }
+    // ── Delivery date: standalone M/D/YY or MM/DD/YY line near header ──
+    if (!foundDeliveryDate && /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.test(line)) {
+      result.delivery_date = extractDate(line);
+      foundDeliveryDate = true;
     }
 
-    // ── Due date: appears on the LAST PAGE line or near PAYABLE ON OR BEFORE ──
+    // ── Due date: on same line as LAST PAGE, or on the line immediately before it ──
     if (/LAST PAGE/i.test(line)) {
-      const m = line.match(/(\d{2})\/(\d{2})\/(\d{2})/);
-      if (m) result.due_date = `20${m[3]}-${m[1]}-${m[2]}`;
-    }
-    if (!result.due_date && /PAYABLE ON OR BEFORE/i.test(line)) {
-      for (let j = i + 1; j <= i + 3 && j < lines.length; j++) {
-        const m = lines[j].match(/(\d{2})\/(\d{2})\/(\d{2})/);
-        if (m) { result.due_date = `20${m[3]}-${m[1]}-${m[2]}`; break; }
-      }
+      result.due_date = extractDate(line) || (i > 0 ? extractDate(lines[i - 1]) : null);
     }
 
     // ── Manifest number ──
@@ -114,9 +117,14 @@ function parseSyscoInvoice(text, filenameBase) {
         .filter(l => /^[\d,]+\.\d{2}$/.test(l))
         .map(l => parseFloat(l.replace(',', '')));
       if (remaining.length >= 3) {
-        result.subtotal   = remaining[0];
-        result.tax_total  = remaining[1];
-        result.total      = remaining[2];
+        result.subtotal  = remaining[0];
+        result.tax_total = remaining[1];
+        result.total     = remaining[2];
+      } else if (remaining.length === 2) {
+        // No separate tax line — subtotal and total printed (may be equal when tax=0)
+        result.subtotal  = remaining[0];
+        result.total     = remaining[1];
+        result.tax_total = +(remaining[1] - remaining[0]).toFixed(2);
       } else if (remaining.length === 1) {
         result.total = remaining[0];
       }
