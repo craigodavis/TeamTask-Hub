@@ -1516,15 +1516,15 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
           </>
         )}
       </span>
-      <span>
+      <span className="template-row-actions">
         {template.period_type === 'weekly' ? (
-          <span className="template-weekly-hint">Shows every {taskDayNames[template.day_of_week ?? 0]}</span>
+          <span className="template-recurrence-hint">Shows every {taskDayNames[template.day_of_week ?? 0]}</span>
         ) : template.period_type === 'daily' ? (
-          <span className="template-daily-hint">Shows every day</span>
+          <span className="template-recurrence-hint">Shows every day</span>
         ) : template.period_type === 'monthly' ? (
-          <span className="template-monthly-hint">Shows on day {template.day_of_month ?? 1} each month</span>
+          <span className="template-recurrence-hint">Shows on day {template.day_of_month ?? 1} each month</span>
         ) : template.period_type === 'yearly' ? (
-          <span className="template-yearly-hint">Shows {template.recur_month != null && template.recur_day != null ? `${taskMonthNames[template.recur_month - 1]} ${template.recur_day} each year` : 'yearly'}</span>
+          <span className="template-recurrence-hint">Shows {template.recur_month != null && template.recur_day != null ? `${taskMonthNames[template.recur_month - 1]} ${template.recur_day} each year` : 'yearly'}</span>
         ) : (
           <button type="button" onClick={onAssign}>Assign to this day</button>
         )}
