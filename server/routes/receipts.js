@@ -970,7 +970,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
           const accountId = (receipt.card_last4 && cardAccountMap.get(receipt.card_last4))
             || payment_account_id;
           const matches = await qboFindPurchases(
-            cId, accountId, receipt.total, receipt.order_date, 7
+            cId, accountId, receipt.total, receipt.order_date, 30
           );
           const available = matches.filter((m) => !usedQboIds.has(m.Id));
           if (!available.length) {
