@@ -278,8 +278,8 @@ export function Quickbooks({ user }) {
 
   // Reload when tab changes and clear selections
   useEffect(() => {
-    if (!status?.connected) return;
     if (activeTab === 'amazon') {
+      if (!status?.connected) return;
       getAmazonPayments().then((d) => setAmazonPayments(d.payments || [])).catch(() => {});
       getAmazonStats().then(setAmazonStats).catch(() => {});
     } else if (activeTab === 'settings') {
@@ -289,7 +289,8 @@ export function Quickbooks({ user }) {
     } else if (activeTab === 'harvester') {
       // HarvesterTab loads its own data
     } else {
-      loadReceipts(activeTab); // works for pending/reviewed/imported/excluded
+      // Receipt tabs (pending/reviewed/imported/excluded) don't require QBO to be connected
+      loadReceipts(activeTab);
     }
     setSelectedIds(new Set());
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -498,8 +499,8 @@ export function Quickbooks({ user }) {
     setError(''); setMessage('');
     try {
       const r = await acceptAllItems(receiptId);
-      setMessage(`Accepted ${r.accepted} items.`);
-      loadReceipts(activeTab);
+      setMessage(`Accepted ${r.accepted} items. Receipt moved to Reviewed.`);
+      setActiveTab('reviewed'); // tab-change effect will reload reviewed receipts
     } catch (e) { setError(e.message); }
     finally { setAccepting(null); }
   };
@@ -778,7 +779,7 @@ export function Quickbooks({ user }) {
                   ))}
                 </select>
                 <button type="button" className="qb-btn-export" onClick={handleOpenExport} disabled={exportLoading || !defaultAccountId}>
-                  {exportLoading ? 'Searching QBO…' : 'Export to QuickBooks'}
+                  {exportLoading ? 'Searching QBO…' : 'Find QBO Matches'}
                 </button>
               </div>
             )}
@@ -1015,7 +1016,7 @@ export function Quickbooks({ user }) {
             <p className="qb-empty">
               {activeTab === 'pending'  && 'No pending receipts. Upload a PDF above or check the Reviewed tab.'}
               {activeTab === 'reviewed' && 'No reviewed receipts. Accept some from the Pending tab.'}
-              {activeTab === 'imported' && 'No receipts exported to QuickBooks yet.'}
+              {activeTab === 'imported' && 'No receipts matched to QuickBooks yet.'}
               {activeTab === 'excluded' && 'No excluded receipts. Mark a card as "Personal use" in Settings to exclude its receipts.'}
             </p>
           ) : (
@@ -1268,7 +1269,7 @@ export function Quickbooks({ user }) {
               <div className="qb-modal qb-export-modal">
                 <div className="qb-modal-header">
                   <div>
-                    <h3>Export to QuickBooks — Preview</h3>
+                    <h3>Find QBO Matches — Preview</h3>
                     <p className="qb-modal-sub">Uncheck any rows that don't look right. Only checked rows will be updated in QBO.</p>
                   </div>
                   <button type="button" className="qb-modal-close" onClick={() => setExportPreviewing(false)}>✕</button>
