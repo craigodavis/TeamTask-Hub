@@ -278,8 +278,8 @@ export function Quickbooks({ user }) {
 
   // Reload when tab changes and clear selections
   useEffect(() => {
-    if (!status?.connected) return;
     if (activeTab === 'amazon') {
+      if (!status?.connected) return;
       getAmazonPayments().then((d) => setAmazonPayments(d.payments || [])).catch(() => {});
       getAmazonStats().then(setAmazonStats).catch(() => {});
     } else if (activeTab === 'settings') {
@@ -289,7 +289,8 @@ export function Quickbooks({ user }) {
     } else if (activeTab === 'harvester') {
       // HarvesterTab loads its own data
     } else {
-      loadReceipts(activeTab); // works for pending/reviewed/imported/excluded
+      // Receipt tabs (pending/reviewed/imported/excluded) don't require QBO to be connected
+      loadReceipts(activeTab);
     }
     setSelectedIds(new Set());
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -498,8 +499,8 @@ export function Quickbooks({ user }) {
     setError(''); setMessage('');
     try {
       const r = await acceptAllItems(receiptId);
-      setMessage(`Accepted ${r.accepted} items.`);
-      loadReceipts(activeTab);
+      setMessage(`Accepted ${r.accepted} items. Receipt moved to Reviewed.`);
+      setActiveTab('reviewed'); // tab-change effect will reload reviewed receipts
     } catch (e) { setError(e.message); }
     finally { setAccepting(null); }
   };
