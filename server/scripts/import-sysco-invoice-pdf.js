@@ -50,6 +50,14 @@ function extractDate(str) {
   return m ? parseDate(m[1], m[2], m[3]) : null;
 }
 
+// Parse amounts — Sysco credit memos use "13.45-" for negatives
+function parseAmount(s) {
+  if (typeof s !== 'string') return parseFloat(s);
+  const neg = s.endsWith('-');
+  const val = parseFloat(s.replace(/[,-]/g, ''));
+  return neg ? -val : val;
+}
+
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 function parseSyscoInvoice(text, filenameBase) {
@@ -65,14 +73,19 @@ function parseSyscoInvoice(text, filenameBase) {
     filenameDate = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
   }
 
+  // Pre-scan: credit memo marker appears after items, so detect it before the main loop
+  const is_credit_memo = lines.some(l => /CREDIT MEMO/i.test(l));
+
   const result = {
-    invoice_number:  filenameInvoiceNumber,
-    delivery_date:   filenameDate,
-    due_date:        null,
-    customer_number: null,
-    manifest_number: null,
-    subtotal:        null,
-    tax_total:       null,
+    invoice_number:     filenameInvoiceNumber,
+    delivery_date:      filenameDate,
+    due_date:           null,
+    customer_number:    null,
+    manifest_number:    null,
+    is_credit_memo,
+    reference_invoice:  null,
+    subtotal:           null,
+    tax_total:          null,
     total:           null,
     items:           [],
   };
@@ -99,6 +112,10 @@ function parseSyscoInvoice(text, filenameBase) {
     if (/LAST PAGE/i.test(line)) {
       result.due_date = extractDate(line) || (i > 0 ? extractDate(lines[i - 1]) : null);
     }
+
+    // ── Reference invoice (credit memos only) ──
+    const refMatch = line.match(/REFERENCE\s*:\s*(\d{9})/i);
+    if (refMatch) result.reference_invoice = refMatch[1];
 
     // ── Manifest number ──
     const mfMatch = line.match(/MANIFEST#\s+(\d+)/i);
@@ -174,23 +191,28 @@ function parseSyscoInvoice(text, filenameBase) {
     }
 
     // ── Regular line items ──
-    // Format: [SPLIT] [QTY] [UNIT] [PACK+DESC...] [ITEM_CODE_7DIGIT] [PRICE...] [*?]
-    const itemStart = line.match(/^([A-Z])\s+(\d+)\s+([A-Z]+)\s+(.+)$/);
-    if (!itemStart) continue;
+    // Normal invoices:  [SPLIT] [QTY] [UNIT] [PACK+DESC...] [ITEM_CODE_7DIGIT] [PRICE...] [*?]
+    // Credit memos:     [QTY] [UNIT] [PACK+DESC...] [ITEM_CODE_7DIGIT] [PRICE-...] (no split code)
+    const itemStart  = line.match(/^([A-Z])\s+(\d+)\s+([A-Z]+)\s+(.+)$/);
+    const creditItem = !itemStart && result.is_credit_memo && line.match(/^(\d+)\s+([A-Z]+)\s+(.+)$/);
+    if (!itemStart && !creditItem) continue;
 
-    const [, split_code, qtyStr, unit, rest] = itemStart;
+    const split_code = itemStart ? itemStart[1] : null;
+    const qtyStr     = itemStart ? itemStart[2] : creditItem[1];
+    const unit       = itemStart ? itemStart[3] : creditItem[2];
+    const rest       = itemStart ? itemStart[4] : creditItem[3];
     const tokens = rest.trim().split(/\s+/);
 
     const taxed = tokens[tokens.length - 1] === '*';
     if (taxed) tokens.pop();
 
     // Find the last 7-digit item code, then prices follow it
+    // Amounts may be positive ("13.45") or negative credit-memo style ("13.45-")
     let itemCodeIdx = -1;
     for (let j = tokens.length - 1; j >= 0; j--) {
       if (/^\d{7}$/.test(tokens[j])) {
-        // Verify that what follows looks like prices (decimals or small integers)
         const after = tokens.slice(j + 1);
-        if (after.length >= 1 && after.every(t => /^[\d,]+\.?\d*$/.test(t))) {
+        if (after.length >= 1 && after.every(t => /^[\d,]+\.?\d*-?$/.test(t))) {
           itemCodeIdx = j;
           break;
         }
@@ -203,9 +225,9 @@ function parseSyscoInvoice(text, filenameBase) {
     const descTokens  = tokens.slice(0, itemCodeIdx);
 
     const sysco_item_number = tokens[itemCodeIdx];
-    const extended_price    = parseFloat(priceTokens[priceTokens.length - 1]);
-    const unit_price        = parseFloat(priceTokens[0]);
-    const tax_amount        = priceTokens.length === 3 ? parseFloat(priceTokens[1]) : 0;
+    const extended_price    = parseAmount(priceTokens[priceTokens.length - 1]);
+    const unit_price        = parseAmount(priceTokens[0]);
+    const tax_amount        = priceTokens.length === 3 ? parseAmount(priceTokens[1]) : 0;
 
     // Pack size is the first token of descTokens (often numeric/alphanumeric like "110#AVG" or "2050CT")
     // We store it raw — pdf-parse collapses the "/" in pack fractions
@@ -225,6 +247,23 @@ function parseSyscoInvoice(text, filenameBase) {
       taxable:           taxed,
       category:          currentCategory,
     });
+  }
+
+  // ── Credit memo total fallback ──
+  // Credit memos have no LAST PAGE marker; totals appear as standalone "13.45-" lines
+  if (result.is_credit_memo && result.total === null) {
+    const negatives = lines
+      .filter(l => /^[\d,]+\.\d{2}-$/.test(l))
+      .map(l => -parseFloat(l.replace(/[,-]/g, '')));
+    if (negatives.length >= 2) {
+      result.subtotal  = negatives[0];
+      result.total     = negatives[negatives.length - 1];
+      result.tax_total = 0;
+    } else if (negatives.length === 1) {
+      result.subtotal  = negatives[0];
+      result.total     = negatives[0];
+      result.tax_total = 0;
+    }
   }
 
   return result;
@@ -250,13 +289,14 @@ async function insertInvoice(invoice, pdfBuffer, filename) {
     const receiptRes = await client.query(
       `INSERT INTO teamtask_hub.receipts
          (company_id, order_number, order_date, vendor, total, status, pdf_filename, pdf_data)
-       VALUES ($1, $2, $3, 'Sysco', $4, 'pending', $5, $6)
+       VALUES ($1, $2, $3, 'Sysco', $4, $5, $6, $7)
        RETURNING id`,
       [
         COMPANY_ID,
         invoice.invoice_number,
         invoice.delivery_date,
         invoice.total,
+        invoice.is_credit_memo ? 'credit' : 'pending',
         filename,
         pdfBuffer,
       ]
