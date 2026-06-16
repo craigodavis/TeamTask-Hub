@@ -230,6 +230,7 @@ export function Quickbooks({ user }) {
 
   // Rule suggestions (generated after user corrects categories)
   const [ruleSuggestions, setRuleSuggestions] = useState([]); // [{name, if_description_contains, then_account_id, ...}]
+  const [ruleConflicts, setRuleConflicts] = useState(null); // { conflicts, pendingRule, source: 'form'|'suggestion', suggestionIndex }
   const [suggestingRules, setSuggestingRules] = useState(false);
 
   // Card mappings (Settings tab)
@@ -589,19 +590,25 @@ export function Quickbooks({ user }) {
 
   const handleRuleFormChange = (field, value) => setRuleForm((f) => ({ ...f, [field]: value }));
 
-  const handleSaveRule = async () => {
+  const handleSaveRule = async (force = false) => {
     if (!ruleForm.name.trim()) return;
     setRuleSaving(true);
     try {
       if (editingRule === 'new') {
-        await createRule(ruleForm);
+        await createRule({ ...ruleForm, force });
       } else {
         await updateRule(editingRule.id, ruleForm);
       }
       loadRules();
       closeRuleForm();
       setMessage('Rule saved.');
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      if (e.conflict) {
+        setRuleConflicts({ conflicts: e.conflicts, pendingRule: ruleForm, source: 'form' });
+      } else {
+        setError(e.message);
+      }
+    }
     finally { setRuleSaving(false); }
   };
 
@@ -1096,6 +1103,40 @@ export function Quickbooks({ user }) {
               ✨ Analyzing your corrections to suggest rules…
             </div>
           )}
+          {ruleConflicts && (
+            <div className="qb-rule-conflict-banner">
+              <div className="qb-rule-conflict-header">
+                <strong>⚠ Keyword conflict — existing rule already covers these terms</strong>
+                <button type="button" className="qb-btn-dismiss" onClick={() => setRuleConflicts(null)}>✕</button>
+              </div>
+              {ruleConflicts.conflicts.map((c) => (
+                <div key={c.id} className="qb-rule-conflict-row">
+                  <span>Rule <strong>"{c.name}"</strong> already matches: <code>{c.shared_keywords.join(', ')}</code></span>
+                </div>
+              ))}
+              <div className="qb-rule-conflict-actions">
+                <button type="button" className="qb-btn-secondary" onClick={() => setRuleConflicts(null)}>
+                  Cancel — edit the existing rule instead
+                </button>
+                <button type="button" className="qb-btn-warning" onClick={async () => {
+                  try {
+                    await createRule({ ...ruleConflicts.pendingRule, force: true });
+                    if (ruleConflicts.source === 'suggestion') {
+                      setRuleSuggestions((prev) => prev.filter((_, j) => j !== ruleConflicts.suggestionIndex));
+                    } else {
+                      closeRuleForm();
+                    }
+                    loadRules();
+                    setMessage(`Rule "${ruleConflicts.pendingRule.name}" added.`);
+                  } catch (e) { setError(e.message); }
+                  finally { setRuleConflicts(null); }
+                }}>
+                  Add Anyway
+                </button>
+              </div>
+            </div>
+          )}
+
           {ruleSuggestions.length > 0 && (
             <div className="qb-rule-suggestions">
               <div className="qb-rule-suggestions-header">
@@ -1125,7 +1166,13 @@ export function Quickbooks({ user }) {
                         setRuleSuggestions((prev) => prev.filter((_, j) => j !== i));
                         loadRules();
                         setMessage(`Rule "${s.name}" added.`);
-                      } catch (e) { setError(e.message); }
+                      } catch (e) {
+                        if (e.conflict) {
+                          setRuleConflicts({ conflicts: e.conflicts, pendingRule: { ...s, active: true }, source: 'suggestion', suggestionIndex: i });
+                        } else {
+                          setError(e.message);
+                        }
+                      }
                     }}
                   >
                     + Add Rule
