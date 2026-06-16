@@ -166,6 +166,15 @@ router.get('/rules', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// Extract individual keywords from a boolean rule expression (splits on OR/AND/parens)
+function extractRuleKeywords(expr) {
+  if (!expr?.trim()) return [];
+  return expr
+    .split(/\b(?:OR|AND)\b|\(|\)/i)
+    .map(s => s.trim().toLowerCase())
+    .filter(s => s.length > 1);
+}
+
 // ── POST /api/receipts/rules ──────────────────────────────────────────────────
 router.post('/rules', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
@@ -174,11 +183,40 @@ router.post('/rules', requireAuth, requireOwner, async (req, res) => {
     if_description_contains, if_vendor, if_account_type_contains,
     then_account_id, then_class_id, then_clear = false,
     notes, active = true,
+    force = false, // set true to bypass conflict warning
   } = req.body;
 
   if (!name?.trim()) return res.status(400).json({ error: 'Rule name is required.' });
 
   try {
+    // Check for keyword overlap with existing rules (skip if force=true)
+    if (!force && if_description_contains) {
+      const newKeywords = extractRuleKeywords(if_description_contains);
+      if (newKeywords.length) {
+        const existing = await query(
+          `SELECT id, name, if_description_contains, then_account_id, priority
+           FROM categorization_rules WHERE company_id = $1 AND active = true`,
+          [cId]
+        );
+        const conflicts = existing.rows
+          .filter(rule => rule.if_description_contains)
+          .map(rule => {
+            const existingKeywords = extractRuleKeywords(rule.if_description_contains);
+            const shared = newKeywords.filter(k => existingKeywords.includes(k));
+            return shared.length ? { id: rule.id, name: rule.name, shared_keywords: shared, then_account_id: rule.then_account_id, priority: rule.priority } : null;
+          })
+          .filter(Boolean);
+
+        if (conflicts.length) {
+          return res.status(409).json({
+            error: 'keyword_conflict',
+            message: `${conflicts.length} existing rule${conflicts.length > 1 ? 's' : ''} already match${conflicts.length === 1 ? 'es' : ''} some of these keywords.`,
+            conflicts,
+          });
+        }
+      }
+    }
+
     const r = await query(
       `INSERT INTO categorization_rules
          (company_id, name, priority, if_description_contains, if_vendor, if_account_type_contains,

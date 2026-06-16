@@ -1064,6 +1064,12 @@ export async function getRules() {
 export async function createRule(rule) {
   const res = await fetch(`${API}/receipts/rules`, { method: 'POST', headers: headers(), body: JSON.stringify(rule) });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409) {
+    const err = new Error(data.message || 'Rule keyword conflict');
+    err.conflict = true;
+    err.conflicts = data.conflicts || [];
+    throw err;
+  }
   if (!res.ok) throw new Error(data.error || 'Failed to create rule');
   return data;
 }

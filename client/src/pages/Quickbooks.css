@@ -732,6 +732,26 @@
 }
 .qb-btn-add-suggestion:hover { background: #1565c0; }
 
+.qb-rule-conflict-banner {
+  background: #fff8e1; border: 1px solid #f9a825; border-radius: 8px;
+  padding: 0.85rem 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem;
+}
+.qb-rule-conflict-header { display: flex; justify-content: space-between; align-items: center; }
+.qb-rule-conflict-header strong { color: #e65100; font-size: 0.875rem; }
+.qb-rule-conflict-row { font-size: 0.82rem; color: #444; padding-left: 0.5rem; }
+.qb-rule-conflict-row code { background: #fce4c8; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+.qb-rule-conflict-actions { display: flex; gap: 0.5rem; padding-top: 0.25rem; }
+.qb-btn-secondary {
+  background: #fff; border: 1px solid #bbb; border-radius: 6px;
+  padding: 0.35rem 0.85rem; font-size: 0.82rem; cursor: pointer; color: #444;
+}
+.qb-btn-secondary:hover { background: #f5f5f5; }
+.qb-btn-warning {
+  background: #e65100; color: #fff; border: none; border-radius: 6px;
+  padding: 0.35rem 0.85rem; font-size: 0.82rem; cursor: pointer; font-weight: 500;
+}
+.qb-btn-warning:hover { background: #bf360c; }
+
 /* ── Harvester Tab ── */
 .harvester-tab { padding: 1rem 0; }
 .harvester-tab h3 { margin: 0 0 0.25rem; font-size: 1.1rem; }
