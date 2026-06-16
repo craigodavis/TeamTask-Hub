@@ -489,21 +489,11 @@ router.post('/:id/accept-all', requireAuth, requireOwner, async (req, res) => {
     if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
     const vendor = rr.rows[0].vendor;
 
-    // Apply rules to all pending items before accepting
-    const [pendingRes, accountsRes, rulesRes] = await Promise.all([
-      query(`SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`, [id]),
-      query(`SELECT qbo_id, name, account_type FROM qbo_accounts WHERE company_id = $1`, [cId]),
-      query(`SELECT * FROM categorization_rules WHERE company_id = $1 AND active = true ORDER BY priority ASC`, [cId]),
-    ]);
-    for (const item of pendingRes.rows) {
-      const override = applyRules(item, vendor, rulesRes.rows, accountsRes.rows);
-      if (override.rule_applied || override.qbo_account_id !== item.qbo_account_id || override.qbo_class_id !== item.qbo_class_id) {
-        await query(
-          `UPDATE receipt_items SET qbo_account_id = $2, qbo_class_id = $3, rule_applied = $4 WHERE id = $1`,
-          [item.id, override.qbo_account_id, override.qbo_class_id, override.rule_applied || null]
-        );
-      }
-    }
+    // Load pending items (categories already set — don't re-apply rules here,
+    // that would clobber any manual changes the user made before accepting)
+    const pendingRes = await query(
+      `SELECT * FROM receipt_items WHERE receipt_id = $1 AND item_status = 'pending'`, [id]
+    );
 
     // Accept all pending items
     const updated = await query(
