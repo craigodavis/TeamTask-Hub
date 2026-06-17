@@ -561,7 +561,7 @@ export function Quickbooks({ user }) {
     try {
       const r = await acceptAllItems(receiptId);
       setMessage(`Accepted ${r.accepted} items.`);
-      loadReceipts('pending');
+      loadReceipts(activeTab);
     } catch (e) { setError(e.message); }
     finally { setAccepting(null); }
   };
