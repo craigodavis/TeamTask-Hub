@@ -71,9 +71,11 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
   const ctx = await loadReceiptContext(cId);
 
   // Process up to 5 files concurrently to stay within Claude API rate limits
-  const results = await withConcurrency(req.files, 5, async (file) => {
+  // processReceiptPDF returns an array (one entry per order found in the PDF)
+  const perFileResults = await withConcurrency(req.files, 5, async (file) => {
     return processReceiptPDF(cId, file.buffer, file.originalname, ctx);
   });
+  const results = perFileResults.flat();
 
   res.json({ results });
 });
@@ -475,32 +477,36 @@ router.post('/:id/process', requireAuth, requireOwner, async (req, res) => {
     if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
     const receipt = rr.rows[0];
 
-    if (!receipt.raw_path) {
-      return res.status(400).json({ error: 'No raw PDF path on this receipt.' });
+    // Resolve PDF source: prefer raw_path (harvester receipts), fall back to pdf_data (uploaded receipts)
+    let pdfBuffer;
+    let filename;
+    if (receipt.raw_path && fs.existsSync(receipt.raw_path)) {
+      pdfBuffer = fs.readFileSync(receipt.raw_path);
+      filename = receipt.pdf_filename || path.basename(receipt.raw_path);
+    } else if (receipt.pdf_data) {
+      pdfBuffer = receipt.pdf_data;
+      filename = receipt.pdf_filename || `receipt-${id}.pdf`;
+    } else {
+      return res.status(400).json({ error: 'No PDF source available for this receipt (no raw_path or pdf_data).' });
     }
-
-    if (!fs.existsSync(receipt.raw_path)) {
-      return res.status(400).json({ error: `PDF file not found at: ${receipt.raw_path}` });
-    }
-
-    const pdfBuffer = fs.readFileSync(receipt.raw_path);
-    const filename = receipt.pdf_filename || path.basename(receipt.raw_path);
 
     // Delete the stub receipt (no items) so processReceiptPDF can create a fresh one with AI extraction
     await query(`DELETE FROM receipts WHERE id = $1`, [id]);
 
     const ctx = await loadReceiptContext(cId);
-    const result = await processReceiptPDF(cId, pdfBuffer, filename, ctx);
+    // processReceiptPDF returns an array — one entry per order in the PDF
+    const results = await processReceiptPDF(cId, pdfBuffer, filename, ctx);
 
-    if (result.skipped) {
-      return res.status(409).json({ error: 'Receipt already exists with items.' });
-    }
-    if (result.error) {
-      return res.status(500).json({ error: result.error });
+    // Check for hard errors (all failed)
+    const errors = results.filter((r) => r.error);
+    const created = results.filter((r) => !r.error && !r.skipped);
+    if (!created.length && errors.length) {
+      return res.status(500).json({ error: errors[0].error });
     }
 
-    // Return the newly created receipt with items
-    const newReceipt = await query(`SELECT * FROM receipts WHERE company_id = $1 AND order_number = $2`, [cId, result.order_number]);
+    // Return the primary (first created) receipt with its items
+    const primary = created[0] || results[0];
+    const newReceipt = await query(`SELECT * FROM receipts WHERE company_id = $1 AND order_number = $2`, [cId, primary.order_number]);
     if (!newReceipt.rows.length) return res.status(500).json({ error: 'Receipt created but could not be retrieved.' });
 
     const newId = newReceipt.rows[0].id;
@@ -510,7 +516,7 @@ router.post('/:id/process', requireAuth, requireOwner, async (req, res) => {
       LEFT JOIN qbo_classes  qc ON qc.company_id = $2 AND qc.qbo_id = ri.qbo_class_id
       WHERE ri.receipt_id = $1 ORDER BY ri.created_at`, [newId, cId]);
 
-    res.json({ ...newReceipt.rows[0], items: items.rows });
+    res.json({ ...newReceipt.rows[0], items: items.rows, additional_orders: created.length > 1 ? created.slice(1) : undefined });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

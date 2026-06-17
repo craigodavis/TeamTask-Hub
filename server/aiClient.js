@@ -12,20 +12,23 @@ function getClient(apiKey) {
 
 /**
  * Extract structured receipt data from raw PDF text.
- * Returns: { order_number, order_date, vendor, subtotal, tax, total, items[] }
+ * Returns an ARRAY of orders — most receipts have one, but Amazon PDFs can have multiple.
+ * Each element: { order_number, order_date, vendor, subtotal, tax, total, card_last4, payment_instrument, items[] }
  */
 export async function extractReceiptData(pdfText, apiKey, model = 'claude-haiku-4-5') {
   const client = getClient(apiKey);
 
   const message = await client.messages.create({
     model,
-    max_tokens: 2048,
+    max_tokens: 4096,
     messages: [
       {
         role: 'user',
         content: `You are a receipt parser. Extract structured data from this order/invoice text and return ONLY valid JSON — no markdown, no explanation.
 
-The JSON must have this shape:
+IMPORTANT: Some receipts (especially Amazon) contain MULTIPLE separate orders in one document. Each order has its own order number and its own items. Detect ALL orders and return them as a JSON array. If there is only one order, still return a single-element array.
+
+The JSON must be an ARRAY where each element has this shape:
 {
   "order_number": "string or null",
   "order_date": "YYYY-MM-DD or null",
@@ -45,6 +48,9 @@ The JSON must have this shape:
   ]
 }
 
+Use the INDIVIDUAL order total for each order's "total" field (not the grand total of the whole document).
+Include ALL items from each order in that order's "items" array.
+
 PDF text:
 ${pdfText}`,
       },
@@ -54,7 +60,9 @@ ${pdfText}`,
   const raw = message.content[0].text.trim();
   // Strip markdown code fences if present
   const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
-  return JSON.parse(json);
+  const parsed = JSON.parse(json);
+  // Normalize: always return an array
+  return Array.isArray(parsed) ? parsed : [parsed];
 }
 
 /**
