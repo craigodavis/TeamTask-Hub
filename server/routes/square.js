@@ -399,7 +399,21 @@ teamtask_hub.receipts  — one row per vendor invoice or receipt
   vendor (e.g. 'Amazon', 'Sysco', 'Amazon.com / Kindred Vineyards'),
   subtotal, tax, total (DOLLARS — numeric, use directly),
   status ('pending'|'reviewed'|'imported'|'excluded'),
-  card_last4, payment_instrument, source ('amazon'|'sysco'|'upload'|null), created_at
+  card_last4, payment_instrument, source ('amazon'|'sysco'|'upload'|null),
+  delivery_address (TEXT — street address the order shipped to; populated for Sysco invoices),
+  created_at
+
+LOCATION MAPPING — use delivery_address to identify which Kindred property received the order:
+  '616 MAIN ST'  (or contains '616 MAIN')  → "Kindred by the Creek" (tasting room, downtown Caldwell)
+  '14253 FROST RD' (or contains 'FROST')   → "Kindred Vineyards" (the winery)
+  When delivery_address is NULL             → unknown / Amazon or other vendor
+
+To break out spending by location, filter or GROUP BY delivery_address with a CASE expression:
+  CASE
+    WHEN r.delivery_address ILIKE '%616%MAIN%' THEN 'Kindred by the Creek'
+    WHEN r.delivery_address ILIKE '%FROST%'    THEN 'Kindred Vineyards'
+    ELSE 'Unknown / Other'
+  END AS location
 
 teamtask_hub.receipt_items  — line items on each receipt
   id, receipt_id, description (product name from invoice),
@@ -424,6 +438,13 @@ Purchasing query rules:
   - For date filtering prefer r.order_date; fall back to r.created_at when order_date is null
   - Exclude status = 'excluded' (personal-use purchases) unless the user asks for them
   - status = 'imported' means already pushed to QuickBooks
+  - CRITICAL — searching descriptions: Sysco product descriptions contain SKU codes and words
+    in non-obvious order (e.g. "5012X12 SYS CLS BOX PIZZA 12 W/K B-FLT"). NEVER use a
+    multi-word phrase in a single LIKE — the words may be in any order or separated by codes.
+    Instead split the search into one LIKE per keyword joined with AND:
+      GOOD: LOWER(ri.description) LIKE '%pizza%' AND LOWER(ri.description) LIKE '%box%'
+      BAD:  LOWER(ri.description) LIKE '%pizza box%'  ← will miss "BOX PIZZA" descriptions
+    When the user asks for a product by a common name, also try synonyms or abbreviations.
 
 Example purchasing queries:
   "How much did we spend on napkins last month?"

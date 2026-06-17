@@ -30,6 +30,24 @@ const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'receipts');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 /**
+ * Extract the delivery/ship-to address from a Sysco invoice.
+ * Sysco PDFs list the ship-to address first (before the bill-to), so the first
+ * street-number line in the text identifies which location the order went to.
+ * Returns a normalized short form like "616 MAIN ST" or "14253 FROST RD", or null.
+ */
+function extractDeliveryAddress(pdfText) {
+  const lines = pdfText.split('\n').map((l) => l.trim()).filter((l) => l);
+  for (const line of lines) {
+    // Match lines that start with a street number followed by a street name
+    // Skip PO Box lines (those are Sysco's own remit-to address)
+    if (/^\d{2,5}\s+[A-Z]/.test(line) && !/^P[\s.]?O[\s.]?\s*BOX/i.test(line)) {
+      return line.replace(/\s+/g, ' ').trim();
+    }
+  }
+  return null;
+}
+
+/**
  * Detect Amazon shipping notification emails masquerading as receipts.
  * These have order numbers and grand totals but no itemized prices.
  * Signals: delivery status tracker language + arrival estimates.
@@ -94,6 +112,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
     // 1. Extract text from PDF
     const parsed  = await pdfParse(buffer);
     const pdfText = parsed.text;
+    const deliveryAddress = extractDeliveryAddress(pdfText);
 
     // 1b. Reject shipping notifications — Amazon sends these when a package ships.
     // They contain order numbers and totals but no itemized prices, so they look
@@ -169,12 +188,13 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
       const receiptRes = await query(
         `INSERT INTO receipts
            (company_id, order_number, order_date, vendor, subtotal, tax, total,
-            pdf_filename, card_last4, payment_instrument, pdf_data)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            pdf_filename, card_last4, payment_instrument, pdf_data, delivery_address)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          RETURNING id`,
         [companyId, order_number, order_date || null, vendor || 'Amazon',
          subtotal || null, tax || null, total || null,
-         filename, card_last4 || null, payment_instrument || null, buffer]
+         filename, card_last4 || null, payment_instrument || null, buffer,
+         deliveryAddress || null]
       );
       const receiptId = receiptRes.rows[0].id;
 

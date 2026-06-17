@@ -500,8 +500,8 @@ export function Quickbooks({ user }) {
     setError(''); setMessage('');
     try {
       const r = await acceptAllItems(receiptId);
-      setMessage(`Accepted ${r.accepted} items. Receipt moved to Reviewed.`);
-      setActiveTab('reviewed'); // tab-change effect will reload reviewed receipts
+      setMessage(`Accepted ${r.accepted} items.`);
+      loadReceipts('pending');
     } catch (e) { setError(e.message); }
     finally { setAccepting(null); }
   };
