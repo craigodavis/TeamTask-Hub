@@ -663,11 +663,15 @@ router.post('/ask', async (req, res) => {
 
   const [facts, lessons] = await Promise.all([buildFactsBlock(), buildLessonsBlock()]);
 
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Boise' });
+  const dateBlock = `\nToday's date: ${todayStr}. Use this as the basis for all relative date references ("this month", "last month", "this year", "last week", etc.).\n`;
+
   // ── Prompt caching ─────────────────────────────────────────────────────────
   // The static schema context (~3k tokens) is marked as cacheable.
   // Anthropic caches it for 5 min — subsequent calls within the window pay 1/10th
   // the input token cost for that block.  Facts/lessons are dynamic so they are
-  // appended as a second uncached block.
+  // appended as a second uncached block (including today's date — changes daily).
   const systemBlocks = [
     {
       type: 'text',
@@ -675,9 +679,7 @@ router.post('/ask', async (req, res) => {
       cache_control: { type: 'ephemeral' },
     },
   ];
-  if (facts || lessons) {
-    systemBlocks.push({ type: 'text', text: facts + lessons });
-  }
+  systemBlocks.push({ type: 'text', text: dateBlock + (facts || '') + (lessons || '') });
 
   // History from frontend is [{role, content}] with string content — safe for multi-turn
   const messages = [

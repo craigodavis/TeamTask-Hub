@@ -51,6 +51,14 @@ The JSON must be an ARRAY where each element has this shape:
 Use the INDIVIDUAL order total for each order's "total" field (not the grand total of the whole document).
 Include ALL items from each order in that order's "items" array.
 
+SYSCO INVOICE FORMAT — these PDFs end with a bare number on the last page, no label:
+  ...
+  LAST PAGE
+  410.13
+  410.13
+The repeated number at the very end is the invoice total. Use it as the "total" field.
+If you see a number appear twice in a row at the end of the document with no label, that is the total.
+
 PDF text:
 ${pdfText}`,
       },
@@ -137,7 +145,7 @@ Return [] if no clear category pattern can be inferred.`,
   try { return JSON.parse(json); } catch { return []; }
 }
 
-export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '', apiKey, model = 'claude-haiku-4-5') {
+export async function categorizeLineItems(items, accounts, classes, memory, rulesPrompt = '', apiKey, model = 'claude-haiku-4-5', vendor = '') {
   if (!items.length) return [];
 
   const client = getClient(apiKey);
@@ -178,6 +186,7 @@ export async function categorizeLineItems(items, accounts, classes, memory, rule
         content: `You are an accounting assistant helping categorize vendor purchase line items for a winery and tasting room's QuickBooks Online.
 ${rulesPrompt}
 ${memoryContext}
+${vendor ? `\nVENDOR CONTEXT: These items were purchased from "${vendor}". Use this to inform your class assignment — for example, purchases from Sysco or a food distributor should almost always be Food class, not Wine or Vineyard. Purchases from a farm supply store suggest Vineyard or Winery class. Purchases from Amazon or an office supplier suggest Admin or Tasting Room class.` : ''}
 
 CATEGORY GUIDANCE:
 - Food ingredients, produce, meat, seafood, dairy, spices, baking supplies, cooking oils, condiments, beverages for kitchen use → use the Grocery account
