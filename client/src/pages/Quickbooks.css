@@ -779,3 +779,39 @@
 .harvester-run-btn { padding: 0.35rem 1rem; font-size: 0.85rem; }
 .qb-no-items { text-align: center; padding: 2rem; color: #666; }
 .qb-no-items p { margin-bottom: 1rem; }
+
+/* ── QBO Scan Import Panel ── */
+.qb-btn-toggle {
+  background: none; border: none; padding: 0; color: #555; font-size: 0.95rem;
+  font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;
+}
+.qb-btn-toggle:hover { color: #1565c0; }
+.qb-qbo-import-panel {
+  background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+.qbo-import-controls {
+  display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;
+}
+.qbo-import-vendor-select {
+  flex: 1; min-width: 180px; padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;
+}
+.qbo-import-date {
+  padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;
+}
+.qbo-import-empty { color: #666; font-size: 0.9rem; margin: 0.5rem 0; }
+.qbo-import-table {
+  width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 0.5rem;
+}
+.qbo-import-table th {
+  text-align: left; padding: 0.4rem 0.6rem; border-bottom: 2px solid #e0e0e0;
+  font-weight: 600; color: #444;
+}
+.qbo-import-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #f0f0f0; }
+.qbo-row-imported { opacity: 0.55; }
+.qbo-badge-imported {
+  font-size: 0.75rem; background: #e8f5e9; color: #2e7d32;
+  padding: 0.1rem 0.5rem; border-radius: 10px;
+}
+.qbo-memo { color: #888; font-size: 0.82rem; }

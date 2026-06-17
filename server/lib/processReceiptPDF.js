@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
-import { extractReceiptData, categorizeLineItems } from '../aiClient.js';
+import { extractReceiptData, extractReceiptDataFromImage, categorizeLineItems } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
 import { getModelForProcess } from './aiModelSettings.js';
 
@@ -96,38 +96,55 @@ export async function loadReceiptContext(companyId) {
 }
 
 /**
- * Process a single PDF buffer through the full receipt ingestion pipeline.
+ * Process a single receipt buffer (PDF or image) through the full ingestion pipeline.
  *
  * @param {string}  companyId
- * @param {Buffer}  buffer       — raw PDF bytes
+ * @param {Buffer}  buffer       — raw file bytes (PDF or image)
  * @param {string}  filename     — used for display + stored as pdf_filename
  * @param {object}  ctx          — result of loadReceiptContext()
- * @returns {object}             — result object (see module docblock)
+ * @param {object}  [opts]       — optional: { contentType, qboPurchaseId }
+ * @returns {Array}              — array of result objects (see module docblock)
  */
-export async function processReceiptPDF(companyId, buffer, filename, ctx) {
+export async function processReceiptPDF(companyId, buffer, filename, ctx, opts = {}) {
   const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
           model_extraction, model_categorization } = ctx;
+  const { contentType = 'application/pdf', qboPurchaseId = null } = opts;
+  const isImage = contentType.startsWith('image/');
 
   try {
-    // 1. Extract text from PDF
-    const parsed  = await pdfParse(buffer);
-    const pdfText = parsed.text;
-    const deliveryAddress = extractDeliveryAddress(pdfText);
+    let pdfText = null;
+    let deliveryAddress = null;
 
-    // 1b. Reject shipping notifications — Amazon sends these when a package ships.
-    // They contain order numbers and totals but no itemized prices, so they look
-    // like receipts but aren't. Key signals: delivery tracker phrase + no prices.
-    if (isShippingNotification(pdfText)) {
-      return [{ filename, skipped: true, reason: 'shipping_notification',
-                message: 'PDF appears to be a shipping notification, not an order receipt.' }];
+    if (isImage) {
+      // Image mode — skip pdf-parse, use Claude vision for extraction
+    } else {
+      // 1. Extract text from PDF
+      const parsed = await pdfParse(buffer);
+      pdfText = parsed.text;
+      deliveryAddress = extractDeliveryAddress(pdfText);
+
+      // 1b. Reject shipping notifications
+      if (isShippingNotification(pdfText)) {
+        return [{ filename, skipped: true, reason: 'shipping_notification',
+                  message: 'PDF appears to be a shipping notification, not an order receipt.' }];
+      }
     }
 
     // 2. Claude extracts structured receipt data — always returns an array of orders
     let orders;
     try {
-      orders = await extractReceiptData(pdfText, anthropicApiKey, model_extraction);
+      orders = isImage
+        ? await extractReceiptDataFromImage(buffer, contentType, anthropicApiKey, model_extraction)
+        : await extractReceiptData(pdfText, anthropicApiKey, model_extraction);
     } catch (aiErr) {
       return [{ filename, error: `AI extraction failed: ${aiErr.message}` }];
+    }
+
+    // Apply QBO purchase ID as order_number fallback (prevents re-importing same QBO purchase)
+    if (qboPurchaseId) {
+      for (const order of orders) {
+        if (!order.order_number) order.order_number = `QBO-${qboPurchaseId}`;
+      }
     }
 
     if (!orders.length) {
@@ -197,6 +214,15 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
          deliveryAddress || null]
       );
       const receiptId = receiptRes.rows[0].id;
+
+      // Link to the originating QBO purchase (separate UPDATE so regular uploads
+      // still work even before the qbo_purchase_id column migration has run)
+      if (qboPurchaseId) {
+        await query(
+          `UPDATE receipts SET qbo_purchase_id = $1 WHERE id = $2`,
+          [qboPurchaseId, receiptId]
+        ).catch(() => {}); // no-op if column doesn't exist yet
+      }
 
       // 7. Also write PDF to disk as a fallback (legacy path / QBO attach)
       try {

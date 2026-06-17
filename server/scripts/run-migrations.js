@@ -1896,6 +1896,18 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_ann_approvals_announcement ON announcement_approvals(announcement_id)`,
   `CREATE INDEX IF NOT EXISTS idx_ann_approvals_approver     ON announcement_approvals(approver_id)`,
   `CREATE INDEX IF NOT EXISTS idx_ann_approvals_pending      ON announcement_approvals(approver_id) WHERE status = 'pending'`,
+
+  // delivery_address on receipts (Sysco ship-to address)
+  `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS delivery_address VARCHAR(200)`,
+
+  // pack size on receipt_items (e.g. '475 CT', '5012X12')
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS pack VARCHAR(50)`,
+
+  // qbo_purchase_id on receipts — tracks which QBO Purchase a receipt was imported from
+  `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS qbo_purchase_id VARCHAR(50)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS receipts_qbo_purchase_id_company_idx
+     ON receipts (company_id, qbo_purchase_id)
+     WHERE qbo_purchase_id IS NOT NULL`,
 ];
 
 export async function runMigrations() {

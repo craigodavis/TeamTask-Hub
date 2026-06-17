@@ -85,6 +85,59 @@ ${pdfText}`,
  * @returns {Array}            - Array of { description, qbo_account_id, qbo_class_id, confidence, reasoning }
  */
 /**
+ * Extract structured receipt data from a receipt IMAGE (JPG/PNG/etc.).
+ * Uses Claude vision instead of pdf-parse. Returns same array format as extractReceiptData.
+ */
+export async function extractReceiptDataFromImage(imageBuffer, contentType, apiKey, model = 'claude-haiku-4-5') {
+  const client = getClient(apiKey);
+  const mediaType = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
+
+  const message = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data: imageBuffer.toString('base64') },
+        },
+        {
+          type: 'text',
+          text: `You are a receipt parser. Extract structured data from this receipt image and return ONLY valid JSON — no markdown, no explanation.
+
+Return a JSON array (one element per order — most receipts have one):
+{
+  "order_number": "receipt or transaction number, or null",
+  "order_date": "YYYY-MM-DD or null",
+  "vendor": "store or vendor name",
+  "subtotal": number or null,
+  "tax": number or null,
+  "total": number or null,
+  "card_last4": "last 4 digits of payment card or null",
+  "payment_instrument": "Visa, Mastercard, etc. or null",
+  "items": [
+    {
+      "description": "product name",
+      "quantity": number,
+      "unit_price": number or null,
+      "total": number or null,
+      "pack": null
+    }
+  ]
+}`,
+        },
+      ],
+    }],
+  });
+
+  const raw = message.content[0].text.trim();
+  const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+  const parsed = JSON.parse(json);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+/**
  * Analyze user-made corrections to item categorizations and suggest rules.
  * @param {Array} corrections  [{description, total, old_account_id, new_account_id, new_class_id}]
  * @param {Array} accounts     All qbo_accounts for the company
