@@ -985,6 +985,35 @@ export async function processReceiptWithAI(receiptId) {
   return data;
 }
 
+export async function getQboImportVendors() {
+  const res = await fetch(`${API}/receipts/qbo-vendors`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load QBO vendors');
+  return data.vendors;
+}
+
+export async function previewQboImport({ vendorId, startDate, endDate }) {
+  const res = await fetch(`${API}/receipts/qbo-preview`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ vendorId, startDate, endDate }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to preview QBO receipts');
+  return data.purchases;
+}
+
+export async function importFromQbo(purchaseIds) {
+  const res = await fetch(`${API}/receipts/qbo-import`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ purchaseIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'QBO import failed');
+  return data.results;
+}
+
 export async function saveReceiptItems(receiptId, items) {
   const res = await fetch(`${API}/receipts/${receiptId}/items`, {
     method: 'PATCH',

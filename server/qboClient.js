@@ -250,6 +250,70 @@ export async function qboAttachFile(companyId, transactionType, transactionId, f
 }
 
 /**
+ * Fetch all active vendors from QBO, sorted by name.
+ * Returns [{ id, name }].
+ */
+export async function qboGetVendors(companyId) {
+  const vendors = await qboQueryAll(companyId, `SELECT * FROM Vendor WHERE Active = true`);
+  return vendors
+    .map((v) => ({ id: v.Id, name: v.DisplayName }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Fetch Purchase transactions for a vendor in a date range.
+ * QBO doesn't reliably support nested-field WHERE clauses, so we fetch
+ * all purchases in the range and filter client-side by EntityRef.value.
+ * Pass vendorId = null to return all purchases in range.
+ */
+export async function qboGetPurchasesForVendor(companyId, vendorId, startDate, endDate) {
+  const all = await qboQueryAll(
+    companyId,
+    `SELECT * FROM Purchase WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`
+  );
+  return vendorId ? all.filter((p) => p.EntityRef?.value === vendorId) : all;
+}
+
+/**
+ * Fetch Attachable records linked to a specific Purchase.
+ * Falls back to filtering the full attachable list if the WHERE clause
+ * on a nested field isn't supported by the connected QBO account.
+ */
+export async function qboGetPurchaseAttachables(companyId, purchaseId) {
+  const results = await qboQueryAll(
+    companyId,
+    `SELECT * FROM Attachable WHERE AttachableRef.EntityRef.value = '${purchaseId}'`
+  );
+  // Secondary filter: ensure this Attachable is actually linked to this Purchase
+  return results.filter((a) =>
+    (a.AttachableRef || []).some(
+      (r) => r.EntityRef?.value === purchaseId && r.EntityRef?.type === 'Purchase'
+    )
+  );
+}
+
+/**
+ * Download an attachment file by its Attachable Id.
+ * Returns { buffer, contentType }.
+ */
+export async function qboDownloadAttachment(companyId, attachableId) {
+  const row = await loadTokens(companyId);
+  if (!row?.qbo_realm_id) throw new Error('QBO realm ID not found.');
+  const token = await getAccessToken(companyId);
+  const base = row.qbo_environment === 'sandbox' ? QBO_BASE_SANDBOX : QBO_BASE_PRODUCTION;
+  const url = `${base}/v3/company/${row.qbo_realm_id}/download/${attachableId}?minorversion=${MINOR_VERSION}`;
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}`, 'Accept': '*/*' },
+  });
+  if (!res.ok) throw new Error(`QBO download failed ${res.status}: ${await res.text()}`);
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const contentType = res.headers.get('content-type') || 'application/octet-stream';
+  return { buffer, contentType };
+}
+
+/**
  * Paginate through all results of a QBO query.
  */
 export async function qboQueryAll(companyId, selectStatement) {

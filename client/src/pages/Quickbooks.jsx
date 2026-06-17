@@ -9,6 +9,7 @@ import {
   uploadAmazonCSV, getAmazonPayments, getAmazonStats,
   getCardMappings, saveCardMapping, deleteCardMapping,
   getHarvesterSources, updateHarvesterSource, runHarvesterSource,
+  getQboImportVendors, previewQboImport, importFromQbo,
 } from '../api';
 import './Quickbooks.css';
 
@@ -238,6 +239,19 @@ export function Quickbooks({ user }) {
   const [cardForm, setCardForm] = useState({ card_last4: '', card_label: '', qbo_account_id: '', personal_use: false });
   const [cardSaving, setCardSaving] = useState(false);
 
+  // QBO Scan Import
+  const [qboImportOpen, setQboImportOpen] = useState(false);
+  const [qboVendors, setQboVendors] = useState([]);
+  const [qboVendorsLoading, setQboVendorsLoading] = useState(false);
+  const [qboImportVendorId, setQboImportVendorId] = useState('');
+  const [qboImportStart, setQboImportStart] = useState('');
+  const [qboImportEnd, setQboImportEnd] = useState('');
+  const [qboPurchases, setQboPurchases] = useState(null); // null = not yet searched
+  const [qboPurchasesLoading, setQboPurchasesLoading] = useState(false);
+  const [qboSelectedIds, setQboSelectedIds] = useState(new Set());
+  const [qboImporting, setQboImporting] = useState(false);
+  const [qboImportResults, setQboImportResults] = useState(null);
+
   // Amazon order history
   const [amazonPayments, setAmazonPayments] = useState([]);
   const [amazonStats, setAmazonStats] = useState(null);
@@ -351,6 +365,52 @@ export function Quickbooks({ user }) {
       loadReceipts();
     } catch (e) { setError(e.message); }
     finally { setUploading(false); setUploadProgress(null); fileInputRef.current.value = ''; }
+  };
+
+  // ── QBO Scan Import handlers ──
+  const handleQboImportToggle = async () => {
+    const next = !qboImportOpen;
+    setQboImportOpen(next);
+    if (next && !qboVendors.length) {
+      setQboVendorsLoading(true);
+      try { setQboVendors(await getQboImportVendors()); }
+      catch (e) { setError(e.message); }
+      finally { setQboVendorsLoading(false); }
+    }
+  };
+
+  const handleQboPreview = async () => {
+    if (!qboImportStart || !qboImportEnd) return setError('Select a date range first');
+    setQboPurchasesLoading(true); setQboPurchases(null); setQboSelectedIds(new Set()); setQboImportResults(null);
+    try { setQboPurchases(await previewQboImport({ vendorId: qboImportVendorId || null, startDate: qboImportStart, endDate: qboImportEnd })); }
+    catch (e) { setError(e.message); }
+    finally { setQboPurchasesLoading(false); }
+  };
+
+  const handleQboImport = async () => {
+    const ids = [...qboSelectedIds];
+    if (!ids.length) return setError('Select at least one transaction to import');
+    setQboImporting(true); setQboImportResults(null);
+    try {
+      const results = await importFromQbo(ids);
+      setQboImportResults(results);
+      loadReceipts('pending');
+    } catch (e) { setError(e.message); }
+    finally { setQboImporting(false); }
+  };
+
+  const toggleQboPurchase = (id) => {
+    setQboSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllQboPurchases = () => {
+    const eligible = (qboPurchases || []).filter((p) => !p.already_imported);
+    if (qboSelectedIds.size === eligible.length) setQboSelectedIds(new Set());
+    else setQboSelectedIds(new Set(eligible.map((p) => p.id)));
   };
 
   // ── Review ──
@@ -748,6 +808,98 @@ export function Quickbooks({ user }) {
                   {!r.error && !r.skipped && <span>✅ {r.order_number} · {r.items} items · ${r.total?.toFixed(2)}</span>}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ── QBO Scan Import ── */}
+          <div className="qb-section-header" style={{ marginTop: '1rem' }}>
+            <button type="button" className="qb-btn-toggle" onClick={handleQboImportToggle}>
+              {qboImportOpen ? '▾' : '▸'} Import Scanned Receipts from QuickBooks
+            </button>
+          </div>
+          {qboImportOpen && (
+            <div className="qb-qbo-import-panel">
+              <div className="qbo-import-controls">
+                <select
+                  className="qbo-import-vendor-select"
+                  value={qboImportVendorId}
+                  onChange={(e) => { setQboImportVendorId(e.target.value); setQboPurchases(null); }}
+                  disabled={qboVendorsLoading}
+                >
+                  <option value="">{qboVendorsLoading ? 'Loading vendors…' : 'All vendors'}</option>
+                  {qboVendors.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+                <input type="date" className="qbo-import-date" value={qboImportStart}
+                  onChange={(e) => { setQboImportStart(e.target.value); setQboPurchases(null); }} />
+                <span style={{ alignSelf: 'center' }}>to</span>
+                <input type="date" className="qbo-import-date" value={qboImportEnd}
+                  onChange={(e) => { setQboImportEnd(e.target.value); setQboPurchases(null); }} />
+                <button type="button" className="qb-btn-sync" onClick={handleQboPreview} disabled={qboPurchasesLoading}>
+                  {qboPurchasesLoading ? 'Searching…' : 'Find Receipts'}
+                </button>
+              </div>
+
+              {qboPurchases !== null && (
+                <>
+                  {qboPurchases.length === 0 ? (
+                    <p className="qbo-import-empty">No QBO transactions found for that vendor and date range.</p>
+                  ) : (
+                    <>
+                      <table className="qbo-import-table">
+                        <thead>
+                          <tr>
+                            <th>
+                              <input type="checkbox"
+                                checked={qboSelectedIds.size > 0 && qboSelectedIds.size === qboPurchases.filter(p => !p.already_imported).length}
+                                onChange={toggleAllQboPurchases} />
+                            </th>
+                            <th>Date</th>
+                            <th>Vendor</th>
+                            <th>Total</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {qboPurchases.map((p) => (
+                            <tr key={p.id} className={p.already_imported ? 'qbo-row-imported' : ''}>
+                              <td>
+                                {!p.already_imported && (
+                                  <input type="checkbox" checked={qboSelectedIds.has(p.id)}
+                                    onChange={() => toggleQboPurchase(p.id)} />
+                                )}
+                              </td>
+                              <td>{p.date}</td>
+                              <td>{p.vendor}{p.memo ? <span className="qbo-memo"> · {p.memo}</span> : null}</td>
+                              <td>${p.total.toFixed(2)}</td>
+                              <td>{p.already_imported ? <span className="qbo-badge-imported">Imported</span> : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {qboSelectedIds.size > 0 && (
+                        <button type="button" className="qb-btn-ai-categorize" onClick={handleQboImport} disabled={qboImporting}
+                          style={{ marginTop: '0.75rem' }}>
+                          {qboImporting ? `Importing…` : `Import ${qboSelectedIds.size} Receipt${qboSelectedIds.size > 1 ? 's' : ''}`}
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {qboImportResults && (
+                    <div className="qb-upload-results" style={{ marginTop: '0.75rem' }}>
+                      {qboImportResults.map((r, i) => (
+                        <div key={i} className={`qb-upload-result ${r.error ? 'error' : r.skipped ? 'skipped' : 'ok'}`}>
+                          <span className="qb-result-file">{r.filename || `QBO-${r.purchaseId}`}</span>
+                          {r.error && <span>❌ {r.error}</span>}
+                          {r.skipped && <span>⚠️ {r.message || 'Skipped'}</span>}
+                          {!r.error && !r.skipped && <span>✅ {r.order_number} · {r.items} items · ${r.total?.toFixed(2)}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

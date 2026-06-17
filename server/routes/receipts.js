@@ -7,7 +7,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { suggestRulesFromCorrections } from '../aiClient.js';
 import { applyRules } from '../rulesEngine.js';
-import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile } from '../qboClient.js';
+import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile,
+         qboGetVendors, qboGetPurchasesForVendor, qboGetPurchaseAttachables, qboDownloadAttachment } from '../qboClient.js';
 import { loadReceiptContext, processReceiptPDF } from '../lib/processReceiptPDF.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -416,6 +417,106 @@ router.post('/suggest-rule', requireAuth, requireOwner, async (req, res) => {
     console.error('[suggest-rule]', err.message);
     res.json({ suggestions: [] }); // non-fatal
   }
+});
+
+// ── GET /api/receipts/qbo-vendors ────────────────────────────────────────────
+// Returns all active QBO vendors for the import dropdown.
+router.get('/qbo-vendors', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const vendors = await qboGetVendors(req.companyId);
+    res.json({ vendors });
+  } catch (err) {
+    console.error('[qbo-vendors]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/qbo-preview ───────────────────────────────────────────
+// Preview QBO purchases for a vendor + date range before importing.
+// Body: { vendorId, startDate, endDate }
+router.post('/qbo-preview', requireAuth, requireOwner, async (req, res) => {
+  const { vendorId, startDate, endDate } = req.body;
+  if (!startDate || !endDate) return res.status(400).json({ error: 'startDate and endDate are required' });
+  try {
+    const purchases = await qboGetPurchasesForVendor(req.companyId, vendorId || null, startDate, endDate);
+    // Check which are already imported
+    const ids = purchases.map((p) => p.Id);
+    let importedSet = new Set();
+    if (ids.length) {
+      const r = await query(
+        `SELECT qbo_purchase_id FROM receipts WHERE company_id = $1 AND qbo_purchase_id = ANY($2)`,
+        [req.companyId, ids]
+      );
+      importedSet = new Set(r.rows.map((row) => row.qbo_purchase_id));
+    }
+    const result = purchases.map((p) => ({
+      id:           p.Id,
+      date:         p.TxnDate,
+      total:        parseFloat(p.TotalAmt) || 0,
+      vendor:       p.EntityRef?.name || p.PaymentMethodRef?.name || 'Unknown',
+      memo:         p.PrivateNote || p.DocNumber || '',
+      payment_type: p.PaymentType || '',
+      already_imported: importedSet.has(p.Id),
+    }));
+    res.json({ purchases: result });
+  } catch (err) {
+    console.error('[qbo-preview]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/qbo-import ────────────────────────────────────────────
+// Download attachments from selected QBO purchases and process them.
+// Body: { purchaseIds: ['id1', 'id2', ...] }
+router.post('/qbo-import', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { purchaseIds } = req.body;
+  if (!Array.isArray(purchaseIds) || !purchaseIds.length) {
+    return res.status(400).json({ error: 'purchaseIds array is required' });
+  }
+
+  const ctx = await loadReceiptContext(cId);
+  const allResults = [];
+
+  for (const purchaseId of purchaseIds) {
+    // Check for already-imported duplicate
+    const dup = await query(
+      `SELECT id FROM receipts WHERE company_id = $1 AND qbo_purchase_id = $2`,
+      [cId, purchaseId]
+    );
+    if (dup.rows.length) {
+      allResults.push({ purchaseId, skipped: true, reason: 'duplicate', message: 'Already imported' });
+      continue;
+    }
+
+    // Fetch attachments for this purchase
+    let attachables;
+    try {
+      attachables = await qboGetPurchaseAttachables(cId, purchaseId);
+    } catch (err) {
+      allResults.push({ purchaseId, error: `Could not fetch attachments: ${err.message}` });
+      continue;
+    }
+
+    if (!attachables.length) {
+      allResults.push({ purchaseId, skipped: true, reason: 'no_attachment', message: 'No attachments found in QBO' });
+      continue;
+    }
+
+    // Process each attachment (usually just one per purchase)
+    for (const attachable of attachables) {
+      const filename = attachable.FileName || `qbo-${purchaseId}.pdf`;
+      try {
+        const { buffer, contentType } = await qboDownloadAttachment(cId, attachable.Id);
+        const results = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, qboPurchaseId: purchaseId });
+        allResults.push(...results);
+      } catch (err) {
+        allResults.push({ purchaseId, filename, error: err.message });
+      }
+    }
+  }
+
+  res.json({ results: allResults });
 });
 
 // ── GET /api/receipts/:id ─────────────────────────────────────────────────────
