@@ -418,9 +418,19 @@ To break out spending by location, filter or GROUP BY delivery_address with a CA
 teamtask_hub.receipt_items  — line items on each receipt
   id, receipt_id, description (product name from invoice),
   quantity, unit_price, total (DOLLARS),
+  pack (TEXT — Sysco pack size, e.g. '475 CT', '5012X12', '125 LB', '110#AVG';
+        null for Amazon/other vendors),
   qbo_account_id (FK → teamtask_hub.qbo_accounts.qbo_id),
   qbo_class_id   (FK → teamtask_hub.qbo_classes.qbo_id),
   item_status ('pending'|'accepted'), created_at
+
+  Pack size notes:
+    - "475 CT" means 475 individual pieces per case → price per unit = total / 475
+    - "5012X12" means 50 count, 12"×12" sheets → price per unit = total / 50
+    - "125 LB" means 125-pound bag (not a count; report $/lb = total / 125)
+    - "110#AVG" means ~110-lb average weight item (report $/lb = total / 110)
+    - "6#10" means 6 cans of #10 size → price per can = total / 6
+    When answering "price per item/unit", parse the numeric prefix from pack to divide total.
 
 teamtask_hub.qbo_accounts  — QuickBooks chart of accounts (expense categories)
   qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification
@@ -463,6 +473,16 @@ Example purchasing queries:
       AND r.vendor ILIKE '%sysco%'
       AND r.order_date >= date_trunc('month', NOW())
     ORDER BY ri.total DESC
+
+  "What's the price per napkin?"
+    SELECT ri.description, ri.pack, ri.total,
+           ri.total / NULLIF(CAST(REGEXP_REPLACE(ri.pack, '[^0-9].*', '') AS NUMERIC), 0) AS price_per_unit
+    FROM teamtask_hub.receipt_items ri
+    JOIN teamtask_hub.receipts r ON r.id = ri.receipt_id
+    WHERE r.company_id = (SELECT id FROM companies LIMIT 1)
+      AND LOWER(ri.description) LIKE '%napkin%'
+      AND ri.pack IS NOT NULL
+    ORDER BY r.order_date DESC LIMIT 5
 
 ── CUSTOMER DATA: IMPORTANT LIMITATIONS ──
 Commerce7 is the SOURCE OF TRUTH for customer data.
