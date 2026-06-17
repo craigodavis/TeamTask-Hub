@@ -367,7 +367,7 @@ router.post('/categorize-all', requireAuth, requireOwner, async (req, res) => {
       // First apply AI condition rules, then run general AI categorization
       let categorized;
       try {
-        categorized = await categorizeLineItems(itemsRes.rows, accounts, classes, memory, rulesPrompt, apiKey);
+        categorized = await categorizeLineItems(itemsRes.rows, accounts, classes, memory, rulesPrompt, apiKey, undefined, receipt.vendor);
       } catch {
         categorized = itemsRes.rows.map((it) => ({ ...it, qbo_account_id: null, qbo_class_id: null, confidence: 0, reasoning: '' }));
       }

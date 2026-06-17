@@ -144,7 +144,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
       let categorized = [];
       if (items?.length && accounts.length) {
         try {
-          categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt, anthropicApiKey, model_categorization);
+          categorized = await categorizeLineItems(items, accounts, classes, memory, rulesPrompt, anthropicApiKey, model_categorization, vendor);
         } catch (catErr) {
           console.error('[receipt] categorization failed:', catErr.message);
           categorized = (items || []).map((it) => ({
