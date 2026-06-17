@@ -148,12 +148,11 @@ export async function qboFindPurchases(companyId, accountId, totalAmt, startDate
   const end = new Date(anchor); end.setDate(end.getDate() + dayWindow);
   const fmt = (d) => d.toISOString().slice(0, 10);
 
-  const data = await qboRequest(companyId, 'GET', 'query', {
-    params: {
-      query: `SELECT * FROM Purchase WHERE TxnDate >= '${fmt(start)}' AND TxnDate <= '${fmt(end)}' MAXRESULTS 200`,
-    },
-  });
-  const purchases = data.QueryResponse?.Purchase || [];
+  // Paginate — a wide date window can exceed 200 results and silently miss matches
+  const purchases = await qboQueryAll(
+    companyId,
+    `SELECT * FROM Purchase WHERE TxnDate >= '${fmt(start)}' AND TxnDate <= '${fmt(end)}'`
+  );
 
   const target = totalAmt != null ? parseFloat(totalAmt) : null;
 
