@@ -40,10 +40,11 @@ The JSON must be an ARRAY where each element has this shape:
   "payment_instrument": "Visa, Mastercard, Amex, etc. or null",
   "items": [
     {
-      "description": "product name/description",
+      "description": "product name/description — do NOT include the pack size prefix",
       "quantity": number,
       "unit_price": number or null,
-      "total": number or null
+      "total": number or null,
+      "pack": "pack size string or null — for Sysco invoices this is the token(s) immediately after the unit type and before the description (e.g. '475 CT', '5012X12', '110#AVG', '125 LB', '6#10'). Null for non-Sysco receipts."
     }
   ]
 }

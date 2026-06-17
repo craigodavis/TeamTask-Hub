@@ -210,11 +210,12 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx) {
         await query(
           `INSERT INTO receipt_items
              (receipt_id, description, quantity, unit_price, total,
-              qbo_account_id, qbo_class_id, ai_confidence)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+              qbo_account_id, qbo_class_id, ai_confidence, pack)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [receiptId, item.description, item.quantity ?? 1, item.unit_price ?? null,
            item.total ?? null, item.qbo_account_id || null,
-           item.qbo_class_id || null, item.confidence ?? null]
+           item.qbo_class_id || null, item.confidence ?? null,
+           item.pack ?? null]
         );
       }
 
