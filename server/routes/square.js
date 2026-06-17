@@ -12,9 +12,12 @@ You query a PostgreSQL database with two primary data sources:
   • team_square  — in-person Square POS data (tasting room sales, catalog, timeclock)
   • commerce7    — online store, wine club, and DTC order data + full product catalog
 
-CRITICAL money difference:
-  team_square  → money stored in CENTS  (divide by 100.0 for dollars)
-  commerce7    → money stored in DOLLARS (use directly — no division needed)
+CRITICAL money difference — YOU MUST GET THIS RIGHT:
+  team_square  → money stored in CENTS.  ALWAYS divide by 100.0. Never return raw cents.
+                 Example: total_money_amount = 4500 means $45.00
+  commerce7    → money stored in DOLLARS. Use directly — NEVER divide by 100.
+                 Example: total = 45.00 means $45.00
+  teamtask_hub receipts/receipt_items → money stored in DOLLARS. Use directly.
 
 === KEY TABLES ===
 
@@ -387,6 +390,59 @@ Template for combined totals:
 For "bottles sold": Square = category '750ml Bottle'; Commerce7 = volume_in_ml = 750
   or product type 'Wine' with a bottle purchase_type
 
+=== PURCHASING / RECEIPTS (teamtask_hub) ===
+
+Use these tables for expense and purchasing questions — what Kindred BOUGHT, not what it SOLD.
+
+teamtask_hub.receipts  — one row per vendor invoice or receipt
+  id, company_id, order_number, order_date (DATE — may be null for some Amazon receipts),
+  vendor (e.g. 'Amazon', 'Sysco', 'Amazon.com / Kindred Vineyards'),
+  subtotal, tax, total (DOLLARS — numeric, use directly),
+  status ('pending'|'reviewed'|'imported'|'excluded'),
+  card_last4, payment_instrument, source ('amazon'|'sysco'|'upload'|null), created_at
+
+teamtask_hub.receipt_items  — line items on each receipt
+  id, receipt_id, description (product name from invoice),
+  quantity, unit_price, total (DOLLARS),
+  qbo_account_id (FK → teamtask_hub.qbo_accounts.qbo_id),
+  qbo_class_id   (FK → teamtask_hub.qbo_classes.qbo_id),
+  item_status ('pending'|'accepted'), created_at
+
+teamtask_hub.qbo_accounts  — QuickBooks chart of accounts (expense categories)
+  qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification
+
+teamtask_hub.qbo_classes  — QuickBooks classes (cost centers / departments)
+  qbo_id, name, fully_qualified_name
+  Key classes include: 'Wine', 'Food', 'Events', 'Tasting Room', 'Admin'
+
+teamtask_hub.product_memory  — learned categorization hints (not a purchasing record)
+  product_pattern (description, lowercase), qbo_account_id, qbo_class_id, usage_count, last_used_at
+
+Purchasing query rules:
+  - receipt amounts are DOLLARS — no division needed
+  - Always filter: WHERE r.company_id = (SELECT id FROM companies LIMIT 1)
+  - For date filtering prefer r.order_date; fall back to r.created_at when order_date is null
+  - Exclude status = 'excluded' (personal-use purchases) unless the user asks for them
+  - status = 'imported' means already pushed to QuickBooks
+
+Example purchasing queries:
+  "How much did we spend on napkins last month?"
+    SELECT SUM(ri.total) FROM teamtask_hub.receipt_items ri
+    JOIN teamtask_hub.receipts r ON r.id = ri.receipt_id
+    WHERE r.company_id = (SELECT id FROM companies LIMIT 1)
+      AND LOWER(ri.description) LIKE '%napkin%'
+      AND r.order_date >= date_trunc('month', NOW() - interval '1 month')
+      AND r.order_date <  date_trunc('month', NOW())
+      AND r.status != 'excluded'
+
+  "What did we buy from Sysco this month?"
+    SELECT ri.description, ri.total FROM teamtask_hub.receipt_items ri
+    JOIN teamtask_hub.receipts r ON r.id = ri.receipt_id
+    WHERE r.company_id = (SELECT id FROM companies LIMIT 1)
+      AND r.vendor ILIKE '%sysco%'
+      AND r.order_date >= date_trunc('month', NOW())
+    ORDER BY ri.total DESC
+
 ── CUSTOMER DATA: IMPORTANT LIMITATIONS ──
 Commerce7 is the SOURCE OF TRUTH for customer data.
 Square (team_square) tasting room orders are MOSTLY ANONYMOUS — customer_id is NULL
@@ -409,6 +465,23 @@ answer conversationally without calling run_sql.
 
 You may call BOTH tools in one turn when needed.
 If the user is chatting or asking something non-data, respond conversationally with no tool call.
+
+── FORMATTING RULES — ALWAYS FOLLOW ──
+Currency: always use a $ sign and comma thousands separators.
+  Correct:   $1,234.56    $45.00    $123,456.78
+  Wrong:     1234.56      45        123456.78
+
+Large counts: always use comma separators.
+  Correct:   12,345 bottles    1,234 orders
+  Wrong:     12345 bottles     1234 orders
+
+Percentages: one decimal place → 12.3%
+
+In SQL: always ROUND money to 2 decimal places — ROUND(amount / 100.0, 2) for Square cents,
+ROUND(amount, 2) for dollar-based sources.
+
+Present results as natural sentences or a short readable list — not raw JSON or bare numbers.
+Example: "You sold 1,234 bottles for $45,678.90 in revenue last month."
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────

@@ -527,18 +527,22 @@ export async function runAmazonSync(companyId) {
           }
 
           const filename = `Amazon_${orderId}.pdf`;
-          const receiptResult = await processReceiptPDF(companyId, pdfBuffer, filename, ctx);
+          // processReceiptPDF returns an array — one entry per order found in the PDF
+          const receiptResults = await processReceiptPDF(companyId, pdfBuffer, filename, ctx);
 
-          if (receiptResult.skipped) {
-            result.receipts_skipped++;
-          } else if (receiptResult.error) {
-            result.pdfs_failed++;
-            result.errors.push({ orderId, error: receiptResult.error });
-          } else {
-            result.receipts_created++;
+          for (const receiptResult of receiptResults) {
+            if (receiptResult.skipped) {
+              result.receipts_skipped++;
+            } else if (receiptResult.error) {
+              result.pdfs_failed++;
+              result.errors.push({ orderId, error: receiptResult.error });
+            } else {
+              result.receipts_created++;
+            }
           }
 
-          console.log(`[amazon-sync] Order ${orderId}: ${receiptResult.skipped ? 'skipped (duplicate)' : receiptResult.error ? `error: ${receiptResult.error}` : 'imported'}`);
+          const summary = receiptResults.map((r) => r.skipped ? 'skipped (duplicate)' : r.error ? `error: ${r.error}` : `imported ${r.order_number}`).join(', ');
+          console.log(`[amazon-sync] Order ${orderId}: ${summary}`);
         } catch (err) {
           console.error(`[amazon-sync] Failed to process order ${orderId}:`, err.message);
           result.pdfs_failed++;
