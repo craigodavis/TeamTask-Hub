@@ -88,7 +88,7 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
     try {
       const ins = await query(
         `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, source)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'upload') RETURNING id`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'csv') RETURNING id`,
         [cId, r.order_number, r.order_date || null, vendor || r.vendor || 'Unknown',
          r.subtotal ?? null, r.tax ?? null, r.total ?? null]
       );
@@ -134,7 +134,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
 // All other statuses automatically exclude personal-use-card receipts.
 router.get('/', requireAuth, requireOwner, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, source, vendor } = req.query;
     const cId = req.companyId;
 
     // Subquery that returns card_last4 values flagged as personal use for this company
@@ -148,7 +148,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
       // Only receipts whose card is a personal-use card
       sql = `
         SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
-               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
+               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at, r.source,
                (r.pdf_data IS NOT NULL OR r.pdf_filename IS NOT NULL OR r.raw_path IS NOT NULL) AS has_pdf,
                COUNT(ri.id) AS item_count,
                COUNT(ri.id) FILTER (WHERE ri.qbo_account_id IS NULL) AS uncategorized_count,
@@ -166,14 +166,17 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
         LIMIT 200`;
       params = [cId];
     } else {
-      // Normal tabs — exclude personal-use-card receipts
-      const where = status ? `AND r.status = $2` : '';
+      // Normal tabs — exclude personal-use-card receipts; support optional source + vendor filters
       params = [cId];
-      if (status) params.push(status);
+      const clauses = [`r.company_id = $1`,
+                       `(r.card_last4 IS NULL OR r.card_last4 NOT IN (${personalSubquery}))`];
+      if (status) { params.push(status); clauses.push(`r.status = $${params.length}`); }
+      if (source) { params.push(source); clauses.push(`r.source = $${params.length}`); }
+      if (vendor) { params.push(`%${vendor}%`); clauses.push(`r.vendor ILIKE $${params.length}`); }
 
       sql = `
         SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
-               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
+               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at, r.source,
                (r.pdf_data IS NOT NULL OR r.pdf_filename IS NOT NULL OR r.raw_path IS NOT NULL) AS has_pdf,
                COUNT(ri.id) AS item_count,
                COUNT(ri.id) FILTER (WHERE ri.qbo_account_id IS NULL) AS uncategorized_count,
@@ -184,8 +187,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
         LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
         LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
         LEFT JOIN qbo_classes  qc ON qc.company_id = r.company_id AND qc.qbo_id = ri.qbo_class_id
-        WHERE r.company_id = $1 ${where}
-          AND (r.card_last4 IS NULL OR r.card_last4 NOT IN (${personalSubquery}))
+        WHERE ${clauses.join(' AND ')}
         GROUP BY r.id
         ORDER BY r.created_at DESC
         LIMIT 200`;
@@ -520,7 +522,7 @@ router.post('/qbo-import-attachables', requireAuth, requireOwner, async (req, re
     try {
       const { buffer, contentType } = await qboDownloadAttachment(cId, att.id);
       const filename = att.filename || `qbo-receipt-${att.id}`;
-      const receipts = await processReceiptPDF(cId, buffer, filename, ctx, { contentType });
+      const receipts = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, source: 'qbo' });
       return { id: att.id, filename, receipts };
     } catch (err) {
       return { id: att.id, filename: att.filename, error: err.message };
@@ -621,7 +623,7 @@ router.post('/qbo-import', requireAuth, requireOwner, async (req, res) => {
       const filename = attachable.FileName || `qbo-${purchaseId}.pdf`;
       try {
         const { buffer, contentType } = await qboDownloadAttachment(cId, attachable.Id);
-        const results = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, qboPurchaseId: purchaseId });
+        const results = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, qboPurchaseId: purchaseId, source: 'qbo' });
         allResults.push(...results);
       } catch (err) {
         allResults.push({ purchaseId, filename, error: err.message });

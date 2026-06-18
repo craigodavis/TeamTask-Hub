@@ -108,7 +108,7 @@ export async function loadReceiptContext(companyId) {
 export async function processReceiptPDF(companyId, buffer, filename, ctx, opts = {}) {
   const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
           model_extraction, model_categorization } = ctx;
-  const { contentType = 'application/pdf', qboPurchaseId = null } = opts;
+  const { contentType = 'application/pdf', qboPurchaseId = null, source = 'upload' } = opts;
   const isImage = contentType.startsWith('image/');
 
   try {
@@ -205,13 +205,13 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
       const receiptRes = await query(
         `INSERT INTO receipts
            (company_id, order_number, order_date, vendor, subtotal, tax, total,
-            pdf_filename, card_last4, payment_instrument, pdf_data, delivery_address)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            pdf_filename, card_last4, payment_instrument, pdf_data, delivery_address, source)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [companyId, order_number, order_date || null, vendor || 'Amazon',
          subtotal || null, tax || null, total || null,
          filename, card_last4 || null, payment_instrument || null, buffer,
-         deliveryAddress || null]
+         deliveryAddress || null, source]
       );
       const receiptId = receiptRes.rows[0].id;
 

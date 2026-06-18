@@ -1911,6 +1911,11 @@ const MIGRATIONS = [
 
   // task_sms_enabled — when false, sendClosureSms skips sending (default off)
   `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS task_sms_enabled BOOLEAN NOT NULL DEFAULT false`,
+
+  // receipt source — tracks how each receipt entered the system
+  // 'email' = Amazon email harvester, 'qbo' = QBO attachable import, 'csv' = Chef Store CSV, 'upload' = manual PDF upload
+  `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'email'`,
+  `CREATE INDEX IF NOT EXISTS idx_receipts_source ON receipts(company_id, source)`,
 ];
 
 export async function runMigrations() {

@@ -939,8 +939,12 @@ export async function uploadReceipts(files) {
   return data;
 }
 
-export async function getReceipts(status) {
-  const qs = status ? `?status=${status}` : '';
+export async function getReceipts(status, { source, vendor } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (source) params.set('source', source);
+  if (vendor) params.set('vendor', vendor);
+  const qs = params.toString() ? `?${params}` : '';
   const res = await fetch(`${API}/receipts${qs}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load receipts');
