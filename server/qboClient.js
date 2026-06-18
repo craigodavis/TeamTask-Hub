@@ -314,6 +314,26 @@ export async function qboDownloadAttachment(companyId, attachableId) {
 }
 
 /**
+ * Return all Attachable records from the last `days` days that are NOT linked
+ * to any transaction (AttachableRef absent or empty) and are image/PDF files.
+ * These are receipt images uploaded via the QBO mobile app or web UI but never
+ * matched to a Purchase.
+ */
+export async function qboGetUnmatchedAttachables(companyId, days = 365) {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const all = await qboQueryAll(
+    companyId,
+    `SELECT * FROM Attachable WHERE MetaData.CreateTime > '${since}'`
+  );
+  const mediaTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'application/pdf']);
+  return all.filter((a) => {
+    const unlinked = !a.AttachableRef || a.AttachableRef.length === 0;
+    const isMedia  = mediaTypes.has((a.ContentType || '').toLowerCase());
+    return unlinked && isMedia;
+  });
+}
+
+/**
  * Paginate through all results of a QBO query.
  */
 export async function qboQueryAll(companyId, selectStatement) {

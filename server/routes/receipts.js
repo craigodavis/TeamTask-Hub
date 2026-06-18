@@ -8,7 +8,8 @@ import { fileURLToPath } from 'url';
 import { suggestRulesFromCorrections } from '../aiClient.js';
 import { applyRules } from '../rulesEngine.js';
 import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile,
-         qboGetVendors, qboGetPurchasesForVendor, qboGetPurchaseAttachables, qboDownloadAttachment } from '../qboClient.js';
+         qboGetVendors, qboGetPurchasesForVendor, qboGetPurchaseAttachables, qboDownloadAttachment,
+         qboGetUnmatchedAttachables } from '../qboClient.js';
 import { loadReceiptContext, processReceiptPDF } from '../lib/processReceiptPDF.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,7 +88,7 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
     try {
       const ins = await query(
         `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, source)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'upload') RETURNING id`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'csv') RETURNING id`,
         [cId, r.order_number, r.order_date || null, vendor || r.vendor || 'Unknown',
          r.subtotal ?? null, r.tax ?? null, r.total ?? null]
       );
@@ -109,10 +110,20 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
 
 // ── POST /api/receipts/upload ─────────────────────────────────────────────────
 // Accept up to 100 PDFs, parse and categorize in parallel (5 at a time).
+// Optional body field `order_details` (JSON string): extra fields scraped from the
+// vendor website (card_last4, tax, subtotal, total, delivery_address,
+// payment_instrument). Applied after AI extraction — overrides AI-guessed values
+// with authoritative data. Only used when uploading a single PDF (Harvester flow).
 router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), async (req, res) => {
   const cId = req.companyId;
   if (!req.files?.length) {
     return res.status(400).json({ error: 'No PDF files received.' });
+  }
+
+  // Parse optional harvester-supplied order details (single-file uploads only)
+  let orderDetails = null;
+  if (req.body?.order_details && req.files.length === 1) {
+    try { orderDetails = JSON.parse(req.body.order_details); } catch { /* ignore bad JSON */ }
   }
 
   // Load QBO reference data, product memory, and rules once for all files
@@ -125,6 +136,32 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
   });
   const results = perFileResults.flat();
 
+  // Apply harvester-scraped fields to the receipt — these are authoritative
+  // (e.g. card last 4, actual tax) and override what AI may have guessed.
+  if (orderDetails) {
+    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address } = orderDetails;
+    const receiptIds = results.filter((r) => r.receipt_id).map((r) => r.receipt_id);
+    for (const receiptId of receiptIds) {
+      await query(
+        `UPDATE receipts SET
+           card_last4          = COALESCE($2, card_last4),
+           payment_instrument  = COALESCE($3, payment_instrument),
+           tax                 = COALESCE($4, tax),
+           subtotal            = COALESCE($5, subtotal),
+           total               = COALESCE($6, total),
+           delivery_address    = COALESCE($7, delivery_address)
+         WHERE id = $1`,
+        [receiptId,
+         card_last4         || null,
+         payment_instrument || null,
+         tax                ?? null,
+         subtotal           ?? null,
+         total              ?? null,
+         delivery_address   || null]
+      ).catch((e) => console.error('[upload] order_details UPDATE failed:', e.message));
+    }
+  }
+
   res.json({ results });
 });
 
@@ -133,7 +170,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
 // All other statuses automatically exclude personal-use-card receipts.
 router.get('/', requireAuth, requireOwner, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, source, vendor } = req.query;
     const cId = req.companyId;
 
     // Subquery that returns card_last4 values flagged as personal use for this company
@@ -147,7 +184,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
       // Only receipts whose card is a personal-use card
       sql = `
         SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
-               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
+               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at, r.source,
                (r.pdf_data IS NOT NULL OR r.pdf_filename IS NOT NULL OR r.raw_path IS NOT NULL) AS has_pdf,
                COUNT(ri.id) AS item_count,
                COUNT(ri.id) FILTER (WHERE ri.qbo_account_id IS NULL) AS uncategorized_count,
@@ -165,14 +202,17 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
         LIMIT 200`;
       params = [cId];
     } else {
-      // Normal tabs — exclude personal-use-card receipts
-      const where = status ? `AND r.status = $2` : '';
+      // Normal tabs — exclude personal-use-card receipts; support optional source + vendor filters
       params = [cId];
-      if (status) params.push(status);
+      const clauses = [`r.company_id = $1`,
+                       `(r.card_last4 IS NULL OR r.card_last4 NOT IN (${personalSubquery}))`];
+      if (status) { params.push(status); clauses.push(`r.status = $${params.length}`); }
+      if (source) { params.push(source); clauses.push(`r.source = $${params.length}`); }
+      if (vendor) { params.push(`%${vendor}%`); clauses.push(`r.vendor ILIKE $${params.length}`); }
 
       sql = `
         SELECT r.id, r.order_number, r.order_date, r.vendor, r.total, r.status,
-               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at,
+               r.card_last4, r.payment_instrument, r.pdf_filename, r.created_at, r.source,
                (r.pdf_data IS NOT NULL OR r.pdf_filename IS NOT NULL OR r.raw_path IS NOT NULL) AS has_pdf,
                COUNT(ri.id) AS item_count,
                COUNT(ri.id) FILTER (WHERE ri.qbo_account_id IS NULL) AS uncategorized_count,
@@ -183,8 +223,7 @@ router.get('/', requireAuth, requireOwner, async (req, res) => {
         LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
         LEFT JOIN qbo_accounts qa ON qa.company_id = r.company_id AND qa.qbo_id = ri.qbo_account_id
         LEFT JOIN qbo_classes  qc ON qc.company_id = r.company_id AND qc.qbo_id = ri.qbo_class_id
-        WHERE r.company_id = $1 ${where}
-          AND (r.card_last4 IS NULL OR r.card_last4 NOT IN (${personalSubquery}))
+        WHERE ${clauses.join(' AND ')}
         GROUP BY r.id
         ORDER BY r.created_at DESC
         LIMIT 200`;
@@ -468,6 +507,69 @@ router.post('/suggest-rule', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// ── GET /api/receipts/qbo-unmatched-attachables ──────────────────────────────
+// List all unmatched receipt images in QBO (uploaded but not linked to a Purchase).
+// Returns id, filename, content_type, created_at, already_imported flag.
+router.get('/qbo-unmatched-attachables', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const days = parseInt(req.query.days || '365', 10);
+  try {
+    const attachables = await qboGetUnmatchedAttachables(cId, days);
+
+    // Flag any already imported (matched by qbo_purchase_id won't work here —
+    // use pdf_filename matching as a best-effort duplicate check)
+    const filenames = attachables.map((a) => a.FileName).filter(Boolean);
+    let importedSet = new Set();
+    if (filenames.length) {
+      const r = await query(
+        `SELECT pdf_filename FROM receipts WHERE company_id = $1 AND pdf_filename = ANY($2)`,
+        [cId, filenames]
+      );
+      importedSet = new Set(r.rows.map((row) => row.pdf_filename));
+    }
+
+    const items = attachables.map((a) => ({
+      id:               a.Id,
+      filename:         a.FileName,
+      content_type:     a.ContentType,
+      created_at:       a.MetaData?.CreateTime,
+      already_imported: importedSet.has(a.FileName),
+    }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/qbo-import-attachables ─────────────────────────────────
+// Download and import a list of QBO Attachable IDs as receipts (Pending).
+// Body: { attachable_ids: [{ id, filename, content_type }] }
+router.post('/qbo-import-attachables', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { attachable_ids } = req.body;
+  if (!Array.isArray(attachable_ids) || !attachable_ids.length) {
+    return res.status(400).json({ error: 'attachable_ids array is required' });
+  }
+
+  const ctx = await loadReceiptContext(cId);
+
+  const results = await withConcurrency(attachable_ids, 3, async (att) => {
+    try {
+      const { buffer, contentType } = await qboDownloadAttachment(cId, att.id);
+      const filename = att.filename || `qbo-receipt-${att.id}`;
+      const receipts = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, source: 'qbo' });
+      return { id: att.id, filename, receipts };
+    } catch (err) {
+      return { id: att.id, filename: att.filename, error: err.message };
+    }
+  });
+
+  const inserted = results.filter((r) => !r.error).reduce((s, r) => s + (r.receipts?.length ?? 0), 0);
+  const errors   = results.filter((r) => r.error);
+  res.json({ results, inserted, errors: errors.length });
+});
+
 // ── GET /api/receipts/qbo-vendors ────────────────────────────────────────────
 // Returns all active QBO vendors for the import dropdown.
 router.get('/qbo-vendors', requireAuth, requireOwner, async (req, res) => {
@@ -557,7 +659,7 @@ router.post('/qbo-import', requireAuth, requireOwner, async (req, res) => {
       const filename = attachable.FileName || `qbo-${purchaseId}.pdf`;
       try {
         const { buffer, contentType } = await qboDownloadAttachment(cId, attachable.Id);
-        const results = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, qboPurchaseId: purchaseId });
+        const results = await processReceiptPDF(cId, buffer, filename, ctx, { contentType, qboPurchaseId: purchaseId, source: 'qbo' });
         allResults.push(...results);
       } catch (err) {
         allResults.push({ purchaseId, filename, error: err.message });

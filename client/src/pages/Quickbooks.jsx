@@ -206,6 +206,10 @@ export function Quickbooks({ user }) {
   // Tabs
   const [activeTab, setActiveTab] = useState('pending');
 
+  // Pending tab filters
+  const [pendingSource, setPendingSource] = useState('');
+  const [pendingVendor, setPendingVendor] = useState('');
+
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkAccepting, setBulkAccepting] = useState(false);
@@ -278,18 +282,26 @@ export function Quickbooks({ user }) {
   }, []);
 
   const loadReceipts = useCallback((tab) => {
+    const resolvedTab = tab || activeTab;
     setReceiptsLoading(true);
-    getReceipts(tab || activeTab)
+    const filters = resolvedTab === 'pending' ? { source: pendingSource, vendor: pendingVendor } : {};
+    getReceipts(resolvedTab, filters)
       .then(setReceipts)
       .catch(() => {})
       .finally(() => setReceiptsLoading(false));
-  }, [activeTab]);
+  }, [activeTab, pendingSource, pendingVendor]);
 
   const loadRules = useCallback(() => {
     getRules().then(setRules).catch(() => {});
   }, []);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  // Reload pending when filters change
+  useEffect(() => {
+    if (activeTab === 'pending') loadReceipts('pending');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSource, pendingVendor]);
 
   // Reload when tab changes and clear selections
   useEffect(() => {
@@ -967,6 +979,33 @@ export function Quickbooks({ user }) {
               <button type="button" className="qb-btn-ai-categorize" onClick={handleCategorizeAll} disabled={categorizingAll}>
                 {categorizingAll ? '✨ Categorizing…' : '✨ Run AI Categorization'}
               </button>
+              <div className="qb-pending-filters">
+                <select
+                  className="qb-filter-source"
+                  value={pendingSource}
+                  onChange={(e) => setPendingSource(e.target.value)}
+                >
+                  <option value="">All sources</option>
+                  <option value="email">Email (Amazon)</option>
+                  <option value="upload">Manual upload</option>
+                  <option value="csv">CSV import</option>
+                  <option value="qbo">QBO import</option>
+                </select>
+                <input
+                  type="text"
+                  className="qb-filter-vendor"
+                  placeholder="Filter by vendor…"
+                  value={pendingVendor}
+                  onChange={(e) => setPendingVendor(e.target.value)}
+                />
+                {(pendingSource || pendingVendor) && (
+                  <button
+                    type="button"
+                    className="qb-filter-clear"
+                    onClick={() => { setPendingSource(''); setPendingVendor(''); }}
+                  >✕ Clear</button>
+                )}
+              </div>
             </div>
           )}
 

@@ -179,7 +179,7 @@
 .qb-receipts-header h3 { font-size: 1.05rem; font-weight: 600; margin: 0; }
 
 .qb-bulk-bar {
-  display: flex; align-items: center; gap: 1rem;
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
   padding: 0.5rem 0.25rem; margin-top: 0.5rem;
 }
 .qb-bulk-select-all {
@@ -619,6 +619,21 @@
 }
 .qb-btn-ai-categorize:hover:not(:disabled) { background: #4527a0; }
 .qb-btn-ai-categorize:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Pending tab filters ── */
+.qb-pending-filters {
+  display: flex; align-items: center; gap: 0.5rem; margin-left: auto;
+}
+.qb-filter-source, .qb-filter-vendor {
+  font-size: 0.82rem; border: 1px solid #ccc; border-radius: 5px;
+  padding: 0.28rem 0.5rem; color: #333; background: #fff;
+}
+.qb-filter-vendor { width: 160px; }
+.qb-filter-clear {
+  background: none; border: 1px solid #bbb; border-radius: 5px; color: #666;
+  font-size: 0.78rem; padding: 0.28rem 0.55rem; cursor: pointer;
+}
+.qb-filter-clear:hover { background: #f5f5f5; border-color: #999; }
 
 /* ── Account/class selects in review modal ── */
 .qb-item-select {
