@@ -110,10 +110,20 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
 
 // ── POST /api/receipts/upload ─────────────────────────────────────────────────
 // Accept up to 100 PDFs, parse and categorize in parallel (5 at a time).
+// Optional body field `order_details` (JSON string): extra fields scraped from the
+// vendor website (card_last4, tax, subtotal, total, delivery_address,
+// payment_instrument). Applied after AI extraction — overrides AI-guessed values
+// with authoritative data. Only used when uploading a single PDF (Harvester flow).
 router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), async (req, res) => {
   const cId = req.companyId;
   if (!req.files?.length) {
     return res.status(400).json({ error: 'No PDF files received.' });
+  }
+
+  // Parse optional harvester-supplied order details (single-file uploads only)
+  let orderDetails = null;
+  if (req.body?.order_details && req.files.length === 1) {
+    try { orderDetails = JSON.parse(req.body.order_details); } catch { /* ignore bad JSON */ }
   }
 
   // Load QBO reference data, product memory, and rules once for all files
@@ -125,6 +135,32 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
     return processReceiptPDF(cId, file.buffer, file.originalname, ctx);
   });
   const results = perFileResults.flat();
+
+  // Apply harvester-scraped fields to the receipt — these are authoritative
+  // (e.g. card last 4, actual tax) and override what AI may have guessed.
+  if (orderDetails) {
+    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address } = orderDetails;
+    const receiptIds = results.filter((r) => r.receipt_id).map((r) => r.receipt_id);
+    for (const receiptId of receiptIds) {
+      await query(
+        `UPDATE receipts SET
+           card_last4          = COALESCE($2, card_last4),
+           payment_instrument  = COALESCE($3, payment_instrument),
+           tax                 = COALESCE($4, tax),
+           subtotal            = COALESCE($5, subtotal),
+           total               = COALESCE($6, total),
+           delivery_address    = COALESCE($7, delivery_address)
+         WHERE id = $1`,
+        [receiptId,
+         card_last4         || null,
+         payment_instrument || null,
+         tax                ?? null,
+         subtotal           ?? null,
+         total              ?? null,
+         delivery_address   || null]
+      ).catch((e) => console.error('[upload] order_details UPDATE failed:', e.message));
+    }
+  }
 
   res.json({ results });
 });
