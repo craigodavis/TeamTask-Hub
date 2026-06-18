@@ -1232,6 +1232,9 @@ export function Quickbooks({ user }) {
                       <span className="qb-receipt-order">{r.order_number}</span>
                       <span className="qb-receipt-vendor">{r.vendor}</span>
                       {r.order_date && <span className="qb-receipt-date">{new Date(String(r.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
+                      {r.card_last4 && activeTab !== 'excluded' && (
+                        <span className="qb-receipt-card">····{r.card_last4}</span>
+                      )}
                       {activeTab === 'excluded' && r.card_last4 && (
                         <span className="qb-personal-badge" title="This card is marked personal use">
                           Personal ····{r.card_last4}
