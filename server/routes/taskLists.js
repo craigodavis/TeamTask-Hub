@@ -1016,6 +1016,13 @@ async function sendClosureSms(assignmentId, cId, { reason = null, triggeredBy = 
     if (parseInt(row.addressed, 10) < parseInt(row.total, 10)) return; // still tasks without a status
   }
 
+  // Check company SMS setting — bail early if disabled
+  const smsCheck = await query(
+    `SELECT task_sms_enabled FROM company_integrations WHERE company_id = $1`,
+    [cId]
+  );
+  if (!smsCheck.rows[0]?.task_sms_enabled) return;
+
   // Atomically claim the send slot — only one caller wins
   const claim = await query(
     `UPDATE task_assignments SET completion_sms_sent_at = NOW()

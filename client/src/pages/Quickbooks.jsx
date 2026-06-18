@@ -1227,14 +1227,16 @@ export function Quickbooks({ user }) {
                         ✕
                       </button>
                     }
-                    <button
-                      type="button"
-                      className="qb-btn-pdf"
-                      onClick={() => openReceiptPdf(r.id).catch((e) => setError(e.message))}
-                      title="View the original PDF"
-                    >
-                      📄 PDF
-                    </button>
+                    {r.has_pdf &&
+                      <button
+                        type="button"
+                        className="qb-btn-pdf"
+                        onClick={() => openReceiptPdf(r.id).catch((e) => setError(e.message))}
+                        title="View the original PDF"
+                      >
+                        📄 PDF
+                      </button>
+                    }
                     <button type="button" className="qb-btn-review" onClick={() => openReview(r.id)} disabled={reviewLoading}>
                       {activeTab === 'reviewed' || activeTab === 'excluded' ? 'View' : 'Review'}
                     </button>
