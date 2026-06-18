@@ -216,7 +216,7 @@
 }
 .qb-receipt-order { font-weight: 500; font-size: 0.9rem; }
 .qb-receipt-vendor { font-size: 0.85rem; color: #555; }
-.qb-receipt-date  { font-size: 0.85rem; color: #777; }
+.qb-receipt-date  { font-size: 0.75rem; color: #999; }
 .qb-receipt-card  { font-size: 0.75rem; color: #999; letter-spacing: 0.03em; }
 .qb-receipt-status {
   font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 10px; font-weight: 500;
