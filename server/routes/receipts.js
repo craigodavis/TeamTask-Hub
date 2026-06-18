@@ -17,11 +17,11 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const router = express.Router();
 
-// Load a receipt's PDF bytes — prefer the DB (pdf_data), fall back to disk
-// for legacy receipts uploaded before DB storage existed.
+// Load a receipt's PDF bytes.
+// Priority: pdf_data (DB) → uploads/{id}.pdf (disk) → raw_path (Harvester file)
 async function loadReceiptPdf(cId, id) {
   const r = await query(
-    `SELECT pdf_data, pdf_filename FROM receipts WHERE id = $1 AND company_id = $2`,
+    `SELECT pdf_data, pdf_filename, raw_path FROM receipts WHERE id = $1 AND company_id = $2`,
     [id, cId]
   );
   if (!r.rows.length) return { notFound: true };
@@ -29,9 +29,12 @@ async function loadReceiptPdf(cId, id) {
   if (row.pdf_data) {
     return { buffer: row.pdf_data, filename: row.pdf_filename };
   }
-  const filePath = path.join(UPLOAD_DIR, `${id}.pdf`);
-  if (fs.existsSync(filePath)) {
-    return { buffer: fs.readFileSync(filePath), filename: row.pdf_filename };
+  const diskPath = path.join(UPLOAD_DIR, `${id}.pdf`);
+  if (fs.existsSync(diskPath)) {
+    return { buffer: fs.readFileSync(diskPath), filename: row.pdf_filename };
+  }
+  if (row.raw_path && fs.existsSync(row.raw_path)) {
+    return { buffer: fs.readFileSync(row.raw_path), filename: row.pdf_filename || path.basename(row.raw_path) };
   }
   return { buffer: null, filename: row.pdf_filename };
 }
@@ -604,7 +607,11 @@ router.get('/:id/pdf', requireAuth, requireOwner, async (req, res) => {
     if (!buffer) return res.status(404).json({ error: 'PDF not available for this receipt.' });
 
     const downloadName = (filename || `receipt-${id}.pdf`).replace(/[^\w.\-]/g, '_');
-    res.setHeader('Content-Type', 'application/pdf');
+    // Detect image buffers (JPEG/PNG) stored in pdf_data from QBO-scanned receipts
+    const isJpeg = buffer[0] === 0xFF && buffer[1] === 0xD8;
+    const isPng  = buffer[0] === 0x89 && buffer[1] === 0x50;
+    const contentType = isJpeg ? 'image/jpeg' : isPng ? 'image/png' : 'application/pdf';
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
     res.send(buffer);
   } catch (err) {
