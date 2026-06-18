@@ -8,7 +8,8 @@ import { fileURLToPath } from 'url';
 import { suggestRulesFromCorrections } from '../aiClient.js';
 import { applyRules } from '../rulesEngine.js';
 import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile,
-         qboGetVendors, qboGetPurchasesForVendor, qboGetPurchaseAttachables, qboDownloadAttachment } from '../qboClient.js';
+         qboGetVendors, qboGetPurchasesForVendor, qboGetPurchaseAttachables, qboDownloadAttachment,
+         qboGetUnmatchedAttachables } from '../qboClient.js';
 import { loadReceiptContext, processReceiptPDF } from '../lib/processReceiptPDF.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -466,6 +467,69 @@ router.post('/suggest-rule', requireAuth, requireOwner, async (req, res) => {
     console.error('[suggest-rule]', err.message);
     res.json({ suggestions: [] }); // non-fatal
   }
+});
+
+// ── GET /api/receipts/qbo-unmatched-attachables ──────────────────────────────
+// List all unmatched receipt images in QBO (uploaded but not linked to a Purchase).
+// Returns id, filename, content_type, created_at, already_imported flag.
+router.get('/qbo-unmatched-attachables', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const days = parseInt(req.query.days || '365', 10);
+  try {
+    const attachables = await qboGetUnmatchedAttachables(cId, days);
+
+    // Flag any already imported (matched by qbo_purchase_id won't work here —
+    // use pdf_filename matching as a best-effort duplicate check)
+    const filenames = attachables.map((a) => a.FileName).filter(Boolean);
+    let importedSet = new Set();
+    if (filenames.length) {
+      const r = await query(
+        `SELECT pdf_filename FROM receipts WHERE company_id = $1 AND pdf_filename = ANY($2)`,
+        [cId, filenames]
+      );
+      importedSet = new Set(r.rows.map((row) => row.pdf_filename));
+    }
+
+    const items = attachables.map((a) => ({
+      id:               a.Id,
+      filename:         a.FileName,
+      content_type:     a.ContentType,
+      created_at:       a.MetaData?.CreateTime,
+      already_imported: importedSet.has(a.FileName),
+    }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/receipts/qbo-import-attachables ─────────────────────────────────
+// Download and import a list of QBO Attachable IDs as receipts (Pending).
+// Body: { attachable_ids: [{ id, filename, content_type }] }
+router.post('/qbo-import-attachables', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { attachable_ids } = req.body;
+  if (!Array.isArray(attachable_ids) || !attachable_ids.length) {
+    return res.status(400).json({ error: 'attachable_ids array is required' });
+  }
+
+  const ctx = await loadReceiptContext(cId);
+
+  const results = await withConcurrency(attachable_ids, 3, async (att) => {
+    try {
+      const { buffer, contentType } = await qboDownloadAttachment(cId, att.id);
+      const filename = att.filename || `qbo-receipt-${att.id}`;
+      const receipts = await processReceiptPDF(cId, buffer, filename, ctx, { contentType });
+      return { id: att.id, filename, receipts };
+    } catch (err) {
+      return { id: att.id, filename: att.filename, error: err.message };
+    }
+  });
+
+  const inserted = results.filter((r) => !r.error).reduce((s, r) => s + (r.receipts?.length ?? 0), 0);
+  const errors   = results.filter((r) => r.error);
+  res.json({ results, inserted, errors: errors.length });
 });
 
 // ── GET /api/receipts/qbo-vendors ────────────────────────────────────────────
