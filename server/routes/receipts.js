@@ -60,6 +60,50 @@ async function withConcurrency(items, limit, fn) {
   return results;
 }
 
+// ── POST /api/receipts/csv-import ────────────────────────────────────────────
+// Internal bulk insert for CSV imports (no PDF, no AI — lands as pending).
+// Body: { vendor, receipts: [{ order_number, order_date, total, tax, subtotal, items[] }] }
+router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
+  const cId = req.companyId;
+  const { vendor, receipts: receiptList } = req.body;
+  if (!Array.isArray(receiptList) || !receiptList.length) {
+    return res.status(400).json({ error: 'receipts array is required' });
+  }
+
+  const results = [];
+  for (const r of receiptList) {
+    // Duplicate check
+    const dup = await query(
+      `SELECT id FROM receipts WHERE company_id = $1 AND order_number = $2`,
+      [cId, r.order_number]
+    );
+    if (dup.rows.length) {
+      results.push({ order_number: r.order_number, skipped: true, reason: 'duplicate' });
+      continue;
+    }
+    try {
+      const ins = await query(
+        `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, source)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'upload') RETURNING id`,
+        [cId, r.order_number, r.order_date || null, vendor || r.vendor || 'Unknown',
+         r.subtotal ?? null, r.tax ?? null, r.total ?? null]
+      );
+      const receiptId = ins.rows[0].id;
+      for (const item of (r.items || [])) {
+        await query(
+          `INSERT INTO receipt_items (receipt_id, description, quantity, unit_price, total)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [receiptId, item.description, item.quantity ?? 1, item.unit_price ?? null, item.total ?? null]
+        );
+      }
+      results.push({ order_number: r.order_number, receipt_id: receiptId, items: r.items?.length ?? 0 });
+    } catch (err) {
+      results.push({ order_number: r.order_number, error: err.message });
+    }
+  }
+  res.json({ results });
+});
+
 // ── POST /api/receipts/upload ─────────────────────────────────────────────────
 // Accept up to 100 PDFs, parse and categorize in parallel (5 at a time).
 router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), async (req, res) => {
