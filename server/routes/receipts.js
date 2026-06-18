@@ -1211,6 +1211,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
     // full date range across all tasks and pull every Purchase in that window
     // once. Matching is then done client-side from the cached list.
     const qboResultMap = new Map();
+    let _debugInfo = { tasks: fetchTasks.length, range: null, purchases: 0, fetchError: null };
 
     // Collect all anchor dates so we can span a single query window
     const allDates = fetchTasks.flatMap((t) => {
@@ -1230,20 +1231,20 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
       maxDate.setDate(maxDate.getDate() + RECEIPT_WINDOW);
 
       const fmt = (d) => d.toISOString().slice(0, 10);
-      console.log(`[preview] ${fetchTasks.length} tasks, QBO range: ${fmt(minDate)} → ${fmt(maxDate)}`);
 
       // Safety: if cap pushed minDate past maxDate, widen maxDate to at least minDate
       if (minDate > maxDate) maxDate.setTime(minDate.getTime());
 
+      _debugInfo.range = `${fmt(minDate)} → ${fmt(maxDate)}`;
       let allPurchases = [];
       try {
         allPurchases = await qboQueryAll(
           cId,
           `SELECT * FROM Purchase WHERE TxnDate >= '${fmt(minDate)}' AND TxnDate <= '${fmt(maxDate)}'`
         );
-        console.log(`[preview] QBO returned ${allPurchases.length} purchases`);
+        _debugInfo.purchases = allPurchases.length;
       } catch (err) {
-        console.error('[preview] QBO fetch error:', err.message);
+        _debugInfo.fetchError = err.message;
         // Fall back: mark all tasks as errored rather than crashing the whole preview
         for (const task of fetchTasks) {
           qboResultMap.set(task.key, { error: `QBO fetch failed: ${err.message}` });
@@ -1397,7 +1398,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
       }
     }
 
-    res.json({ previews });
+    res.json({ previews, _debug: _debugInfo });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
