@@ -165,6 +165,36 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
   res.json({ results });
 });
 
+// ── PATCH /api/receipts/:id/enrich ───────────────────────────────────────────
+// Apply scraped order details to an existing receipt (backfill card_last4, tax, etc).
+// Body: { card_last4, payment_instrument, tax, subtotal, total, delivery_address }
+router.patch('/:id/enrich', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address } = req.body;
+    await query(
+      `UPDATE receipts SET
+         card_last4         = COALESCE($2, card_last4),
+         payment_instrument = COALESCE($3, payment_instrument),
+         tax                = COALESCE($4, tax),
+         subtotal           = COALESCE($5, subtotal),
+         total              = COALESCE($6, total),
+         delivery_address   = COALESCE($7, delivery_address)
+       WHERE id = $1 AND company_id = $8`,
+      [req.params.id,
+       card_last4         || null,
+       payment_instrument || null,
+       tax                ?? null,
+       subtotal           ?? null,
+       total              ?? null,
+       delivery_address   || null,
+       req.companyId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── GET /api/receipts ─────────────────────────────────────────────────────────
 // List receipts. status=excluded returns receipts where card maps to a personal_use card.
 // All other statuses automatically exclude personal-use-card receipts.
