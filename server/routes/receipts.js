@@ -9,7 +9,7 @@ import { suggestRulesFromCorrections } from '../aiClient.js';
 import { applyRules } from '../rulesEngine.js';
 import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qboAttachFile,
          qboGetVendors, qboGetPurchasesForVendor, qboGetPurchaseAttachables, qboDownloadAttachment,
-         qboGetUnmatchedAttachables } from '../qboClient.js';
+         qboGetUnmatchedAttachables, qboQueryAll } from '../qboClient.js';
 import { loadReceiptContext, processReceiptPDF } from '../lib/processReceiptPDF.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1159,9 +1159,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
 
     const previews = [];
 
-    // Phase 1: build a flat list of all QBO fetch tasks (one per receipt or shipment).
-    // We run these in parallel (5 at a time) so the UI doesn't wait on N sequential
-    // QBO API round-trips.  The dedup pass (usedQboIds) still runs sequentially below.
+    // ── Phase 1: build fetch tasks ────────────────────────────────────────────
     const fetchTasks = [];
     for (const receipt of receiptsRes.rows) {
       const receiptItems = receiptItemsMap.get(receipt.id) || [];
@@ -1208,38 +1206,84 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
       }
     }
 
-    // Phase 2: fetch QBO candidates in parallel, 5 at a time
+    // ── Phase 2: ONE bulk QBO fetch covering all receipts ────────────────────
+    // Instead of one QBO API call per receipt (N round-trips), we compute the
+    // full date range across all tasks and pull every Purchase in that window
+    // once. Matching is then done client-side from the cached list.
     const qboResultMap = new Map();
-    await withConcurrency(fetchTasks, 5, async (task) => {
-      if (task.amazon_data) {
-        if (!task.shipment.payment_date) {
-          qboResultMap.set(task.key, { error: 'Shipment has no payment date' });
-          return;
-        }
-        try {
-          const matches = await qboFindPurchases(
-            cId, task.accountId, task.shipment.payment_amount,
-            task.shipment.payment_date, 10, true
-          );
-          qboResultMap.set(task.key, { matches });
-        } catch (err) {
-          qboResultMap.set(task.key, { error: err.message });
-        }
-      } else {
-        if (!task.receipt.total || !task.receipt.order_date) {
-          qboResultMap.set(task.key, { skip: true });
-          return;
-        }
-        try {
-          const matches = await qboFindPurchases(
-            cId, task.accountId, task.receipt.total, task.receipt.order_date, 30
-          );
-          qboResultMap.set(task.key, { matches });
-        } catch (err) {
-          qboResultMap.set(task.key, { error: err.message });
+
+    // Collect all anchor dates so we can span a single query window
+    const allDates = fetchTasks.flatMap((t) => {
+      const d = t.amazon_data ? t.shipment?.payment_date : t.receipt.order_date;
+      return d ? [new Date(d)] : [];
+    });
+
+    if (allDates.length > 0) {
+      const RECEIPT_WINDOW = 30; // days either side for non-Amazon receipts
+      const AMAZON_WINDOW  = 10; // Amazon charges always forward from order date
+      const CAP_DAYS       = 365; // never query more than 12 months of QBO data
+
+      const cap = new Date(); cap.setDate(cap.getDate() - CAP_DAYS);
+
+      const minDate = new Date(Math.max(Math.min(...allDates) - RECEIPT_WINDOW * 86400000, cap));
+      const maxDate = new Date(Math.max(...allDates));
+      maxDate.setDate(maxDate.getDate() + RECEIPT_WINDOW);
+
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      let allPurchases = [];
+      try {
+        allPurchases = await qboQueryAll(
+          cId,
+          `SELECT * FROM Purchase WHERE TxnDate >= '${fmt(minDate)}' AND TxnDate <= '${fmt(maxDate)}'`
+        );
+      } catch (err) {
+        // Fall back: mark all tasks as errored rather than crashing the whole preview
+        for (const task of fetchTasks) {
+          qboResultMap.set(task.key, { error: `QBO fetch failed: ${err.message}` });
         }
       }
-    });
+
+      if (allPurchases.length > 0) {
+        // Match each task against the cached purchase list (no more QBO round-trips)
+        for (const task of fetchTasks) {
+          if (task.amazon_data) {
+            if (!task.shipment.payment_date) {
+              qboResultMap.set(task.key, { error: 'Shipment has no payment date' });
+              continue;
+            }
+            const anchor    = new Date(task.shipment.payment_date);
+            const windowEnd = new Date(anchor); windowEnd.setDate(windowEnd.getDate() + AMAZON_WINDOW);
+            const target    = task.shipment.payment_amount;
+            const matches   = allPurchases.filter((p) => {
+              const txnDate = new Date(p.TxnDate);
+              return txnDate >= anchor && txnDate <= windowEnd
+                && (target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01);
+            }).sort((a, b) => new Date(a.TxnDate) - new Date(b.TxnDate));
+            qboResultMap.set(task.key, { matches });
+          } else {
+            if (!task.receipt.total || !task.receipt.order_date) {
+              qboResultMap.set(task.key, { skip: true });
+              continue;
+            }
+            const anchor = new Date(task.receipt.order_date);
+            const start  = new Date(anchor); start.setDate(start.getDate() - RECEIPT_WINDOW);
+            const end    = new Date(anchor); end.setDate(end.getDate() + RECEIPT_WINDOW);
+            const target = parseFloat(task.receipt.total);
+            const matches = allPurchases.filter((p) => {
+              const txnDate = new Date(p.TxnDate);
+              return txnDate >= start && txnDate <= end
+                && Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
+            }).sort((a, b) => {
+              const aOnAcc = task.accountId ? (a.AccountRef?.value === task.accountId ? 0 : 1) : 0;
+              const bOnAcc = task.accountId ? (b.AccountRef?.value === task.accountId ? 0 : 1) : 0;
+              if (aOnAcc !== bOnAcc) return aOnAcc - bOnAcc;
+              return Math.abs(new Date(a.TxnDate) - anchor) - Math.abs(new Date(b.TxnDate) - anchor);
+            });
+            qboResultMap.set(task.key, { matches });
+          }
+        }
+      }
+    }
 
     // Phase 3: assign best matches sequentially so usedQboIds dedup is preserved
     function buildMatch(best, anchorDate, accountId) {
