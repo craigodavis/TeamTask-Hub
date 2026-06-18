@@ -440,10 +440,29 @@ export function Quickbooks({ user }) {
     finally { setReviewLoading(false); }
   };
 
+  const WEIGHT_UNITS = { lb: 453.592, oz: 28.3495, g: 1, kg: 1000 };
+
+  function computeGrams(quantity, unit) {
+    const factor = WEIGHT_UNITS[unit];
+    if (!factor || quantity == null || quantity === '') return null;
+    const g = parseFloat(quantity) * factor;
+    return isNaN(g) ? null : Math.round(g * 1000) / 1000;
+  }
+
   const handleItemChange = (itemId, field, value) => {
     setReviewing((prev) => ({
       ...prev,
-      items: prev.items.map((it) => it.id === itemId ? { ...it, [field]: value } : it),
+      items: prev.items.map((it) => {
+        if (it.id !== itemId) return it;
+        const updated = { ...it, [field]: value };
+        if (field === 'quantity' || field === 'quantity_unit') {
+          updated.quantity_grams = computeGrams(
+            field === 'quantity' ? value : it.quantity,
+            field === 'quantity_unit' ? value : it.quantity_unit,
+          );
+        }
+        return updated;
+      }),
     }));
   };
 
@@ -1750,6 +1769,33 @@ export function Quickbooks({ user }) {
                             <tr key={item.id} className={`qb-item-row qb-item-${item.item_status}${!item.qbo_account_id ? ' qb-item-no-account' : ''}`}>
                               <td>
                                 <div className="qb-item-desc">{item.description}</div>
+                                <div className="qb-item-qty-row">
+                                  <input
+                                    type="number"
+                                    className="qb-item-qty-input"
+                                    value={item.quantity ?? 1}
+                                    min="0"
+                                    step="any"
+                                    onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)}
+                                  />
+                                  <select
+                                    className="qb-item-unit-select"
+                                    value={item.quantity_unit || 'each'}
+                                    onChange={(e) => handleItemChange(item.id, 'quantity_unit', e.target.value)}
+                                  >
+                                    <option value="each">each</option>
+                                    <option value="case">case</option>
+                                    <option value="lb">lb</option>
+                                    <option value="oz">oz</option>
+                                    <option value="g">g</option>
+                                    <option value="kg">kg</option>
+                                  </select>
+                                  {item.quantity_grams != null && (
+                                    <span className="qb-item-grams">
+                                      = {parseFloat(item.quantity_grams).toLocaleString(undefined, { maximumFractionDigits: 1 })}g
+                                    </span>
+                                  )}
+                                </div>
                                 {item.rule_applied && <div className="qb-item-rule">⚙ Rule: {item.rule_applied}</div>}
                                 {!item.rule_applied && item.ai_confidence != null && (
                                   <div className="qb-item-confidence">AI: {Math.round(item.ai_confidence * 100)}%</div>

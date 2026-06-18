@@ -2021,6 +2021,9 @@ const MIGRATIONS = [
   // quantity_unit — unit of measure for the quantity field: 'each', 'lb', 'oz', 'case', etc.
   // Sysco catch-weight items: quantity = T/WT (total weight in lbs), quantity_unit = 'lb'
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_unit TEXT NOT NULL DEFAULT 'each'`,
+
+  // quantity_grams — canonical weight in grams for lb/oz/g/kg items; null for 'each'/'case'
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_grams NUMERIC(10,3)`,
 ];
 
 export async function runMigrations() {

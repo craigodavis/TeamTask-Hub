@@ -932,11 +932,17 @@ router.patch('/:id/items', requireAuth, requireOwner, async (req, res) => {
     for (const item of items) {
       await query(
         `UPDATE receipt_items
-         SET item_status = COALESCE($2, item_status),
+         SET item_status    = COALESCE($2, item_status),
              qbo_account_id = $3,
-             qbo_class_id = $4
+             qbo_class_id   = $4,
+             quantity       = COALESCE($6, quantity),
+             quantity_unit  = COALESCE($7, quantity_unit),
+             quantity_grams = $8
          WHERE id = $1 AND receipt_id = $5`,
-        [item.id, item.item_status || null, item.qbo_account_id || null, item.qbo_class_id || null, id]
+        [item.id, item.item_status || null, item.qbo_account_id || null, item.qbo_class_id || null, id,
+         item.quantity != null ? parseFloat(item.quantity) : null,
+         item.quantity_unit || null,
+         item.quantity_grams != null ? parseFloat(item.quantity_grams) : null]
       );
 
       // Update product memory for accepted items
