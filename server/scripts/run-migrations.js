@@ -1916,6 +1916,67 @@ const MIGRATIONS = [
   // 'email' = Amazon email harvester, 'qbo' = QBO attachable import, 'csv' = Chef Store CSV, 'upload' = manual PDF upload
   `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'email'`,
   `CREATE INDEX IF NOT EXISTS idx_receipts_source ON receipts(company_id, source)`,
+
+  // Amazon session store — Mac pushes fresh cookies here every 12h; Skynet reads before each harvest.
+  `CREATE TABLE IF NOT EXISTS amazon_sessions (
+     company_id  UUID PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+     cookies     JSONB        NOT NULL,
+     synced_from VARCHAR(100),
+     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Recipes — extend shopping_item_raw for recipe ingredient linking ──────────
+  `ALTER TABLE shopping_item_raw
+     ADD COLUMN IF NOT EXISTS ingredient_id          UUID REFERENCES ingredients(id) ON DELETE SET NULL,
+     ADD COLUMN IF NOT EXISTS is_recipe_primary      BOOLEAN NOT NULL DEFAULT false,
+     ADD COLUMN IF NOT EXISTS servings_per_container NUMERIC(10,3)`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_ingredient ON shopping_item_raw(ingredient_id)`,
+
+  // ── Recipes — extend ingredients with COGS + description fields ───────────────
+  `ALTER TABLE ingredients
+     ADD COLUMN IF NOT EXISTS description TEXT,
+     ADD COLUMN IF NOT EXISTS base_unit   VARCHAR(10),
+     ADD COLUMN IF NOT EXISTS is_active   BOOLEAN     NOT NULL DEFAULT true,
+     ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+
+  // ── Recipes — recipe master ───────────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS recipes (
+    id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id        UUID         NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name              VARCHAR(255) NOT NULL,
+    category          VARCHAR(100),
+    description       TEXT,
+    instructions      TEXT,
+    photo_path        VARCHAR(255),
+    prep_time_minutes INTEGER,
+    status            VARCHAR(20)  NOT NULL DEFAULT 'active',
+    menu_price        NUMERIC(10,2),
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipes_company        ON recipes(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_recipes_company_status ON recipes(company_id, status)`,
+
+  // ── Recipes — recipe_locations (mirrors announcement_locations) ───────────────
+  `CREATE TABLE IF NOT EXISTS recipe_locations (
+    recipe_id   UUID NOT NULL REFERENCES recipes(id)   ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    PRIMARY KEY (recipe_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_locations_recipe ON recipe_locations(recipe_id)`,
+
+  // ── Recipes — recipe_ingredients join table ───────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS recipe_ingredients (
+    id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    recipe_id     UUID          NOT NULL REFERENCES recipes(id)      ON DELETE CASCADE,
+    ingredient_id UUID          NOT NULL REFERENCES ingredients(id)  ON DELETE RESTRICT,
+    quantity      NUMERIC(10,3) NOT NULL,
+    unit          VARCHAR(10),
+    position      INTEGER       NOT NULL DEFAULT 0,
+    note          TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe     ON recipe_ingredients(recipe_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_ingredient ON recipe_ingredients(ingredient_id)`,
 ];
 
 export async function runMigrations() {
