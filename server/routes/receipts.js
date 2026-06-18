@@ -93,12 +93,29 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
          r.subtotal ?? null, r.tax ?? null, r.total ?? null]
       );
       const receiptId = ins.rows[0].id;
+      const vendorName = vendor || r.vendor || 'Unknown';
+      const purchaseDate = r.order_date || null;
       for (const item of (r.items || [])) {
         await query(
-          `INSERT INTO receipt_items (receipt_id, description, quantity, unit_price, total)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [receiptId, item.description, item.quantity ?? 1, item.unit_price ?? null, item.total ?? null]
+          `INSERT INTO receipt_items (receipt_id, description, quantity, quantity_unit, unit_price, total)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [receiptId, item.description, item.quantity ?? 1, item.quantity_unit || 'each', item.unit_price ?? null, item.total ?? null]
         );
+        if (item.description?.trim()) {
+          await query(
+            `INSERT INTO shopping_item_raw
+               (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+             VALUES ($1, lower(trim($2)), $3, $4, $5, 1)
+             ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+               purchase_count     = shopping_item_raw.purchase_count + 1,
+               last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01')
+                                         THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+               last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+               updated_at         = NOW()
+             WHERE shopping_item_raw.ignored = false`,
+            [cId, item.description.trim(), vendorName, item.unit_price ?? null, purchaseDate]
+          ).catch(() => {}); // non-fatal — don't fail the import
+        }
       }
       results.push({ order_number: r.order_number, receipt_id: receiptId, items: r.items?.length ?? 0 });
     } catch (err) {

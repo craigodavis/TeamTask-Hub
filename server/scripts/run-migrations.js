@@ -1977,6 +1977,50 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe     ON recipe_ingredients(recipe_id)`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_ingredient ON recipe_ingredients(ingredient_id)`,
+
+  // ── Recipes — backfill shopping_item_raw from all historical receipt_items ──
+  // Sysco CSV imports and other non-PDF paths never wrote to shopping_item_raw.
+  // This one-time backfill ensures every receipt_item description is visible in
+  // the Item Catalog. ON CONFLICT preserves any existing data (ignored flag, etc).
+  `WITH grouped AS (
+     SELECT
+       r.company_id,
+       lower(trim(ri.description)) AS description_raw,
+       r.vendor,
+       MAX(r.order_date)           AS last_purchase_date,
+       COUNT(*)                    AS purchase_count
+     FROM receipt_items ri
+     JOIN receipts r ON r.id = ri.receipt_id
+     WHERE ri.description IS NOT NULL AND trim(ri.description) != ''
+     GROUP BY r.company_id, lower(trim(ri.description)), r.vendor
+   )
+   INSERT INTO shopping_item_raw
+     (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+   SELECT
+     g.company_id,
+     g.description_raw,
+     g.vendor,
+     (SELECT ri2.unit_price
+      FROM receipt_items ri2
+      JOIN receipts r2 ON r2.id = ri2.receipt_id
+      WHERE r2.company_id = g.company_id
+        AND lower(trim(ri2.description)) = g.description_raw
+        AND r2.vendor IS NOT DISTINCT FROM g.vendor
+      ORDER BY r2.order_date DESC NULLS LAST
+      LIMIT 1) AS last_price,
+     g.last_purchase_date,
+     g.purchase_count
+   FROM grouped g
+   ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+     purchase_count     = GREATEST(shopping_item_raw.purchase_count, EXCLUDED.purchase_count),
+     last_price         = COALESCE(EXCLUDED.last_price, shopping_item_raw.last_price),
+     last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+     updated_at         = NOW()
+   WHERE shopping_item_raw.ignored = false`,
+
+  // quantity_unit — unit of measure for the quantity field: 'each', 'lb', 'oz', 'case', etc.
+  // Sysco catch-weight items: quantity = T/WT (total weight in lbs), quantity_unit = 'lb'
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_unit TEXT NOT NULL DEFAULT 'each'`,
 ];
 
 export async function runMigrations() {

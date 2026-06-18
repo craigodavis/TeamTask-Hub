@@ -42,6 +42,7 @@ The JSON must be an ARRAY where each element has this shape:
     {
       "description": "product name/description — do NOT include the pack size prefix",
       "quantity": number,
+      "quantity_unit": "unit of measure: 'lb' for weight-priced items, 'each' for unit-priced items, 'case' if sold by the case, 'oz' if ounces — default 'each'",
       "unit_price": number or null,
       "total": number or null,
       "pack": "pack size string or null — for Sysco invoices this is the token(s) immediately after the unit type and before the description (e.g. '475 CT', '5012X12', '110#AVG', '125 LB', '6#10'). Null for non-Sysco receipts."
@@ -51,6 +52,15 @@ The JSON must be an ARRAY where each element has this shape:
 
 Use the INDIVIDUAL order total for each order's "total" field (not the grand total of the whole document).
 Include ALL items from each order in that order's "items" array.
+
+SYSCO CATCH-WEIGHT ITEMS — many Sysco line items are priced by weight (lb), not by case:
+  The line item shows a unit price (e.g. 5.959), then the NEXT line shows "T/WT= 10.400".
+  T/WT means "Total Weight" in pounds. For these items:
+    - quantity = the T/WT value (e.g. 10.400)
+    - quantity_unit = "lb"
+    - unit_price = the per-pound price (e.g. 5.959)
+    - total = quantity × unit_price
+  For standard case items (no T/WT line), quantity = number of cases, quantity_unit = "each".
 
 SYSCO INVOICE FORMAT — these PDFs end with a bare number on the last page, no label:
   ...
@@ -120,6 +130,7 @@ Return a JSON array (one element per order — most receipts have one):
     {
       "description": "product name",
       "quantity": number,
+      "quantity_unit": "'lb', 'oz', 'each', 'case' — default 'each'",
       "unit_price": number or null,
       "total": number or null,
       "pack": null
