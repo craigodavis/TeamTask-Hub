@@ -1258,19 +1258,25 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
     return res.status(400).json({ error: 'exports must be a non-empty array.' });
   }
 
-  const results = [];
-  // Track the first QBO transaction ID per receipt (for marking status)
-  const receiptPrimaryQboId = {};
-
+  // Pre-determine which receipt_id gets the status update (first occurrence = primary shipment).
+  // Done before parallelizing to avoid a race where two concurrent exports for the same
+  // receipt both see receiptPrimaryQboId[receipt_id] as unset.
+  const primaryReceiptIds = new Set();
   for (const exp of exports) {
+    if (exp.is_first_shipment !== false && !primaryReceiptIds.has(exp.receipt_id)) {
+      primaryReceiptIds.add(exp.receipt_id);
+    }
+  }
+
+  // Run QBO get+update+attach in parallel (5 at a time) to avoid sequential timeout
+  const results = await withConcurrency(exports, 5, async (exp) => {
     const { receipt_id, qbo_transaction_id, line_items, is_first_shipment } = exp;
-    const attachPdf = is_first_shipment !== false; // default true for non-shipment exports
+    const attachPdf = is_first_shipment !== false;
 
     try {
       let items;
 
       if (Array.isArray(line_items) && line_items.length > 0) {
-        // Use pre-computed shipment line items from the preview
         items = line_items
           .filter((li) => li.qbo_account_id)
           .map((li) => ({
@@ -1280,7 +1286,6 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
             qbo_class_id: li.qbo_class_id || null,
           }));
       } else {
-        // Fallback: load accepted items from receipt_items table
         const itemsRes = await query(
           `SELECT ri.description, ri.total, ri.qbo_account_id, ri.qbo_class_id
            FROM receipt_items ri
@@ -1294,17 +1299,12 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
       }
 
       if (!items.length) {
-        results.push({ receipt_id, qbo_transaction_id, ok: false, error: 'No categorized items to export.' });
-        continue;
+        return { receipt_id, qbo_transaction_id, ok: false, error: 'No categorized items to export.' };
       }
 
-      // GET existing purchase (needs SyncToken for update)
       const existing = await qboGetPurchase(cId, qbo_transaction_id);
-
-      // Update QBO transaction with the line items
       await qboUpdatePurchase(cId, existing, items);
 
-      // Attach PDF only for the first shipment (or non-shipment receipts)
       if (attachPdf) {
         try {
           const { buffer: pdfBuffer } = await loadReceiptPdf(cId, receipt_id);
@@ -1316,17 +1316,13 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
             const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
             await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
           }
-          // Note: PDF bytes are retained in the DB (pdf_data) so the receipt
-          // remains viewable after export. We no longer delete it.
         } catch (attachErr) {
           console.error('[export] PDF attach failed for receipt', receipt_id, attachErr.message);
-          // Non-fatal — don't fail the whole export
         }
       }
 
-      // Mark receipt as imported using the FIRST shipment's QBO transaction ID
-      if (!receiptPrimaryQboId[receipt_id]) {
-        receiptPrimaryQboId[receipt_id] = qbo_transaction_id;
+      // Only the pre-determined primary export for each receipt updates receipt status
+      if (primaryReceiptIds.has(receipt_id)) {
         await query(
           `UPDATE receipts
            SET status = 'imported', qbo_transaction_id = $2, exported_at = NOW()
@@ -1335,12 +1331,12 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
         );
       }
 
-      results.push({ receipt_id, qbo_transaction_id, ok: true });
+      return { receipt_id, qbo_transaction_id, ok: true };
     } catch (err) {
       console.error('[export] failed for QBO txn', qbo_transaction_id, err.message);
-      results.push({ receipt_id, qbo_transaction_id, ok: false, error: err.message });
+      return { receipt_id, qbo_transaction_id, ok: false, error: err.message };
     }
-  }
+  });
 
   res.json({ results });
 });
