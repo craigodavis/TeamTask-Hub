@@ -1908,6 +1908,9 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS receipts_qbo_purchase_id_company_idx
      ON receipts (company_id, qbo_purchase_id)
      WHERE qbo_purchase_id IS NOT NULL`,
+
+  // task_sms_enabled — when false, sendClosureSms skips sending (default off)
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS task_sms_enabled BOOLEAN NOT NULL DEFAULT false`,
 ];
 
 export async function runMigrations() {

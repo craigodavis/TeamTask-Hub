@@ -174,6 +174,7 @@ export function Settings() {
   const [twilioAccountSid, setTwilioAccountSid] = useState('');
   const [twilioAuthToken, setTwilioAuthToken] = useState('');
   const [twilioPhoneNumber, setTwilioPhoneNumber] = useState('');
+  const [taskSmsEnabled, setTaskSmsEnabled] = useState(false);
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [haUrl, setHaUrl] = useState('');
   const [haToken, setHaToken] = useState('');
@@ -271,6 +272,7 @@ export function Settings() {
         setSquareApplicationId(r.square_application_id || '');
         setSquareEnv(r.square_env || 'production');
         setTwilioPhoneNumber(r.twilio_phone_number || '');
+        setTaskSmsEnabled(!!r.task_sms_enabled);
         setMailHost(r.mail_host || '');
         setMailPort(r.mail_port != null ? String(r.mail_port) : '');
         setMailUser(r.mail_user || '');
@@ -299,6 +301,7 @@ export function Settings() {
       const body = {
         square_env: squareEnv,
         twilio_phone_number: twilioPhoneNumber.trim() || undefined,
+        task_sms_enabled: taskSmsEnabled,
       };
       if (squareApplicationId.trim()) body.square_application_id = squareApplicationId.trim();
       if (squareAccessToken.trim()) body.square_access_token = squareAccessToken.trim();
@@ -736,6 +739,14 @@ export function Settings() {
               value={twilioPhoneNumber}
               onChange={(e) => setTwilioPhoneNumber(e.target.value)}
             />
+          </label>
+          <label className="settings-checkbox-label">
+            <input
+              type="checkbox"
+              checked={taskSmsEnabled}
+              onChange={(e) => setTaskSmsEnabled(e.target.checked)}
+            />
+            Send SMS when task lists close (completion &amp; incomplete notifications)
           </label>
           <button
             type="button"
