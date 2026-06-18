@@ -139,7 +139,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
   // Apply harvester-scraped fields to the receipt — these are authoritative
   // (e.g. card last 4, actual tax) and override what AI may have guessed.
   if (orderDetails) {
-    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address } = orderDetails;
+    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address, order_date } = orderDetails;
     const receiptIds = results.filter((r) => r.receipt_id).map((r) => r.receipt_id);
     for (const receiptId of receiptIds) {
       await query(
@@ -149,7 +149,8 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
            tax                 = COALESCE($4, tax),
            subtotal            = COALESCE($5, subtotal),
            total               = COALESCE($6, total),
-           delivery_address    = COALESCE($7, delivery_address)
+           delivery_address    = COALESCE($7, delivery_address),
+           order_date          = COALESCE($8, order_date)
          WHERE id = $1`,
         [receiptId,
          card_last4         || null,
@@ -157,7 +158,8 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
          tax                ?? null,
          subtotal           ?? null,
          total              ?? null,
-         delivery_address   || null]
+         delivery_address   || null,
+         order_date         || null]
       ).catch((e) => console.error('[upload] order_details UPDATE failed:', e.message));
     }
   }
@@ -1054,14 +1056,14 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
   try {
     // All reviewed receipts not yet exported, excluding personal-use cards
     const receiptsRes = await query(
-      `SELECT id, order_number, order_date, vendor, total, card_last4, payment_instrument
+      `SELECT id, order_number, order_date, vendor, total, card_last4, payment_instrument, created_at
        FROM receipts
        WHERE company_id = $1 AND status = 'reviewed' AND qbo_transaction_id IS NULL
          AND (card_last4 IS NULL OR card_last4 NOT IN (
            SELECT card_last4 FROM card_account_mappings
            WHERE company_id = $1 AND personal_use = true
          ))
-       ORDER BY order_date DESC`,
+       ORDER BY COALESCE(order_date, created_at) DESC`,
       [cId]
     );
 
