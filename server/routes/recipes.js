@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 
@@ -298,6 +299,162 @@ router.post('/catalog/bulk-unit', requireManager, async (req, res) => {
     );
     res.json({ ok: true, updated: ids.length });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/recipes/catalog/infer-units
+// Three-tier unit inference for catalog items where unit IS NULL.
+//   Tier 1: Sysco pack string rules (regex, no AI)
+//   Tier 2: Most recent non-'each' quantity_unit from receipt_items
+//   Tier 3: AI batch classification for anything still unresolved
+router.post('/catalog/infer-units', requireManager, async (req, res) => {
+  const companyId = cId(req);
+
+  // ── Pack-string heuristic ─────────────────────────────────────────────────
+  function inferFromPack(pack) {
+    if (!pack) return null;
+    const p = pack.trim().toUpperCase();
+    if (/#AVG/.test(p)) return 'lb';                    // e.g. 110#AVG — average catch-weight
+    if (/\d+(\.\d+)?\s*LB/.test(p)) return 'lb';       // e.g. 125 LB, 5LB
+    if (/\d+#\d+/.test(p)) return 'case';               // e.g. 6#10 — 6 cans of #10 size
+    if (/\d+#\s*$/.test(p)) return 'lb';                // e.g. "5#" — bare lb weight
+    if (/\bCT\b/.test(p) || /\bEA\b/.test(p)) return 'each';
+    if (/\bCS\b/.test(p) || /\d+X\d+/.test(p)) return 'case';
+    if (/\bOZ\b/.test(p)) return 'oz';
+    return null;
+  }
+
+  try {
+    // Fetch all null-unit items with their best pack string and last non-'each' receipt unit
+    const { rows: items } = await query(
+      `SELECT sir.id, sir.description_raw, sir.vendor,
+              (SELECT ri.pack
+               FROM receipt_items ri
+               JOIN receipts rec ON rec.id = ri.receipt_id
+               WHERE rec.company_id = sir.company_id
+                 AND lower(trim(ri.description)) = sir.description_raw
+                 AND rec.vendor IS NOT DISTINCT FROM sir.vendor
+                 AND ri.pack IS NOT NULL
+               ORDER BY rec.order_date DESC NULLS LAST
+               LIMIT 1) AS last_pack,
+              (SELECT ri.quantity_unit
+               FROM receipt_items ri
+               JOIN receipts rec ON rec.id = ri.receipt_id
+               WHERE rec.company_id = sir.company_id
+                 AND lower(trim(ri.description)) = sir.description_raw
+                 AND rec.vendor IS NOT DISTINCT FROM sir.vendor
+                 AND ri.quantity_unit IS NOT NULL
+                 AND ri.quantity_unit != 'each'
+               ORDER BY rec.order_date DESC NULLS LAST
+               LIMIT 1) AS last_non_each_unit
+       FROM shopping_item_raw sir
+       WHERE sir.company_id = $1 AND sir.unit IS NULL AND sir.ignored = false
+       ORDER BY sir.description_raw`,
+      [companyId]
+    );
+
+    if (items.length === 0) {
+      return res.json({ ok: true, tier1: 0, tier2: 0, tier3: 0, total: 0 });
+    }
+
+    const t1Updates = new Map(), t2Updates = new Map(), t3Updates = new Map();
+    const needsAI = [];
+
+    for (const item of items) {
+      const packUnit = inferFromPack(item.last_pack);
+      if (packUnit) {
+        t1Updates.set(item.id, packUnit);
+      } else if (item.last_non_each_unit) {
+        t2Updates.set(item.id, item.last_non_each_unit);
+      } else {
+        needsAI.push(item);
+      }
+    }
+
+    // ── Tier 3: AI batch inference ────────────────────────────────────────────
+    if (needsAI.length > 0) {
+      const integRes = await query(
+        `SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [companyId]
+      );
+      const apiKey = integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY;
+      const client = apiKey ? new Anthropic({ apiKey }) : null;
+
+      if (client) {
+        const BATCH = 60;
+        for (let i = 0; i < needsAI.length; i += BATCH) {
+          const chunk = needsAI.slice(i, i + BATCH);
+          const payload = chunk.map((it) => ({
+            id: it.id,
+            description: it.description_raw,
+            vendor: it.vendor || null,
+            pack: it.last_pack || null,
+          }));
+          try {
+            const msg = await client.messages.create({
+              model: 'claude-haiku-4-5',
+              max_tokens: 2048,
+              messages: [{
+                role: 'user',
+                content: `Classify each item's unit of measure. Return ONLY a JSON array — no markdown.
+
+Valid units: "lb" (weight, pounds), "oz" (weight, ounces), "g" (grams), "kg" (kilograms), "each" (individual unit), "case" (pack/case of multiple).
+
+Guidelines:
+- Fresh/bulk food sold by weight (cheese, meat, produce, fish) → "lb"
+- Small weight items (spices, extracts) → "oz" or "g"
+- Packaged goods sold individually (bottles, cans, bags) → "each"
+- Multi-unit packs ordered as a case → "case"
+- Amazon items are almost always "each"
+- If Sysco vendor and description sounds like fresh/bulk food → "lb"
+
+Input: ${JSON.stringify(payload)}
+
+Return: [{"id":"...","unit":"..."},...]`,
+              }],
+            });
+            const raw = msg.content[0].text.trim()
+              .replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+            const results = JSON.parse(raw);
+            for (const r of results) {
+              if (r.id && r.unit) t3Updates.set(r.id, r.unit);
+            }
+          } catch (aiErr) {
+            console.warn('[infer-units] AI batch failed:', aiErr.message);
+          }
+        }
+      }
+    }
+
+    // ── Apply all updates in one query per tier ───────────────────────────────
+    const applyUpdates = async (updateMap) => {
+      for (const [unit, ids] of Object.entries(
+        [...updateMap.entries()].reduce((acc, [id, u]) => {
+          (acc[u] = acc[u] || []).push(id); return acc;
+        }, {})
+      )) {
+        await query(
+          `UPDATE shopping_item_raw SET unit = $1, updated_at = NOW()
+           WHERE id = ANY($2::uuid[]) AND company_id = $3`,
+          [unit, ids, companyId]
+        );
+      }
+    };
+
+    await applyUpdates(t1Updates);
+    await applyUpdates(t2Updates);
+    await applyUpdates(t3Updates);
+
+    res.json({
+      ok: true,
+      tier1: t1Updates.size,
+      tier2: t2Updates.size,
+      tier3: t3Updates.size,
+      total: t1Updates.size + t2Updates.size + t3Updates.size,
+      unresolved: needsAI.length - t3Updates.size,
+    });
+  } catch (err) {
+    console.error('[infer-units]', err);
     res.status(500).json({ error: err.message });
   }
 });

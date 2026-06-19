@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getRecipesCatalog, patchRecipesCatalogItem, bulkSetCatalogUnit,
+  getRecipesCatalog, patchRecipesCatalogItem, bulkSetCatalogUnit, inferCatalogUnits,
   getRecipesIngredients, createRecipesIngredient,
   backfillRecipesCatalog,
 } from '../api';
@@ -127,6 +127,8 @@ export function RecipesCatalog() {
   const [selected, setSelected]         = useState(new Set());
   const [bulkUnit, setBulkUnit]         = useState('lb');
   const [bulkSaving, setBulkSaving]     = useState(false);
+  const [inferring, setInferring]       = useState(false);
+  const [inferResult, setInferResult]   = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -185,6 +187,21 @@ export function RecipesCatalog() {
     }
   };
 
+  const runInferUnits = async () => {
+    setInferring(true);
+    setInferResult(null);
+    setError('');
+    try {
+      const r = await inferCatalogUnits();
+      setInferResult(r);
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setInferring(false);
+    }
+  };
+
   const runBackfill = async () => {
     setBackfilling(true);
     setError('');
@@ -223,7 +240,25 @@ export function RecipesCatalog() {
         >
           {backfilling ? 'Syncing…' : 'Sync from receipts'}
         </button>
+        <button
+          type="button"
+          className="btn-sm"
+          onClick={runInferUnits}
+          disabled={inferring}
+          title="Auto-detect unit (lb/oz/each/case) for items where unit is not set"
+        >
+          {inferring ? 'Inferring…' : 'Infer units'}
+        </button>
       </div>
+      {inferResult && (
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted,#888)', margin: '0 0 0.5rem' }}>
+          Inferred {inferResult.total} unit{inferResult.total !== 1 ? 's' : ''} —
+          pack rules: {inferResult.tier1},
+          receipt history: {inferResult.tier2},
+          AI: {inferResult.tier3}
+          {inferResult.unresolved > 0 ? `, ${inferResult.unresolved} still unresolved` : ''}
+        </p>
+      )}
 
       {error && <p className="recipes-error">{error}</p>}
 

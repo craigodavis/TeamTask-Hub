@@ -1639,6 +1639,15 @@ export async function patchRecipesCatalogItem(id, body) {
   return d;
 }
 
+export async function inferCatalogUnits() {
+  const res = await fetch(`${API}/recipes/catalog/infer-units`, {
+    method: 'POST', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Infer units failed');
+  return d;
+}
+
 export async function bulkSetCatalogUnit(ids, unit) {
   const res = await fetch(`${API}/recipes/catalog/bulk-unit`, {
     method: 'POST', headers: headers(),
