@@ -1260,8 +1260,16 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
           });
         }
       } else {
+        const receiptLineItems = (receiptItemsMap.get(receipt.id) || []).map((ri) => ({
+          title: ri.description,
+          item_total: parseFloat(ri.total) || 0,
+          description: ri.description,
+          qbo_account_id: ri.qbo_account_id,
+          qbo_class_id: ri.qbo_class_id || null,
+          account_name: ri.account_name,
+        }));
         fetchTasks.push({
-          key: `${receipt.id}:`, receipt, shipment: null, lineItems: null,
+          key: `${receipt.id}:`, receipt, shipment: null, lineItems: receiptLineItems,
           accountId, si: 0, totalShipments: 1, amazon_data: false,
         });
       }
@@ -1419,7 +1427,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
         if (result.skip) {
           previews.push({
             shipment_key: shipmentKey,
-            receipt: task.receipt, shipment: null, match: null, confidence: 'none',
+            receipt: task.receipt, shipment: null, line_items: task.lineItems, match: null, confidence: 'none',
             reason: 'Missing total or date', amazon_data: false,
             is_first_shipment: true, total_shipments: 1,
           });
@@ -1428,7 +1436,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
         if (result.error) {
           previews.push({
             shipment_key: shipmentKey,
-            receipt: task.receipt, shipment: null, match: null, confidence: 'none',
+            receipt: task.receipt, shipment: null, line_items: task.lineItems, match: null, confidence: 'none',
             reason: result.error, amazon_data: false,
             is_first_shipment: true, total_shipments: 1,
           });
@@ -1438,7 +1446,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
         if (!available.length) {
           previews.push({
             shipment_key: shipmentKey,
-            receipt: task.receipt, shipment: null, match: null, confidence: 'none',
+            receipt: task.receipt, shipment: null, line_items: task.lineItems, match: null, confidence: 'none',
             reason: 'No unused QBO transaction found', amazon_data: false,
             is_first_shipment: true, total_shipments: 1,
           });
@@ -1451,6 +1459,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
           shipment_key: shipmentKey,
           receipt: task.receipt,
           shipment: null,
+          line_items: task.lineItems,
           match, confidence, days_diff: daysDiff,
           amazon_data: false,
           is_first_shipment: true,
