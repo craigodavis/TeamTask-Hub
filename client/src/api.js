@@ -1618,3 +1618,151 @@ export async function saveAiModelSettings(settings) {
   if (!res.ok) throw new Error(d.error || 'Failed to save AI model settings');
   return d;
 }
+
+// ── Recipes ──────────────────────────────────────────────────────────────────
+
+export async function getRecipesCatalog({ status = 'unignored', search = '', page = 1, limit = 100 } = {}) {
+  const q = new URLSearchParams({ status, page, limit });
+  if (search) q.set('search', search);
+  const res = await fetch(`${API}/recipes/catalog?${q}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load catalog');
+  return d;
+}
+
+export async function patchRecipesCatalogItem(id, body) {
+  const res = await fetch(`${API}/recipes/catalog/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update catalog item');
+  return d;
+}
+
+export async function bulkSetCatalogUnit(ids, unit) {
+  const res = await fetch(`${API}/recipes/catalog/bulk-unit`, {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ ids, unit }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Bulk unit update failed');
+  return d;
+}
+
+export async function backfillRecipesCatalog() {
+  const res = await fetch(`${API}/recipes/catalog/backfill`, {
+    method: 'POST', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Backfill failed');
+  return d;
+}
+
+export async function getRecipesIngredients() {
+  const res = await fetch(`${API}/recipes/ingredients`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load ingredients');
+  return d;
+}
+
+export async function getRecipesIngredient(id) {
+  const res = await fetch(`${API}/recipes/ingredients/${id}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load ingredient');
+  return d;
+}
+
+export async function createRecipesIngredient(body) {
+  const res = await fetch(`${API}/recipes/ingredients`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create ingredient');
+  return d;
+}
+
+export async function updateRecipesIngredient(id, body) {
+  const res = await fetch(`${API}/recipes/ingredients/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update ingredient');
+  return d;
+}
+
+export async function deleteRecipesIngredient(id) {
+  const res = await fetch(`${API}/recipes/ingredients/${id}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete ingredient');
+  return d;
+}
+
+export async function getRecipes(params = {}) {
+  const q = new URLSearchParams(params);
+  const res = await fetch(`${API}/recipes?${q}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load recipes');
+  return d;
+}
+
+export async function getRecipe(id) {
+  const res = await fetch(`${API}/recipes/${id}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load recipe');
+  return d;
+}
+
+export async function createRecipe(body) {
+  const res = await fetch(`${API}/recipes`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create recipe');
+  return d;
+}
+
+export async function updateRecipe(id, body) {
+  const res = await fetch(`${API}/recipes/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update recipe');
+  return d;
+}
+
+export async function deleteRecipe(id) {
+  const res = await fetch(`${API}/recipes/${id}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete recipe');
+  return d;
+}
+
+export async function uploadRecipePhoto(id, file) {
+  const form = new FormData();
+  form.append('photo', file);
+  const tok = getToken();
+  const res = await fetch(`${API}/recipes/${id}/photo`, {
+    method: 'POST',
+    headers: tok ? { Authorization: `Bearer ${tok}` } : {},
+    body: form,
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to upload photo');
+  return d;
+}
+
+export async function putRecipeIngredients(id, ingredients) {
+  const res = await fetch(`${API}/recipes/${id}/ingredients`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ ingredients }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save ingredients');
+  return d;
+}
+
+export async function getRecipesCategories() {
+  const res = await fetch(`${API}/recipes/meta/categories`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load categories');
+  return d;
+}

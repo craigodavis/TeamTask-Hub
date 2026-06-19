@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getRecipesCatalog, patchRecipesCatalogItem,
+  getRecipesCatalog, patchRecipesCatalogItem, bulkSetCatalogUnit,
   getRecipesIngredients, createRecipesIngredient,
   backfillRecipesCatalog,
 } from '../api';
+
+const UNIT_OPTIONS = ['each', 'case', 'lb', 'oz', 'g', 'kg'];
 
 const STATUSES = [
   { value: 'unignored', label: 'Active' },
@@ -113,15 +115,18 @@ function AssociateModal({ item, ingredients, onDone, onClose }) {
 }
 
 export function RecipesCatalog() {
-  const [items, setItems]           = useState([]);
-  const [ingredients, setIngredients] = useState([]);
-  const [total, setTotal]           = useState(0);
-  const [status, setStatus]         = useState('unignored');
-  const [search, setSearch]         = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState('');
-  const [assocItem, setAssocItem]   = useState(null);
-  const [backfilling, setBackfilling] = useState(false);
+  const [items, setItems]               = useState([]);
+  const [ingredients, setIngredients]   = useState([]);
+  const [total, setTotal]               = useState(0);
+  const [status, setStatus]             = useState('unignored');
+  const [search, setSearch]             = useState('');
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState('');
+  const [assocItem, setAssocItem]       = useState(null);
+  const [backfilling, setBackfilling]   = useState(false);
+  const [selected, setSelected]         = useState(new Set());
+  const [bulkUnit, setBulkUnit]         = useState('lb');
+  const [bulkSaving, setBulkSaving]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,6 +147,34 @@ export function RecipesCatalog() {
   }, [status, search]);
 
   useEffect(() => { load(); }, [load]);
+
+  const allIds = items.map((i) => i.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+
+  const toggleSelect = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(allIds));
+  };
+
+  const applyBulkUnit = async () => {
+    if (!selected.size) return;
+    setBulkSaving(true);
+    setError('');
+    try {
+      await bulkSetCatalogUnit([...selected], bulkUnit);
+      setSelected(new Set());
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBulkSaving(false);
+    }
+  };
 
   const toggleIgnore = async (item) => {
     try {
@@ -194,6 +227,20 @@ export function RecipesCatalog() {
 
       {error && <p className="recipes-error">{error}</p>}
 
+      {selected.size > 0 && (
+        <div className="catalog-bulk-bar">
+          <span>{selected.size} selected</span>
+          <label>Set unit:</label>
+          <select value={bulkUnit} onChange={(e) => setBulkUnit(e.target.value)}>
+            {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <button className="btn-primary btn-sm" onClick={applyBulkUnit} disabled={bulkSaving}>
+            {bulkSaving ? 'Saving…' : 'Apply'}
+          </button>
+          <button className="btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      )}
+
       {loading ? (
         <p style={{ color: 'var(--text-muted,#888)', fontSize: '0.875rem' }}>Loading…</p>
       ) : items.length === 0 ? (
@@ -206,11 +253,15 @@ export function RecipesCatalog() {
           <table className="recipes-table">
             <thead>
               <tr>
+                <th style={{ width: '2rem' }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} title="Select all" />
+                </th>
                 <th>Description</th>
                 <th>Vendor</th>
                 <th style={{ textAlign: 'right' }}>Last Price</th>
                 <th>Last Purchased</th>
                 <th style={{ textAlign: 'right' }}>Qty</th>
+                <th>Unit</th>
                 <th style={{ textAlign: 'right' }}>Container (g)</th>
                 <th>Ingredient</th>
                 <th>Actions</th>
@@ -219,6 +270,9 @@ export function RecipesCatalog() {
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} style={{ opacity: item.ignored ? 0.5 : 1 }}>
+                  <td>
+                    <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} />
+                  </td>
                   <td style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.description_raw}
                   </td>
@@ -226,9 +280,23 @@ export function RecipesCatalog() {
                   <td style={{ textAlign: 'right' }}>{fmt(item.last_price)}</td>
                   <td style={{ fontSize: '0.8rem' }}>{item.last_purchase_date ? item.last_purchase_date.slice(0, 10) : '—'}</td>
                   <td style={{ textAlign: 'right', fontSize: '0.8rem' }}>
-                    {item.last_quantity != null
-                      ? `${item.last_quantity}${item.last_quantity_unit && item.last_quantity_unit !== 'each' ? ' ' + item.last_quantity_unit : ''}`
-                      : '—'}
+                    {item.last_quantity != null ? item.last_quantity : '—'}
+                  </td>
+                  <td style={{ fontSize: '0.8rem' }}>
+                    <select
+                      className="catalog-unit-select"
+                      value={item.unit || item.last_quantity_unit || 'each'}
+                      onChange={async (e) => {
+                        try {
+                          await patchRecipesCatalogItem(item.id, { unit: e.target.value });
+                          load();
+                        } catch (err) {
+                          setError(err.message);
+                        }
+                      }}
+                    >
+                      {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
                   </td>
                   <td style={{ textAlign: 'right', fontSize: '0.8rem' }}>
                     {item.last_quantity_grams != null

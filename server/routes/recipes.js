@@ -100,13 +100,22 @@ async function getRecipeIngredients(recipeId) {
            AND sir.is_recipe_primary = true
            AND sir.company_id = (SELECT company_id FROM recipes WHERE id = $1)
      LEFT JOIN LATERAL (
-       SELECT ri2.quantity_grams AS grams
+       SELECT COALESCE(
+         ri2.quantity_grams,
+         -- fallback: recompute from catalog unit override when receipt has no grams
+         CASE sir.unit
+           WHEN 'g'  THEN ri2.quantity
+           WHEN 'kg' THEN ri2.quantity * 1000
+           WHEN 'lb' THEN ri2.quantity * 453.592
+           WHEN 'oz' THEN ri2.quantity * 28.3495
+           ELSE NULL
+         END
+       ) AS grams
        FROM receipt_items ri2
        JOIN receipts rec ON rec.id = ri2.receipt_id
        WHERE rec.company_id = (SELECT company_id FROM recipes WHERE id = $1)
          AND lower(trim(ri2.description)) = sir.description_raw
          AND rec.vendor IS NOT DISTINCT FROM sir.vendor
-         AND ri2.quantity_grams IS NOT NULL
        ORDER BY rec.order_date DESC NULLS LAST
        LIMIT 1
      ) cg ON true
@@ -194,7 +203,7 @@ router.get('/catalog', requireManager, async (req, res) => {
   const r = await query(
     `SELECT sir.id, sir.description_raw, sir.vendor, sir.last_price,
             sir.last_purchase_date, sir.purchase_count, sir.ignored,
-            sir.servings_per_container, sir.is_recipe_primary,
+            sir.is_recipe_primary, sir.unit,
             sir.ingredient_id, i.name AS ingredient_name, i.base_unit,
             (SELECT ri.quantity
              FROM receipt_items ri
@@ -243,9 +252,8 @@ router.get('/catalog', requireManager, async (req, res) => {
 
 // PATCH /api/recipes/catalog/:id
 router.patch('/catalog/:id', requireManager, async (req, res) => {
-  const { ingredient_id, is_recipe_primary, servings_per_container, ignored } = req.body;
+  const { ingredient_id, is_recipe_primary, ignored, unit } = req.body;
 
-  // When marking a new primary, clear previous primary for this ingredient
   if (is_recipe_primary === true && ingredient_id) {
     await query(
       `UPDATE shopping_item_raw SET is_recipe_primary = false
@@ -258,10 +266,10 @@ router.patch('/catalog/:id', requireManager, async (req, res) => {
   const params = [];
   let p = 1;
 
-  if (ingredient_id !== undefined)          { setClauses.push(`ingredient_id = $${p++}`);          params.push(ingredient_id || null); }
-  if (is_recipe_primary !== undefined)      { setClauses.push(`is_recipe_primary = $${p++}`);      params.push(!!is_recipe_primary); }
-  if (servings_per_container !== undefined) { setClauses.push(`servings_per_container = $${p++}`); params.push(servings_per_container ?? null); }
-  if (ignored !== undefined)                { setClauses.push(`ignored = $${p++}`);                 params.push(!!ignored); }
+  if (ingredient_id !== undefined)     { setClauses.push(`ingredient_id = $${p++}`);     params.push(ingredient_id || null); }
+  if (is_recipe_primary !== undefined) { setClauses.push(`is_recipe_primary = $${p++}`); params.push(!!is_recipe_primary); }
+  if (ignored !== undefined)           { setClauses.push(`ignored = $${p++}`);            params.push(!!ignored); }
+  if (unit !== undefined)              { setClauses.push(`unit = $${p++}`);               params.push(unit || null); }
   setClauses.push(`updated_at = NOW()`);
 
   if (setClauses.length === 1) return res.status(400).json({ error: 'Nothing to update' });
@@ -274,6 +282,24 @@ router.patch('/catalog/:id', requireManager, async (req, res) => {
   );
   if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
   res.json({ item: r.rows[0] });
+});
+
+// POST /api/recipes/catalog/bulk-unit
+// Set unit on multiple catalog items at once.
+// Body: { ids: string[], unit: string }
+router.post('/catalog/bulk-unit', requireManager, async (req, res) => {
+  const { ids, unit } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required' });
+  try {
+    await query(
+      `UPDATE shopping_item_raw SET unit = $1, updated_at = NOW()
+       WHERE id = ANY($2::uuid[]) AND company_id = $3`,
+      [unit || null, ids, cId(req)]
+    );
+    res.json({ ok: true, updated: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── INGREDIENTS ───────────────────────────────────────────────────────────────

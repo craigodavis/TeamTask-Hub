@@ -2024,6 +2024,10 @@ const MIGRATIONS = [
 
   // quantity_grams — canonical weight in grams for lb/oz/g/kg items; null for 'each'/'case'
   `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_grams NUMERIC(10,3)`,
+
+  // unit override on catalog items — user-verified unit for container size (lb, oz, g, kg, each, case)
+  // overrides the per-receipt last_quantity_unit when computing container grams for COGS
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS unit TEXT`,
 ];
 
 export async function runMigrations() {
