@@ -63,6 +63,8 @@ for (let i = 1; i < lines.length; i++) {
   const taxAmt      = parseFloat(row[col['Sales tax amount']]) || 0;
   const productName = (row[col['Product name']] || '').trim();
   const category    = (row[col['Category']] || '').trim();
+  const itemNumber  = (row[col['Item number']] || '').trim() || null;
+  const barCode     = (row[col['Bar code']] || '').trim() || null;
 
   if (!receiptNum) continue;
 
@@ -81,10 +83,12 @@ for (let i = 1; i < lines.length; i++) {
 
   const desc = category ? `${productName} (${category})` : productName;
   rec.items.push({
-    description: desc,
-    quantity:    Math.abs(qty),
-    unit_price:  price,
-    total:       Math.abs(netAmt),
+    description:        desc,
+    quantity:           Math.abs(qty),
+    unit_price:         price,
+    total:              Math.abs(netAmt),
+    vendor_item_number: itemNumber,
+    bar_code:           barCode,
   });
 }
 

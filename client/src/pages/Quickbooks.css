@@ -283,6 +283,10 @@
 .qb-item-row.qb-item-rejected { background: #fafafa; opacity: 0.6; }
 .qb-item-desc { font-weight: 500; margin-bottom: 0.15rem; }
 .qb-item-confidence { font-size: 0.75rem; color: #888; }
+.qb-item-qty-row { display: flex; align-items: center; gap: 0.3rem; margin: 0.25rem 0 0.15rem; }
+.qb-item-qty-input { width: 5rem; padding: 0.15rem 0.3rem; font-size: 0.8rem; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
+.qb-item-unit-select { padding: 0.15rem 0.3rem; font-size: 0.8rem; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+.qb-item-grams { font-size: 0.75rem; color: #888; white-space: nowrap; }
 .qb-item-total { font-weight: 500; white-space: nowrap; }
 .qb-item-account { font-size: 0.85rem; color: #333; }
 .qb-item-select {

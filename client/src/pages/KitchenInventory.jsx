@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { getLocations, getShoppingInventory, updateInventoryCount, reorderInventory } from '../api';
+import { getLocations, getKitchenInventory, updateKitchenInventoryCount, reorderKitchenInventory } from '../api';
 import './ShoppingInventory.css';
 
-export function ShoppingInventory() {
-  const { user } = useOutletContext();
+// On-hand counting per ingredient × location. An ingredient appears here once it
+// is stocked at a location (set in Kitchen → Ingredients → edit → "Stock at locations").
+export function KitchenInventory() {
   const [locations, setLocations] = useState([]);
   const [locationId, setLocationId] = useState('');
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState({});
   const [error, setError] = useState('');
-  const [countingId, setCountingId] = useState(null); // which item has numpad open
+  const [countingId, setCountingId] = useState(null);
   const [countInput, setCountInput] = useState('');
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -23,14 +23,15 @@ export function ShoppingInventory() {
         const locs = d.locations || [];
         setLocations(locs);
         if (locs.length > 0) setLocationId(locs[0].id);
+        else setLoading(false);
       })
-      .catch(() => {});
+      .catch(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     if (!locationId) return;
     setLoading(true);
-    getShoppingInventory(locationId)
+    getKitchenInventory(locationId)
       .then((d) => setInventory(d.inventory || []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -42,13 +43,9 @@ export function ShoppingInventory() {
   };
 
   const numpadPress = (val) => {
-    if (val === 'del') {
-      setCountInput((p) => p.slice(0, -1));
-    } else if (val === '.') {
-      if (!countInput.includes('.')) setCountInput((p) => p + '.');
-    } else {
-      setCountInput((p) => p + val);
-    }
+    if (val === 'del') setCountInput((p) => p.slice(0, -1));
+    else if (val === '.') { if (!countInput.includes('.')) setCountInput((p) => p + '.'); }
+    else setCountInput((p) => p + val);
   };
 
   const saveCount = async () => {
@@ -58,7 +55,7 @@ export function ShoppingInventory() {
     if (isNaN(qty)) { setCountingId(null); return; }
     setSaving((p) => ({ ...p, [item.id]: true }));
     try {
-      await updateInventoryCount(item.id, locationId, { current_qty: qty });
+      await updateKitchenInventoryCount(item.id, locationId, { current_qty: qty });
       setInventory((prev) => prev.map((i) =>
         i.id === item.id ? { ...i, current_qty: qty, last_counted_at: new Date().toISOString() } : i
       ));
@@ -69,15 +66,8 @@ export function ShoppingInventory() {
     }
   };
 
-  // Drag-to-reorder
-  const onDragStart = (e, idx) => {
-    setDragIndex(idx);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  const onDragOver = (e, idx) => {
-    e.preventDefault();
-    setDragOverIndex(idx);
-  };
+  const onDragStart = (e, idx) => { setDragIndex(idx); e.dataTransfer.effectAllowed = 'move'; };
+  const onDragOver = (e, idx) => { e.preventDefault(); setDragOverIndex(idx); };
   const onDrop = async (e, idx) => {
     e.preventDefault();
     if (dragIndex === null || dragIndex === idx) { setDragIndex(null); setDragOverIndex(null); return; }
@@ -87,17 +77,12 @@ export function ShoppingInventory() {
     setInventory(reordered);
     setDragIndex(null);
     setDragOverIndex(null);
-    // Save new order
-    const order = reordered.map((item, i) => ({ item_id: item.id, sort_order: i }));
-    try { await reorderInventory(locationId, order); } catch (e) { setError(e.message); }
+    const order = reordered.map((item, i) => ({ ingredient_id: item.id, sort_order: i }));
+    try { await reorderKitchenInventory(locationId, order); } catch (e) { setError(e.message); }
   };
 
-  const needsReorder = (item) =>
-    item.par_qty != null && (item.current_qty ?? 0) < item.par_qty;
-
-  const needed = (item) =>
-    item.par_qty != null ? Math.max(0, item.par_qty - (item.current_qty ?? 0)) : null;
-
+  const needsReorder = (item) => item.par_qty != null && (item.current_qty ?? 0) < item.par_qty;
+  const needed = (item) => item.par_qty != null ? Math.max(0, item.par_qty - (item.current_qty ?? 0)) : null;
   const formatDate = (ts) => {
     if (!ts) return null;
     const d = new Date(ts);
@@ -110,7 +95,6 @@ export function ShoppingInventory() {
     <div className="inv-page">
       {error && <div className="inv-error">{error}</div>}
 
-      {/* Location picker */}
       {locations.length > 1 && (
         <div className="inv-location-bar">
           {locations.map((l) => (
@@ -129,11 +113,10 @@ export function ShoppingInventory() {
       {inventory.length === 0 && (
         <div className="inv-empty">
           <p>No items stocked at this location yet.</p>
-          <p>In <strong>Item Catalog</strong>, edit an item and check this location under &quot;Stock at locations.&quot;</p>
+          <p>In <strong>Ingredients</strong>, edit an item and check this location under &quot;Stock at locations.&quot;</p>
         </div>
       )}
 
-      {/* Item list */}
       <ul className="inv-list" ref={listRef}>
         {inventory.map((item, idx) => (
           <li
@@ -148,7 +131,6 @@ export function ShoppingInventory() {
             <div className="inv-drag-handle">⠿</div>
             <div className="inv-item-info">
               <span className="inv-item-name">{item.name}</span>
-              {item.category && <span className="inv-item-cat">{item.category}</span>}
               <span className="inv-item-par">
                 Par: {item.par_qty != null ? `${item.par_qty} ${item.par_unit || ''}` : '—'}
                 {needsReorder(item) && (
@@ -171,7 +153,6 @@ export function ShoppingInventory() {
         ))}
       </ul>
 
-      {/* Numpad overlay */}
       {countingId && (() => {
         const item = inventory.find((i) => i.id === countingId);
         return (

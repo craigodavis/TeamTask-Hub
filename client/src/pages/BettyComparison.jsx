@@ -4,6 +4,7 @@
  * No changes are made to QuickBooks.
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { getQBOStatus, syncQBO } from '../api';
 import './BettyComparison.css';
 
 const token = () => localStorage.getItem('teamtask_token');
@@ -120,6 +121,25 @@ export function BettyComparison() {
   const [statusFilter, setStatus] = useState('');
   const [expanded, setExpanded]   = useState(null);
   const [error, setError]         = useState('');
+  const [qboStatus, setQboStatus] = useState(null);
+  const [syncing, setSyncing]     = useState(false);
+  const [syncMsg, setSyncMsg]     = useState('');
+
+  const loadQboStatus = useCallback(() => {
+    getQBOStatus().then(setQboStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => { loadQboStatus(); }, [loadQboStatus]);
+
+  const handleSync = async () => {
+    setSyncing(true); setSyncMsg(''); setError('');
+    try {
+      const r = await syncQBO();
+      setSyncMsg(`Synced ${r.accounts} accounts and ${r.classes} classes from QuickBooks.`);
+      loadQboStatus();
+    } catch (e) { setError(e.message); }
+    finally { setSyncing(false); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,9 +170,32 @@ export function BettyComparison() {
 
   return (
     <div className="bc-wrap">
+      {/* ── QuickBooks connection / sync card (moved here from Receipts) ── */}
+      {qboStatus?.connected && (
+        <div className="qb-status-card">
+          <div className="qb-status-row">
+            <span className="qb-status-dot connected" />
+            <span>QuickBooks {qboStatus.environment === 'sandbox' ? 'Sandbox' : 'Live'}</span>
+          </div>
+          <div className="qb-sync-info">
+            {qboStatus.last_synced
+              ? <span>Last synced: {new Date(qboStatus.last_synced).toLocaleString()}</span>
+              : <span className="qb-sync-never">Never synced — run a sync to import accounts and classes.</span>}
+            <div className="qb-counts">
+              <span>{qboStatus.accounts} accounts</span>
+              <span>{qboStatus.classes} classes</span>
+            </div>
+          </div>
+          <button type="button" className="qb-btn-sync" onClick={handleSync} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Sync Now'}
+          </button>
+        </div>
+      )}
+      {syncMsg && <p className="bc-sync-msg">{syncMsg}</p>}
+
       <div className="bc-header">
         <div>
-          <h2 className="bc-title">Betty vs Bookkeeper</h2>
+          <h2 className="bc-title">Betty Bookkeeper</h2>
           <p className="bc-subtitle">
             Read-only comparison — no changes are made to QuickBooks.
           </p>

@@ -1916,6 +1916,259 @@ const MIGRATIONS = [
   // 'email' = Amazon email harvester, 'qbo' = QBO attachable import, 'csv' = Chef Store CSV, 'upload' = manual PDF upload
   `ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'email'`,
   `CREATE INDEX IF NOT EXISTS idx_receipts_source ON receipts(company_id, source)`,
+
+  // Amazon session store — Mac pushes fresh cookies here every 12h; Skynet reads before each harvest.
+  `CREATE TABLE IF NOT EXISTS amazon_sessions (
+     company_id  UUID PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+     cookies     JSONB        NOT NULL,
+     synced_from VARCHAR(100),
+     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+   )`,
+
+  // ── Recipes — extend shopping_item_raw for recipe ingredient linking ──────────
+  `ALTER TABLE shopping_item_raw
+     ADD COLUMN IF NOT EXISTS ingredient_id          UUID REFERENCES ingredients(id) ON DELETE SET NULL,
+     ADD COLUMN IF NOT EXISTS is_recipe_primary      BOOLEAN NOT NULL DEFAULT false,
+     ADD COLUMN IF NOT EXISTS servings_per_container NUMERIC(10,3)`,
+  `CREATE INDEX IF NOT EXISTS idx_shopping_item_raw_ingredient ON shopping_item_raw(ingredient_id)`,
+
+  // ── Recipes — extend ingredients with COGS + description fields ───────────────
+  `ALTER TABLE ingredients
+     ADD COLUMN IF NOT EXISTS description TEXT,
+     ADD COLUMN IF NOT EXISTS base_unit   VARCHAR(10),
+     ADD COLUMN IF NOT EXISTS is_active   BOOLEAN     NOT NULL DEFAULT true,
+     ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+
+  // ── Recipes — recipe master ───────────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS recipes (
+    id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id        UUID         NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name              VARCHAR(255) NOT NULL,
+    category          VARCHAR(100),
+    description       TEXT,
+    instructions      TEXT,
+    photo_path        VARCHAR(255),
+    prep_time_minutes INTEGER,
+    status            VARCHAR(20)  NOT NULL DEFAULT 'active',
+    menu_price        NUMERIC(10,2),
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipes_company        ON recipes(company_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_recipes_company_status ON recipes(company_id, status)`,
+
+  // ── Recipes — recipe_locations (mirrors announcement_locations) ───────────────
+  `CREATE TABLE IF NOT EXISTS recipe_locations (
+    recipe_id   UUID NOT NULL REFERENCES recipes(id)   ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    PRIMARY KEY (recipe_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_locations_recipe ON recipe_locations(recipe_id)`,
+
+  // ── Recipes — recipe_ingredients join table ───────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS recipe_ingredients (
+    id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    recipe_id     UUID          NOT NULL REFERENCES recipes(id)      ON DELETE CASCADE,
+    ingredient_id UUID          NOT NULL REFERENCES ingredients(id)  ON DELETE RESTRICT,
+    quantity      NUMERIC(10,3) NOT NULL,
+    unit          VARCHAR(10),
+    position      INTEGER       NOT NULL DEFAULT 0,
+    note          TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe     ON recipe_ingredients(recipe_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_ingredient ON recipe_ingredients(ingredient_id)`,
+
+  // ── Recipes — backfill shopping_item_raw from all historical receipt_items ──
+  // Sysco CSV imports and other non-PDF paths never wrote to shopping_item_raw.
+  // This one-time backfill ensures every receipt_item description is visible in
+  // the Item Catalog. ON CONFLICT preserves any existing data (ignored flag, etc).
+  `WITH grouped AS (
+     SELECT
+       r.company_id,
+       lower(trim(ri.description)) AS description_raw,
+       r.vendor,
+       MAX(r.order_date)           AS last_purchase_date,
+       COUNT(*)                    AS purchase_count
+     FROM receipt_items ri
+     JOIN receipts r ON r.id = ri.receipt_id
+     WHERE ri.description IS NOT NULL AND trim(ri.description) != ''
+     GROUP BY r.company_id, lower(trim(ri.description)), r.vendor
+   )
+   INSERT INTO shopping_item_raw
+     (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+   SELECT
+     g.company_id,
+     g.description_raw,
+     g.vendor,
+     (SELECT ri2.unit_price
+      FROM receipt_items ri2
+      JOIN receipts r2 ON r2.id = ri2.receipt_id
+      WHERE r2.company_id = g.company_id
+        AND lower(trim(ri2.description)) = g.description_raw
+        AND r2.vendor IS NOT DISTINCT FROM g.vendor
+      ORDER BY r2.order_date DESC NULLS LAST
+      LIMIT 1) AS last_price,
+     g.last_purchase_date,
+     g.purchase_count
+   FROM grouped g
+   ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+     purchase_count     = GREATEST(shopping_item_raw.purchase_count, EXCLUDED.purchase_count),
+     last_price         = COALESCE(EXCLUDED.last_price, shopping_item_raw.last_price),
+     last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+     updated_at         = NOW()
+   WHERE shopping_item_raw.ignored = false`,
+
+  // quantity_unit — unit of measure for the quantity field: 'each', 'lb', 'oz', 'case', etc.
+  // Sysco catch-weight items: quantity = T/WT (total weight in lbs), quantity_unit = 'lb'
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_unit TEXT NOT NULL DEFAULT 'each'`,
+
+  // quantity_grams — canonical weight in grams for lb/oz/g/kg items; null for 'each'/'case'
+  `ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS quantity_grams NUMERIC(10,3)`,
+
+  // unit override on catalog items — user-verified unit for container size (lb, oz, g, kg, each, case)
+  // overrides the per-receipt last_quantity_unit when computing container grams for COGS
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS unit TEXT`,
+
+  // ── Recipes — vendor item number as stable catalog key ────────────────────
+  // Keying on (vendor, item_number) is more reliable than description text which
+  // can vary between invoices. Partial unique index only applies when item number
+  // is present; description-based dedup is the fallback for vendors without them.
+  `ALTER TABLE shopping_item_raw ADD COLUMN IF NOT EXISTS vendor_item_number TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_shopping_item_raw_vendor_item
+     ON shopping_item_raw (company_id, vendor, vendor_item_number)
+     WHERE vendor_item_number IS NOT NULL`,
+
+  // Backfill vendor_item_number from receipt_items for existing catalog rows
+  `UPDATE shopping_item_raw sir
+   SET vendor_item_number = (
+     SELECT ri.vendor_item_number
+     FROM receipt_items ri
+     JOIN receipts r ON r.id = ri.receipt_id
+     WHERE r.company_id = sir.company_id
+       AND lower(trim(ri.description)) = sir.description_raw
+       AND r.vendor IS NOT DISTINCT FROM sir.vendor
+       AND ri.vendor_item_number IS NOT NULL
+     ORDER BY r.order_date DESC NULLS LAST
+     LIMIT 1
+   )
+   WHERE sir.vendor_item_number IS NULL`,
+
+  // ── Sysco Shop credentials (mirrors amazon_email/amazon_password) ─────────
+  // Used by syscoSync Playwright client to log into shop.sysco.com and pull
+  // authenticated per-customer catalog data (name, pack, UOM) by item number.
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS sysco_username VARCHAR(255),
+     ADD COLUMN IF NOT EXISTS sysco_password TEXT`,
+
+  // ── Recipes — enrichment columns from vendor catalog lookups ──────────────
+  // Populated by Chef Store Algolia + Sysco Playwright enrichment. enrich_source
+  // records where the clean data came from (chefstore | sysco | manual).
+  `ALTER TABLE shopping_item_raw
+     ADD COLUMN IF NOT EXISTS product_name  TEXT,
+     ADD COLUMN IF NOT EXISTS uom           TEXT,
+     ADD COLUMN IF NOT EXISTS pack          TEXT,
+     ADD COLUMN IF NOT EXISTS enriched_at   TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS enrich_source TEXT`,
+
+  // ── Recipes — vendor category + food classification ───────────────────────
+  // category is the vendor's product category (e.g. "CHEESE", "CHEMICAL/JANTRL").
+  // is_food is derived from it: true = grocery/ingredient, false = non-grocery
+  // (paper goods, janitorial, packaging), NULL = unknown (not yet enriched).
+  `ALTER TABLE shopping_item_raw
+     ADD COLUMN IF NOT EXISTS category TEXT,
+     ADD COLUMN IF NOT EXISTS is_food  BOOLEAN`,
+
+  // ── raw_item_id: link receipt_items back to shopping_item_raw ────────────
+  // Enables indexed spend queries ("how much did we spend on X?") without
+  // string scanning. Backfilled for existing rows via vendor_item_number first,
+  // then normalized description + vendor.
+  `ALTER TABLE receipt_items
+     ADD COLUMN IF NOT EXISTS raw_item_id UUID REFERENCES shopping_item_raw(id)`,
+
+  `CREATE INDEX IF NOT EXISTS receipt_items_raw_item_id_idx ON receipt_items(raw_item_id)`,
+
+  // Backfill: item-number match first (most stable key — Sysco / structured vendors)
+  `UPDATE receipt_items ri
+   SET raw_item_id = sir.id
+   FROM receipts r, shopping_item_raw sir
+   WHERE ri.receipt_id          = r.id
+     AND sir.company_id         = r.company_id
+     AND sir.vendor             = r.vendor
+     AND sir.vendor_item_number IS NOT NULL
+     AND sir.vendor_item_number = ri.vendor_item_number
+     AND ri.raw_item_id         IS NULL
+     AND ri.vendor_item_number  IS NOT NULL`,
+
+  // Backfill: normalized description + vendor for remaining rows (Amazon, etc.)
+  `UPDATE receipt_items ri
+   SET raw_item_id = sir.id
+   FROM receipts r, shopping_item_raw sir
+   WHERE ri.receipt_id      = r.id
+     AND sir.company_id     = r.company_id
+     AND sir.vendor         = r.vendor
+     AND sir.description_raw = lower(trim(ri.description))
+     AND ri.raw_item_id     IS NULL`,
+
+  // ── Kitchen consolidation, Phase A (additive) ─────────────────────────────
+  // `ingredients` becomes the single canonical purchasable item. Bring over the
+  // par-level, buy-schedule, per-location stocking and on-hand inventory
+  // features prototyped on the (now-retired) shopping_items tables.
+  `ALTER TABLE ingredients
+     ADD COLUMN IF NOT EXISTS par_qty           NUMERIC(10,2),
+     ADD COLUMN IF NOT EXISTS par_unit          TEXT,
+     ADD COLUMN IF NOT EXISTS buy_frequency     TEXT CHECK (buy_frequency IN ('daily','weekly','biweekly','monthly','monthly_weekday','adhoc')),
+     ADD COLUMN IF NOT EXISTS buy_day_of_week   INTEGER CHECK (buy_day_of_week BETWEEN 0 AND 6),
+     ADD COLUMN IF NOT EXISTS buy_day_of_month  INTEGER CHECK (buy_day_of_month BETWEEN 1 AND 31),
+     ADD COLUMN IF NOT EXISTS buy_week_of_month INTEGER CHECK (buy_week_of_month BETWEEN 1 AND 5)`,
+
+  // Which sites stock each ingredient (drives the derived is_routine flag)
+  `CREATE TABLE IF NOT EXISTS ingredient_locations (
+    ingredient_id UUID NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+    location_id   UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    PRIMARY KEY (ingredient_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ingredient_locations_company ON ingredient_locations(company_id, location_id)`,
+
+  // On-hand counts per ingredient per location
+  `CREATE TABLE IF NOT EXISTS ingredient_inventory (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    ingredient_id   UUID        NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+    location_id     UUID        REFERENCES locations(id) ON DELETE CASCADE,
+    company_id      UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    sort_order      INTEGER     NOT NULL DEFAULT 0,
+    current_qty     NUMERIC(10,2) DEFAULT 0,
+    last_counted_at TIMESTAMPTZ,
+    last_counted_by UUID        REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(ingredient_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ingredient_inventory_company ON ingredient_inventory(company_id, location_id)`,
+
+  // Count history log
+  `CREATE TABLE IF NOT EXISTS ingredient_inventory_log (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    ingredient_id UUID        NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+    location_id   UUID        REFERENCES locations(id) ON DELETE CASCADE,
+    company_id    UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    qty           NUMERIC(10,2) NOT NULL,
+    counted_by    UUID        REFERENCES users(id) ON DELETE SET NULL,
+    counted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ingredient_inv_log_item ON ingredient_inventory_log(ingredient_id, counted_at DESC)`,
+
+  // ── Kitchen consolidation, Phase C (teardown) ────────────────────────────
+  // The shopping_items subsystem was a never-finished prototype; its features
+  // now live on `ingredients`. Data was backed up to
+  // backups/shopping_tables_pre_teardown_2026-06-19.sql before dropping.
+  // Drop the FK columns linking shopping_item_raw → shopping_items first.
+  `ALTER TABLE shopping_item_raw
+     DROP COLUMN IF EXISTS shopping_item_id,
+     DROP COLUMN IF EXISTS fuzzy_match_id`,
+  `DROP TABLE IF EXISTS shopping_inventory_log`,
+  `DROP TABLE IF EXISTS shopping_inventory`,
+  `DROP TABLE IF EXISTS shopping_item_purchases`,
+  `DROP TABLE IF EXISTS shopping_item_locations`,
+  `DROP TABLE IF EXISTS shopping_items`,
 ];
 
 export async function runMigrations() {

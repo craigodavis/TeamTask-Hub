@@ -179,3 +179,29 @@
 .bc-empty p { margin: 0 0 8px; }
 .bc-empty-hint { font-size: 0.84rem; color: #aaa; }
 .bc-empty-hint code { background: #f1f3f5; padding: 2px 6px; border-radius: 4px; }
+
+/* ── QuickBooks connection / sync card (moved from Receipts) ── */
+.qb-status-card {
+  background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;
+}
+.qb-status-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 0.75rem; font-weight: 500;
+}
+.qb-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.qb-status-dot.connected { background: #4caf50; }
+.qb-sync-info {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 0.875rem; color: #555; margin-bottom: 1rem;
+  flex-wrap: wrap; gap: 0.5rem;
+}
+.qb-sync-never { color: #e65100; }
+.qb-counts { display: flex; gap: 1rem; font-weight: 500; color: #333; }
+.qb-btn-sync {
+  background: #1976d2; color: #fff; border: none; border-radius: 6px;
+  padding: 0.5rem 1.25rem; font-size: 0.9rem; cursor: pointer; font-weight: 500;
+}
+.qb-btn-sync:hover:not(:disabled) { background: #1565c0; }
+.qb-btn-sync:disabled { opacity: 0.6; cursor: not-allowed; }
+.bc-sync-msg { color: #2e7d32; font-size: 0.875rem; margin: 0 0 1rem; }

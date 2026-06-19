@@ -13,11 +13,19 @@ function isManageTabActive(location, tab) {
   return t === tab;
 }
 
+// Any route that lives under the Kitchen parent menu.
+function isKitchenPath(pathname) {
+  return pathname.startsWith('/food')
+    || pathname.startsWith('/recipes')
+    || pathname.startsWith('/quickbooks');
+}
+
 export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
 
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
+  const [kitchenExpanded, setKitchenExpanded] = useState(() => isKitchenPath(location.pathname));
 
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -137,26 +145,102 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Skynet</span>
             </NavLink>
           )}
-          {isManager && (
-            <NavLink
-              to="/quickbooks"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🧾"
-              title="Receipts"
+          {/* Kitchen — collapsible parent grouping Receipts, Item Catalog,
+              Ingredients, Recipes and Shopping. Shopping is available to all
+              roles; the manager-only items are gated individually below. */}
+          <div className="nav-item-row">
+            <button
+              type="button"
+              className={`app-shell-nav-item${isKitchenPath(location.pathname) ? ' active' : ''}`}
+              data-icon="🍳"
+              title="Kitchen"
+              onClick={() => setKitchenExpanded((v) => !v)}
+              aria-expanded={kitchenExpanded}
             >
-              <span>Receipts</span>
-            </NavLink>
+              <span>Kitchen</span>
+            </button>
+            <button
+              type="button"
+              className="nav-sub-chevron"
+              onClick={() => setKitchenExpanded((v) => !v)}
+              aria-expanded={kitchenExpanded}
+              aria-label={kitchenExpanded ? 'Collapse Kitchen menu' : 'Expand Kitchen menu'}
+            >
+              {kitchenExpanded ? '−' : '+'}
+            </button>
+          </div>
+          {kitchenExpanded && (
+            <div className="nav-sub-group">
+              {isManager && (
+                <Link
+                  to="/recipes/scan"
+                  className={`nav-sub-item${location.pathname.startsWith('/recipes/scan') ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">📸</span>
+                  <span>Scan Receipt</span>
+                </Link>
+              )}
+              {isManager && (
+                <Link
+                  to="/quickbooks"
+                  className={`nav-sub-item${location.pathname === '/quickbooks' ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">🧾</span>
+                  <span>Receipts</span>
+                </Link>
+              )}
+              {isManager && (
+                <Link
+                  to="/recipes/catalog"
+                  className={`nav-sub-item${location.pathname === '/recipes/catalog' ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">📒</span>
+                  <span>Item Catalog</span>
+                </Link>
+              )}
+              {isManager && (
+                <Link
+                  to="/recipes/ingredients"
+                  className={`nav-sub-item${location.pathname.startsWith('/recipes/ingredients') ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">🧀</span>
+                  <span>Ingredients</span>
+                </Link>
+              )}
+              {isManager && (
+                <Link
+                  to="/recipes/inventory"
+                  className={`nav-sub-item${location.pathname.startsWith('/recipes/inventory') ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">📦</span>
+                  <span>Inventory</span>
+                </Link>
+              )}
+              {isManager && (
+                <Link
+                  to="/recipes/list"
+                  className={`nav-sub-item${(location.pathname === '/recipes' || location.pathname === '/recipes/list' || (location.pathname.startsWith('/recipes/') && !location.pathname.startsWith('/recipes/catalog') && !location.pathname.startsWith('/recipes/ingredients') && !location.pathname.startsWith('/recipes/inventory'))) ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">🍕</span>
+                  <span>Recipes</span>
+                </Link>
+              )}
+              <Link
+                to="/food"
+                className={`nav-sub-item${location.pathname.startsWith('/food') ? ' active' : ''}`}
+                onClick={() => { if (isMobile()) setCollapsed(true); }}
+              >
+                <span className="nav-sub-icon">🛒</span>
+                <span>Shopping</span>
+              </Link>
+            </div>
           )}
-          <NavLink
-            to="/food"
-            className={({ isActive }) =>
-              `app-shell-nav-item${isActive || location.pathname.startsWith('/food') ? ' active' : ''}`
-            }
-            data-icon="🛒"
-            title="Shopping"
-          >
-            <span>Shopping</span>
-          </NavLink>
           {isManager && (
             <NavLink
               to="/products"
@@ -172,9 +256,9 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               to="/betty"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
               data-icon="📊"
-              title="Betty vs Bookkeeper"
+              title="Betty Bookkeeper"
             >
-              <span>Betty</span>
+              <span>Betty Bookkeeper</span>
             </NavLink>
           )}
           {isManager && (

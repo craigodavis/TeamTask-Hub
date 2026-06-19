@@ -208,7 +208,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
             pdf_filename, card_last4, payment_instrument, pdf_data, delivery_address, source)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          RETURNING id`,
-        [companyId, order_number, order_date || null, vendor || 'Amazon',
+        [companyId, order_number, order_date || null, vendor || 'Unknown',
          subtotal || null, tax || null, total || null,
          filename, card_last4 || null, payment_instrument || null, buffer,
          deliveryAddress || null, source]
@@ -231,80 +231,60 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
         console.error('[receipt] failed to save PDF to disk:', fsErr.message);
       }
 
-      // 8. Save line items
-      for (const item of categorized) {
-        await query(
-          `INSERT INTO receipt_items
-             (receipt_id, description, quantity, unit_price, total,
-              qbo_account_id, qbo_class_id, ai_confidence, pack)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [receiptId, item.description, item.quantity ?? 1, item.unit_price ?? null,
-           item.total ?? null, item.qbo_account_id || null,
-           item.qbo_class_id || null, item.confidence ?? null,
-           item.pack ?? null]
-        );
-      }
-
-      // 9. Upsert into shopping_item_raw with three-layer duplicate detection
+      // 8 + 9. Save line items and upsert catalog in one pass so each receipt_item
+      //        can be linked back to its shopping_item_raw row via raw_item_id.
       const receiptStatusRes = await query(`SELECT status FROM receipts WHERE id = $1`, [receiptId]);
       const receiptStatus = receiptStatusRes.rows[0]?.status;
-      if (receiptStatus !== 'excluded') {
-        const purchaseDate = order_date || null;
-        const vendorName = vendor || 'Amazon';
-        for (const item of categorized) {
-          if (!item.description?.trim()) continue;
-          const desc = item.description.trim();
+      const purchaseDate = order_date || null;
+      const vendorName = vendor || 'Unknown';
 
-          const upsertRes = await query(
-            `INSERT INTO shopping_item_raw
-               (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
-             VALUES ($1, $2, $3, $4, $5, 1)
-             ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
-               last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01') THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
-               last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
-               purchase_count     = shopping_item_raw.purchase_count + 1,
-               updated_at         = NOW()
-             RETURNING id, (xmax = 0) AS is_new`,
-            [companyId, desc, vendorName, item.total ?? null, purchaseDate]
+      for (const item of categorized) {
+        // Insert receipt line item — capture id so we can link it below
+        const riRes = await query(
+          `INSERT INTO receipt_items
+             (receipt_id, description, quantity, quantity_unit, unit_price, total,
+              qbo_account_id, qbo_class_id, ai_confidence, pack)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           RETURNING id`,
+          [receiptId, item.description, item.quantity ?? 1, item.quantity_unit || 'each',
+           item.unit_price ?? null, item.total ?? null,
+           item.qbo_account_id || null, item.qbo_class_id || null,
+           item.confidence ?? null, item.pack ?? null]
+        );
+        const receiptItemId = riRes.rows[0]?.id;
+
+        if (!item.description?.trim() || receiptStatus === 'excluded') continue;
+        const desc = item.description.trim();
+
+        const upsertRes = await query(
+          `INSERT INTO shopping_item_raw
+             (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+           VALUES ($1, lower(trim($2)), $3, $4, $5, 1)
+           ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+             last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01') THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+             last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+             purchase_count     = shopping_item_raw.purchase_count + 1,
+             updated_at         = NOW()
+           RETURNING id, (xmax = 0) AS is_new`,
+          [companyId, desc, vendorName, item.total ?? null, purchaseDate]
+        );
+
+        const rawId = upsertRes.rows[0]?.id;
+
+        // Link the receipt line item to its catalog entry
+        if (rawId && receiptItemId) {
+          await query(
+            `UPDATE receipt_items SET raw_item_id = $1 WHERE id = $2`,
+            [rawId, receiptItemId]
           );
-
-          const rawId = upsertRes.rows[0]?.id;
-          const isNew = upsertRes.rows[0]?.is_new;
-
-          if (isNew && rawId) {
-            const fuzzyRes = await query(
-              `SELECT id, name, similarity(name, $2) AS sim
-               FROM shopping_items
-               WHERE company_id = $1
-                 AND similarity(name, $2) > 0.6
-               ORDER BY sim DESC
-               LIMIT 3`,
-              [companyId, desc]
-            ).catch(() => ({ rows: [] }));
-
-            if (fuzzyRes.rows.length > 0) {
-              const best = fuzzyRes.rows[0];
-              if (best.sim >= 0.85) {
-                await query(
-                  `UPDATE shopping_item_raw
-                   SET fuzzy_match_id = $2, similarity_score = $3
-                   WHERE id = $1`,
-                  [rawId, best.id, best.sim]
-                );
-              } else {
-                await query(
-                  `UPDATE shopping_item_raw SET similarity_score = $2 WHERE id = $1`,
-                  [rawId, best.sim]
-                );
-              }
-            }
-          }
         }
+        // (Former shopping_items fuzzy-match step removed — that legacy catalog
+        //  was retired; canonical items now live in `ingredients`.)
       }
 
       orderResults.push({
         filename, order_number, order_date,
-        vendor: vendor || 'Amazon', total,
+        vendor: vendor || 'Unknown', total,
         items: categorized.length, receipt_id: receiptId,
       });
     }

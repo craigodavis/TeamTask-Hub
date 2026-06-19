@@ -1,0 +1,74 @@
+.scan-page { max-width: 720px; }
+.scan-sub { font-size: 0.9rem; color: var(--text-muted, #666); margin: 0 0 1.25rem; line-height: 1.5; }
+.scan-error { color: #c62828; font-size: 0.875rem; margin: 0 0 1rem; }
+
+.scan-file-input { display: none; }
+.scan-upload-label {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0.5rem; height: 90px;
+  border: 2px dashed #b0bec5; border-radius: 8px;
+  cursor: pointer; font-size: 0.95rem; color: #546e7a;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 1rem; text-align: center; padding: 0 1rem;
+}
+.scan-upload-label:hover:not(.uploading) { border-color: #1976d2; background: #f0f7ff; color: #1565c0; }
+.scan-upload-label.uploading { border-color: #90a4ae; color: #90a4ae; cursor: default; }
+
+.scan-upload-results { margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.scan-upload-result {
+  display: flex; align-items: center; gap: 0.75rem;
+  font-size: 0.85rem; padding: 0.4rem 0.75rem; border-radius: 5px;
+}
+.scan-upload-result.ok      { background: #e8f5e9; color: #2e7d32; }
+.scan-upload-result.skipped { background: #fff8e1; color: #e65100; }
+.scan-upload-result.error   { background: #ffebee; color: #c62828; }
+.scan-result-file { font-weight: 500; flex-shrink: 0; }
+
+/* ── QBO Scan Import (moved from Receipts) ── */
+.qb-section-header { margin: 1.75rem 0 0.5rem; }
+.qb-btn-toggle {
+  background: none; border: none; padding: 0; color: #555; font-size: 0.95rem;
+  font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;
+}
+.qb-btn-toggle:hover { color: #1565c0; }
+.qb-qbo-import-panel {
+  background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+.qbo-import-controls {
+  display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;
+}
+.qbo-import-vendor-select {
+  flex: 1; min-width: 180px; padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;
+}
+.qbo-import-date {
+  padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;
+}
+.qbo-import-empty { color: #666; font-size: 0.9rem; margin: 0.5rem 0; }
+.qbo-import-table {
+  width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 0.5rem;
+}
+.qbo-import-table th {
+  text-align: left; padding: 0.4rem 0.6rem; border-bottom: 2px solid #e0e0e0;
+  font-weight: 600; color: #444;
+}
+.qbo-import-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #f0f0f0; }
+.qbo-row-imported { opacity: 0.55; }
+.qbo-badge-imported {
+  font-size: 0.75rem; background: #e8f5e9; color: #2e7d32;
+  padding: 0.1rem 0.5rem; border-radius: 10px;
+}
+.qbo-memo { color: #888; font-size: 0.82rem; }
+.qb-btn-sync {
+  background: #1976d2; color: #fff; border: none; border-radius: 6px;
+  padding: 0.5rem 1.25rem; font-size: 0.9rem; cursor: pointer; font-weight: 500;
+}
+.qb-btn-sync:hover:not(:disabled) { background: #1565c0; }
+.qb-btn-sync:disabled { opacity: 0.6; cursor: not-allowed; }
+.qb-btn-ai-categorize {
+  background: #5c35c9; color: #fff; border: none; border-radius: 6px;
+  padding: 0.35rem 0.9rem; font-size: 0.83rem; cursor: pointer; font-weight: 500;
+}
+.qb-btn-ai-categorize:hover:not(:disabled) { background: #4527a0; }
+.qb-btn-ai-categorize:disabled { opacity: 0.6; cursor: not-allowed; }
