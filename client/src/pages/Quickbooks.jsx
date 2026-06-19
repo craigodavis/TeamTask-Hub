@@ -219,6 +219,8 @@ export function Quickbooks({ user }) {
   const [exportConfirming, setExportConfirming] = useState(false);
   // Manual link: { [receipt_id]: { searching, results, selectedQboId } }
   const [manualLinks, setManualLinks] = useState({});
+  // Editable line items per shipment key (populated from preview, edited inline)
+  const [exportLineEdits, setExportLineEdits] = useState({});
 
   // Accept all
   const [accepting, setAccepting] = useState(null); // receipt id being accepted
@@ -417,6 +419,16 @@ export function Quickbooks({ user }) {
   };
 
   // ── Export to QBO ──
+  const handleLineAccountChange = (shipmentKey, idx, accountId) => {
+    const acct = accounts.find((a) => a.qbo_id === accountId);
+    setExportLineEdits((prev) => {
+      const items = (prev[shipmentKey] || []).map((li, i) =>
+        i === idx ? { ...li, qbo_account_id: accountId || null, account_name: acct?.name || null } : li
+      );
+      return { ...prev, [shipmentKey]: items };
+    });
+  };
+
   const handleManualSearch = async (shipmentKey, searchDate) => {
     setManualLinks((m) => ({ ...m, [shipmentKey]: { searching: true, results: null, selectedQboId: null } }));
     try {
@@ -446,6 +458,13 @@ export function Quickbooks({ user }) {
       const sel = {};
       previews.forEach((p) => { sel[p.shipment_key] = !!p.match; });
       setExportSelections(sel);
+      // Seed editable line items from preview data
+      const edits = {};
+      previews.forEach((p) => {
+        const items = p.shipment?.line_items || p.line_items || [];
+        edits[p.shipment_key] = items.map((li) => ({ ...li }));
+      });
+      setExportLineEdits(edits);
       setExportPreviewing(true);
     } catch (e) { setError(e.message); }
     finally { setExportLoading(false); }
@@ -462,8 +481,9 @@ export function Quickbooks({ user }) {
           receipt_id: p.receipt.id,
           qbo_transaction_id: qboId,
           is_first_shipment: p.is_first_shipment !== false,
-          // Pass pre-computed line items for Amazon-backed shipments
-          line_items: p.shipment?.line_items || null,
+          line_items: exportLineEdits[p.shipment_key]?.length
+            ? exportLineEdits[p.shipment_key]
+            : (p.shipment?.line_items || p.line_items || null),
         };
       })
       .filter(Boolean);
@@ -996,6 +1016,28 @@ export function Quickbooks({ user }) {
               {activeTab === 'excluded' && 'No excluded receipts. Mark a card as "Personal use" in Settings to exclude its receipts.'}
             </p>
           ) : (
+            <>
+              <div className="qb-tab-summary">
+                {(() => {
+                  const counts = {};
+                  for (const r of receipts) {
+                    const v = /amazon/i.test(r.vendor) ? 'Amazon'
+                            : /sysco/i.test(r.vendor)  ? 'Sysco'
+                            : /chef/i.test(r.vendor)   ? 'Chef Store'
+                            : r.vendor || 'Other';
+                    counts[v] = (counts[v] || 0) + 1;
+                  }
+                  const parts = Object.entries(counts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([v, n]) => <span key={v} className="qb-summary-vendor">{n} {v}</span>);
+                  return (
+                    <>
+                      <span className="qb-summary-total">{receipts.length} receipts</span>
+                      {parts}
+                    </>
+                  );
+                })()}
+              </div>
             <div className="qb-receipt-list">
               {receipts.map((r) => (
                 <div key={r.id} className={`qb-receipt-row ${selectedIds.has(r.id) ? 'selected' : ''}`}>
@@ -1069,6 +1111,7 @@ export function Quickbooks({ user }) {
                 </div>
               ))}
             </div>
+            </>
           )}
 
           {/* ── Rule suggestions from corrections ── */}
@@ -1348,7 +1391,10 @@ export function Quickbooks({ user }) {
                             </td>
                             <td>
                               {p.is_first_shipment !== false && (
-                                <div className="qb-receipt-order">{p.receipt.order_number}</div>
+                                <div className="qb-export-receipt-header">
+                                  <span className="qb-export-receipt-vendor">{p.receipt.vendor}</span>
+                                  <span className="qb-export-order-num">{p.receipt.order_number}</span>
+                                </div>
                               )}
                               {p.shipment && (
                                 <div className="qb-shipment-label">
@@ -1360,13 +1406,19 @@ export function Quickbooks({ user }) {
                                   )}
                                 </div>
                               )}
-                              {p.shipment?.line_items?.length > 0 && (
+                              {(exportLineEdits[key] || []).length > 0 && (
                                 <div className="qb-shipment-items">
-                                  {p.shipment.line_items.map((li, i) => (
-                                    <div key={i} className="qb-shipment-item">
+                                  {(exportLineEdits[key] || []).map((li, i) => (
+                                    <div key={i} className="qb-shipment-item qb-shipment-item-edit">
                                       <span className="qb-shipment-item-desc" title={li.description}>{li.description}</span>
-                                      <span className="qb-shipment-item-acct">{li.account_name || '—'}</span>
-                                      <span className="qb-shipment-item-amt">${li.item_total.toFixed(2)}</span>
+                                      <span className="qb-shipment-item-amt">${parseFloat(li.item_total || 0).toFixed(2)}</span>
+                                      <AccountSelect
+                                        value={li.qbo_account_id}
+                                        onChange={(v) => handleLineAccountChange(key, i, v)}
+                                        accounts={accounts}
+                                        placeholder="Account…"
+                                        warn={!li.qbo_account_id}
+                                      />
                                     </div>
                                   ))}
                                 </div>
