@@ -65,6 +65,24 @@ async function withConcurrency(items, limit, fn) {
   return results;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retry an async fn up to maxAttempts times on QBO 429, with exponential backoff.
+async function retryOn429(fn, maxAttempts = 4) {
+  let delay = 2000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err.message?.includes('429') || err.status === 429;
+      if (!is429 || attempt === maxAttempts) throw err;
+      console.warn(`[qbo] 429 throttle on attempt ${attempt}, retrying in ${delay}ms…`);
+      await sleep(delay);
+      delay = Math.min(delay * 2, 16000);
+    }
+  }
+}
+
 // ── POST /api/receipts/csv-import ────────────────────────────────────────────
 // Internal bulk insert for CSV imports (no PDF, no AI — lands as pending).
 // Body: { vendor, receipts: [{ order_number, order_date, total, tax, subtotal, items[] }] }
@@ -1531,8 +1549,9 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
     }
   }
 
-  // Run QBO get+update+attach in parallel (5 at a time) to avoid sequential timeout
-  const results = await withConcurrency(exports, 5, async (exp) => {
+  // Run QBO get+update+attach serially (1 at a time) to stay within QBO write rate limits.
+  // Each export does 2-3 QBO API calls; running them in parallel blows the 429 throttle.
+  const results = await withConcurrency(exports, 1, async (exp) => {
     const { receipt_id, qbo_transaction_id, line_items, is_first_shipment } = exp;
     const attachPdf = is_first_shipment !== false;
 
@@ -1565,8 +1584,8 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
         return { receipt_id, qbo_transaction_id, ok: false, error: 'No categorized items to export.' };
       }
 
-      const existing = await qboGetPurchase(cId, qbo_transaction_id);
-      await qboUpdatePurchase(cId, existing, items);
+      const existing = await retryOn429(() => qboGetPurchase(cId, qbo_transaction_id));
+      await retryOn429(() => qboUpdatePurchase(cId, existing, items));
 
       if (attachPdf) {
         try {
@@ -1577,7 +1596,7 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
             );
             const { pdf_filename, order_number } = fnRes.rows[0] || {};
             const attachName = pdf_filename || `${order_number || receipt_id}.pdf`;
-            await qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer);
+            await retryOn429(() => qboAttachFile(cId, 'Purchase', qbo_transaction_id, attachName, pdfBuffer));
           }
         } catch (attachErr) {
           console.error('[export] PDF attach failed for receipt', receipt_id, attachErr.message);
