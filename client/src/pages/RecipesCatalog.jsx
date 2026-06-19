@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getRecipesCatalog, patchRecipesCatalogItem, bulkSetCatalogUnit, inferCatalogUnits,
+  getRecipesCatalog, patchRecipesCatalogItem, bulkSetCatalogUnit,
   getRecipesIngredients, createRecipesIngredient,
-  backfillRecipesCatalog,
+  backfillRecipesCatalog, enrichRecipesCatalog, getCatalogItemPurchases,
 } from '../api';
 
 const UNIT_OPTIONS = ['each', 'case', 'lb', 'oz', 'g', 'kg'];
@@ -18,6 +18,102 @@ const STATUSES = [
 function fmt(price) {
   if (price == null) return '—';
   return `$${parseFloat(price).toFixed(2)}`;
+}
+
+// Live link to the vendor's product page for a given item number.
+function vendorItemUrl(vendor, itemNumber) {
+  if (!itemNumber) return null;
+  const v = (vendor || '').toLowerCase();
+  if (v.includes('chef'))  return `https://www.chefstore.com/search/fullsearch/${encodeURIComponent(itemNumber)}/`;
+  if (v.includes('sysco')) return `https://shop.sysco.com/app/catalog?q=${encodeURIComponent(itemNumber)}`;
+  return null;
+}
+
+export function PurchaseHistoryModal({ item, onClose }) {
+  const [purchases, setPurchases] = useState(null);
+  const [error, setError]         = useState('');
+
+  useEffect(() => {
+    getCatalogItemPurchases(item.id)
+      .then((d) => setPurchases(d.purchases))
+      .catch((e) => setError(e.message));
+  }, [item.id]);
+
+  const totalSpent = purchases
+    ? purchases.reduce((s, p) => s + (parseFloat(p.total) || 0), 0)
+    : null;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 780, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ marginBottom: '0.25rem' }}>Purchase History</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted,#888)', marginTop: 0, marginBottom: '1rem' }}>
+          {item.product_name
+            ? <><strong>{item.product_name}</strong>{item.pack || item.uom ? ` · ${[item.pack, item.uom].filter(Boolean).join(' × ')}` : ''}<br /><span style={{ fontSize: '0.75rem' }}>{item.description_raw}</span></>
+            : <strong>{item.description_raw}</strong>}
+          {item.vendor ? <><br />{item.vendor}{item.vendor_item_number ? ` · #${item.vendor_item_number}` : ''}</> : ''}
+        </p>
+
+        {error && <p style={{ color: 'var(--danger,#c33)' }}>{error}</p>}
+
+        {purchases === null && !error && (
+          <p style={{ color: 'var(--text-muted,#888)', fontSize: '0.875rem' }}>Loading…</p>
+        )}
+
+        {purchases && purchases.length === 0 && (
+          <p style={{ color: 'var(--text-muted,#888)', fontSize: '0.875rem' }}>No purchase records found.</p>
+        )}
+
+        {purchases && purchases.length > 0 && (
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="recipes-table" style={{ fontSize: '0.82rem' }}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Order #</th>
+                    <th>Vendor</th>
+                    <th style={{ textAlign: 'right' }}>Qty</th>
+                    <th>Unit</th>
+                    <th style={{ textAlign: 'right' }}>Unit Price</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchases.map((p, i) => (
+                    <tr key={i}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{p.order_date ? p.order_date.slice(0, 10) : '—'}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{p.order_number || '—'}</td>
+                      <td>{p.vendor || '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{p.quantity != null ? p.quantity : '—'}</td>
+                      <td>{p.quantity_unit || '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{p.unit_price != null ? `$${parseFloat(p.unit_price).toFixed(2)}` : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{p.total != null ? `$${parseFloat(p.total).toFixed(2)}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {totalSpent > 0 && (
+                  <tfoot>
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'right', fontWeight: 600, paddingTop: '0.5rem' }}>Total spent</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, paddingTop: '0.5rem' }}>${totalSpent.toFixed(2)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted,#888)', marginTop: '0.5rem' }}>
+              {purchases.length} line item{purchases.length !== 1 ? 's' : ''}
+            </p>
+          </>
+        )}
+
+        <div className="modal-footer">
+          <button type="button" className="btn-sm" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AssociateModal({ item, ingredients, onDone, onClose }) {
@@ -120,22 +216,24 @@ export function RecipesCatalog() {
   const [total, setTotal]               = useState(0);
   const [status, setStatus]             = useState('unignored');
   const [search, setSearch]             = useState('');
+  const [groceryOnly, setGroceryOnly]   = useState(true);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
   const [assocItem, setAssocItem]       = useState(null);
+  const [purchaseItem, setPurchaseItem] = useState(null);
   const [backfilling, setBackfilling]   = useState(false);
   const [selected, setSelected]         = useState(new Set());
   const [bulkUnit, setBulkUnit]         = useState('lb');
   const [bulkSaving, setBulkSaving]     = useState(false);
-  const [inferring, setInferring]       = useState(false);
-  const [inferResult, setInferResult]   = useState(null);
+  const [enriching, setEnriching]       = useState(false);
+  const [enrichResult, setEnrichResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [catalogRes, ingRes] = await Promise.all([
-        getRecipesCatalog({ status, search }),
+        getRecipesCatalog({ status, search, grocery: groceryOnly }),
         getRecipesIngredients(),
       ]);
       setItems(catalogRes.items || []);
@@ -146,7 +244,7 @@ export function RecipesCatalog() {
     } finally {
       setLoading(false);
     }
-  }, [status, search]);
+  }, [status, search, groceryOnly]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -187,18 +285,19 @@ export function RecipesCatalog() {
     }
   };
 
-  const runInferUnits = async () => {
-    setInferring(true);
-    setInferResult(null);
+  const runEnrich = async (ids) => {
+    setEnriching(true);
+    setEnrichResult(null);
     setError('');
     try {
-      const r = await inferCatalogUnits();
-      setInferResult(r);
+      const r = await enrichRecipesCatalog(ids);
+      setEnrichResult(r);
+      setSelected(new Set());
       load();
     } catch (e) {
       setError(e.message);
     } finally {
-      setInferring(false);
+      setEnriching(false);
     }
   };
 
@@ -230,6 +329,10 @@ export function RecipesCatalog() {
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted,#888)', whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={groceryOnly} onChange={(e) => setGroceryOnly(e.target.checked)} />
+          Grocery only
+        </label>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted,#888)' }}>{total} items</span>
         <button
           type="button"
@@ -243,20 +346,17 @@ export function RecipesCatalog() {
         <button
           type="button"
           className="btn-sm"
-          onClick={runInferUnits}
-          disabled={inferring}
-          title="Auto-detect unit (lb/oz/each/case) for items where unit is not set"
+          onClick={() => runEnrich(null)}
+          disabled={enriching}
+          title="Look up clean product name, pack & unit of measure from the vendor catalogs (Chef Store + Sysco) for items with an item number"
         >
-          {inferring ? 'Inferring…' : 'Infer units'}
+          {enriching ? 'Extracting…' : 'Extract UOM'}
         </button>
       </div>
-      {inferResult && (
+      {enrichResult && (
         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted,#888)', margin: '0 0 0.5rem' }}>
-          Inferred {inferResult.total} unit{inferResult.total !== 1 ? 's' : ''} —
-          pack rules: {inferResult.tier1},
-          receipt history: {inferResult.tier2},
-          AI: {inferResult.tier3}
-          {inferResult.unresolved > 0 ? `, ${inferResult.unresolved} still unresolved` : ''}
+          Enriched {enrichResult.enriched} item{enrichResult.enriched !== 1 ? 's' : ''} from vendor catalogs
+          {enrichResult.failed > 0 ? `, ${enrichResult.failed} not found` : ''}.
         </p>
       )}
 
@@ -271,6 +371,9 @@ export function RecipesCatalog() {
           </select>
           <button className="btn-primary btn-sm" onClick={applyBulkUnit} disabled={bulkSaving}>
             {bulkSaving ? 'Saving…' : 'Apply'}
+          </button>
+          <button className="btn-sm" onClick={() => runEnrich([...selected])} disabled={enriching}>
+            {enriching ? 'Extracting…' : 'Extract UOM'}
           </button>
           <button className="btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
         </div>
@@ -293,6 +396,7 @@ export function RecipesCatalog() {
                 </th>
                 <th>Description</th>
                 <th>Vendor</th>
+                <th>Item #</th>
                 <th style={{ textAlign: 'right' }}>Last Price</th>
                 <th>Last Purchased</th>
                 <th style={{ textAlign: 'right' }}>Qty</th>
@@ -308,10 +412,43 @@ export function RecipesCatalog() {
                   <td>
                     <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} />
                   </td>
-                  <td style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.description_raw}
+                  <td style={{ minWidth: 220, maxWidth: 380, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                    {item.product_name ? (
+                      <div>
+                        <div style={{ fontWeight: 600 }}>
+                          {item.product_name}
+                          {item.pack || item.uom
+                            ? <span style={{ fontWeight: 400, color: 'var(--text-muted,#888)', fontSize: '0.78rem' }}>
+                                {' '}· {[item.pack, item.uom].filter(Boolean).join(' × ')}
+                              </span>
+                            : null}
+                        </div>
+                        <div style={{ color: 'var(--text-muted,#888)', fontSize: '0.72rem' }}>
+                          {item.description_raw}
+                        </div>
+                      </div>
+                    ) : (
+                      item.description_raw
+                    )}
                   </td>
-                  <td style={{ fontSize: '0.8rem', color: 'var(--text-muted,#888)' }}>{item.vendor || '—'}</td>
+                  <td style={{ fontSize: '0.8rem' }}>
+                    <button
+                      className="btn-link"
+                      title="View purchase history"
+                      onClick={() => setPurchaseItem(item)}
+                    >
+                      {item.vendor || '—'}
+                    </button>
+                  </td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-muted,#888)', fontFamily: 'monospace' }}>
+                    {(() => {
+                      if (!item.vendor_item_number) return '—';
+                      const url = vendorItemUrl(item.vendor, item.vendor_item_number);
+                      return url
+                        ? <a href={url} target="_blank" rel="noopener noreferrer" title={`View on ${item.vendor}`} style={{ color: 'var(--accent, #2a7)' }}>{item.vendor_item_number}</a>
+                        : item.vendor_item_number;
+                    })()}
+                  </td>
                   <td style={{ textAlign: 'right' }}>{fmt(item.last_price)}</td>
                   <td style={{ fontSize: '0.8rem' }}>{item.last_purchase_date ? item.last_purchase_date.slice(0, 10) : '—'}</td>
                   <td style={{ textAlign: 'right', fontSize: '0.8rem' }}>
@@ -369,6 +506,13 @@ export function RecipesCatalog() {
           ingredients={ingredients}
           onDone={() => { setAssocItem(null); load(); }}
           onClose={() => setAssocItem(null)}
+        />
+      )}
+
+      {purchaseItem && (
+        <PurchaseHistoryModal
+          item={purchaseItem}
+          onClose={() => setPurchaseItem(null)}
         />
       )}
     </div>

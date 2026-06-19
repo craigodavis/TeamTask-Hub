@@ -11,8 +11,6 @@ import { Square } from './pages/Square';
 import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
-import { ShoppingInventory } from './pages/ShoppingInventory';
-import { ShoppingCatalog } from './pages/ShoppingCatalog';
 import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
 import { getGeneralSettings } from './api';
@@ -23,6 +21,13 @@ import { Skynet } from './pages/Skynet';
 import { AppShell } from './components/AppShell';
 import { appHubTitle } from './appHubTitle';
 import { GroundControl } from './pages/GroundControl';
+import { RecipesLayout } from './pages/RecipesLayout';
+import { RecipesCatalog } from './pages/RecipesCatalog';
+import { RecipesIngredients } from './pages/RecipesIngredients';
+import { RecipesList } from './pages/RecipesList';
+import { RecipeDetail } from './pages/RecipeDetail';
+import { KitchenInventory } from './pages/KitchenInventory';
+import { ScanReceipt } from './pages/ScanReceipt';
 
 function LegacyWasteEntryRedirect() {
   const { entryId } = useParams();
@@ -100,9 +105,7 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/manage" element={<Manager />} />
           <Route path="/food" element={<FoodLayout />}>
-            <Route index element={<Navigate to="inventory" replace />} />
-            <Route path="inventory" element={<ShoppingInventory />} />
-            <Route path="catalog" element={<ShoppingCatalog />} />
+            <Route index element={<Navigate to="waste" replace />} />
             <Route path="ingredients" element={<FoodIngredients />} />
             <Route path="waste" element={<WasteList />} />
             <Route path="waste/:entryId" element={<WasteEntry />} />
@@ -210,6 +213,24 @@ function App() {
               )
             }
           />
+          <Route
+            path="/recipes"
+            element={
+              user?.role === 'manager' || user?.role === 'owner' ? (
+                <RecipesLayout />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          >
+            <Route index element={<Navigate to="list" replace />} />
+            <Route path="scan"        element={<ScanReceipt />} />
+            <Route path="catalog"     element={<RecipesCatalog />} />
+            <Route path="ingredients" element={<RecipesIngredients />} />
+            <Route path="inventory"   element={<KitchenInventory />} />
+            <Route path="list"        element={<RecipesList />} />
+            <Route path=":id"         element={<RecipeDetail />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />

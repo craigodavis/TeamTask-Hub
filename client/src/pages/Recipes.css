@@ -114,6 +114,18 @@
 
 .btn-danger:hover { background: #c62828; color: #fff; }
 
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, #2a7);
+  cursor: pointer;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.btn-link:hover { opacity: 0.75; }
+
 /* ── Status badges ── */
 .badge {
   display: inline-block;

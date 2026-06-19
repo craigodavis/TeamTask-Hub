@@ -30,6 +30,14 @@ const photoUpload = multer({
 const router = express.Router();
 const cId = (req) => req.companyId;
 
+// Classify a vendor product category as grocery (food) or not. Returns
+// true (food), false (non-grocery: paper/janitorial/packaging), or null (unknown).
+const NON_FOOD_RE = /janitor|jantrl|chemical|cleaner|disinf|sanit|bleach|detergent|\bpaper\b|napkin|\btowel|tissue|\bwipe|\bcup\b|\blid\b|straw|cutlery|utensil|\bplate|\bbowl\b|\bbox\b|carton|\bbag\b|\bfilm\b|\bfoil\b|\bwrap\b|container|packag|\btray|glove|apron|hairnet|uniform|apparel|equipment|smallware|\boffice\b|\bliner|trash|disposable/i;
+function classifyFood(category) {
+  if (!category) return null;
+  return !NON_FOOD_RE.test(category);
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 async function getRecipeLocations(recipeId) {
@@ -46,6 +54,50 @@ async function setRecipeLocations(recipeId, locationIds) {
     await query(
       `INSERT INTO recipe_locations (recipe_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [recipeId, lid]
+    );
+  }
+}
+
+/** Empty string / invalid → null for numeric DB columns */
+function optionalNumeric(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Replace which locations stock an ingredient. Validates the ids belong to the
+ * company, then drops on-hand counts for any location no longer stocked.
+ */
+async function setIngredientLocations(ingredientId, companyId, locationIds) {
+  const ids = [...new Set((locationIds || []).filter(Boolean))];
+  if (ids.length) {
+    const valid = await query(
+      `SELECT id FROM locations WHERE company_id = $1 AND id = ANY($2::uuid[])`,
+      [companyId, ids]
+    );
+    if (valid.rows.length !== ids.length) throw new Error('One or more locations are invalid');
+  }
+
+  const prev = await query(
+    `SELECT location_id::text FROM ingredient_locations WHERE ingredient_id = $1`,
+    [ingredientId]
+  );
+  const nextIds = new Set(ids);
+  const removed = prev.rows.map((r) => r.location_id).filter((id) => !nextIds.has(id));
+
+  await query(`DELETE FROM ingredient_locations WHERE ingredient_id = $1`, [ingredientId]);
+  for (const lid of ids) {
+    await query(
+      `INSERT INTO ingredient_locations (ingredient_id, location_id, company_id)
+       VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+      [ingredientId, lid, companyId]
+    );
+  }
+  for (const lid of removed) {
+    await query(
+      `DELETE FROM ingredient_inventory WHERE ingredient_id = $1 AND location_id = $2`,
+      [ingredientId, lid]
     );
   }
 }
@@ -181,11 +233,84 @@ router.post('/catalog/backfill', requireManager, async (req, res) => {
   }
 });
 
+// POST /api/recipes/catalog/enrich
+// Pull clean product data (name, pack, UOM) from vendor catalogs and store it on
+// shopping_item_raw. Chef Store → Algolia (public); Sysco → authenticated GraphQL.
+// Body: { ids?: [catalog row ids] }  — omit to enrich all un-enriched linked items.
+router.post('/catalog/enrich', requireManager, async (req, res) => {
+  const companyId = cId(req);
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+  try {
+    // Select catalog rows that have a vendor item number to look up
+    const rows = (await query(
+      `SELECT id, vendor, vendor_item_number
+       FROM shopping_item_raw
+       WHERE company_id = $1
+         AND vendor_item_number IS NOT NULL
+         AND ignored = false
+         ${ids ? 'AND id = ANY($2)' : 'AND enriched_at IS NULL'}`,
+      ids ? [companyId, ids] : [companyId]
+    )).rows;
+
+    if (!rows.length) return res.json({ enriched: 0, failed: 0, results: [] });
+
+    // Group by vendor family
+    const sysco = rows.filter((r) => /sysco/i.test(r.vendor || ''));
+    const chef  = rows.filter((r) => /chef/i.test(r.vendor || ''));
+
+    const byItem = new Map(); // `${vendor}|${item}` -> parsed
+    const failures = [];
+
+    if (chef.length) {
+      const { enrichChefstoreItems } = await import('../lib/chefstoreEnrich.js');
+      const out = await enrichChefstoreItems(chef.map((r) => r.vendor_item_number));
+      for (const r of out.results) {
+        if (r.parsed) byItem.set(`chef|${r.itemNumber}`, r.parsed);
+        else failures.push({ vendor: 'Chef Store', item: r.itemNumber, error: r.error || 'no match' });
+      }
+    }
+
+    if (sysco.length) {
+      const { enrichSyscoItems } = await import('../lib/syscoSync.js');
+      const out = await enrichSyscoItems(companyId, sysco.map((r) => r.vendor_item_number));
+      for (const r of out.results) {
+        if (r.parsed) byItem.set(`sysco|${r.itemNumber}`, r.parsed);
+        else failures.push({ vendor: 'Sysco', item: r.itemNumber, error: r.error || 'no match' });
+      }
+    }
+
+    // Write results back
+    let enriched = 0;
+    for (const row of rows) {
+      const fam = /sysco/i.test(row.vendor || '') ? 'sysco' : (/chef/i.test(row.vendor || '') ? 'chef' : null);
+      if (!fam) continue;
+      const parsed = byItem.get(`${fam}|${row.vendor_item_number}`);
+      if (!parsed) continue;
+      await query(
+        `UPDATE shopping_item_raw
+         SET product_name = $2, uom = $3, pack = $4,
+             category = $5, is_food = $6,
+             enrich_source = $7, enriched_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [row.id, parsed.name || null, parsed.uom || null, parsed.pack || null,
+         parsed.category || null, classifyFood(parsed.category),
+         fam === 'sysco' ? 'sysco' : 'chefstore']
+      );
+      enriched++;
+    }
+
+    res.json({ enriched, failed: failures.length, failures: failures.slice(0, 20) });
+  } catch (err) {
+    console.error('Catalog enrich error:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // GET /api/recipes/catalog
 // List raw receipt items for the catalog UI.
 // Query params: status=pending|linked|ignored|all (default: all except ignored)
 router.get('/catalog', requireManager, async (req, res) => {
-  const { status = 'unignored', search = '', page = '1', limit = '100' } = req.query;
+  const { status = 'unignored', search = '', page = '1', limit = '100', grocery = '1' } = req.query;
   const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
   let whereExtra = '';
@@ -194,8 +319,18 @@ router.get('/catalog', requireManager, async (req, res) => {
   if (status === 'ignored')   whereExtra = `AND sir.ignored = true`;
   if (status === 'unignored') whereExtra = `AND sir.ignored = false`;
 
+  // Hide known non-grocery items by default (is_food = false). Items not yet
+  // classified (is_food NULL) stay visible. grocery=0/all shows everything.
+  if (grocery !== '0' && grocery !== 'all') whereExtra += ` AND sir.is_food IS DISTINCT FROM false`;
+
   const searchClause = search
-    ? `AND lower(sir.description_raw) LIKE '%' || lower($4) || '%'`
+    ? `AND (
+         lower(sir.description_raw)                    LIKE '%' || lower($4) || '%'
+         OR lower(COALESCE(sir.product_name,       '')) LIKE '%' || lower($4) || '%'
+         OR lower(COALESCE(sir.vendor_item_number, '')) LIKE '%' || lower($4) || '%'
+         OR lower(COALESCE(sir.vendor,             '')) LIKE '%' || lower($4) || '%'
+         OR lower(COALESCE(sir.category,           '')) LIKE '%' || lower($4) || '%'
+       )`
     : '';
 
   const params = [cId(req), parseInt(limit, 10), offset];
@@ -204,7 +339,9 @@ router.get('/catalog', requireManager, async (req, res) => {
   const r = await query(
     `SELECT sir.id, sir.description_raw, sir.vendor, sir.last_price,
             sir.last_purchase_date, sir.purchase_count, sir.ignored,
-            sir.is_recipe_primary, sir.unit,
+            sir.is_recipe_primary, sir.unit, sir.vendor_item_number,
+            sir.product_name, sir.uom, sir.pack, sir.enriched_at, sir.enrich_source,
+            sir.category, sir.is_food,
             sir.ingredient_id, i.name AS ingredient_name, i.base_unit,
             (SELECT ri.quantity
              FROM receipt_items ri
@@ -244,11 +381,45 @@ router.get('/catalog', requireManager, async (req, res) => {
   if (search) countParams.push(search);
   const total = await query(
     `SELECT COUNT(*)::int AS n FROM shopping_item_raw
-     WHERE company_id = $1 ${whereExtra} ${search ? `AND lower(description_raw) LIKE '%' || lower($2) || '%'` : ''}`,
+     WHERE company_id = $1 ${whereExtra} ${search ? `AND (
+       lower(description_raw)                    LIKE '%' || lower($2) || '%'
+       OR lower(COALESCE(product_name,       '')) LIKE '%' || lower($2) || '%'
+       OR lower(COALESCE(vendor_item_number, '')) LIKE '%' || lower($2) || '%'
+       OR lower(COALESCE(vendor,             '')) LIKE '%' || lower($2) || '%'
+       OR lower(COALESCE(category,           '')) LIKE '%' || lower($2) || '%'
+     )` : ''}`,
     countParams
   ).catch(() => ({ rows: [{ n: 0 }] }));
 
   res.json({ items: r.rows, total: total.rows[0]?.n ?? r.rows.length });
+});
+
+// GET /api/recipes/catalog/:id/purchases
+// All receipt line items linked to a shopping_item_raw row, ordered newest first.
+router.get('/catalog/:id/purchases', requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT
+         r.order_date,
+         r.order_number,
+         r.vendor,
+         ri.quantity,
+         ri.quantity_unit,
+         ri.unit_price,
+         ri.total,
+         ri.description,
+         ri.pack
+       FROM receipt_items ri
+       JOIN receipts r ON r.id = ri.receipt_id
+       WHERE ri.raw_item_id = $1
+         AND r.company_id   = $2
+       ORDER BY r.order_date DESC NULLS LAST, r.created_at DESC`,
+      [req.params.id, cId(req)]
+    );
+    res.json({ purchases: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // PATCH /api/recipes/catalog/:id
@@ -464,27 +635,46 @@ Return: [{"id":"...","unit":"..."},...]`,
 // GET /api/recipes/ingredients
 router.get('/ingredients', requireManager, async (req, res) => {
   const r = await query(
-    `SELECT i.id, i.name, i.description, i.base_unit, i.is_active,
-            i.created_at, i.updated_at,
-            -- count of linked raw items
-            (SELECT COUNT(*)::int FROM shopping_item_raw sir
-             WHERE sir.ingredient_id = i.id AND sir.company_id = i.company_id) AS source_count,
-            -- primary source info for COGS preview
-            sir_p.description_raw AS primary_source_desc,
-            sir_p.vendor          AS primary_source_vendor,
-            sir_p.last_price      AS primary_last_price,
-            sir_p.last_purchase_date AS primary_last_purchased,
-            sir_p.servings_per_container AS primary_servings
+    `SELECT
+       i.id, i.name, i.description, i.base_unit, i.is_active,
+       i.par_qty, i.par_unit, i.buy_frequency,
+       i.buy_day_of_week, i.buy_day_of_month, i.buy_week_of_month,
+       i.created_at, i.updated_at,
+       COALESCE(
+         (SELECT json_agg(il.location_id::text) FROM ingredient_locations il WHERE il.ingredient_id = i.id),
+         '[]'
+       ) AS location_ids,
+       COALESCE(
+         json_agg(
+           json_build_object(
+             'id',                 sir.id,
+             'description_raw',    sir.description_raw,
+             'product_name',       sir.product_name,
+             'vendor',             sir.vendor,
+             'vendor_item_number', sir.vendor_item_number,
+             'pack',               sir.pack,
+             'uom',                sir.uom,
+             'last_price',         sir.last_price,
+             'last_purchase_date', sir.last_purchase_date,
+             'purchase_count',     sir.purchase_count,
+             'is_recipe_primary',  sir.is_recipe_primary
+           ) ORDER BY sir.is_recipe_primary DESC, sir.last_purchase_date DESC NULLS LAST
+         ) FILTER (WHERE sir.id IS NOT NULL),
+         '[]'
+       ) AS sources
      FROM ingredients i
-     LEFT JOIN shopping_item_raw sir_p
-            ON sir_p.ingredient_id = i.id
-           AND sir_p.is_recipe_primary = true
-           AND sir_p.company_id = i.company_id
+     LEFT JOIN shopping_item_raw sir
+            ON sir.ingredient_id = i.id AND sir.company_id = i.company_id
      WHERE i.company_id = $1
+     GROUP BY i.id
      ORDER BY i.name`,
     [cId(req)]
   );
-  res.json({ ingredients: r.rows });
+  const ingredients = r.rows.map((row) => ({
+    ...row,
+    is_routine: (row.location_ids?.length ?? 0) > 0,
+  }));
+  res.json({ ingredients });
 });
 
 // GET /api/recipes/ingredients/:id  (with linked sources)
@@ -522,7 +712,14 @@ router.post('/ingredients', requireManager, async (req, res) => {
 
 // PATCH /api/recipes/ingredients/:id
 router.patch('/ingredients/:id', requireManager, async (req, res) => {
-  const { name, description, base_unit, is_active } = req.body;
+  const {
+    name, description, base_unit, is_active,
+    par_qty, par_unit, buy_frequency,
+    buy_day_of_week, buy_day_of_month, buy_week_of_month,
+    location_ids,
+  } = req.body;
+  const has = (k) => Object.prototype.hasOwnProperty.call(req.body, k);
+
   const setClauses = [];
   const params = [];
   let p = 1;
@@ -530,16 +727,37 @@ router.patch('/ingredients/:id', requireManager, async (req, res) => {
   if (description !== undefined) { setClauses.push(`description = $${p++}`); params.push(description); }
   if (base_unit !== undefined)   { setClauses.push(`base_unit = $${p++}`);   params.push(base_unit); }
   if (is_active !== undefined)   { setClauses.push(`is_active = $${p++}`);   params.push(!!is_active); }
-  if (!setClauses.length) return res.status(400).json({ error: 'Nothing to update' });
-  setClauses.push(`updated_at = NOW()`);
-  params.push(req.params.id, cId(req));
-  const r = await query(
-    `UPDATE ingredients SET ${setClauses.join(', ')}
-     WHERE id = $${p} AND company_id = $${p + 1} RETURNING *`,
-    params
+  if (has('par_qty'))            { setClauses.push(`par_qty = $${p++}`);            params.push(optionalNumeric(par_qty)); }
+  if (par_unit !== undefined)    { setClauses.push(`par_unit = $${p++}`);           params.push(par_unit || null); }
+  if (has('buy_frequency'))      { setClauses.push(`buy_frequency = $${p++}`);      params.push(buy_frequency || null); }
+  if (has('buy_day_of_week'))    { setClauses.push(`buy_day_of_week = $${p++}`);    params.push(optionalNumeric(buy_day_of_week)); }
+  if (has('buy_day_of_month'))   { setClauses.push(`buy_day_of_month = $${p++}`);   params.push(optionalNumeric(buy_day_of_month)); }
+  if (has('buy_week_of_month'))  { setClauses.push(`buy_week_of_month = $${p++}`);  params.push(optionalNumeric(buy_week_of_month)); }
+
+  if (setClauses.length) {
+    setClauses.push(`updated_at = NOW()`);
+    params.push(req.params.id, cId(req));
+    const r = await query(
+      `UPDATE ingredients SET ${setClauses.join(', ')}
+       WHERE id = $${p} AND company_id = $${p + 1} RETURNING *`,
+      params
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+  }
+
+  if (has('location_ids')) {
+    await setIngredientLocations(req.params.id, cId(req), location_ids);
+  }
+
+  const out = await query(
+    `SELECT i.*,
+            COALESCE((SELECT json_agg(il.location_id::text) FROM ingredient_locations il WHERE il.ingredient_id = i.id), '[]') AS location_ids
+     FROM ingredients i WHERE i.id = $1 AND i.company_id = $2`,
+    [req.params.id, cId(req)]
   );
-  if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
-  res.json({ ingredient: r.rows[0] });
+  if (!out.rows.length) return res.status(404).json({ error: 'Not found' });
+  const ingredient = { ...out.rows[0], is_routine: (out.rows[0].location_ids?.length ?? 0) > 0 };
+  res.json({ ingredient });
 });
 
 // DELETE /api/recipes/ingredients/:id
@@ -562,6 +780,105 @@ router.delete('/ingredients/:id', requireManager, async (req, res) => {
     [req.params.id, cId(req)]
   );
   res.json({ ok: true });
+});
+
+// ── INVENTORY (on-hand counts per ingredient per location) ────────────────────
+
+// GET /api/recipes/inventory?location_id=…  — ingredients stocked at a location
+router.get('/inventory', requireManager, async (req, res) => {
+  const { location_id } = req.query;
+  if (!location_id) return res.status(400).json({ error: 'location_id is required' });
+  const r = await query(
+    `SELECT i.id, i.name, i.base_unit, i.par_qty, i.par_unit,
+            inv.location_id, inv.current_qty, inv.sort_order,
+            inv.last_counted_at, inv.last_counted_by,
+            u.display_name AS last_counted_by_name,
+            l.name AS location_name
+     FROM ingredients i
+     INNER JOIN ingredient_locations il
+       ON il.ingredient_id = i.id AND il.location_id = $2 AND il.company_id = $1
+     LEFT JOIN ingredient_inventory inv
+       ON inv.ingredient_id = i.id AND inv.location_id = il.location_id AND inv.company_id = $1
+     LEFT JOIN users u ON u.id = inv.last_counted_by
+     LEFT JOIN locations l ON l.id = il.location_id
+     WHERE i.company_id = $1
+     ORDER BY COALESCE(inv.sort_order, 9999), i.name`,
+    [cId(req), location_id]
+  );
+  res.json({ inventory: r.rows });
+});
+
+// PATCH /api/recipes/inventory/:ingredientId/:locationId  — set count / sort
+router.patch('/inventory/:ingredientId/:locationId', requireManager, async (req, res) => {
+  const { current_qty, sort_order } = req.body;
+  const { ingredientId, locationId } = req.params;
+  const company = cId(req);
+  const r = await query(
+    `INSERT INTO ingredient_inventory
+       (ingredient_id, location_id, company_id, current_qty, sort_order, last_counted_at, last_counted_by)
+     VALUES ($1,$2,$3,$4,$5,NOW(),$6)
+     ON CONFLICT (ingredient_id, location_id) DO UPDATE SET
+       current_qty     = COALESCE(EXCLUDED.current_qty, ingredient_inventory.current_qty),
+       sort_order      = COALESCE(EXCLUDED.sort_order,  ingredient_inventory.sort_order),
+       last_counted_at = CASE WHEN EXCLUDED.current_qty IS NOT NULL THEN NOW() ELSE ingredient_inventory.last_counted_at END,
+       last_counted_by = CASE WHEN EXCLUDED.current_qty IS NOT NULL THEN EXCLUDED.last_counted_by ELSE ingredient_inventory.last_counted_by END
+     RETURNING *`,
+    [ingredientId, locationId, company, optionalNumeric(current_qty), optionalNumeric(sort_order), req.userId]
+  );
+  if (current_qty != null && current_qty !== '') {
+    await query(
+      `INSERT INTO ingredient_inventory_log (ingredient_id, location_id, company_id, qty, counted_by)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [ingredientId, locationId, company, optionalNumeric(current_qty), req.userId]
+    );
+  }
+  res.json(r.rows[0]);
+});
+
+// POST /api/recipes/inventory/reorder  — persist drag-drop order for a location
+router.post('/inventory/reorder', requireManager, async (req, res) => {
+  const { location_id, order } = req.body; // order: [{ ingredient_id, sort_order }]
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
+  const company = cId(req);
+  for (const { ingredient_id, sort_order } of order) {
+    await query(
+      `INSERT INTO ingredient_inventory (ingredient_id, location_id, company_id, sort_order)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (ingredient_id, location_id) DO UPDATE SET sort_order = EXCLUDED.sort_order`,
+      [ingredient_id, location_id, company, sort_order]
+    );
+  }
+  res.json({ ok: true });
+});
+
+// GET /api/recipes/shopping-list?location_id=…  — stocked items below par
+router.get('/shopping-list', requireManager, async (req, res) => {
+  const { location_id } = req.query;
+  const r = await query(
+    `SELECT i.id, i.name, i.par_qty, i.par_unit, i.buy_frequency,
+            inv.current_qty, inv.location_id, l.name AS location_name,
+            GREATEST(0, i.par_qty - COALESCE(inv.current_qty, 0)) AS needed_qty,
+            sir.vendor AS last_vendor, sir.last_price
+     FROM ingredients i
+     INNER JOIN ingredient_locations il
+       ON il.ingredient_id = i.id AND il.company_id = $1
+       AND ($2::uuid IS NULL OR il.location_id = $2::uuid)
+     LEFT JOIN ingredient_inventory inv
+       ON inv.ingredient_id = i.id AND inv.location_id = il.location_id AND inv.company_id = $1
+     LEFT JOIN locations l ON l.id = il.location_id
+     LEFT JOIN LATERAL (
+       SELECT vendor, last_price FROM shopping_item_raw s
+       WHERE s.ingredient_id = i.id AND s.company_id = $1
+       ORDER BY s.is_recipe_primary DESC, s.last_purchase_date DESC NULLS LAST
+       LIMIT 1
+     ) sir ON true
+     WHERE i.company_id = $1
+       AND i.par_qty IS NOT NULL
+       AND COALESCE(inv.current_qty, 0) < i.par_qty
+     ORDER BY i.name`,
+    [cId(req), location_id || null]
+  );
+  res.json({ items: r.rows });
 });
 
 // ── RECIPES ───────────────────────────────────────────────────────────────────

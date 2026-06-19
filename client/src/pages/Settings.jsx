@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getAiModelSettings, saveAiModelSettings } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
@@ -229,6 +229,14 @@ export function Settings() {
   const [amazonTesting, setAmazonTesting]     = useState(false);
   const [amazonTestResult, setAmazonTestResult] = useState('');
 
+  // Sysco Shop
+  const [syscoSettings, setSyscoSettings]     = useState(null);
+  const [syscoUsername, setSyscoUsername]     = useState('');
+  const [syscoPassword, setSyscoPassword]     = useState('');
+  const [syscoSaving, setSyscoSaving]         = useState(false);
+  const [syscoTesting, setSyscoTesting]       = useState(false);
+  const [syscoTestResult, setSyscoTestResult] = useState('');
+
   // AI Models
   const [aiModelProcesses, setAiModelProcesses] = useState([]);
   const [aiModelDirty, setAiModelDirty]         = useState({});
@@ -266,8 +274,9 @@ export function Settings() {
       getGeneralSettings(),
       getC7Settings(),
       getAmazonSettings(),
+      getSyscoSettings(),
     ])
-      .then(([r, g, c7, amz]) => {
+      .then(([r, g, c7, amz, sys]) => {
         setSettings(r);
         setSquareApplicationId(r.square_application_id || '');
         setSquareEnv(r.square_env || 'production');
@@ -286,6 +295,8 @@ export function Settings() {
         setC7ApiBaseUrl(c7.c7_api_base_url || '');
         setAmazonSettings(amz);
         setAmazonEmail(amz.amazon_email || '');
+        setSyscoSettings(sys);
+        setSyscoUsername(sys.sysco_username || '');
         setHaUrl(r.ha_url || '');
       })
       .catch((e) => setError(e.message))
@@ -1085,6 +1096,91 @@ export function Settings() {
                 <button type="submit" disabled={amazonSaving}>{amazonSaving ? 'Saving…' : 'Save Amazon'}</button>
               </div>
               {amazonTestResult && <p className="test-result success">{amazonTestResult}</p>}
+            </form>
+          </fieldset>
+
+          {/* ── Sysco Shop ────────────────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Sysco Shop</legend>
+            <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+              Credentials for Sysco Shop catalog lookups. Sysco's catalog and pricing are
+              per-customer and behind login, so the server signs in on your behalf to pull
+              clean product names, pack sizes, and units of measure by item number.
+              Password is stored server-side and never returned.
+            </p>
+            <form
+              className="settings-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSyscoSaving(true); setError(''); setMessage(''); setSyscoTestResult('');
+                try {
+                  const body = {};
+                  if (syscoUsername.trim()) body.sysco_username = syscoUsername.trim();
+                  if (syscoPassword.trim()) body.sysco_password = syscoPassword.trim();
+                  await putSyscoSettings(body);
+                  setMessage('Sysco Shop settings saved.');
+                  setSyscoPassword('');
+                  const fresh = await getSyscoSettings();
+                  setSyscoSettings(fresh);
+                  setSyscoUsername(fresh.sysco_username || '');
+                } catch (e) { setError(e.message); }
+                finally { setSyscoSaving(false); }
+              }}
+            >
+              <label>
+                Sysco Shop username
+                <input
+                  type="text"
+                  placeholder="your Sysco Shop login"
+                  value={syscoUsername}
+                  onChange={(e) => setSyscoUsername(e.target.value)}
+                  autoComplete="username"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  placeholder={syscoSettings?.sysco_configured ? 'Leave blank to keep current' : 'Sysco Shop password'}
+                  value={syscoPassword}
+                  onChange={(e) => setSyscoPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+              {syscoSettings?.sysco_configured && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ Password is configured</p>
+              )}
+              {syscoSettings?.sysco_session && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ Active browser session established</p>
+              )}
+              <p style={{ margin: '0.5rem 0 0', color: '#888', fontSize: '0.85em' }}>
+                Note: "Test / bootstrap login" opens a browser window so you can complete any
+                two-factor prompt. Once you're in, the session is saved and reused automatically.
+              </p>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn-test"
+                  disabled={syscoTesting || (!syscoSettings?.sysco_configured && (!syscoUsername.trim() || !syscoPassword.trim()))}
+                  onClick={async () => {
+                    setSyscoTesting(true); setSyscoTestResult(''); setError('');
+                    try {
+                      const body = {};
+                      if (syscoUsername.trim()) body.sysco_username = syscoUsername.trim();
+                      if (syscoPassword.trim()) body.sysco_password = syscoPassword.trim();
+                      const r = await testSyscoLogin(body);
+                      setSyscoTestResult(r.message || 'Login successful.');
+                      const fresh = await getSyscoSettings();
+                      setSyscoSettings(fresh);
+                    } catch (e) { setError(e.message); }
+                    finally { setSyscoTesting(false); }
+                  }}
+                >
+                  {syscoTesting ? 'Opening browser…' : 'Test / bootstrap login'}
+                </button>
+                <button type="submit" disabled={syscoSaving}>{syscoSaving ? 'Saving…' : 'Save Sysco'}</button>
+              </div>
+              {syscoTestResult && <p className="test-result success">{syscoTestResult}</p>}
             </form>
           </fieldset>
 

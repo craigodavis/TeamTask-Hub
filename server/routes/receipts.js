@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { query } from '../db.js';
-import { requireAuth, requireOwner } from '../middleware/auth.js';
+import { requireAuth, requireOwner, requireManager } from '../middleware/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -45,8 +45,9 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per file
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'application/pdf') cb(null, true);
-    else cb(new Error('Only PDF files are accepted.'));
+    const ok = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (ok.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only PDF or image (JPG/PNG/WebP) files are accepted.'));
   },
 });
 
@@ -96,25 +97,60 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
       const vendorName = vendor || r.vendor || 'Unknown';
       const purchaseDate = r.order_date || null;
       for (const item of (r.items || [])) {
-        await query(
-          `INSERT INTO receipt_items (receipt_id, description, quantity, quantity_unit, unit_price, total)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [receiptId, item.description, item.quantity ?? 1, item.quantity_unit || 'each', item.unit_price ?? null, item.total ?? null]
+        const riRes = await query(
+          `INSERT INTO receipt_items (receipt_id, description, quantity, quantity_unit, unit_price, total, vendor_item_number)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+          [receiptId, item.description, item.quantity ?? 1, item.quantity_unit || 'each',
+           item.unit_price ?? null, item.total ?? null, item.vendor_item_number ?? null]
         );
+        const receiptItemId = riRes.rows[0]?.id;
+
         if (item.description?.trim()) {
-          await query(
-            `INSERT INTO shopping_item_raw
-               (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
-             VALUES ($1, lower(trim($2)), $3, $4, $5, 1)
-             ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
-               purchase_count     = shopping_item_raw.purchase_count + 1,
-               last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01')
-                                         THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
-               last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
-               updated_at         = NOW()
-             WHERE shopping_item_raw.ignored = false`,
-            [cId, item.description.trim(), vendorName, item.unit_price ?? null, purchaseDate]
-          ).catch(() => {}); // non-fatal — don't fail the import
+          const itemNum = item.vendor_item_number ?? null;
+          let rawId = null;
+          if (itemNum) {
+            // Upsert by (vendor, vendor_item_number) — stable key regardless of description drift
+            const upsertRes = await query(
+              `INSERT INTO shopping_item_raw
+                 (company_id, description_raw, vendor, vendor_item_number, last_price, last_purchase_date, purchase_count)
+               VALUES ($1, lower(trim($2)), $3, $4, $5, $6, 1)
+               ON CONFLICT (company_id, vendor, vendor_item_number) WHERE vendor_item_number IS NOT NULL DO UPDATE SET
+                 description_raw    = lower(trim(EXCLUDED.description_raw)),
+                 purchase_count     = shopping_item_raw.purchase_count + 1,
+                 last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01')
+                                           THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+                 last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+                 updated_at         = NOW()
+               WHERE shopping_item_raw.ignored = false
+               RETURNING id`,
+              [cId, item.description.trim(), vendorName, itemNum, item.unit_price ?? null, purchaseDate]
+            ).catch(() => ({ rows: [] }));
+            rawId = upsertRes.rows[0]?.id;
+          } else {
+            // Fall back to description-based dedup for vendors without item numbers
+            const upsertRes = await query(
+              `INSERT INTO shopping_item_raw
+                 (company_id, description_raw, vendor, last_price, last_purchase_date, purchase_count)
+               VALUES ($1, lower(trim($2)), $3, $4, $5, 1)
+               ON CONFLICT (company_id, description_raw, vendor) DO UPDATE SET
+                 purchase_count     = shopping_item_raw.purchase_count + 1,
+                 last_price         = CASE WHEN EXCLUDED.last_purchase_date >= COALESCE(shopping_item_raw.last_purchase_date, '1900-01-01')
+                                           THEN EXCLUDED.last_price ELSE shopping_item_raw.last_price END,
+                 last_purchase_date = GREATEST(shopping_item_raw.last_purchase_date, EXCLUDED.last_purchase_date),
+                 updated_at         = NOW()
+               WHERE shopping_item_raw.ignored = false
+               RETURNING id`,
+              [cId, item.description.trim(), vendorName, item.unit_price ?? null, purchaseDate]
+            ).catch(() => ({ rows: [] }));
+            rawId = upsertRes.rows[0]?.id;
+          }
+
+          if (rawId && receiptItemId) {
+            await query(
+              `UPDATE receipt_items SET raw_item_id = $1 WHERE id = $2`,
+              [rawId, receiptItemId]
+            ).catch(() => {});
+          }
         }
       }
       results.push({ order_number: r.order_number, receipt_id: receiptId, items: r.items?.length ?? 0 });
@@ -131,10 +167,10 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
 // vendor website (card_last4, tax, subtotal, total, delivery_address,
 // payment_instrument). Applied after AI extraction — overrides AI-guessed values
 // with authoritative data. Only used when uploading a single PDF (Harvester flow).
-router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), async (req, res) => {
+router.post('/upload', requireAuth, requireManager, upload.array('pdfs', 100), async (req, res) => {
   const cId = req.companyId;
   if (!req.files?.length) {
-    return res.status(400).json({ error: 'No PDF files received.' });
+    return res.status(400).json({ error: 'No files received.' });
   }
 
   // Parse optional harvester-supplied order details (single-file uploads only)
@@ -149,7 +185,7 @@ router.post('/upload', requireAuth, requireOwner, upload.array('pdfs', 100), asy
   // Process up to 5 files concurrently to stay within Claude API rate limits
   // processReceiptPDF returns an array (one entry per order found in the PDF)
   const perFileResults = await withConcurrency(req.files, 5, async (file) => {
-    return processReceiptPDF(cId, file.buffer, file.originalname, ctx);
+    return processReceiptPDF(cId, file.buffer, file.originalname, ctx, { contentType: file.mimetype });
   });
   const results = perFileResults.flat();
 

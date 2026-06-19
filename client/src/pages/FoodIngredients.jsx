@@ -30,9 +30,9 @@ export function FoodIngredients() {
 
   return (
     <section className="manager-section">
-      <h2>Ingredients</h2>
+      <h2>Waste Items</h2>
       {error && <p className="manager-error">{error}</p>}
-      <p className="hint">Create ingredients here. Everyone can log food waste using these under Food → Food Waste.</p>
+      <p className="hint">Create the items staff can log under Shopping → Food Waste. These are separate from recipe Ingredients.</p>
       <IngredientForm onCreated={loadIngredients} />
       <ul className="ingredient-list">
         {ingredients.map((i) => (

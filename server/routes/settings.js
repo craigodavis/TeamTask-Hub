@@ -467,6 +467,94 @@ router.post('/amazon/test', requireOwner, async (req, res) => {
   }
 });
 
+// ── Sysco Shop credentials (mirrors the Amazon endpoints) ────────────────────
+
+// GET /settings/sysco — returns username + whether a session is established
+router.get('/sysco', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT sysco_username,
+              sysco_password IS NOT NULL AND sysco_password != '' AS sysco_configured
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const row = r.rows[0];
+    const { hasSyscoSession } = await import('../lib/syscoSync.js');
+    res.json({
+      sysco_username:    row?.sysco_username || '',
+      sysco_configured:  !!row?.sysco_configured,
+      sysco_session:     hasSyscoSession(companyId(req)),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /settings/sysco — save username + password
+router.put('/sysco', requireOwner, async (req, res) => {
+  const { sysco_username, sysco_password } = req.body ?? {};
+  try {
+    await query(
+      `INSERT INTO company_integrations (company_id, sysco_username, sysco_password, updated_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (company_id) DO UPDATE SET
+         sysco_username  = COALESCE(NULLIF($2,''), company_integrations.sysco_username),
+         sysco_password  = COALESCE(NULLIF($3,''), company_integrations.sysco_password),
+         updated_at      = NOW(),
+         updated_by      = $4`,
+      [companyId(req), sysco_username?.trim() || null, sysco_password || null, req.userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /settings/sysco/test — headed login bootstrap (lets the owner clear MFA)
+router.post('/sysco/test', requireOwner, async (req, res) => {
+  const cId = companyId(req);
+  try {
+    let username = req.body?.sysco_username?.trim();
+    let password = req.body?.sysco_password;
+
+    if (!username || !password) {
+      const r = await query(
+        `SELECT sysco_username, sysco_password FROM company_integrations WHERE company_id = $1`,
+        [cId]
+      );
+      const row = r.rows[0];
+      username = username || row?.sysco_username || '';
+      password = password || row?.sysco_password || '';
+    }
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Sysco username and password are required.' });
+    }
+
+    const { testSyscoLogin } = await import('../lib/syscoSync.js');
+    // headed so the owner can complete any 2FA on their machine
+    const result = await testSyscoLogin(cId, username, password, { headed: true });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /settings/sysco/lookup — discovery: look up one item with the saved session.
+// Returns parsed product data plus the raw captured API payloads so we can wire
+// a direct API call once we see the real response shape.
+router.post('/sysco/lookup', requireOwner, async (req, res) => {
+  const cId = companyId(req);
+  const itemNumber = (req.body?.item_number || '').toString().trim();
+  if (!itemNumber) return res.status(400).json({ error: 'item_number is required.' });
+  try {
+    const { lookupSyscoItem } = await import('../lib/syscoSync.js');
+    const result = await lookupSyscoItem(cId, itemNumber);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // GET /settings/general — company-level general settings (owner only)
 // Readable by any authenticated user — the timezone is needed for date
 // calculations across the whole app. (PATCH below stays owner-only.)
