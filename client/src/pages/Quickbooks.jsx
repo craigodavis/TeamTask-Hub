@@ -1396,12 +1396,10 @@ export function Quickbooks({ user }) {
                                   <span className="qb-export-order-num">{p.receipt.order_number}</span>
                                 </div>
                               )}
-                              {p.shipment && (
+                              {p.shipment && p.total_shipments > 1 && (
                                 <div className="qb-shipment-label">
-                                  {p.total_shipments > 1
-                                    ? `Shipment ${exportPreviews.filter(x => x.receipt.id === p.receipt.id).indexOf(p) + 1} of ${p.total_shipments}`
-                                    : 'Shipment'}
-                                  {p.is_first_shipment && p.total_shipments > 1 && (
+                                  {`Shipment ${exportPreviews.filter(x => x.receipt.id === p.receipt.id).indexOf(p) + 1} of ${p.total_shipments}`}
+                                  {p.is_first_shipment && (
                                     <span className="qb-pdf-badge" title="PDF will be attached to this shipment">📎</span>
                                   )}
                                 </div>
@@ -1410,15 +1408,17 @@ export function Quickbooks({ user }) {
                                 <div className="qb-shipment-items">
                                   {(exportLineEdits[key] || []).map((li, i) => (
                                     <div key={i} className="qb-shipment-item qb-shipment-item-edit">
-                                      <span className="qb-shipment-item-desc" title={li.description}>{li.description}</span>
-                                      <span className="qb-shipment-item-amt">${parseFloat(li.item_total || 0).toFixed(2)}</span>
-                                      <AccountSelect
-                                        value={li.qbo_account_id}
-                                        onChange={(v) => handleLineAccountChange(key, i, v)}
-                                        accounts={accounts}
-                                        placeholder="Account…"
-                                        warn={!li.qbo_account_id}
-                                      />
+                                      <div className="qb-shipment-item-desc" title={li.description}>{li.description || '—'}</div>
+                                      <div className="qb-shipment-item-controls">
+                                        <span className="qb-shipment-item-amt">${parseFloat(li.item_total || 0).toFixed(2)}</span>
+                                        <AccountSelect
+                                          value={li.qbo_account_id}
+                                          onChange={(v) => handleLineAccountChange(key, i, v)}
+                                          accounts={accounts}
+                                          placeholder="Account…"
+                                          warn={!li.qbo_account_id}
+                                        />
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
