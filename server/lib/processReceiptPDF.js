@@ -23,6 +23,20 @@ import { extractReceiptData, extractReceiptDataFromImage, categorizeLineItems } 
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
 import { getModelForProcess } from './aiModelSettings.js';
 
+// Normalize vendor names that appear under multiple aliases.
+const VENDOR_ALIASES = [
+  { pattern: /cash\s*[&and]*\s*carry|chef.?s?\s*store/i, canonical: 'Chef Store' },
+  { pattern: /sysco/i,  canonical: 'Sysco' },
+  { pattern: /amazon/i, canonical: 'Amazon' },
+];
+function normalizeVendor(raw) {
+  if (!raw) return raw;
+  for (const { pattern, canonical } of VENDOR_ALIASES) {
+    if (pattern.test(raw)) return canonical;
+  }
+  return raw;
+}
+
 const require    = createRequire(import.meta.url);
 const pdfParse   = require('pdf-parse');
 const __dirname  = path.dirname(fileURLToPath(import.meta.url));
@@ -154,8 +168,9 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
     // 3–9. Process each order in the PDF as a separate receipt record
     const orderResults = [];
     for (const receiptData of orders) {
-      const { order_number, order_date, vendor, subtotal, tax, total, items,
+      const { order_number, order_date, subtotal, tax, total, items,
               card_last4, payment_instrument } = receiptData;
+      const vendor = normalizeVendor(receiptData.vendor);
 
       if (!order_number) {
         orderResults.push({ filename, error: 'Could not extract order number from PDF.' });

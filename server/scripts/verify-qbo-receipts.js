@@ -12,7 +12,7 @@ import { query } from '../db.js';
 const COMPANY_ID = '8d2df498-b5c0-4f73-94cd-323956036113';
 const YEAR_START = '2026-01-01';
 const YEAR_END   = '2026-12-31';
-const VENDOR_MATCH = [/sysco/i, /amazon/i, /chef/i];
+const VENDOR_MATCH = [/sysco/i, /amazon/i, /chef/i, /cash.{0,3}carry/i];
 
 // Generic/default accounts that signal a NON-itemized (bank-feed default) line.
 const GENERIC_ACCT = /suppl|ask my accountant|uncategor|miscellaneous|amazon/i;
