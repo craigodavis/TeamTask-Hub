@@ -1382,11 +1382,15 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
             const matches = allPurchases.filter((p) => {
               const txnDate = new Date(p.TxnDate);
               return txnDate >= start && txnDate <= end
-                && Math.abs(parseFloat(p.TotalAmt) - target) < 0.01;
+                && Math.abs(parseFloat(p.TotalAmt) - target) < 1.00;
             }).sort((a, b) => {
               const aOnAcc = task.accountId ? (a.AccountRef?.value === task.accountId ? 0 : 1) : 0;
               const bOnAcc = task.accountId ? (b.AccountRef?.value === task.accountId ? 0 : 1) : 0;
               if (aOnAcc !== bOnAcc) return aOnAcc - bOnAcc;
+              // Prefer exact amount match, then closest date
+              const aAmtDiff = Math.abs(parseFloat(a.TotalAmt) - target);
+              const bAmtDiff = Math.abs(parseFloat(b.TotalAmt) - target);
+              if (Math.abs(aAmtDiff - bAmtDiff) > 0.01) return aAmtDiff - bAmtDiff;
               return Math.abs(new Date(a.TxnDate) - anchor) - Math.abs(new Date(b.TxnDate) - anchor);
             });
             qboResultMap.set(task.key, { matches });
