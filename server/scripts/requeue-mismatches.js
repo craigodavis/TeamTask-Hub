@@ -17,7 +17,7 @@ import { qboGetVendors, qboQueryAll } from '../qboClient.js';
 import { query } from '../db.js';
 
 const COMPANY_ID = '8d2df498-b5c0-4f73-94cd-323956036113';
-const VENDOR_MATCH = [/sysco/i, /amazon/i, /chef/i];
+const VENDOR_MATCH = [/sysco/i, /amazon/i, /chef/i, /cash.{0,3}carry/i];
 const DAY = 86400000;
 const near = (a, b) => a != null && b != null && Math.abs(Number(a) - Number(b)) < 0.01;
 const expenseLines = (t) => (t.Line || []).filter((l) => (l.DetailType || '').includes('ExpenseLineDetail'));

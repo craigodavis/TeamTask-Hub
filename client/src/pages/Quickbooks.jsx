@@ -1023,7 +1023,7 @@ export function Quickbooks({ user }) {
                   for (const r of receipts) {
                     const v = /amazon/i.test(r.vendor) ? 'Amazon'
                             : /sysco/i.test(r.vendor)  ? 'Sysco'
-                            : /chef/i.test(r.vendor)   ? 'Chef Store'
+                            : /chef|cash.{0,3}carry/i.test(r.vendor) ? 'Chef Store'
                             : r.vendor || 'Other';
                     counts[v] = (counts[v] || 0) + 1;
                   }

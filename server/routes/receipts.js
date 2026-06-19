@@ -12,6 +12,19 @@ import { qboFindVendor, qboFindPurchases, qboGetPurchase, qboUpdatePurchase, qbo
          qboGetUnmatchedAttachables, qboQueryAll } from '../qboClient.js';
 import { loadReceiptContext, processReceiptPDF } from '../lib/processReceiptPDF.js';
 
+const VENDOR_ALIASES = [
+  { pattern: /cash\s*[&and]*\s*carry|chef.?s?\s*store/i, canonical: 'Chef Store' },
+  { pattern: /sysco/i,  canonical: 'Sysco' },
+  { pattern: /amazon/i, canonical: 'Amazon' },
+];
+function normalizeVendor(raw) {
+  if (!raw) return raw;
+  for (const { pattern, canonical } of VENDOR_ALIASES) {
+    if (pattern.test(raw)) return canonical;
+  }
+  return raw;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'receipts');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -88,7 +101,8 @@ async function retryOn429(fn, maxAttempts = 4) {
 // Body: { vendor, receipts: [{ order_number, order_date, total, tax, subtotal, items[] }] }
 router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
-  const { vendor, receipts: receiptList } = req.body;
+  const { vendor: rawVendor, receipts: receiptList } = req.body;
+  const vendor = normalizeVendor(rawVendor);
   if (!Array.isArray(receiptList) || !receiptList.length) {
     return res.status(400).json({ error: 'receipts array is required' });
   }
@@ -105,14 +119,15 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
       continue;
     }
     try {
+      const rowVendor = normalizeVendor(r.vendor);
       const ins = await query(
         `INSERT INTO receipts (company_id, order_number, order_date, vendor, subtotal, tax, total, source)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'csv') RETURNING id`,
-        [cId, r.order_number, r.order_date || null, vendor || r.vendor || 'Unknown',
+        [cId, r.order_number, r.order_date || null, vendor || rowVendor || 'Unknown',
          r.subtotal ?? null, r.tax ?? null, r.total ?? null]
       );
       const receiptId = ins.rows[0].id;
-      const vendorName = vendor || r.vendor || 'Unknown';
+      const vendorName = vendor || rowVendor || 'Unknown';
       const purchaseDate = r.order_date || null;
       for (const item of (r.items || [])) {
         const riRes = await query(
