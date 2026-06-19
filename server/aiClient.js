@@ -62,13 +62,23 @@ SYSCO CATCH-WEIGHT ITEMS — many Sysco line items are priced by weight (lb), no
     - total = quantity × unit_price
   For standard case items (no T/WT line), quantity = number of cases, quantity_unit = "each".
 
-SYSCO INVOICE FORMAT — these PDFs end with a bare number on the last page, no label:
-  ...
-  LAST PAGE
-  410.13
-  410.13
-The repeated number at the very end is the invoice total. Use it as the "total" field.
-If you see a number appear twice in a row at the end of the document with no label, that is the total.
+SYSCO INVOICE FORMAT — multi-page invoices: items may continue onto page 2 (and beyond). Always scan ALL pages for line items, including continuation pages that repeat the header columns. Page 2 often contains additional charges.
+
+SYSCO FUEL SURCHARGE — Sysco invoices frequently include a fuel/gas surcharge line on the last or continuation page, formatted like:
+  CHGS FOR FUEL SURCHARGE    .06    8.95  *
+Include this as a line item with description "Fuel Surcharge" and total = the dollar amount (e.g. 8.95).
+
+SYSCO LAST PAGE TOTALS — the last page ends with a footer block. There are two formats:
+  Format A (no tax): the invoice total appears TWICE in a row:
+    LAST PAGE
+    410.13
+    410.13       ← use this as total
+  Format B (with tax): subtotal, then tax, then invoice total appear in sequence:
+    LAST PAGE
+    701.23       ← subtotal (items only)
+    4.98         ← tax total (use as the "tax" field)
+    706.21       ← invoice total (use this as total)
+Always use the LAST number in this footer block as the "total" field.
 
 PDF text:
 ${pdfText}`,
