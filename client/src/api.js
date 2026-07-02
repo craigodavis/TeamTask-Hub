@@ -335,11 +335,11 @@ export async function uploadAnnouncementImage(file) {
   return res.json(); // { url }
 }
 
-export async function createAnnouncement(title, body, effective_from, effective_until, location_ids, approver_ids) {
+export async function createAnnouncement(title, body, effective_from, effective_until, location_ids, approver_ids, is_policy) {
   const res = await fetch(`${API}/announcements`, {
     method: 'POST',
     headers: { ...headers(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, body, effective_from, effective_until, location_ids, approver_ids }),
+    body: JSON.stringify({ title, body, effective_from, effective_until, location_ids, approver_ids, is_policy }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to create announcement');
@@ -397,6 +397,31 @@ export async function getAnnouncementAcknowledgments(id) {
   const res = await fetch(`${API}/announcements/${id}/acknowledgments`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load');
+  return data;
+}
+
+export async function signPolicy(id, signedName) {
+  const res = await fetch(`${API}/announcements/${id}/sign`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ signed_name: signedName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to sign policy');
+  return data;
+}
+
+export async function getPolicySignatures(id) {
+  const res = await fetch(`${API}/announcements/${id}/signatures`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load signatures');
+  return data;
+}
+
+export async function getPolicies() {
+  const res = await fetch(`${API}/announcements/policies`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load policies');
   return data;
 }
 

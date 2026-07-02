@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Manager } from './pages/Manager';
+import { Policies } from './pages/Policies';
 import { WasteEntry } from './pages/WasteEntry';
 import { WasteList } from './pages/WasteList';
 import { Settings } from './pages/Settings';
@@ -104,6 +105,7 @@ function App() {
         <Route element={<AppShellLayout user={user} onLogout={onLogout} timezone={timezone} />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/manage" element={<Manager />} />
+          <Route path="/policies" element={<Policies />} />
           <Route path="/food" element={<FoodLayout />}>
             <Route index element={<Navigate to="waste" replace />} />
             <Route path="ingredients" element={<FoodIngredients />} />

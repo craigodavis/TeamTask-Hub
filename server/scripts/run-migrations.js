@@ -2169,6 +2169,25 @@ const MIGRATIONS = [
   `DROP TABLE IF EXISTS shopping_item_purchases`,
   `DROP TABLE IF EXISTS shopping_item_locations`,
   `DROP TABLE IF EXISTS shopping_items`,
+
+  // ── Policy announcements ─────────────────────────────────────────────────
+  // A policy is an announcement flagged is_policy=true. It ignores
+  // effective_from/until and stays active until the author sets
+  // policy_required=false. Signatures are tracked separately from the
+  // plain-click announcement_acknowledgments table since a policy needs a
+  // typed name + timestamp.
+  `ALTER TABLE announcements ADD COLUMN IF NOT EXISTS is_policy BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE announcements ADD COLUMN IF NOT EXISTS policy_required BOOLEAN NOT NULL DEFAULT true`,
+  `CREATE TABLE IF NOT EXISTS policy_signatures (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    announcement_id UUID        NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    signed_name     TEXT        NOT NULL,
+    signed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(announcement_id, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_policy_signatures_announcement ON policy_signatures(announcement_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_policy_signatures_user ON policy_signatures(user_id)`,
 ];
 
 export async function runMigrations() {

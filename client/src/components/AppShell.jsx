@@ -125,6 +125,15 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Announcements</span>
             </NavLink>
           )}
+          <NavLink
+            to="/policies"
+            className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+            data-icon="📋"
+            title="Policies"
+            onClick={() => { if (isMobile()) setCollapsed(true); }}
+          >
+            <span>Policies</span>
+          </NavLink>
           {isManager && (
             <NavLink
               to="/square"
