@@ -138,8 +138,12 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
       pdfText = parsed.text;
       deliveryAddress = extractDeliveryAddress(pdfText);
 
-      // 1b. Reject shipping notifications
-      if (isShippingNotification(pdfText)) {
+      // 1b. Reject shipping notifications — skipped for automated email_amazon
+      // ingestion, since the Gmail search is already scoped to
+      // from:auto-confirm@amazon.com (order confirmations only, not shipping
+      // status emails), and this heuristic false-positives on the delivery
+      // estimate text present in normal order confirmations.
+      if (source !== 'email_amazon' && isShippingNotification(pdfText)) {
         return [{ filename, skipped: true, reason: 'shipping_notification',
                   message: 'PDF appears to be a shipping notification, not an order receipt.' }];
       }
