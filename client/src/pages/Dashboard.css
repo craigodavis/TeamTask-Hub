@@ -145,6 +145,67 @@
 .btn-ack:active  { transform: translateY(2px); box-shadow: none; }
 .btn-ack:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
+/* ── Policy cards ─────────────────────────────────────────── */
+.gate-card-policy {
+  border-left: 4px solid #cf1322;
+}
+
+.policy-header-banner {
+  display: inline-block;
+  background: #cf1322;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.3rem;
+  letter-spacing: 0.08em;
+  padding: 0.3rem 0.9rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.policy-inline-tag {
+  display: inline-block;
+  background: #fff1f0;
+  color: #cf1322;
+  border: 1px solid #ffa39e;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+
+.policy-sign-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.policy-agree-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.policy-sign-name-input {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.btn-sign-policy {
+  min-height: 44px;
+  border-radius: 10px;
+  align-self: flex-start;
+}
+.btn-sign-policy:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ── Assignment cards ────────────────────────────────────── */
 
 .assignment-card-list {

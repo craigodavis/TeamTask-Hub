@@ -1026,6 +1026,7 @@ function AnnouncementForm({ locations, timezone, users, onCreated }) {
   const [to, setTo] = useState(() => todayInTimezone(timezone));
   const [locationIds, setLocationIds] = useState([]);
   const [approverIds, setApproverIds] = useState([]);
+  const [isPolicy, setIsPolicy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [editorKey, setEditorKey] = useState(0);
@@ -1048,11 +1049,12 @@ function AnnouncementForm({ locations, timezone, users, onCreated }) {
     }
     setLoading(true);
     try {
-      await createAnnouncement(title, body, from, to, locationIds, approverIds);
+      await createAnnouncement(title, body, from, to, locationIds, approverIds, isPolicy);
       setTitle('');
       setBody('');
       setLocationIds([]);
       setApproverIds([]);
+      setIsPolicy(false);
       setEditorKey((k) => k + 1);
       onCreated();
     } catch (e) {
@@ -1109,6 +1111,19 @@ function AnnouncementForm({ locations, timezone, users, onCreated }) {
             {loc.name}
           </label>
         )) : <span className="hint"> No locations configured.</span>}
+      </div>
+      <div className="ann-edit-field">
+        <label className="location-checkbox">
+          <input type="checkbox" checked={isPolicy} onChange={(e) => setIsPolicy(e.target.checked)} />
+          This is a Policy (requires every employee to sign)
+        </label>
+        {isPolicy && (
+          <p className="hint">
+            Policies never expire on their own — every current and future employee must sign
+            before it disappears from their task gate. Mark it "no longer required" later to stop
+            requiring new signatures.
+          </p>
+        )}
       </div>
       {managers.length > 0 && (
         <div className="form-approvers">
@@ -1731,6 +1746,19 @@ function AnnouncementEditDelete({ announcement, locations, users, currentUserId,
     }
   };
 
+  const handleTogglePolicyRequired = async () => {
+    const nextRequired = !announcement.policy_required;
+    if (nextRequired === false && !window.confirm('Mark this policy as no longer required? Employees who have not yet signed will no longer be blocked by it.')) {
+      return;
+    }
+    try {
+      await updateAnnouncement(announcement.id, { policy_required: nextRequired });
+      onUpdate();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
   const status = announcement.status || 'published';
   const approvals = Array.isArray(announcement.approvals) ? announcement.approvals : [];
   const managers = (users || []).filter((u) => u.role === 'manager' || u.role === 'owner');
@@ -1798,7 +1826,22 @@ function AnnouncementEditDelete({ announcement, locations, users, currentUserId,
             <span className={`status-badge ${statusClass[status] || 'badge-published'}`}>
               {statusLabel[status] || status}
             </span>
+            {announcement.is_policy && (
+              <span className={`status-badge badge-policy${announcement.policy_required ? '' : ' badge-policy-inactive'}`}>
+                POLICY{announcement.policy_required ? '' : ' — not required'}
+              </span>
+            )}
           </div>
+          {announcement.is_policy && (
+            <div className="policy-manage-row">
+              <span className="hint">
+                {announcement.signed_count ?? 0} / {announcement.total_employees ?? '?'} employees signed
+              </span>
+              <button type="button" className="btn-small" onClick={handleTogglePolicyRequired}>
+                {announcement.policy_required ? 'Mark as no longer required' : 'Reactivate policy'}
+              </button>
+            </div>
+          )}
           <span className="announcement-item-dates">{announcement.effective_from} – {announcement.effective_until}</span>
           {announcement.body && (
             <div className="announcement-item-body" dangerouslySetInnerHTML={{ __html: announcement.body }} />

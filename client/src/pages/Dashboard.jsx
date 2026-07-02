@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { getDaySummary, setTaskStatus, getActiveAnnouncements, acknowledgeAnnouncement, closeAssignment, getStaffSchedule, getCompanyUsers } from '../api';
 import { todayInTimezone } from '../utils/dateUtils';
 import { SetPinModal } from '../components/SetPinModal';
+import { PolicySignBox } from '../components/PolicySignBox';
 import './Dashboard.css';
 
 export function Dashboard() {
@@ -166,12 +167,19 @@ export function Dashboard() {
     } catch (err) { setError(err.message); }
   };
 
+  const handleSigned = (id, signedAt) => {
+    setAnnouncements((prev) => prev.map((a) => (a.id === id ? { ...a, _signed_at: signedAt } : a)));
+  };
+
   // When emulating, filter assignments to the selected role; otherwise show all
   const visibleAssignments = emulateRole
     ? (daySummary.assignments || []).filter((a) => a.wage_title === emulateRole)
     : (daySummary.assignments || []);
 
-  const isRead = (a) => !!(a.my_acknowledged_at || a._acknowledged);
+  // A policy blocks the gate until signed; a normal announcement blocks until acknowledged.
+  const isRead = (a) => a.is_policy
+    ? !!(a.my_signed_at || a._signed_at)
+    : !!(a.my_acknowledged_at || a._acknowledged);
   const unreadAnnouncements = announcements.filter((a) => !isRead(a));
   const readAnnouncements = [...announcements.filter(isRead)].sort((a, b) => {
     const da = a.effective_from || a.created_at || '';
@@ -447,12 +455,13 @@ export function Dashboard() {
                   : `You have ${unreadAnnouncements.length} announcements`}
               </h2>
               <p className="gate-subtitle">
-                Please read and acknowledge {unreadAnnouncements.length === 1 ? 'it' : 'each one'} before starting your tasks.
+                Please read{unreadAnnouncements.some((a) => a.is_policy) ? ', and sign any policies,' : ' and acknowledge'} {unreadAnnouncements.length === 1 ? 'it' : 'each one'} before starting your tasks.
               </p>
             </div>
             <div className="gate-list">
               {unreadAnnouncements.map((a) => (
-                <div key={a.id} className="gate-card">
+                <div key={a.id} className={`gate-card${a.is_policy ? ' gate-card-policy' : ''}`}>
+                  {a.is_policy && <div className="policy-header-banner">POLICY</div>}
                   <h3 className="gate-card-title">{a.title}</h3>
                   {a.body && (
                     <div
@@ -460,9 +469,17 @@ export function Dashboard() {
                       dangerouslySetInnerHTML={{ __html: a.body }}
                     />
                   )}
-                  <button type="button" className="btn-ack" onClick={() => handleAck(a.id)}>
-                    Mark as Read
-                  </button>
+                  {a.is_policy ? (
+                    <PolicySignBox
+                      policy={a}
+                      currentUserName={user?.display_name}
+                      onSigned={(signedAt) => handleSigned(a.id, signedAt)}
+                    />
+                  ) : (
+                    <button type="button" className="btn-ack" onClick={() => handleAck(a.id)}>
+                      Mark as Read
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -595,7 +612,15 @@ export function Dashboard() {
                   <ul className="past-announcement-list">
                     {readAnnouncements.map((a) => (
                       <li key={a.id} className="past-announcement-card">
-                        <h4 className="past-card-title">{a.title}</h4>
+                        <h4 className="past-card-title">
+                          {a.is_policy && <span className="policy-inline-tag">POLICY</span>}
+                          {a.title}
+                        </h4>
+                        {a.is_policy && (
+                          <p className="hint">
+                            ✓ Signed {(a.my_signed_at || a._signed_at) ? new Date(a.my_signed_at || a._signed_at).toLocaleDateString() : ''}
+                          </p>
+                        )}
                         {a.body && (
                           <div
                             className="announcement-body"

@@ -135,14 +135,21 @@ router.get('/active', async (req, res) => {
 
     const r = await query(
       `SELECT a.id, a.company_id, a.title, a.body, a.effective_from, a.effective_until,
-              a.created_by, a.created_at, a.status,
-              aa.acknowledged_at AS my_acknowledged_at
+              a.created_by, a.created_at, a.status, a.is_policy, a.policy_required,
+              aa.acknowledged_at AS my_acknowledged_at,
+              ps.signed_at AS my_signed_at
        FROM announcements a
        LEFT JOIN announcement_acknowledgments aa ON aa.announcement_id = a.id AND aa.user_id = $2
+       LEFT JOIN policy_signatures ps ON ps.announcement_id = a.id AND ps.user_id = $2
        WHERE a.company_id = $1
          AND a.status = 'published'
-         AND a.effective_from <= $3::date
-         AND a.effective_until >= $3::date
+         AND (
+           (a.is_policy = true AND a.policy_required = true)
+           OR (
+             a.effective_from <= $3::date
+             AND a.effective_until >= $3::date
+           )
+         )
          AND (
            $4::uuid[] IS NULL
            OR NOT EXISTS (SELECT 1 FROM announcement_locations al WHERE al.announcement_id = a.id)
@@ -154,11 +161,44 @@ router.get('/active', async (req, res) => {
        ORDER BY a.created_at DESC`,
       [companyId, userId, d, userLocationIds]
     );
-    const announcements = r.rows.map(({ my_acknowledged_at, ...rest }) => ({
+    const announcements = r.rows.map(({ my_acknowledged_at, my_signed_at, ...rest }) => ({
       ...rest,
       my_acknowledged_at: my_acknowledged_at || null,
+      my_signed_at: my_signed_at || null,
     }));
     res.json({ announcements });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /policies — all policy announcements for the company, with the current
+// user's sign status. Backs the employee-facing Policies page. Visible to
+// any authenticated employee, not just managers.
+router.get('/policies', async (req, res) => {
+  try {
+    const companyId = cId(req);
+    const totalRes = await query(`SELECT COUNT(*) AS cnt FROM users WHERE company_id = $1`, [companyId]);
+    const totalEmployees = parseInt(totalRes.rows[0].cnt, 10);
+
+    const r = await query(
+      `SELECT a.id, a.company_id, a.title, a.body, a.effective_from, a.effective_until,
+              a.created_by, a.created_at, a.status, a.is_policy, a.policy_required,
+              ps.signed_at AS my_signed_at,
+              (SELECT COUNT(*) FROM policy_signatures s WHERE s.announcement_id = a.id) AS signed_count
+       FROM announcements a
+       LEFT JOIN policy_signatures ps ON ps.announcement_id = a.id AND ps.user_id = $2
+       WHERE a.company_id = $1 AND a.is_policy = true
+       ORDER BY a.policy_required DESC, a.created_at DESC`,
+      [companyId, req.userId]
+    );
+    const policies = r.rows.map(({ my_signed_at, signed_count, ...rest }) => ({
+      ...rest,
+      my_signed_at: my_signed_at || null,
+      signed_count: parseInt(signed_count, 10),
+      total_employees: totalEmployees,
+    }));
+    res.json({ policies });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -191,13 +231,14 @@ router.get('/', async (req, res) => {
   try {
     const { from, to } = req.query;
     let q = `SELECT a.id, a.company_id, a.title, a.body, a.effective_from, a.effective_until,
-                    a.status, a.created_by, a.created_at,
+                    a.status, a.created_by, a.created_at, a.is_policy, a.policy_required,
                     u.display_name as created_by_name,
                     COALESCE(
                       (SELECT array_agg(al.location_id ORDER BY al.location_id)
                        FROM announcement_locations al WHERE al.announcement_id = a.id),
                       ARRAY[]::uuid[]
-                    ) AS location_ids
+                    ) AS location_ids,
+                    (SELECT COUNT(*) FROM policy_signatures ps WHERE ps.announcement_id = a.id) AS signed_count
              FROM announcements a
              LEFT JOIN users u ON u.id = a.created_by
              WHERE a.company_id = $1`;
@@ -207,12 +248,16 @@ router.get('/', async (req, res) => {
     q += ` ORDER BY a.effective_from DESC, a.created_at DESC`;
     const r = await query(q, params);
 
+    const totalRes = await query(`SELECT COUNT(*) AS cnt FROM users WHERE company_id = $1`, [cId(req)]);
+    const totalEmployees = parseInt(totalRes.rows[0].cnt, 10);
+
     // Attach approvals
     const announcements = await Promise.all(
       r.rows.map(async (row) => ({
         ...row,
         location_ids: row.location_ids || [],
         approvals: await getApprovals(row.id),
+        total_employees: totalEmployees,
       }))
     );
     res.json({ announcements });
@@ -224,7 +269,7 @@ router.get('/', async (req, res) => {
 // POST / — create announcement (manager)
 router.post('/', requireManager, async (req, res) => {
   try {
-    const { title, body, effective_from, effective_until, location_ids, approver_ids, status } = req.body;
+    const { title, body, effective_from, effective_until, location_ids, approver_ids, status, is_policy } = req.body;
     if (!title || !effective_from || !effective_until) {
       return res.status(400).json({ error: 'title, effective_from, effective_until required' });
     }
@@ -238,10 +283,10 @@ router.post('/', requireManager, async (req, res) => {
     const resolvedStatus = status || (hasApprovers ? 'draft' : 'published');
 
     const r = await query(
-      `INSERT INTO announcements (company_id, title, body, effective_from, effective_until, created_by, status)
-       VALUES ($1, $2, $3, $4::date, $5::date, $6, $7)
-       RETURNING id, company_id, title, body, effective_from, effective_until, created_by, created_at, status`,
-      [companyId, title, body || null, effective_from, effective_until, req.userId, resolvedStatus]
+      `INSERT INTO announcements (company_id, title, body, effective_from, effective_until, created_by, status, is_policy)
+       VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8)
+       RETURNING id, company_id, title, body, effective_from, effective_until, created_by, created_at, status, is_policy, policy_required`,
+      [companyId, title, body || null, effective_from, effective_until, req.userId, resolvedStatus, !!is_policy]
     );
     const announcement = r.rows[0];
 
@@ -287,7 +332,7 @@ router.post('/', requireManager, async (req, res) => {
 router.patch('/:id', requireManager, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, body, effective_from, effective_until, location_ids, approver_ids, status } = req.body;
+    const { title, body, effective_from, effective_until, location_ids, approver_ids, status, is_policy, policy_required } = req.body;
     const companyId = cId(req);
 
     const updates = [];
@@ -297,19 +342,21 @@ router.patch('/:id', requireManager, async (req, res) => {
     if (effective_from !== undefined) { updates.push(`effective_from = $${vals.length + 1}::date`); vals.push(effective_from); }
     if (effective_until !== undefined){ updates.push(`effective_until = $${vals.length + 1}::date`); vals.push(effective_until); }
     if (status !== undefined)         { updates.push(`status = $${vals.length + 1}`);          vals.push(status); }
+    if (is_policy !== undefined)      { updates.push(`is_policy = $${vals.length + 1}`);       vals.push(!!is_policy); }
+    if (policy_required !== undefined){ updates.push(`policy_required = $${vals.length + 1}`); vals.push(!!policy_required); }
     updates.push('updated_at = NOW()');
 
     if (updates.length > 1) { // more than just updated_at
       const r = await query(
         `UPDATE announcements SET ${updates.join(', ')} WHERE id = $1 AND company_id = $2
-         RETURNING id, company_id, title, body, effective_from, effective_until, created_by, updated_at, status`,
+         RETURNING id, company_id, title, body, effective_from, effective_until, created_by, updated_at, status, is_policy, policy_required`,
         vals
       );
       if (r.rows.length === 0) return res.status(404).json({ error: 'Announcement not found' });
     }
 
     const annRes = await query(
-      `SELECT id, company_id, title, body, effective_from, effective_until, created_by, updated_at, status
+      `SELECT id, company_id, title, body, effective_from, effective_until, created_by, updated_at, status, is_policy, policy_required
        FROM announcements WHERE id = $1 AND company_id = $2`,
       [id, companyId]
     );
@@ -484,6 +531,58 @@ router.get('/:id/acknowledgments', requireManager, async (req, res) => {
       [cId(req), req.params.id]
     );
     res.json({ acknowledgments: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/sign — current user signs a policy
+router.post('/:id/sign', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { signed_name } = req.body;
+    if (!signed_name || !signed_name.trim()) {
+      return res.status(400).json({ error: 'signed_name is required' });
+    }
+    const check = await query(
+      `SELECT is_policy FROM announcements WHERE id = $1 AND company_id = $2`,
+      [id, cId(req)]
+    );
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Announcement not found' });
+    if (!check.rows[0].is_policy) return res.status(400).json({ error: 'This announcement is not a policy' });
+
+    const r = await query(
+      `INSERT INTO policy_signatures (announcement_id, user_id, signed_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (announcement_id, user_id) DO UPDATE SET signed_name = EXCLUDED.signed_name, signed_at = NOW()
+       RETURNING id, announcement_id, user_id, signed_name, signed_at`,
+      [id, req.userId, signed_name.trim()]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /:id/signatures — full company roster with sign status (visible to all employees)
+router.get('/:id/signatures', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const check = await query(
+      `SELECT 1 FROM announcements WHERE id = $1 AND company_id = $2`,
+      [id, cId(req)]
+    );
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Announcement not found' });
+
+    const r = await query(
+      `SELECT u.id AS user_id, u.display_name, u.email, ps.signed_at
+       FROM users u
+       LEFT JOIN policy_signatures ps ON ps.announcement_id = $1 AND ps.user_id = u.id
+       WHERE u.company_id = $2
+       ORDER BY (ps.signed_at IS NULL), u.display_name`,
+      [id, cId(req)]
+    );
+    res.json({ signatures: r.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
