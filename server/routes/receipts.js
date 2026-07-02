@@ -257,10 +257,10 @@ router.post('/upload', requireAuth, requireManager, upload.array('pdfs', 100), a
 
 // ── PATCH /api/receipts/:id/enrich ───────────────────────────────────────────
 // Apply scraped order details to an existing receipt (backfill card_last4, tax, etc).
-// Body: { card_last4, payment_instrument, tax, subtotal, total, delivery_address }
+// Body: { card_last4, payment_instrument, tax, subtotal, total, delivery_address, order_date }
 router.patch('/:id/enrich', requireAuth, requireOwner, async (req, res) => {
   try {
-    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address } = req.body;
+    const { card_last4, payment_instrument, tax, subtotal, total, delivery_address, order_date } = req.body;
     await query(
       `UPDATE receipts SET
          card_last4         = COALESCE($2, card_last4),
@@ -268,8 +268,9 @@ router.patch('/:id/enrich', requireAuth, requireOwner, async (req, res) => {
          tax                = COALESCE($4, tax),
          subtotal           = COALESCE($5, subtotal),
          total              = COALESCE($6, total),
-         delivery_address   = COALESCE($7, delivery_address)
-       WHERE id = $1 AND company_id = $8`,
+         delivery_address   = COALESCE($7, delivery_address),
+         order_date         = COALESCE($8, order_date)
+       WHERE id = $1 AND company_id = $9`,
       [req.params.id,
        card_last4         || null,
        payment_instrument || null,
@@ -277,6 +278,7 @@ router.patch('/:id/enrich', requireAuth, requireOwner, async (req, res) => {
        subtotal           ?? null,
        total              ?? null,
        delivery_address   || null,
+       order_date         || null,
        req.companyId]
     );
     res.json({ ok: true });
