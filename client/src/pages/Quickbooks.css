@@ -215,6 +215,11 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px;
 }
 .qb-receipt-order { font-weight: 500; font-size: 0.9rem; }
+.qb-receipt-order-link {
+  color: #0958d9;
+  text-decoration: none;
+}
+.qb-receipt-order-link:hover { text-decoration: underline; }
 .qb-receipt-vendor { font-size: 0.85rem; color: #555; }
 .qb-receipt-date  { font-size: 0.75rem; color: #999; }
 .qb-receipt-card  { font-size: 0.75rem; color: #999; letter-spacing: 0.03em; }

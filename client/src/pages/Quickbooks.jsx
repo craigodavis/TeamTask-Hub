@@ -1049,7 +1049,20 @@ export function Quickbooks({ user }) {
                   )}
                   <div className="qb-receipt-main">
                     <div className="qb-receipt-meta">
-                      <span className="qb-receipt-order">{r.order_number}</span>
+                      {r.vendor === 'Amazon' && r.order_number ? (
+                        <a
+                          className="qb-receipt-order qb-receipt-order-link"
+                          href={`https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(r.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="View this order on Amazon"
+                        >
+                          {r.order_number}
+                        </a>
+                      ) : (
+                        <span className="qb-receipt-order">{r.order_number}</span>
+                      )}
                       <span className="qb-receipt-vendor">{r.vendor}</span>
                       {r.order_date && <span className="qb-receipt-date">{new Date(String(r.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
                       {r.card_last4 && activeTab !== 'excluded' && (
