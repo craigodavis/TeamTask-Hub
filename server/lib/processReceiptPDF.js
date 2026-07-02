@@ -68,10 +68,11 @@ function extractDeliveryAddress(pdfText) {
  */
 function isShippingNotification(text) {
   const lower = text.toLowerCase();
-  // Amazon shipping tracker phrases — appear together only in status emails
-  const hasTracker = lower.includes('out for delivery') || lower.includes('arriving tomorrow') || lower.includes('arriving today');
-  const hasShipStatus = lower.includes('ordered') && lower.includes('shipped') && lower.includes('delivered');
-  return hasTracker || hasShipStatus;
+  // Amazon shipping tracker phrases — specific enough to only appear in status emails.
+  // (Dropped the old "ordered"+"shipped"+"delivered" combo check — current order
+  // confirmation emails include a status-tracker widget with all three words,
+  // causing every real order confirmation to false-positive as a shipping notice.)
+  return lower.includes('out for delivery') || lower.includes('arriving tomorrow') || lower.includes('arriving today');
 }
 
 /**
