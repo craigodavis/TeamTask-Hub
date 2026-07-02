@@ -215,10 +215,12 @@ router.post('/upload', requireAuth, requireManager, upload.array('pdfs', 100), a
   // Load QBO reference data, product memory, and rules once for all files
   const ctx = await loadReceiptContext(cId);
 
+  const source = req.body?.source === 'email_amazon' ? 'email_amazon' : 'upload';
+
   // Process up to 5 files concurrently to stay within Claude API rate limits
   // processReceiptPDF returns an array (one entry per order found in the PDF)
   const perFileResults = await withConcurrency(req.files, 5, async (file) => {
-    return processReceiptPDF(cId, file.buffer, file.originalname, ctx, { contentType: file.mimetype });
+    return processReceiptPDF(cId, file.buffer, file.originalname, ctx, { contentType: file.mimetype, source });
   });
   const results = perFileResults.flat();
 
