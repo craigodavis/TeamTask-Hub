@@ -20,18 +20,55 @@
   border: 1px solid var(--border);
   border-left: 4px solid #cf1322;
   border-radius: var(--radius);
-  padding: 1.25rem 1.25rem 1rem;
+  overflow: hidden;
 }
 
 .policy-card-signed {
   border-left-color: #389e0d;
 }
 
+.policy-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.policy-card-header:hover { background: rgba(0,0,0,0.02); }
+.policy-card-header .policy-header-banner { margin-bottom: 0; flex-shrink: 0; }
+
 .policy-card-title {
-  margin: 0.25rem 0 0.5rem;
-  font-size: 1.1rem;
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.policy-card-chevron {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 1.2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.badge-policy-signed {
+  background: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+}
+
+.policy-card-body-wrap {
+  padding: 0 1.25rem 1.25rem;
 }
 
 .policy-card-body {
