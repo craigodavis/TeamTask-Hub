@@ -189,7 +189,7 @@ router.get('/policies', async (req, res) => {
        FROM announcements a
        LEFT JOIN policy_signatures ps ON ps.announcement_id = a.id AND ps.user_id = $2
        WHERE a.company_id = $1 AND a.is_policy = true
-       ORDER BY a.policy_required DESC, a.created_at DESC`,
+       ORDER BY a.created_at DESC`,
       [companyId, req.userId]
     );
     const policies = r.rows.map(({ my_signed_at, signed_count, ...rest }) => ({

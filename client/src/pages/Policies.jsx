@@ -44,6 +44,7 @@ export function Policies() {
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [openIds, setOpenIds] = useState(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,49 +65,78 @@ export function Policies() {
     setPolicies((prev) => prev.map((p) => (p.id === id ? { ...p, my_signed_at: signedAt, signed_count: (p.signed_count || 0) + 1 } : p)));
   };
 
+  const toggleOpen = (id) => {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const sortedPolicies = [...policies].sort((a, b) => {
+    const da = a.created_at || '';
+    const db = b.created_at || '';
+    return db.localeCompare(da);
+  });
+
   return (
     <div className="policies-page">
       <h2 className="policies-title">Policies</h2>
       <p className="hint">
         Policies you must read and sign appear here. They stay listed until you sign or the
-        author marks them as no longer required.
+        author marks them as no longer required. Click a policy to expand it.
       </p>
 
       {error && <p className="form-error">{error}</p>}
 
       {loading ? (
         <p className="dashboard-loading">Loading…</p>
-      ) : policies.length === 0 ? (
+      ) : sortedPolicies.length === 0 ? (
         <p className="hint">No policies have been created yet.</p>
       ) : (
         <div className="policies-list">
-          {policies.map((p) => {
+          {sortedPolicies.map((p) => {
             const signed = !!p.my_signed_at;
+            const open = openIds.has(p.id);
             return (
-              <div key={p.id} className={`policy-card${signed ? ' policy-card-signed' : ''}`}>
-                <div className="policy-header-banner">POLICY</div>
-                <h3 className="policy-card-title">{p.title}</h3>
-                {!p.policy_required && (
-                  <span className="status-badge badge-policy-inactive">No longer required</span>
-                )}
-                {p.body && (
-                  <div className="policy-card-body" dangerouslySetInnerHTML={{ __html: p.body }} />
-                )}
+              <div key={p.id} className={`policy-card${signed ? ' policy-card-signed' : ''}${open ? ' policy-card-open' : ''}`}>
+                <button
+                  type="button"
+                  className="policy-card-header"
+                  onClick={() => toggleOpen(p.id)}
+                  aria-expanded={open}
+                >
+                  <span className="policy-header-banner">POLICY</span>
+                  <span className="policy-card-title">{p.title}</span>
+                  {!p.policy_required && (
+                    <span className="status-badge badge-policy-inactive">No longer required</span>
+                  )}
+                  {signed && <span className="status-badge badge-policy-signed">✓ Signed</span>}
+                  <span className="policy-card-chevron" aria-hidden>{open ? '−' : '+'}</span>
+                </button>
 
-                {signed ? (
-                  <p className="hint">✓ You signed this on {new Date(p.my_signed_at).toLocaleDateString()}</p>
-                ) : p.policy_required ? (
-                  <PolicySignBox
-                    policy={p}
-                    currentUserName={user?.display_name}
-                    onSigned={(signedAt) => handleSigned(p.id, signedAt)}
-                  />
-                ) : (
-                  <p className="hint">This policy is no longer required and does not need a signature.</p>
-                )}
+                {open && (
+                  <div className="policy-card-body-wrap">
+                    {p.body && (
+                      <div className="policy-card-body" dangerouslySetInnerHTML={{ __html: p.body }} />
+                    )}
 
-                <p className="hint">{p.signed_count ?? 0} / {p.total_employees ?? '?'} employees signed</p>
-                <SignatureRoster policyId={p.id} />
+                    {signed ? (
+                      <p className="hint">✓ You signed this on {new Date(p.my_signed_at).toLocaleDateString()}</p>
+                    ) : p.policy_required ? (
+                      <PolicySignBox
+                        policy={p}
+                        currentUserName={user?.display_name}
+                        onSigned={(signedAt) => handleSigned(p.id, signedAt)}
+                      />
+                    ) : (
+                      <p className="hint">This policy is no longer required and does not need a signature.</p>
+                    )}
+
+                    <p className="hint">{p.signed_count ?? 0} / {p.total_employees ?? '?'} employees signed</p>
+                    <SignatureRoster policyId={p.id} />
+                  </div>
+                )}
               </div>
             );
           })}
