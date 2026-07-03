@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getLocations, getWineInventoryList, saveWineInventoryCount } from '../api';
+import { CASE_SIZE } from '../utils/wineInventory';
 import './WineInventory.css';
 
 const STATUS_VIEWS = [
@@ -55,6 +56,21 @@ function WineCountCard({ item, locationId, onSaved }) {
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
+  // Rolls any full cases' worth of loose bottles into the case count —
+  // e.g. 49 bottles -> +4 cases, 1 bottle remaining.
+  const bottleCount = parseInt(bottles, 10) || 0;
+  const canConvert = bottleCount >= CASE_SIZE;
+  const handleConvert = () => {
+    if (!canConvert) return;
+    const extraCases = Math.floor(bottleCount / CASE_SIZE);
+    const remainder = bottleCount % CASE_SIZE;
+    const newCases = (parseInt(cases, 10) || 0) + extraCases;
+    setCases(newCases);
+    setBottles(remainder);
+    clearTimeout(timerRef.current);
+    doSave(newCases, remainder);
+  };
+
   return (
     <div className={`wine-count-card${item.counted_today ? ' completed' : ' uncompleted'}${savedFlash ? ' just-saved' : ''}`}>
       <div className="wine-count-info">
@@ -92,6 +108,15 @@ function WineCountCard({ item, locationId, onSaved }) {
             onBlur={() => doSave(cases, bottles)}
           />
         </label>
+        <button
+          type="button"
+          className="wine-count-convert"
+          onClick={handleConvert}
+          disabled={!canConvert}
+          title="Convert loose bottles into whole cases"
+        >
+          ⇄
+        </button>
         {savedFlash && <span className="wine-count-saved">✓ saved</span>}
       </div>
     </div>

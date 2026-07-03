@@ -137,3 +137,27 @@
   white-space: nowrap;
   padding-bottom: 0.9rem;
 }
+
+.wine-count-convert {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.wine-count-convert:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.wine-count-convert:not(:disabled):hover {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
