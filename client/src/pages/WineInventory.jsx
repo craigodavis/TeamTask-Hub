@@ -157,10 +157,7 @@ export function WineInventory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  // Defaults to "all" so counts entered in a prior session (or before a
-  // refresh) stay visible. The Uncompleted view is opt-in, for actively
-  // working a checklist top-to-bottom in one sitting.
-  const [statusView, setStatusView] = useState('all');
+  const [statusView, setStatusView] = useState('uncompleted');
 
   useEffect(() => {
     getLocations()
