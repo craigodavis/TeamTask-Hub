@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getProducts, getProductFilters, getSquareItems, getTaxExemptItems, addTaxExemptItem, removeTaxExemptItem, getTaxGap } from '../api';
+import { getProducts, getProductFilters, getSquareItems, getTaxExemptItems, addTaxExemptItem, removeTaxExemptItem, getTaxGap, importC7Products } from '../api';
 import './Products.css';
 
 function syncBadge(needsPush, syncError) {
@@ -314,6 +314,8 @@ export function Products() {
   const [filterType, setFilterType]         = useState('Wine');
   const [search, setSearch]                 = useState('');
   const [offset, setOffset]                 = useState(0);
+  const [syncing, setSyncing]               = useState(false);
+  const [syncMessage, setSyncMessage]       = useState('');
   const LIMIT = 48;
 
   const load = useCallback(async () => {
@@ -350,6 +352,22 @@ export function Products() {
   };
 
   const hasFilters = filterVintage || filterVarietal || filterStyle || filterType || filterAvail || search;
+
+  const handleSyncC7 = async () => {
+    setSyncing(true);
+    setSyncMessage('');
+    setError('');
+    try {
+      const r = await importC7Products();
+      setSyncMessage(`Synced from Commerce7 — ${r.imported} new, ${r.updated} updated (${r.total} total).`);
+      getProductFilters().then(setFilters).catch(() => {});
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
   const totalPages = Math.ceil(total / LIMIT);
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
@@ -360,11 +378,17 @@ export function Products() {
           <h2 className="prod-title">Products</h2>
         </div>
         {tab === 'catalog' && (
-          <button className="prod-add-btn" onClick={() => navigate('/products/new')}>
-            + New Product
-          </button>
+          <div className="prod-toolbar-actions">
+            <button className="prod-sync-btn" onClick={handleSyncC7} disabled={syncing} title="Pull the latest products from Commerce7 into the wine catalog">
+              {syncing ? 'Syncing…' : '⟳ Sync from Commerce7'}
+            </button>
+            <button className="prod-add-btn" onClick={() => navigate('/products/new')}>
+              + New Product
+            </button>
+          </div>
         )}
       </div>
+      {syncMessage && <p className="prod-sync-message">{syncMessage}</p>}
 
       {/* Tab bar */}
       <div className="prod-tabs">
