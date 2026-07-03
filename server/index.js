@@ -37,6 +37,7 @@ import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
 import { squareSyncRouter, startSquareSyncScheduler } from './routes/squareSync.js';
 import { productsRouter } from './routes/products.js';
+import { productInventoryRouter } from './routes/productInventory.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -81,6 +82,8 @@ app.use('/api/amazon-session', requireAuth, amazonSessionRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
 app.use('/api/square', requireAuth, requireManager, squareRouter);
 app.use('/api/square/sync', requireAuth, requireManager, squareSyncRouter);
+// Mounted before /api/products so it isn't swallowed by that router's GET /:id.
+app.use('/api/products/inventory', requireAuth, productInventoryRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);

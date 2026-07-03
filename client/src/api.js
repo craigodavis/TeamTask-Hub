@@ -1188,6 +1188,38 @@ export async function getProduct(id) {
   return data;
 }
 
+// ── Wine Inventory ─────────────────────────────────────────────────────────────
+
+export async function getWineInventoryList(locationId) {
+  const res = await fetch(`${API}/products/inventory?location_id=${encodeURIComponent(locationId)}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load inventory list');
+  return data;
+}
+
+export async function saveWineInventoryCount({ product_id, location_id, cases, bottles }) {
+  const res = await fetch(`${API}/products/inventory`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_id, location_id, cases, bottles }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save count');
+  return data;
+}
+
+export async function getWineInventoryReport({ asOf, locationId, allItems }) {
+  const qs = new URLSearchParams({
+    as_of: asOf || '',
+    location_id: locationId || 'all',
+    all_items: allItems ? 'true' : 'false',
+  }).toString();
+  const res = await fetch(`${API}/products/inventory/report?${qs}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load inventory report');
+  return data;
+}
+
 // ── Commerce7 Settings ────────────────────────────────────────────────────────
 
 export async function getC7Settings() {

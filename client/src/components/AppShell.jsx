@@ -20,12 +20,18 @@ function isKitchenPath(pathname) {
     || pathname.startsWith('/quickbooks');
 }
 
+// Any route that lives under the Wine parent menu.
+function isWinePath(pathname) {
+  return pathname.startsWith('/products');
+}
+
 export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
 
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [kitchenExpanded, setKitchenExpanded] = useState(() => isKitchenPath(location.pathname));
+  const [wineExpanded, setWineExpanded] = useState(() => isWinePath(location.pathname));
 
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -251,14 +257,55 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
             </div>
           )}
           {isManager && (
-            <NavLink
-              to="/products"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🍷"
-              title="Products"
-            >
-              <span>Products</span>
-            </NavLink>
+            <div className="nav-item-row">
+              <button
+                type="button"
+                className={`app-shell-nav-item${isWinePath(location.pathname) ? ' active' : ''}`}
+                data-icon="🍷"
+                title="Wine"
+                onClick={() => setWineExpanded((v) => !v)}
+                aria-expanded={wineExpanded}
+              >
+                <span>Wine</span>
+              </button>
+              <button
+                type="button"
+                className="nav-sub-chevron"
+                onClick={() => setWineExpanded((v) => !v)}
+                aria-expanded={wineExpanded}
+                aria-label={wineExpanded ? 'Collapse Wine menu' : 'Expand Wine menu'}
+              >
+                {wineExpanded ? '−' : '+'}
+              </button>
+            </div>
+          )}
+          {isManager && wineExpanded && (
+            <div className="nav-sub-group">
+              <Link
+                to="/products"
+                className={`nav-sub-item${location.pathname === '/products' ? ' active' : ''}`}
+                onClick={() => { if (isMobile()) setCollapsed(true); }}
+              >
+                <span className="nav-sub-icon">🍇</span>
+                <span>Products</span>
+              </Link>
+              <Link
+                to="/products/inventory"
+                className={`nav-sub-item${location.pathname === '/products/inventory' ? ' active' : ''}`}
+                onClick={() => { if (isMobile()) setCollapsed(true); }}
+              >
+                <span className="nav-sub-icon">📋</span>
+                <span>Inventory</span>
+              </Link>
+              <Link
+                to="/products/inventory/report"
+                className={`nav-sub-item${location.pathname === '/products/inventory/report' ? ' active' : ''}`}
+                onClick={() => { if (isMobile()) setCollapsed(true); }}
+              >
+                <span className="nav-sub-icon">📊</span>
+                <span>Reports</span>
+              </Link>
+            </div>
           )}
           {isManager && (
             <NavLink

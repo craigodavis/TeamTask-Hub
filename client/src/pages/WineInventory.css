@@ -1,0 +1,139 @@
+.wine-inv-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.wine-inv-title {
+  margin: 0 0 0.75rem;
+}
+
+.wine-inv-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  background: var(--bg, #fff);
+  padding: 0.5rem 0;
+}
+
+.wine-inv-header select,
+.wine-inv-header input[type="text"] {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.95rem;
+  min-height: 44px;
+}
+
+.wine-inv-header input[type="text"] {
+  flex: 1;
+  min-width: 160px;
+}
+
+.wine-inv-status-pills {
+  display: flex;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.wine-inv-pill {
+  flex: 1;
+  padding: 0.5rem 0.6rem;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--text-muted, #888);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wine-inv-pill.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.wine-inv-progress {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+}
+
+.wine-inv-error { color: #cf1322; }
+.wine-inv-loading,
+.wine-inv-empty { color: var(--text-muted, #888); padding: 1rem 0; }
+
+.wine-count-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.wine-count-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid #1677ff;
+  border-radius: var(--radius, 10px);
+  padding: 0.85rem 1rem;
+  transition: border-left-color 0.3s, opacity 0.3s;
+}
+
+.wine-count-card.completed {
+  border-left-color: #389e0d;
+}
+
+.wine-count-card.just-saved {
+  box-shadow: 0 0 0 2px rgba(56, 158, 13, 0.3);
+}
+
+.wine-count-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.wine-count-last {
+  font-size: 0.78rem;
+  color: var(--text-muted, #888);
+  margin: 0.15rem 0 0.6rem;
+}
+
+.wine-count-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.wine-count-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  flex: 1;
+}
+
+.wine-count-field input {
+  min-height: 56px;
+  font-size: 1.25rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg, #fff);
+  color: var(--text);
+}
+
+.wine-count-saved {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #389e0d;
+  white-space: nowrap;
+  padding-bottom: 0.9rem;
+}
