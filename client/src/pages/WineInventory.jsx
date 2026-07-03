@@ -23,10 +23,15 @@ function WineCountCard({ item, locationId, onSaved }) {
   const [bottles, setBottles] = useState(item.bottles ?? 0);
   const [savedFlash, setSavedFlash] = useState(false);
   const timerRef = useRef(null);
+  // True once the user actually presses a key in either field — distinguishes
+  // "deliberately typed 0" (a real zero count) from "just tapped through
+  // without typing anything" (still showing the untouched default).
+  const touchedRef = useRef(false);
 
   useEffect(() => {
     setCases(item.cases ?? 0);
     setBottles(item.bottles ?? 0);
+    touchedRef.current = false;
   }, [item.id]);
 
   const scheduleSave = useCallback((nextCases, nextBottles) => {
@@ -35,10 +40,12 @@ function WineCountCard({ item, locationId, onSaved }) {
   }, []);
 
   const doSave = async (nextCases, nextBottles) => {
-    // 0 cases + 0 bottles is indistinguishable from "never touched this
-    // field" (that's the default state) — don't record it as a real count
-    // or mark the card completed just because focus passed through it.
-    if ((parseInt(nextCases, 10) || 0) === 0 && (parseInt(nextBottles, 10) || 0) === 0) return;
+    const casesNum = parseInt(nextCases, 10) || 0;
+    const bottlesNum = parseInt(nextBottles, 10) || 0;
+    // 0/0 on a field the user never actually typed into is indistinguishable
+    // from the untouched default — skip it. If they deliberately typed a 0
+    // (touchedRef is true), treat it as a real zero-inventory count.
+    if (!touchedRef.current && casesNum === 0 && bottlesNum === 0) return;
     try {
       await saveWineInventoryCount({
         product_id: item.id,
@@ -47,11 +54,15 @@ function WineCountCard({ item, locationId, onSaved }) {
         bottles: nextBottles,
       });
       setSavedFlash(true);
-      // Let the "✓ saved" flash be visible before this card can filter out of
-      // the Uncompleted view (onSaved flips counted_today, which drives that).
       setTimeout(() => {
         setSavedFlash(false);
-        onSaved(item.id, nextCases, nextBottles);
+        // Don't mark this completed (which can hide it from the Uncompleted
+        // view) while there's an un-converted case's worth of loose bottles
+        // sitting in the Bottles field — give the user a chance to hit
+        // Convert, or adjust it manually, first.
+        if (bottlesNum < CASE_SIZE) {
+          onSaved(item.id, nextCases, nextBottles);
+        }
       }, 900);
     } catch {
       // Leave the values as typed; user can retry by editing again.
@@ -97,6 +108,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             value={cases}
             onChange={(e) => { const v = e.target.value; setCases(v); scheduleSave(v, bottles); }}
             onFocus={(e) => e.target.select()}
+            onKeyDown={() => { touchedRef.current = true; }}
             onBlur={() => doSave(cases, bottles)}
           />
         </label>
@@ -109,6 +121,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             value={bottles}
             onChange={(e) => { const v = e.target.value; setBottles(v); scheduleSave(cases, v); }}
             onFocus={(e) => e.target.select()}
+            onKeyDown={() => { touchedRef.current = true; }}
             onBlur={() => doSave(cases, bottles)}
           />
         </label>
