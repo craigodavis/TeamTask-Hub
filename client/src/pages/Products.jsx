@@ -302,7 +302,7 @@ export function Products() {
   const tab = searchParams.get('tab') || 'catalog';
 
   const [products, setProducts] = useState([]);
-  const [filters, setFilters] = useState({ vintages: [], varietals: [], wine_styles: [] });
+  const [filters, setFilters] = useState({ vintages: [], varietals: [], wine_styles: [], product_types: [] });
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -310,7 +310,8 @@ export function Products() {
   const [filterVintage, setFilterVintage]   = useState('');
   const [filterVarietal, setFilterVarietal] = useState('');
   const [filterStyle, setFilterStyle]       = useState('');
-  const [filterAvail, setFilterAvail]       = useState('');
+  const [filterAvail, setFilterAvail]       = useState('true');
+  const [filterType, setFilterType]         = useState('Wine');
   const [search, setSearch]                 = useState('');
   const [offset, setOffset]                 = useState(0);
   const LIMIT = 48;
@@ -321,11 +322,12 @@ export function Products() {
     setError('');
     try {
       const params = { limit: LIMIT, offset };
-      if (filterVintage)  params.vintage   = filterVintage;
-      if (filterVarietal) params.varietal  = filterVarietal;
-      if (filterStyle)    params.wine_style = filterStyle;
-      if (filterAvail)    params.available  = filterAvail;
-      if (search)         params.search    = search;
+      if (filterVintage)  params.vintage      = filterVintage;
+      if (filterVarietal) params.varietal     = filterVarietal;
+      if (filterStyle)    params.wine_style   = filterStyle;
+      if (filterType)     params.product_type = filterType;
+      if (filterAvail)    params.available    = filterAvail;
+      if (search)         params.search       = search;
       const data = await getProducts(params);
       setProducts(data.products || []);
       setTotal(data.total || 0);
@@ -334,7 +336,7 @@ export function Products() {
     } finally {
       setLoading(false);
     }
-  }, [tab, filterVintage, filterVarietal, filterStyle, filterAvail, search, offset]);
+  }, [tab, filterVintage, filterVarietal, filterStyle, filterType, filterAvail, search, offset]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -344,10 +346,10 @@ export function Products() {
 
   const resetFilters = () => {
     setFilterVintage(''); setFilterVarietal(''); setFilterStyle('');
-    setFilterAvail(''); setSearch(''); setOffset(0);
+    setFilterType(''); setFilterAvail(''); setSearch(''); setOffset(0);
   };
 
-  const hasFilters = filterVintage || filterVarietal || filterStyle || filterAvail || search;
+  const hasFilters = filterVintage || filterVarietal || filterStyle || filterType || filterAvail || search;
   const totalPages = Math.ceil(total / LIMIT);
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
@@ -409,6 +411,10 @@ export function Products() {
             <select value={filterStyle} onChange={(e) => { setFilterStyle(e.target.value); setOffset(0); }}>
               <option value="">All styles</option>
               {filters.wine_styles?.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setOffset(0); }}>
+              <option value="">All types</option>
+              {filters.product_types?.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <select value={filterAvail} onChange={(e) => { setFilterAvail(e.target.value); setOffset(0); }}>
               <option value="">Any availability</option>

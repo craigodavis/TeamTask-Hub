@@ -92,6 +92,7 @@ export function ProductDetail() {
   const [vintage, setVintage]         = useState('');
   const [varietal, setVarietal]       = useState('');
   const [wineStyle, setWineStyle]     = useState('');
+  const [productType, setProductType] = useState('');
   const [appellation, setAppellation] = useState('');
   const [region, setRegion]           = useState('');
   const [country, setCountry]         = useState('USA');
@@ -130,6 +131,7 @@ export function ProductDetail() {
         setVintage(p.vintage ? String(p.vintage) : '');
         setVarietal(p.varietal || '');
         setWineStyle(p.wine_style || '');
+        setProductType(p.product_type || '');
         setAppellation(p.appellation || '');
         setRegion(p.region || '');
         setCountry(p.country || 'USA');
@@ -163,6 +165,7 @@ export function ProductDetail() {
       vintage: vintage ? parseInt(vintage, 10) : null,
       varietal: varietal || null,
       wine_style: wineStyle || null,
+      product_type: productType || null,
       appellation: appellation || null,
       region: region || null,
       country: country || 'USA',
@@ -378,6 +381,17 @@ export function ProductDetail() {
                   <option value="">— Select —</option>
                   {WINE_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
+              </div>
+              <div className="pd-field">
+                <label htmlFor="pd-type">Type</label>
+                <input
+                  id="pd-type"
+                  type="text"
+                  value={productType}
+                  onChange={(e) => setProductType(e.target.value)}
+                  placeholder="e.g. Wine"
+                />
+                <span className="pd-field-hint">Commerce7's top-level product type (Wine vs Non-Wine) — used to filter the catalog.</span>
               </div>
             </div>
 

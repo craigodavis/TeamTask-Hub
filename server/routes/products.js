@@ -32,7 +32,7 @@ function cid(req) { return req.companyId; }
 router.get('/', requireAuth, async (req, res) => {
   try {
     const {
-      vintage, varietal, wine_style, available,
+      vintage, varietal, wine_style, available, product_type,
       archived = 'false', search,
       limit = 50, offset = 0,
     } = req.query;
@@ -42,9 +42,10 @@ router.get('/', requireAuth, async (req, res) => {
     const add = (sql, val) => { params.push(val); conditions.push(`${sql} $${params.length}`); };
 
     if (archived !== 'true') conditions.push('p.is_archived = false');
-    if (vintage)    add('p.vintage =',      parseInt(vintage, 10));
-    if (varietal)   add('p.varietal ILIKE', `%${varietal}%`);
-    if (wine_style) add('p.wine_style =',   wine_style);
+    if (vintage)      add('p.vintage =',       parseInt(vintage, 10));
+    if (varietal)     add('p.varietal ILIKE',  `%${varietal}%`);
+    if (wine_style)   add('p.wine_style =',    wine_style);
+    if (product_type) add('p.product_type =',  product_type);
     if (available !== undefined) add('p.is_available =', available === 'true');
     if (search) {
       params.push(`%${search}%`);
@@ -59,7 +60,7 @@ router.get('/', requireAuth, async (req, res) => {
     const result = await withConn((client) => client.query(
       `SELECT
          p.id, p.name, p.vintage, p.varietal, p.wine_style, p.appellation,
-         p.region, p.alcohol_pct, p.is_available, p.is_archived,
+         p.region, p.alcohol_pct, p.is_available, p.is_archived, p.product_type,
          p.display_order, p.images, p.created_at, p.updated_at,
          c7.c7_product_id, c7.c7_handle, c7.teaser,
          -- variant summary
@@ -106,12 +107,13 @@ router.get('/filters', requireAuth, async (req, res) => {
       `SELECT
          array_agg(DISTINCT p.vintage ORDER BY p.vintage DESC) FILTER (WHERE p.vintage IS NOT NULL) AS vintages,
          array_agg(DISTINCT p.varietal ORDER BY p.varietal)    FILTER (WHERE p.varietal IS NOT NULL) AS varietals,
-         array_agg(DISTINCT p.wine_style ORDER BY p.wine_style) FILTER (WHERE p.wine_style IS NOT NULL) AS wine_styles
+         array_agg(DISTINCT p.wine_style ORDER BY p.wine_style) FILTER (WHERE p.wine_style IS NOT NULL) AS wine_styles,
+         array_agg(DISTINCT p.product_type ORDER BY p.product_type) FILTER (WHERE p.product_type IS NOT NULL) AS product_types
        FROM product.products p
        WHERE p.company_id = $1 AND p.is_archived = false`,
       [cid(req)]
     ));
-    res.json(result.rows[0] || { vintages: [], varietals: [], wine_styles: [] });
+    res.json(result.rows[0] || { vintages: [], varietals: [], wine_styles: [], product_types: [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -330,16 +332,20 @@ router.post('/import/c7', requireAuth, async (req, res) => {
           return (n >= 1900 && n <= 2100) ? n : null;
         })();
 
+        // wine.type is the wine style (Red/White/Rosé/etc). p.type is a different,
+        // top-level Commerce7 field (Wine vs Non-Wine) — captured separately below
+        // as product_type. These used to be incorrectly conflated here.
         const wineStyle = (() => {
-          const t = String(wine.type || p.type || '').toLowerCase();
+          const t = String(wine.type || '').toLowerCase();
           if (t.includes('red')) return 'Red';
           if (t.includes('white')) return 'White';
           if (t.includes('ros')) return 'Rosé';
           if (t.includes('sparkling') || t.includes('bubble')) return 'Sparkling';
           if (t.includes('dessert') || t.includes('sweet')) return 'Dessert';
           if (t.includes('fortif')) return 'Fortified';
-          return wine.type || p.type || null;
+          return wine.type || null;
         })();
+        const productType = p.type || null;
 
         // C7 uses webStatus / adminStatus, not isAvailable
         const isAvailable = p.webStatus === 'Available' || p.adminStatus === 'Available';
@@ -360,8 +366,8 @@ router.post('/import/c7', requireAuth, async (req, res) => {
             `UPDATE product.products SET
                name = $1, description = $2, vintage = $3, varietal = $4,
                wine_style = $5, appellation = $6, region = $7, country = $8,
-               alcohol_pct = $9, is_available = $10, images = $11, updated_at = NOW()
-             WHERE id = $12`,
+               alcohol_pct = $9, is_available = $10, images = $11, product_type = $12, updated_at = NOW()
+             WHERE id = $13`,
             [
               p.title || 'Unnamed Product',
               p.content || null,
@@ -374,6 +380,7 @@ router.post('/import/c7', requireAuth, async (req, res) => {
               null, // alcohol is per-variant in C7
               isAvailable,
               JSON.stringify(images),
+              productType,
               productId,
             ]
           );
@@ -382,8 +389,8 @@ router.post('/import/c7', requireAuth, async (req, res) => {
           const ins = await client.query(
             `INSERT INTO product.products
                (company_id, name, description, vintage, varietal, wine_style,
-                appellation, region, country, alcohol_pct, is_available, display_order, images)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                appellation, region, country, alcohol_pct, is_available, display_order, images, product_type)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
              RETURNING id`,
             [
               companyId,
@@ -399,6 +406,7 @@ router.post('/import/c7', requireAuth, async (req, res) => {
               isAvailable,
               p.sortOrder ?? 0,
               JSON.stringify(images),
+              productType,
             ]
           );
           productId = ins.rows[0].id;
@@ -633,6 +641,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (b.vintage !== undefined)      addProd('vintage', b.vintage ? parseInt(b.vintage, 10) : null);
       if (b.varietal !== undefined)     addProd('varietal', b.varietal ?? null);
       if (b.wine_style !== undefined)   addProd('wine_style', b.wine_style ?? null);
+      if (b.product_type !== undefined) addProd('product_type', b.product_type ?? null);
       if (b.appellation !== undefined)  addProd('appellation', b.appellation ?? null);
       if (b.region !== undefined)       addProd('region', b.region ?? null);
       if (b.country !== undefined)      addProd('country', b.country ?? null);
@@ -829,8 +838,8 @@ router.post('/', requireAuth, async (req, res) => {
       const prodRes = await client.query(
         `INSERT INTO product.products
            (company_id, name, description, vintage, varietal, wine_style,
-            appellation, region, country, is_available, is_archived, display_order, images)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            appellation, region, country, is_available, is_archived, display_order, images, product_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING id`,
         [
           companyId,
@@ -846,6 +855,7 @@ router.post('/', requireAuth, async (req, res) => {
           false,
           0,
           JSON.stringify([]),
+          b.product_type ?? 'Wine',
         ]
       );
       const productId = prodRes.rows[0].id;

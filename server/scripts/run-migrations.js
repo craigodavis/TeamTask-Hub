@@ -2218,6 +2218,12 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_product_inv_log_lookup ON product.product_inventory_log(product_id, location_id, counted_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_product_inv_log_company_date ON product.product_inventory_log(company_id, counted_at DESC)`,
+
+  // Commerce7's top-level product "Type" (e.g. Wine vs Non-Wine) — distinct
+  // from wine_style (Red/White/Rosé/etc, sourced from wine.type). Needed to
+  // filter wine products out of food/merchandise items synced from C7.
+  `ALTER TABLE product.products ADD COLUMN IF NOT EXISTS product_type VARCHAR(100)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_type ON product.products(company_id, product_type)`,
 ];
 
 export async function runMigrations() {
