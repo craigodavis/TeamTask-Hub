@@ -76,6 +76,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             min="0"
             value={cases}
             onChange={(e) => { const v = e.target.value; setCases(v); scheduleSave(v, bottles); }}
+            onFocus={(e) => e.target.select()}
             onBlur={() => doSave(cases, bottles)}
           />
         </label>
@@ -87,6 +88,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             min="0"
             value={bottles}
             onChange={(e) => { const v = e.target.value; setBottles(v); scheduleSave(cases, v); }}
+            onFocus={(e) => e.target.select()}
             onBlur={() => doSave(cases, bottles)}
           />
         </label>
