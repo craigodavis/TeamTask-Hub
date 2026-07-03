@@ -35,6 +35,10 @@ function WineCountCard({ item, locationId, onSaved }) {
   }, []);
 
   const doSave = async (nextCases, nextBottles) => {
+    // 0 cases + 0 bottles is indistinguishable from "never touched this
+    // field" (that's the default state) — don't record it as a real count
+    // or mark the card completed just because focus passed through it.
+    if ((parseInt(nextCases, 10) || 0) === 0 && (parseInt(nextBottles, 10) || 0) === 0) return;
     try {
       await saveWineInventoryCount({
         product_id: item.id,
