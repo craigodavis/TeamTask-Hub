@@ -165,17 +165,40 @@ export function WineInventory() {
       .catch((e) => { setError(e.message); setLoading(false); });
   }, []);
 
+  // Which items are shown is a snapshot, recomputed only on a genuine reload
+  // or an explicit filter/search change (loadEpoch/statusView/search) — NOT
+  // every time an item's counted_today flips via a save. Otherwise finishing
+  // a wine on the Uncompleted view would yank it out of the list mid-session
+  // and reflow everything else, which is disorienting while actively working
+  // down a checklist.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const [pinnedIds, setPinnedIds] = useState(new Set());
+  const [loadEpoch, setLoadEpoch] = useState(0);
+
   const load = useCallback(() => {
     if (!locationId) return;
     setLoading(true);
     setError('');
     getWineInventoryList(locationId)
-      .then((d) => setItems(d.items || []))
+      .then((d) => { setItems(d.items || []); setLoadEpoch((e) => e + 1); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [locationId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const filtered = itemsRef.current
+      .filter((i) => matchesSearch(i, search))
+      .filter((i) => {
+        if (statusView === 'uncompleted') return !i.counted_today;
+        if (statusView === 'completed') return i.counted_today;
+        return true;
+      });
+    setPinnedIds(new Set(filtered.map((i) => i.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadEpoch, statusView, search]);
 
   const handleLocationChange = (id) => {
     setLocationId(id);
@@ -194,13 +217,7 @@ export function WineInventory() {
 
   const remaining = items.filter((i) => !i.counted_today).length;
 
-  const visible = items
-    .filter((i) => matchesSearch(i, search))
-    .filter((i) => {
-      if (statusView === 'uncompleted') return !i.counted_today;
-      if (statusView === 'completed') return i.counted_today;
-      return true;
-    });
+  const visible = items.filter((i) => pinnedIds.has(i.id));
 
   return (
     <div className="wine-inv-page">
