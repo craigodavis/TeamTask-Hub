@@ -17,15 +17,20 @@ function matchesSearch(item, term) {
   return (item.name || '').toLowerCase().includes(t) || (item.varietal || '').toLowerCase().includes(t);
 }
 
-// Auto-saves a case+bottle count (debounced) for one wine — no explicit Save button.
+// Cases/Bottles auto-save a draft in the background as you type (so nothing
+// is lost if you navigate away), but that alone never marks a wine
+// completed. Only pressing "Done" does — it also auto-normalizes any bottle
+// overflow (>= 12) into cases first. This removes all the timing-based
+// auto-complete logic that made items disappear unpredictably.
 function WineCountCard({ item, locationId, onSaved }) {
   const [cases, setCases] = useState(item.cases ?? 0);
   const [bottles, setBottles] = useState(item.bottles ?? 0);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const timerRef = useRef(null);
   // True once the user actually presses a key in either field — distinguishes
-  // "deliberately typed 0" (a real zero count) from "just tapped through
-  // without typing anything" (still showing the untouched default).
+  // "deliberately typed 0" (skip nothing) from "just tapped through without
+  // typing anything" (skip the pointless background draft save).
   const touchedRef = useRef(false);
 
   useEffect(() => {
@@ -34,17 +39,9 @@ function WineCountCard({ item, locationId, onSaved }) {
     touchedRef.current = false;
   }, [item.id]);
 
-  const scheduleSave = useCallback((nextCases, nextBottles) => {
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => doSave(nextCases, nextBottles), 500);
-  }, []);
-
-  const doSave = async (nextCases, nextBottles) => {
+  const persistDraft = async (nextCases, nextBottles) => {
     const casesNum = parseInt(nextCases, 10) || 0;
     const bottlesNum = parseInt(nextBottles, 10) || 0;
-    // 0/0 on a field the user never actually typed into is indistinguishable
-    // from the untouched default — skip it. If they deliberately typed a 0
-    // (touchedRef is true), treat it as a real zero-inventory count.
     if (!touchedRef.current && casesNum === 0 && bottlesNum === 0) return;
     try {
       await saveWineInventoryCount({
@@ -54,36 +51,49 @@ function WineCountCard({ item, locationId, onSaved }) {
         bottles: nextBottles,
       });
       setSavedFlash(true);
-      setTimeout(() => {
-        setSavedFlash(false);
-        // Don't mark this completed (which can hide it from the Uncompleted
-        // view) while there's an un-converted case's worth of loose bottles
-        // sitting in the Bottles field — give the user a chance to hit
-        // Convert, or adjust it manually, first.
-        if (bottlesNum < CASE_SIZE) {
-          onSaved(item.id, nextCases, nextBottles);
-        }
-      }, 900);
+      setTimeout(() => setSavedFlash(false), 900);
     } catch {
-      // Leave the values as typed; user can retry by editing again.
+      // Leave the values as typed; the next edit (or Done) will retry.
     }
   };
 
+  const scheduleSave = useCallback((nextCases, nextBottles) => {
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => persistDraft(nextCases, nextBottles), 500);
+  }, []);
+
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  // Rolls any full cases' worth of loose bottles into the case count —
-  // e.g. 49 bottles -> +4 cases, 1 bottle remaining.
   const bottleCount = parseInt(bottles, 10) || 0;
-  const canConvert = bottleCount >= CASE_SIZE;
-  const handleConvert = () => {
-    if (!canConvert) return;
-    const extraCases = Math.floor(bottleCount / CASE_SIZE);
-    const remainder = bottleCount % CASE_SIZE;
-    const newCases = (parseInt(cases, 10) || 0) + extraCases;
-    setCases(newCases);
-    setBottles(remainder);
+  const caseCount = parseInt(cases, 10) || 0;
+
+  // The only path that marks a wine completed. Rolls any full case's worth
+  // of loose bottles into the case count first, then saves and completes —
+  // whatever the values are, even 0/0, since pressing this is unambiguous
+  // deliberate intent.
+  const handleDone = async () => {
     clearTimeout(timerRef.current);
-    doSave(newCases, remainder);
+    let finalCases = caseCount;
+    let finalBottles = bottleCount;
+    if (finalBottles >= CASE_SIZE) {
+      finalCases += Math.floor(finalBottles / CASE_SIZE);
+      finalBottles = finalBottles % CASE_SIZE;
+      setCases(finalCases);
+      setBottles(finalBottles);
+    }
+    setFinishing(true);
+    try {
+      await saveWineInventoryCount({
+        product_id: item.id,
+        location_id: locationId,
+        cases: finalCases,
+        bottles: finalBottles,
+      });
+      onSaved(item.id, finalCases, finalBottles);
+    } catch {
+      setFinishing(false);
+      // Leave as-is; user can press Done again to retry.
+    }
   };
 
   return (
@@ -109,7 +119,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             onChange={(e) => { const v = e.target.value; setCases(v); scheduleSave(v, bottles); }}
             onFocus={(e) => e.target.select()}
             onKeyDown={() => { touchedRef.current = true; }}
-            onBlur={() => doSave(cases, bottles)}
+            onBlur={() => persistDraft(cases, bottles)}
           />
         </label>
         <label className="wine-count-field">
@@ -122,19 +132,19 @@ function WineCountCard({ item, locationId, onSaved }) {
             onChange={(e) => { const v = e.target.value; setBottles(v); scheduleSave(cases, v); }}
             onFocus={(e) => e.target.select()}
             onKeyDown={() => { touchedRef.current = true; }}
-            onBlur={() => doSave(cases, bottles)}
+            onBlur={() => persistDraft(cases, bottles)}
           />
         </label>
         <button
           type="button"
-          className="wine-count-convert"
-          onClick={handleConvert}
-          disabled={!canConvert}
-          title="Convert loose bottles into whole cases"
+          className="wine-count-done"
+          onClick={handleDone}
+          disabled={finishing}
+          title="Save this count and mark it done (auto-converts bottle overflow into cases)"
         >
-          ⇄
+          {finishing ? '…' : '✓ Done'}
         </button>
-        {savedFlash && <span className="wine-count-saved">✓ saved</span>}
+        {savedFlash && <span className="wine-count-saved">saved</span>}
       </div>
     </div>
   );

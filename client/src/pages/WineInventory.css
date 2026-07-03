@@ -138,26 +138,26 @@
   padding-bottom: 0.9rem;
 }
 
-.wine-count-convert {
+.wine-count-done {
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 6px;
-  border: 1px solid var(--border);
+  min-height: 56px;
+  padding: 0 1rem;
+  margin-bottom: 0;
+  border: 1px solid #389e0d;
   border-radius: 10px;
-  background: var(--card);
-  color: var(--text);
-  font-size: 1.15rem;
+  background: #389e0d;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.wine-count-convert:disabled {
-  opacity: 0.3;
+.wine-count-done:disabled {
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
-.wine-count-convert:not(:disabled):hover {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
+.wine-count-done:not(:disabled):hover {
+  background: #2f8709;
 }
