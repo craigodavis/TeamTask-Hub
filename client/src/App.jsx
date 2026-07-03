@@ -180,7 +180,7 @@ function App() {
           <Route
             path="/products/inventory"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
                 <WineInventory />
               ) : (
                 <Navigate to="/" replace />
@@ -190,7 +190,7 @@ function App() {
           <Route
             path="/products/inventory/report"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
                 <WineInventoryReport />
               ) : (
                 <Navigate to="/" replace />

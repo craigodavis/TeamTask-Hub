@@ -5,7 +5,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import { requireInventoryAccess } from '../middleware/auth.js';
 import { toTotalBottles, fromTotalBottles } from '../lib/wineInventory.js';
 
 const router = express.Router();
@@ -19,7 +19,7 @@ async function getCompanyTimezone(companyId) {
 // ── GET /api/products/inventory?location_id=X ────────────────────────────────
 // Entry-list data: every available-for-sale product with its current count at
 // this location, whether it was already counted today, and who/when last counted.
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireInventoryAccess, async (req, res) => {
   try {
     const { location_id } = req.query;
     if (!location_id) return res.status(400).json({ error: 'location_id is required' });
@@ -61,7 +61,7 @@ router.get('/', requireAuth, async (req, res) => {
 
 // ── POST /api/products/inventory ──────────────────────────────────────────────
 // Body: { product_id, location_id, cases, bottles }
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireInventoryAccess, async (req, res) => {
   try {
     const { product_id, location_id, cases, bottles } = req.body;
     if (!product_id || !location_id) {
@@ -93,7 +93,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // ── GET /api/products/inventory/report?as_of=YYYY-MM-DD&location_id=X&all_items=true|false ──
-router.get('/report', requireManager, async (req, res) => {
+router.get('/report', requireInventoryAccess, async (req, res) => {
   try {
     const companyId = cid(req);
     const asOf = req.query.as_of || new Date().toISOString().slice(0, 10);

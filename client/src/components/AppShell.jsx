@@ -53,6 +53,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const isManager = user?.role === 'manager' || user?.role === 'owner';
   const isOwner = user?.role === 'owner';
   const canAccessGC = user?.role === 'gc' || user?.role === 'manager' || user?.role === 'owner';
+  const canAccessInventory = user?.role === 'inventory' || isManager;
   const appTitle = appHubTitle(user);
 
   const managerLinks = isManager
@@ -256,7 +257,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </Link>
             </div>
           )}
-          {isManager && (
+          {canAccessInventory && (
             <div className="nav-item-row">
               <button
                 type="button"
@@ -279,16 +280,18 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </button>
             </div>
           )}
-          {isManager && wineExpanded && (
+          {canAccessInventory && wineExpanded && (
             <div className="nav-sub-group">
-              <Link
-                to="/products"
-                className={`nav-sub-item${location.pathname === '/products' ? ' active' : ''}`}
-                onClick={() => { if (isMobile()) setCollapsed(true); }}
-              >
-                <span className="nav-sub-icon">🍇</span>
-                <span>Products</span>
-              </Link>
+              {isManager && (
+                <Link
+                  to="/products"
+                  className={`nav-sub-item${location.pathname === '/products' ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">🍇</span>
+                  <span>Products</span>
+                </Link>
+              )}
               <Link
                 to="/products/inventory"
                 className={`nav-sub-item${location.pathname === '/products/inventory' ? ' active' : ''}`}

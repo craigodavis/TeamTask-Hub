@@ -2224,6 +2224,12 @@ const MIGRATIONS = [
   // filter wine products out of food/merchandise items synced from C7.
   `ALTER TABLE product.products ADD COLUMN IF NOT EXISTS product_type VARCHAR(100)`,
   `CREATE INDEX IF NOT EXISTS idx_products_type ON product.products(company_id, product_type)`,
+
+  // ── "User + Inventory" role: normal member permissions plus access to
+  // Wine Inventory (entry + reports), but not the Products catalog itself.
+  `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
+  `ALTER TABLE users ADD CONSTRAINT users_role_check
+     CHECK (role IN ('member', 'manager', 'owner', 'gc', 'inventory'))`,
 ];
 
 export async function runMigrations() {
