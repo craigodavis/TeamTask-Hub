@@ -51,7 +51,7 @@ function WineCountCard({ item, locationId, onSaved }) {
       // the Uncompleted view (onSaved flips counted_today, which drives that).
       setTimeout(() => {
         setSavedFlash(false);
-        onSaved(item.id);
+        onSaved(item.id, nextCases, nextBottles);
       }, 900);
     } catch {
       // Leave the values as typed; user can retry by editing again.
@@ -169,8 +169,14 @@ export function WineInventory() {
     localStorage.setItem(LOCATION_STORAGE_KEY, id);
   };
 
-  const handleSaved = (productId) => {
-    setItems((prev) => prev.map((i) => (i.id === productId ? { ...i, counted_today: true } : i)));
+  const handleSaved = (productId, cases, bottles) => {
+    setItems((prev) => prev.map((i) => (i.id === productId ? {
+      ...i,
+      counted_today: true,
+      cases: parseInt(cases, 10) || 0,
+      bottles: parseInt(bottles, 10) || 0,
+      last_counted_at: new Date().toISOString(),
+    } : i)));
   };
 
   const remaining = items.filter((i) => !i.counted_today).length;
