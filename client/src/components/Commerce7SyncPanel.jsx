@@ -13,6 +13,10 @@ function statusBadge(obj) {
   if (!obj.last_sync_status) return <span className="ssync-badge ssync-badge-none">Never run</span>;
   if (obj.last_sync_status === 'running') return <span className="ssync-badge ssync-badge-running">Running…</span>;
   if (obj.last_sync_status === 'error')   return <span className="ssync-badge ssync-badge-error" title={obj.last_sync_error}>Error</span>;
+  // A sync can succeed overall while some individual items failed (each item
+  // is isolated server-side) — last_sync_error carries that note even when
+  // status is 'ok', so surface it distinctly from a hard failure.
+  if (obj.last_sync_error) return <span className="ssync-badge ssync-badge-warn" title={obj.last_sync_error}>OK, with skips</span>;
   return <span className="ssync-badge ssync-badge-ok">OK</span>;
 }
 
@@ -159,12 +163,13 @@ export function Commerce7SyncPanel() {
                 </td>
               </tr>
 
-              {/* Show last log entry inline when there's an error */}
-              {obj.last_sync_status === 'error' && obj.last_sync_error && (
+              {/* Show last log entry inline when there's an error, or when the
+                  run succeeded but skipped some individual items */}
+              {obj.last_sync_error && (
                 <tr className="ssync-gaps-row">
                   <td colSpan={7}>
                     <div className="ssync-error" style={{ margin: 0 }}>
-                      ⚠ Last error: {obj.last_sync_error}
+                      {obj.last_sync_status === 'error' ? '⚠ Last error: ' : '⚠ '}{obj.last_sync_error}
                     </div>
                   </td>
                 </tr>
