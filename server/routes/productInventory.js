@@ -6,7 +6,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireInventoryAccess } from '../middleware/auth.js';
-import { toTotalBottles, fromTotalBottles } from '../lib/wineInventory.js';
+import { toTotalBottles, fromTotalBottles, parseVolumeMl, mlToLitersGallons, CASE_SIZE } from '../lib/wineInventory.js';
 
 const router = express.Router();
 const cid = (req) => req.companyId;
@@ -104,43 +104,47 @@ router.get('/report', requireInventoryAccess, async (req, res) => {
     const locationId = req.query.location_id && req.query.location_id !== 'all' ? req.query.location_id : null;
     const allItems = req.query.all_items === 'true';
 
-    // Most recent log entry per product+location at or before as_of.
-    const params = [companyId, `${asOf}T23:59:59.999Z`];
-    let locationFilter = '';
-    if (locationId) {
-      params.push(locationId);
-      locationFilter = `AND location_id = $${params.length}`;
-    }
-
+    // Most recent log entry per product+location at or before as_of. Always
+    // pulls every location — the per-location summary at the bottom needs
+    // all of them regardless of which one the main table is scoped to.
     const r = await query(
       `SELECT DISTINCT ON (product_id, location_id) product_id, location_id, total_bottles, counted_at
        FROM product.product_inventory_log
-       WHERE company_id = $1 AND counted_at <= $2 ${locationFilter}
+       WHERE company_id = $1 AND counted_at <= $2
        ORDER BY product_id, location_id, counted_at DESC`,
-      params
+      [companyId, `${asOf}T23:59:59.999Z`]
     );
-
-    // Sum across locations per product (a no-op when a single location is selected).
-    const byProduct = new Map();
-    for (const row of r.rows) {
-      const prev = byProduct.get(row.product_id) || { total_bottles: 0, counted_at: null };
-      prev.total_bottles += row.total_bottles;
-      if (!prev.counted_at || row.counted_at > prev.counted_at) prev.counted_at = row.counted_at;
-      byProduct.set(row.product_id, prev);
-    }
 
     const productParams = [companyId];
     let availabilityFilter = 'AND p.is_available = true';
     if (allItems) availabilityFilter = '';
 
+    // One row per product with its default (or lowest-ordinal) variant's
+    // bottle volume, needed for the liter/gallon total.
     const productsRes = await query(
-      `SELECT id, name, vintage, varietal, is_available
+      `SELECT p.id, p.name, p.vintage, p.varietal, p.is_available,
+              (SELECT v.volume_format FROM product.product_variants v
+               WHERE v.product_id = p.id
+               ORDER BY v.is_default DESC, v.ordinal ASC LIMIT 1) AS volume_format
        FROM product.products p
        WHERE p.company_id = $1 AND p.is_archived = false ${availabilityFilter}
          AND (p.product_type = 'Wine' OR p.product_type IS NULL)
        ORDER BY p.display_order, p.name`,
       productParams
     );
+    const validProductIds = new Set(productsRes.rows.map((p) => p.id));
+
+    // Main table: sum across locations per product, scoped to the selected
+    // location if one was requested (a no-op when 'all' is selected).
+    const byProduct = new Map();
+    for (const row of r.rows) {
+      if (!validProductIds.has(row.product_id)) continue;
+      if (locationId && row.location_id !== locationId) continue;
+      const prev = byProduct.get(row.product_id) || { total_bottles: 0, counted_at: null };
+      prev.total_bottles += row.total_bottles;
+      if (!prev.counted_at || row.counted_at > prev.counted_at) prev.counted_at = row.counted_at;
+      byProduct.set(row.product_id, prev);
+    }
 
     const items = productsRes.rows.map((p) => {
       const counted = byProduct.get(p.id);
@@ -157,7 +161,47 @@ router.get('/report', requireInventoryAccess, async (req, res) => {
       };
     });
 
-    res.json({ as_of: asOf, items });
+    // Bottom summary: total cases per location + grand total + volume,
+    // always across every location regardless of the main table's scope.
+    const locationsRes = await query(
+      `SELECT id, name FROM locations WHERE company_id = $1 ORDER BY name`,
+      [companyId]
+    );
+    const bottlesByLocation = new Map(locationsRes.rows.map((l) => [l.id, 0]));
+    const bottlesByProductAllLocations = new Map();
+    let grandTotalBottles = 0;
+    for (const row of r.rows) {
+      if (!validProductIds.has(row.product_id)) continue;
+      bottlesByLocation.set(row.location_id, (bottlesByLocation.get(row.location_id) || 0) + row.total_bottles);
+      bottlesByProductAllLocations.set(row.product_id, (bottlesByProductAllLocations.get(row.product_id) || 0) + row.total_bottles);
+      grandTotalBottles += row.total_bottles;
+    }
+    // Volume must reflect every location, not just the selected one.
+    let totalMl = 0;
+    for (const p of productsRes.rows) {
+      const bottleMl = parseVolumeMl(p.volume_format);
+      totalMl += (bottlesByProductAllLocations.get(p.id) || 0) * bottleMl;
+    }
+
+    const locationSummary = locationsRes.rows.map((l) => ({
+      location_id: l.id,
+      location_name: l.name,
+      total_bottles: bottlesByLocation.get(l.id) || 0,
+      cases: Math.round(((bottlesByLocation.get(l.id) || 0) / CASE_SIZE) * 10) / 10,
+    }));
+
+    res.json({
+      as_of: asOf,
+      items,
+      summary: {
+        all_locations: {
+          total_bottles: grandTotalBottles,
+          cases: Math.round((grandTotalBottles / CASE_SIZE) * 10) / 10,
+        },
+        by_location: locationSummary,
+        volume: mlToLitersGallons(totalMl),
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
