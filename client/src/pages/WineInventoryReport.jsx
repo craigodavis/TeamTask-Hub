@@ -10,6 +10,7 @@ export function WineInventoryReport() {
   const [asOf, setAsOf] = useState(() => todayInTimezone());
   const [allItems, setAllItems] = useState(false);
   const [items, setItems] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -21,7 +22,7 @@ export function WineInventoryReport() {
     setLoading(true);
     setError('');
     getWineInventoryReport({ asOf, locationId, allItems })
-      .then((d) => setItems(d.items || []))
+      .then((d) => { setItems(d.items || []); setSummary(d.summary || null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [asOf, locationId, allItems]);
@@ -75,6 +76,33 @@ export function WineInventoryReport() {
                   <td>{item.last_counted_at ? new Date(item.last_counted_at).toLocaleDateString() : '—'}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {summary && (
+        <div className="wine-report-summary">
+          <h3 className="wine-report-summary-title">Totals</h3>
+          <table className="wine-report-summary-table">
+            <tbody>
+              <tr>
+                <td>All locations</td>
+                <td style={{ textAlign: 'right' }}>{summary.all_locations.cases} cases</td>
+              </tr>
+              {summary.by_location.map((l) => (
+                <tr key={l.location_id}>
+                  <td>{l.location_name}</td>
+                  <td style={{ textAlign: 'right' }}>{l.cases} cases</td>
+                </tr>
+              ))}
+              <tr>
+                <td>Liter / gallon equivalent</td>
+                <td style={{ textAlign: 'right' }}>
+                  {summary.volume.liters.toLocaleString(undefined, { maximumFractionDigits: 1 })} L /{' '}
+                  {summary.volume.gallons.toLocaleString(undefined, { maximumFractionDigits: 1 })} gal
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
