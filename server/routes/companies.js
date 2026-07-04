@@ -48,7 +48,7 @@ router.patch('/:companyId/users/:userId', requireManager, async (req, res) => {
     const updates = [];
     const params = [];
     let p = 1;
-    if (role !== undefined && ['member', 'manager', 'owner', 'gc'].includes(role)) {
+    if (role !== undefined && ['member', 'manager', 'owner', 'gc', 'inventory'].includes(role)) {
       updates.push(`role = $${p++}`);
       params.push(role);
     }

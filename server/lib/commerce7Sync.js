@@ -53,6 +53,22 @@ async function logFinish(logId, recordsSynced, errorMessage = null) {
   );
 }
 
+// Runs one item's upsert in isolation — a single bad record (unexpected
+// null, constraint violation, etc.) is logged and skipped instead of
+// aborting the whole page/entity sync for every other record.
+async function safely(fn, label, failed) {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(`[c7-sync] item "${label}" failed:`, err.message);
+    failed.push({ label: String(label), error: err.message });
+  }
+}
+
+function failureNote(failed) {
+  return failed.length ? `${failed.length} item(s) failed: ${failed.map((f) => f.label).join(', ')}` : null;
+}
+
 // ── Customer sync ─────────────────────────────────────────────────────────────
 
 async function upsertCustomer(companyId, c) {
@@ -119,6 +135,7 @@ export async function syncCustomers(companyId, integration, { mode = 'incrementa
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -129,7 +146,7 @@ export async function syncCustomers(companyId, integration, { mode = 'incrementa
       total = data.total ?? 0;
 
       for (const customer of data.customers ?? []) {
-        await upsertCustomer(companyId, customer);
+        await safely(() => upsertCustomer(companyId, customer), customer.id, failed);
       }
 
       synced += (data.customers ?? []).length;
@@ -137,8 +154,8 @@ export async function syncCustomers(companyId, integration, { mode = 'incrementa
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'customers' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'customers', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -303,6 +320,7 @@ export async function syncOrders(companyId, integration, { mode = 'incremental' 
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -313,8 +331,10 @@ export async function syncOrders(companyId, integration, { mode = 'incremental' 
       total = data.total ?? 0;
 
       for (const order of data.orders ?? []) {
-        await upsertOrder(companyId, order);
-        await upsertOrderItems(companyId, order.id, order.items);
+        await safely(async () => {
+          await upsertOrder(companyId, order);
+          await upsertOrderItems(companyId, order.id, order.items);
+        }, order.orderNumber || order.id, failed);
       }
 
       synced += (data.orders ?? []).length;
@@ -322,8 +342,8 @@ export async function syncOrders(companyId, integration, { mode = 'incremental' 
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'orders' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'orders', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -437,6 +457,7 @@ export async function syncProducts(companyId, integration, { mode = 'incremental
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -447,8 +468,10 @@ export async function syncProducts(companyId, integration, { mode = 'incremental
       total = data.total ?? 0;
 
       for (const product of data.products ?? []) {
-        await upsertProduct(companyId, product);
-        await upsertProductVariants(companyId, product.id, product.variants);
+        await safely(async () => {
+          await upsertProduct(companyId, product);
+          await upsertProductVariants(companyId, product.id, product.variants);
+        }, product.title || product.id, failed);
       }
 
       synced += (data.products ?? []).length;
@@ -456,8 +479,8 @@ export async function syncProducts(companyId, integration, { mode = 'incremental
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'products' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'products', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -471,6 +494,7 @@ export async function syncCollections(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -478,7 +502,7 @@ export async function syncCollections(companyId, integration) {
       total = data.total ?? 0;
 
       for (const col of data.collections ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.collection
              (id, company_id, title, slug, is_published, description, image, metadata, c7_created_at, c7_updated_at, synced_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
@@ -502,15 +526,15 @@ export async function syncCollections(companyId, integration) {
             col.createdAt ?? null,
             col.updatedAt ?? null,
           ]
-        );
+        ), col.title || col.id, failed);
       }
 
       synced += (data.collections ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'collections' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'collections', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -524,6 +548,7 @@ export async function syncVendors(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -531,7 +556,7 @@ export async function syncVendors(companyId, integration) {
       total = data.total ?? 0;
 
       for (const v of data.vendors ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.vendor
              (id, company_id, title, c7_created_at, c7_updated_at, synced_at)
            VALUES ($1,$2,$3,$4,$5,NOW())
@@ -540,15 +565,15 @@ export async function syncVendors(companyId, integration) {
              c7_updated_at = EXCLUDED.c7_updated_at,
              synced_at     = NOW()`,
           [v.id, companyId, v.title ?? null, v.createdAt ?? null, v.updatedAt ?? null]
-        );
+        ), v.title || v.id, failed);
       }
 
       synced += (data.vendors ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'vendors' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'vendors', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -562,6 +587,7 @@ export async function syncWineVarietals(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -569,7 +595,7 @@ export async function syncWineVarietals(companyId, integration) {
       total = data.total ?? 0;
 
       for (const v of data.wineVarietals ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.wine_varietal
              (id, company_id, title, c7_created_at, c7_updated_at, synced_at)
            VALUES ($1,$2,$3,$4,$5,NOW())
@@ -578,15 +604,15 @@ export async function syncWineVarietals(companyId, integration) {
              c7_updated_at = EXCLUDED.c7_updated_at,
              synced_at     = NOW()`,
           [v.id, companyId, v.title ?? null, v.createdAt ?? null, v.updatedAt ?? null]
-        );
+        ), v.title || v.id, failed);
       }
 
       synced += (data.wineVarietals ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'wine_varietals' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'wine_varietals', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -600,6 +626,7 @@ export async function syncWineAppellations(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -607,7 +634,7 @@ export async function syncWineAppellations(companyId, integration) {
       total = data.total ?? 0;
 
       for (const a of data.wineAppellations ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.wine_appellation
              (id, company_id, title, c7_created_at, c7_updated_at, synced_at)
            VALUES ($1,$2,$3,$4,$5,NOW())
@@ -616,15 +643,15 @@ export async function syncWineAppellations(companyId, integration) {
              c7_updated_at = EXCLUDED.c7_updated_at,
              synced_at     = NOW()`,
           [a.id, companyId, a.title ?? null, a.createdAt ?? null, a.updatedAt ?? null]
-        );
+        ), a.title || a.id, failed);
       }
 
       synced += (data.wineAppellations ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'wine_appellations' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'wine_appellations', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -638,6 +665,7 @@ export async function syncClubs(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -645,7 +673,7 @@ export async function syncClubs(companyId, integration) {
       total = data.total ?? 0;
 
       for (const club of data.clubs ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.club
              (id, company_id, title, slug, status, admin_status, description, image, metadata, c7_created_at, c7_updated_at, synced_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
@@ -671,15 +699,15 @@ export async function syncClubs(companyId, integration) {
             club.createdAt ?? null,
             club.updatedAt ?? null,
           ]
-        );
+        ), club.title || club.id, failed);
       }
 
       synced += (data.clubs ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'clubs' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'clubs', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -694,6 +722,7 @@ export async function syncClubMemberships(companyId, integration, { mode = 'incr
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -704,7 +733,7 @@ export async function syncClubMemberships(companyId, integration, { mode = 'incr
       total = data.total ?? 0;
 
       for (const m of data.clubMemberships ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.club_membership
              (id, company_id, customer_id, club_id, status,
               signup_date, cancel_date, next_process_date, frequency,
@@ -738,7 +767,7 @@ export async function syncClubMemberships(companyId, integration, { mode = 'incr
             m.createdAt ?? null,
             m.updatedAt ?? null,
           ]
-        );
+        ), m.id, failed);
       }
 
       synced += (data.clubMemberships ?? []).length;
@@ -746,8 +775,8 @@ export async function syncClubMemberships(companyId, integration, { mode = 'incr
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'club_memberships' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'club_memberships', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -762,6 +791,7 @@ export async function syncReservations(companyId, integration, { mode = 'increme
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -772,7 +802,7 @@ export async function syncReservations(companyId, integration, { mode = 'increme
       total = data.total ?? 0;
 
       for (const r of data.reservations ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.reservation
              (id, company_id, customer_id, reservation_type_id, reservation_date,
               start_time, end_time, party_size, status, payment_status, channel,
@@ -819,7 +849,7 @@ export async function syncReservations(companyId, integration, { mode = 'increme
             r.createdAt ?? null,
             r.updatedAt ?? null,
           ]
-        );
+        ), r.id, failed);
       }
 
       synced += (data.reservations ?? []).length;
@@ -827,8 +857,8 @@ export async function syncReservations(companyId, integration, { mode = 'increme
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'reservations' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'reservations', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -842,6 +872,7 @@ export async function syncGiftCards(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -849,7 +880,7 @@ export async function syncGiftCards(companyId, integration) {
       total = data.total ?? 0;
 
       for (const gc of data.giftCards ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.gift_card
              (id, company_id, customer_id, code, status, balance, original_balance, currency,
               c7_created_at, c7_updated_at, synced_at)
@@ -874,15 +905,15 @@ export async function syncGiftCards(companyId, integration) {
             gc.createdAt       ?? null,
             gc.updatedAt       ?? null,
           ]
-        );
+        ), gc.code || gc.id, failed);
       }
 
       synced += (data.giftCards ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'gift_cards' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'gift_cards', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;
@@ -896,6 +927,7 @@ export async function syncPromotions(companyId, integration) {
   const c7 = makeC7Client(integration);
 
   let page = 1, total = Infinity, synced = 0;
+  const failed = [];
 
   try {
     while ((page - 1) * PAGE_SIZE < total) {
@@ -903,7 +935,7 @@ export async function syncPromotions(companyId, integration) {
       total = data.total ?? 0;
 
       for (const p of data.promotions ?? []) {
-        await query(
+        await safely(() => query(
           `INSERT INTO commerce7.promotion
              (id, company_id, title, type, status, discount_type, discount_value,
               start_date, end_date, metadata, c7_created_at, c7_updated_at, synced_at)
@@ -932,15 +964,15 @@ export async function syncPromotions(companyId, integration) {
             p.createdAt ?? null,
             p.updatedAt ?? null,
           ]
-        );
+        ), p.title || p.id, failed);
       }
 
       synced += (data.promotions ?? []).length;
       page++;
     }
 
-    await logFinish(logId, synced);
-    return { synced, entity: 'promotions' };
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'promotions', failed };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;

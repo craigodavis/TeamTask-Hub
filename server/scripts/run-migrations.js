@@ -2188,6 +2188,48 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_policy_signatures_announcement ON policy_signatures(announcement_id)`,
   `CREATE INDEX IF NOT EXISTS idx_policy_signatures_user ON policy_signatures(user_id)`,
+
+  // ── Wine inventory ────────────────────────────────────────────────────────
+  // product_inventory is the fast "current count" cache (one row per
+  // product+location, upserted on every entry); product_inventory_log is the
+  // append-only history that powers "as of date" reporting. Counts are stored
+  // as a single canonical total_bottles (case size is a fixed 12, applied in
+  // application code via server/lib/wineInventory.js) so cross-location sums
+  // never need separate case/bottle rollover logic.
+  `CREATE TABLE IF NOT EXISTS product.product_inventory (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id      UUID        NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
+    location_id     UUID        NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    company_id      UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    total_bottles   INTEGER     NOT NULL DEFAULT 0,
+    last_counted_at TIMESTAMPTZ,
+    last_counted_by UUID        REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(product_id, location_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_product_inventory_location ON product.product_inventory(location_id)`,
+  `CREATE TABLE IF NOT EXISTS product.product_inventory_log (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id    UUID        NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
+    location_id   UUID        NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    company_id    UUID        NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    total_bottles INTEGER     NOT NULL,
+    counted_by    UUID        REFERENCES users(id) ON DELETE SET NULL,
+    counted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_product_inv_log_lookup ON product.product_inventory_log(product_id, location_id, counted_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_product_inv_log_company_date ON product.product_inventory_log(company_id, counted_at DESC)`,
+
+  // Commerce7's top-level product "Type" (e.g. Wine vs Non-Wine) — distinct
+  // from wine_style (Red/White/Rosé/etc, sourced from wine.type). Needed to
+  // filter wine products out of food/merchandise items synced from C7.
+  `ALTER TABLE product.products ADD COLUMN IF NOT EXISTS product_type VARCHAR(100)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_type ON product.products(company_id, product_type)`,
+
+  // ── "User + Inventory" role: normal member permissions plus access to
+  // Wine Inventory (entry + reports), but not the Products catalog itself.
+  `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
+  `ALTER TABLE users ADD CONSTRAINT users_role_check
+     CHECK (role IN ('member', 'manager', 'owner', 'gc', 'inventory'))`,
 ];
 
 export async function runMigrations() {

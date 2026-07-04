@@ -173,6 +173,11 @@
   color: #374151;
 }
 
+.pd-field-hint {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
 .pd-field input[type="text"],
 .pd-field input[type="number"],
 .pd-field input[type="date"],

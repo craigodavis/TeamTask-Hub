@@ -220,16 +220,22 @@ router.post('/objects/:id/run', async (req, res) => {
 
     const count = result.synced ?? 0;
     const nextAt = computeNextSync(obj.sync_frequency);
+    // The sync as a whole succeeded even if individual items failed (each
+    // is now isolated — see safely() in commerce7Sync.js) — surface that
+    // via last_sync_error without marking the run as a hard failure.
+    const failedNote = result.failed?.length
+      ? `${result.failed.length} item(s) failed: ${result.failed.map((f) => f.label).join(', ')}`
+      : null;
 
     await query(
       `UPDATE teamtask_hub.commerce7_sync_objects
        SET last_synced_at   = NOW(),
            last_sync_status = 'ok',
            last_sync_count  = $1,
-           last_sync_error  = NULL,
+           last_sync_error  = $4,
            next_sync_at     = CASE WHEN enabled THEN $2 ELSE next_sync_at END
        WHERE id = $3`,
-      [count, nextAt, obj.id]
+      [count, nextAt, obj.id, failedNote]
     );
 
     const updated = await query(

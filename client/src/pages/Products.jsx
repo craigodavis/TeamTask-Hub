@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getProducts, getProductFilters, getSquareItems, getTaxExemptItems, addTaxExemptItem, removeTaxExemptItem, getTaxGap } from '../api';
+import { getProducts, getProductFilters, getSquareItems, getTaxExemptItems, addTaxExemptItem, removeTaxExemptItem, getTaxGap, importC7Products } from '../api';
 import './Products.css';
 
 function syncBadge(needsPush, syncError) {
@@ -302,7 +302,7 @@ export function Products() {
   const tab = searchParams.get('tab') || 'catalog';
 
   const [products, setProducts] = useState([]);
-  const [filters, setFilters] = useState({ vintages: [], varietals: [], wine_styles: [] });
+  const [filters, setFilters] = useState({ vintages: [], varietals: [], wine_styles: [], product_types: [] });
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -310,9 +310,12 @@ export function Products() {
   const [filterVintage, setFilterVintage]   = useState('');
   const [filterVarietal, setFilterVarietal] = useState('');
   const [filterStyle, setFilterStyle]       = useState('');
-  const [filterAvail, setFilterAvail]       = useState('');
+  const [filterAvail, setFilterAvail]       = useState('true');
+  const [filterType, setFilterType]         = useState('Wine');
   const [search, setSearch]                 = useState('');
   const [offset, setOffset]                 = useState(0);
+  const [syncing, setSyncing]               = useState(false);
+  const [syncMessage, setSyncMessage]       = useState('');
   const LIMIT = 48;
 
   const load = useCallback(async () => {
@@ -321,11 +324,12 @@ export function Products() {
     setError('');
     try {
       const params = { limit: LIMIT, offset };
-      if (filterVintage)  params.vintage   = filterVintage;
-      if (filterVarietal) params.varietal  = filterVarietal;
-      if (filterStyle)    params.wine_style = filterStyle;
-      if (filterAvail)    params.available  = filterAvail;
-      if (search)         params.search    = search;
+      if (filterVintage)  params.vintage      = filterVintage;
+      if (filterVarietal) params.varietal     = filterVarietal;
+      if (filterStyle)    params.wine_style   = filterStyle;
+      if (filterType)     params.product_type = filterType;
+      if (filterAvail)    params.available    = filterAvail;
+      if (search)         params.search       = search;
       const data = await getProducts(params);
       setProducts(data.products || []);
       setTotal(data.total || 0);
@@ -334,7 +338,7 @@ export function Products() {
     } finally {
       setLoading(false);
     }
-  }, [tab, filterVintage, filterVarietal, filterStyle, filterAvail, search, offset]);
+  }, [tab, filterVintage, filterVarietal, filterStyle, filterType, filterAvail, search, offset]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -344,10 +348,32 @@ export function Products() {
 
   const resetFilters = () => {
     setFilterVintage(''); setFilterVarietal(''); setFilterStyle('');
-    setFilterAvail(''); setSearch(''); setOffset(0);
+    setFilterType(''); setFilterAvail(''); setSearch(''); setOffset(0);
   };
 
-  const hasFilters = filterVintage || filterVarietal || filterStyle || filterAvail || search;
+  const hasFilters = filterVintage || filterVarietal || filterStyle || filterType || filterAvail || search;
+
+  const handleSyncC7 = async () => {
+    setSyncing(true);
+    setSyncMessage('');
+    setError('');
+    try {
+      const r = await importC7Products();
+      const failedCount = r.failed?.length || 0;
+      setSyncMessage(
+        `Synced from Commerce7 — ${r.imported} new, ${r.updated} updated (${r.total} total)` +
+        (failedCount
+          ? `. ${failedCount} failed: ${r.failed.map((f) => f.title || f.c7_id).join(', ')}`
+          : '.')
+      );
+      getProductFilters().then(setFilters).catch(() => {});
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
   const totalPages = Math.ceil(total / LIMIT);
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
@@ -358,11 +384,17 @@ export function Products() {
           <h2 className="prod-title">Products</h2>
         </div>
         {tab === 'catalog' && (
-          <button className="prod-add-btn" onClick={() => navigate('/products/new')}>
-            + New Product
-          </button>
+          <div className="prod-toolbar-actions">
+            <button className="prod-sync-btn" onClick={handleSyncC7} disabled={syncing} title="Pull the latest products from Commerce7 into the wine catalog">
+              {syncing ? 'Syncing…' : '⟳ Sync from Commerce7'}
+            </button>
+            <button className="prod-add-btn" onClick={() => navigate('/products/new')}>
+              + New Product
+            </button>
+          </div>
         )}
       </div>
+      {syncMessage && <p className="prod-sync-message">{syncMessage}</p>}
 
       {/* Tab bar */}
       <div className="prod-tabs">
@@ -409,6 +441,10 @@ export function Products() {
             <select value={filterStyle} onChange={(e) => { setFilterStyle(e.target.value); setOffset(0); }}>
               <option value="">All styles</option>
               {filters.wine_styles?.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setOffset(0); }}>
+              <option value="">All types</option>
+              {filters.product_types?.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <select value={filterAvail} onChange={(e) => { setFilterAvail(e.target.value); setOffset(0); }}>
               <option value="">Any availability</option>

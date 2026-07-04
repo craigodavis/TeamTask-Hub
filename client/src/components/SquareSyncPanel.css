@@ -123,6 +123,7 @@
 .ssync-badge-ok      { background: #d1fae5; color: #065f46; }
 .ssync-badge-error   { background: #fee2e2; color: #991b1b; cursor: help; }
 .ssync-badge-running { background: #fef3c7; color: #92400e; }
+.ssync-badge-warn    { background: #fef3c7; color: #92400e; cursor: help; }
 
 /* Action buttons */
 .ssync-actions { display: flex; gap: 0.4rem; white-space: nowrap; }

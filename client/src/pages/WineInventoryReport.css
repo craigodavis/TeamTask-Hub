@@ -1,0 +1,53 @@
+.wine-report-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.wine-report-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+}
+
+.wine-report-toolbar input[type="date"],
+.wine-report-toolbar select {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+}
+
+.wine-report-checkbox {
+  gap: 0.35rem !important;
+}
+
+.wine-report-table-wrap {
+  overflow-x: auto;
+}
+
+.wine-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.wine-report-table th {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted, #888);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.wine-report-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}

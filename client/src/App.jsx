@@ -14,6 +14,8 @@ import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
 import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
+import { WineInventory } from './pages/WineInventory';
+import { WineInventoryReport } from './pages/WineInventoryReport';
 import { getGeneralSettings } from './api';
 import { ProductDetail } from './pages/ProductDetail';
 import { BettyComparison } from './pages/BettyComparison';
@@ -170,6 +172,26 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <ProductDetail />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/products/inventory"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
+                <WineInventory />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/products/inventory/report"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
+                <WineInventoryReport />
               ) : (
                 <Navigate to="/" replace />
               )

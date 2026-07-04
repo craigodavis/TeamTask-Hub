@@ -61,6 +61,12 @@ export function requireGControl(req, res, next) {
   return res.status(403).json({ error: 'Ground Control access required' });
 }
 
+// Wine Inventory: accessible to inventory (User + Inventory), manager, and owner.
+export function requireInventoryAccess(req, res, next) {
+  if (req.role === 'inventory' || req.role === 'manager' || req.role === 'owner') return next();
+  return res.status(403).json({ error: 'Inventory access required' });
+}
+
 export function requireOwner(req, res, next) {
   if (req.role === 'owner') return next();
   return res.status(403).json({ error: 'Owner access required' });
