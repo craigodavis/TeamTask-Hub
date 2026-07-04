@@ -312,11 +312,13 @@ router.post('/import/c7', requireAuth, async (req, res) => {
 
     const client = await pool.connect();
     let imported = 0, updated = 0, variantsImported = 0;
+    const failed = [];
 
     try {
       await client.query(`SET search_path TO product, ${appSchema}`);
 
       for (const p of c7Products) {
+       try {
         // C7 nests wine attributes under p.wine
         const wine = p.wine || {};
 
@@ -515,13 +517,19 @@ router.post('/import/c7', requireAuth, async (req, res) => {
           );
           variantsImported++;
         }
+       } catch (itemErr) {
+         // One bad product shouldn't abort the whole import — log it and
+         // keep going so the rest of the catalog still gets synced.
+         console.error(`[products/import-c7] Failed on "${p.title || p.id}":`, itemErr.message);
+         failed.push({ title: p.title || null, c7_id: String(p.id), error: itemErr.message });
+       }
       }
     } finally {
       client.release();
     }
 
-    console.log(`[products/import-c7] Done: ${imported} new, ${updated} updated, ${variantsImported} variants`);
-    res.json({ ok: true, imported, updated, variants: variantsImported, total: c7Products.length });
+    console.log(`[products/import-c7] Done: ${imported} new, ${updated} updated, ${variantsImported} variants, ${failed.length} failed`);
+    res.json({ ok: true, imported, updated, variants: variantsImported, total: c7Products.length, failed });
   } catch (err) {
     console.error('[products/import-c7]', err.message);
     res.status(500).json({ error: err.message });

@@ -359,7 +359,13 @@ export function Products() {
     setError('');
     try {
       const r = await importC7Products();
-      setSyncMessage(`Synced from Commerce7 — ${r.imported} new, ${r.updated} updated (${r.total} total).`);
+      const failedCount = r.failed?.length || 0;
+      setSyncMessage(
+        `Synced from Commerce7 — ${r.imported} new, ${r.updated} updated (${r.total} total)` +
+        (failedCount
+          ? `. ${failedCount} failed: ${r.failed.map((f) => f.title || f.c7_id).join(', ')}`
+          : '.')
+      );
       getProductFilters().then(setFilters).catch(() => {});
       load();
     } catch (e) {
