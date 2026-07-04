@@ -39,6 +39,10 @@ router.get('/', requireInventoryAccess, async (req, res) => {
          ON pi.product_id = p.id AND pi.location_id = $2
        LEFT JOIN users u ON u.id = pi.last_counted_by
        WHERE p.company_id = $1 AND p.is_available = true AND p.is_archived = false
+         -- Exclude products explicitly classified as something other than
+         -- Wine (Beer, Food, etc.) via Commerce7's product_type, but don't
+         -- hide not-yet-synced wines that still have a null type.
+         AND (p.product_type = 'Wine' OR p.product_type IS NULL)
        ORDER BY p.display_order, p.name`,
       [cid(req), location_id, tz]
     );
@@ -133,6 +137,7 @@ router.get('/report', requireInventoryAccess, async (req, res) => {
       `SELECT id, name, vintage, varietal, is_available
        FROM product.products p
        WHERE p.company_id = $1 AND p.is_archived = false ${availabilityFilter}
+         AND (p.product_type = 'Wine' OR p.product_type IS NULL)
        ORDER BY p.display_order, p.name`,
       productParams
     );
