@@ -97,9 +97,14 @@ export function WineInventoryReport() {
                 </tr>
               ))}
               <tr>
-                <td>Liter / gallon equivalent</td>
+                <td>Total liters</td>
                 <td style={{ textAlign: 'right' }}>
-                  {summary.volume.liters.toLocaleString(undefined, { maximumFractionDigits: 1 })} L /{' '}
+                  {summary.volume.liters.toLocaleString(undefined, { maximumFractionDigits: 1 })} L
+                </td>
+              </tr>
+              <tr>
+                <td>Total gallons</td>
+                <td style={{ textAlign: 'right' }}>
                   {summary.volume.gallons.toLocaleString(undefined, { maximumFractionDigits: 1 })} gal
                 </td>
               </tr>
