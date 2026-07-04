@@ -118,10 +118,15 @@
   font-size: 0.75rem;
   color: var(--text-muted, #888);
   flex: 1;
+  min-width: 0; /* without this, the input's default intrinsic width (~size=20)
+                   stops the flex row from shrinking to fit narrow screens */
 }
 
 .wine-count-field input {
   min-height: 56px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   font-size: 1.25rem;
   text-align: center;
   border: 1px solid var(--border);
