@@ -55,7 +55,7 @@ router.put('/', requireAuth, requireOwner, async (req, res) => {
 });
 
 // POST /notify-expired — Skynet calls this when Amazon redirects to sign-in
-// Sends Craig an SMS so he knows to re-run bootstrap-amazon-session.js
+// Sends Craig an SMS so he knows to re-run scripts/capture-amazon-cookies.js
 router.post('/notify-expired', requireAuth, requireOwner, async (req, res) => {
   try {
     const owners = await query(
@@ -66,7 +66,7 @@ router.post('/notify-expired', requireAuth, requireOwner, async (req, res) => {
     const smsResult = await sendSmsToUsers(
       req.companyId,
       ownerIds,
-      'Amazon session expired on Skynet. Run bootstrap-amazon-session.js on your Mac to refresh it, then wait up to 12h for auto-sync — or run sync-amazon-session.js manually.',
+      'Amazon session expired on Skynet. Run scripts/capture-amazon-cookies.js on your Mac to refresh it, then wait up to 12h for auto-sync — or run sync-amazon-session.js manually.',
       ownerIds[0] || null
     );
     res.json({ ok: true, sms: smsResult });
