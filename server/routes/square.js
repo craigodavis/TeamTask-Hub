@@ -54,6 +54,13 @@ team_square.shift  (employee time clock — sourced from Square Timecards API)
   id, team_member_id, location_id, start_at, end_at, status ('OPEN'|'CLOSED'),
   wage_title, wage_hourly_rate_amount (CENTS), wage_job_id
   NOTE: employee_id is populated on pre-2025 rows only; always use team_member_id
+  NOTE: wage_title IS the role/job title — for "labor by role" or "hours by role"
+  questions, group by wage_title directly on this table. No join needed.
+
+team_square.shift_break  (rare — most shifts have no recorded break; almost never
+  needed for labor/role/overtime reporting, do not join to this unless the user
+  explicitly asks about breaks specifically)
+  id, shift_id, break_type_id, name, start_at, end_at, expected_duration, is_paid
 
 team_square.team_member
   id, given_name, family_name, email_address, phone_number, status ('ACTIVE'|'INACTIVE')
@@ -177,6 +184,40 @@ Example combined revenue:
     SELECT ROUND(SUM(total), 2) AS c7_total
     FROM commerce7.orders WHERE payment_status = 'Paid'
   ) c7
+
+=== LABOR / ROLE / OVERTIME REPORTING ===
+
+Use team_square.shift directly for all labor questions — wage_title (role) and
+wage_hourly_rate_amount already live on this table, no join needed. Only reach for
+team_square.shift_break if the user explicitly asks about breaks.
+
+Hours worked per shift: EXTRACT(EPOCH FROM (end_at - start_at)) / 3600.0
+Labor cost per shift:   hours * (wage_hourly_rate_amount / 100.0)
+
+NOTE: ROUND() requires numeric, not double precision — EXTRACT(EPOCH FROM ...)
+returns double precision, so always cast with ::numeric before rounding, e.g.
+ROUND((SUM(...))::numeric, 1), or ROUND() will error.
+
+Example — hours and labor cost by role, last 7 days:
+  SELECT
+    wage_title AS role,
+    ROUND((SUM(EXTRACT(EPOCH FROM (end_at - start_at)) / 3600.0))::numeric, 1) AS hours,
+    ROUND((SUM(EXTRACT(EPOCH FROM (end_at - start_at)) / 3600.0 * wage_hourly_rate_amount / 100.0))::numeric, 2) AS labor_cost
+  FROM team_square.shift
+  WHERE status = 'CLOSED' AND start_at >= NOW() - INTERVAL '7 days'
+  GROUP BY wage_title
+  ORDER BY hours DESC
+
+Overtime risk (weekly hours per team member, company-defined threshold is 40/week):
+  SELECT
+    team_member_id,
+    date_trunc('week', start_at) AS week,
+    ROUND((SUM(EXTRACT(EPOCH FROM (end_at - start_at)) / 3600.0))::numeric, 1) AS hours
+  FROM team_square.shift
+  WHERE status = 'CLOSED'
+  GROUP BY team_member_id, date_trunc('week', start_at)
+  HAVING SUM(EXTRACT(EPOCH FROM (end_at - start_at)) / 3600.0) > 40
+  ORDER BY week DESC, hours DESC
 
 === CRITICAL JOINS ===
 
