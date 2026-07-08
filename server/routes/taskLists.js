@@ -616,7 +616,10 @@ router.get('/day-summary', async (req, res) => {
     const squareTmId = userRes.rows[0]?.square_team_member_id;
     if (isViewAs) debug = { userId, userRole, squareTmId, shiftRows: 0, wageTitles: [] };
 
-    if ((userRole === 'member' || userRole === 'gc') && squareTmId) {
+    // Scope by shift for everyone except managers/owners, rather than allowlisting
+    // specific non-privileged roles — new roles (e.g. 'inventory') default to scoped
+    // instead of silently falling through to unrestricted visibility.
+    if (userRole !== 'manager' && userRole !== 'owner' && squareTmId) {
       const tzRes = await query(`SELECT timezone FROM companies WHERE id = $1`, [cId]);
       const tz = tzRes.rows[0]?.timezone || 'UTC';
 
