@@ -593,7 +593,7 @@ export function Settings() {
             <button type="button" className={tab === 'integrations' ? 'active' : ''} onClick={() => setSettingsTab('integrations')}>Integrations</button>
           </>
         )}
-        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>AiRon</button>
+        <button type="button" className={tab === 'square' ? 'active' : ''} onClick={() => setSettingsTab('square')}>Square Sync</button>
         {isOwner && (
           <button type="button" className={tab === 'commerce7' ? 'active' : ''} onClick={() => setSettingsTab('commerce7')}>Commerce7</button>
         )}

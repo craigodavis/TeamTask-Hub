@@ -46,7 +46,7 @@ export function Dashboard() {
   useEffect(() => {
     if (isManager && user?.company_id) {
       getCompanyUsers(user.company_id)
-        .then((data) => setAllUsers((data.users || []).filter((u) => u.role === 'member')))
+        .then((data) => setAllUsers((data.users || []).filter((u) => u.role !== 'manager' && u.role !== 'owner')))
         .catch(() => {});
     }
   }, [isManager, user?.company_id]);
