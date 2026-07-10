@@ -7,11 +7,16 @@
  * changed from "shifts" to "timecards"; the record shape is identical
  * except employee_id is no longer returned (team_member_id only).
  *
- * Incremental: on subsequent runs only fetches timecards updated since
- * the last sync (stored in square_sync_objects.last_synced_at) minus
- * a 1-hour buffer to catch late updates.
+ * Incremental: Square's timecard search filter only supports filtering by
+ * start_at, not by when a record was last modified — there is no "updated
+ * since" filter available. A cursor that only advances forward would
+ * permanently miss a shift that closes (goes OPEN → CLOSED) after the
+ * cursor has moved past its start_at. So instead of advancing a cursor,
+ * every incremental run re-scans a fixed rolling window (30 days) so any
+ * shift that started recently gets its current status re-checked on every
+ * run. Upserts are idempotent, so re-fetching unchanged shifts is cheap.
  *
- * Initial sync pulls all timecards from the past 2 years.
+ * Initial sync (no prior run) pulls all timecards from the past 2 years.
  */
 
 import { query, pool } from '../db.js';
@@ -43,9 +48,10 @@ async function searchTimecards(token, base, locationIds, updatedAfter) {
   const timecards = [];
   let cursor = null;
 
-  // 1-hour buffer on incremental; 2-year window on initial
+  // Rolling 30-day window on incremental (re-checks status on every run,
+  // see file header); full 2-year window on initial sync.
   const startAt = updatedAfter
-    ? new Date(new Date(updatedAfter).getTime() - 60 * 60 * 1000).toISOString()
+    ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
     : new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString();
 
   do {
