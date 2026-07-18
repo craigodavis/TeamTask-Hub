@@ -2266,6 +2266,24 @@ const MIGRATIONS = [
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     PRIMARY KEY (company_id, vendor)
   )`,
+
+  // ── Kitchen: per-location buy frequency ──────────────────────────────────
+  // Like par, buy frequency/schedule is per location. Seed each stocked
+  // location from the old global values on ingredients.
+  `ALTER TABLE ingredient_locations
+     ADD COLUMN IF NOT EXISTS buy_frequency     TEXT CHECK (buy_frequency IN ('daily','weekly','biweekly','monthly','monthly_weekday','adhoc')),
+     ADD COLUMN IF NOT EXISTS buy_day_of_week   INTEGER CHECK (buy_day_of_week BETWEEN 0 AND 6),
+     ADD COLUMN IF NOT EXISTS buy_day_of_month  INTEGER CHECK (buy_day_of_month BETWEEN 1 AND 31),
+     ADD COLUMN IF NOT EXISTS buy_week_of_month INTEGER CHECK (buy_week_of_month BETWEEN 1 AND 5)`,
+  `UPDATE ingredient_locations il
+     SET buy_frequency     = i.buy_frequency,
+         buy_day_of_week   = i.buy_day_of_week,
+         buy_day_of_month  = i.buy_day_of_month,
+         buy_week_of_month = i.buy_week_of_month
+     FROM ingredients i
+     WHERE i.id = il.ingredient_id
+       AND il.buy_frequency IS NULL
+       AND i.buy_frequency IS NOT NULL`,
 ];
 
 export async function runMigrations() {

@@ -86,12 +86,22 @@ async function setIngredientLocations(ingredientId, companyId, locationIds) {
   const nextIds = new Set(ids);
   const removed = prev.rows.map((r) => r.location_id).filter((id) => !nextIds.has(id));
 
-  await query(`DELETE FROM ingredient_locations WHERE ingredient_id = $1`, [ingredientId]);
+  // Insert only newly-added locations and delete only removed ones, so existing
+  // per-location settings (par, buy frequency) survive an edit that toggles a
+  // different location. (A blind delete-all + reinsert would wipe them.)
+  const prevSet = new Set(prev.rows.map((r) => r.location_id));
   for (const lid of ids) {
+    if (prevSet.has(lid)) continue;
     await query(
       `INSERT INTO ingredient_locations (ingredient_id, location_id, company_id)
        VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
       [ingredientId, lid, companyId]
+    );
+  }
+  for (const lid of removed) {
+    await query(
+      `DELETE FROM ingredient_locations WHERE ingredient_id = $1 AND location_id = $2`,
+      [ingredientId, lid]
     );
   }
   for (const lid of removed) {
@@ -645,6 +655,18 @@ router.get('/ingredients', requireManager, async (req, res) => {
          '[]'
        ) AS location_ids,
        COALESCE(
+         (SELECT json_agg(json_build_object(
+            'location_id',       il.location_id::text,
+            'par_qty',           il.par_qty,
+            'par_unit',          il.par_unit,
+            'buy_frequency',     il.buy_frequency,
+            'buy_day_of_week',   il.buy_day_of_week,
+            'buy_day_of_month',  il.buy_day_of_month,
+            'buy_week_of_month', il.buy_week_of_month
+          )) FROM ingredient_locations il WHERE il.ingredient_id = i.id),
+         '[]'
+       ) AS location_settings,
+       COALESCE(
          json_agg(
            json_build_object(
              'id',                 sir.id,
@@ -747,6 +769,30 @@ router.patch('/ingredients/:id', requireManager, async (req, res) => {
 
   if (has('location_ids')) {
     await setIngredientLocations(req.params.id, cId(req), location_ids);
+  }
+
+  // Per-location par + buy frequency (upserted after stocking so the rows exist).
+  if (Array.isArray(req.body.location_settings)) {
+    for (const ls of req.body.location_settings) {
+      if (!ls || !ls.location_id) continue;
+      await query(
+        `INSERT INTO ingredient_locations
+           (ingredient_id, location_id, company_id, par_qty, par_unit,
+            buy_frequency, buy_day_of_week, buy_day_of_month, buy_week_of_month)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (ingredient_id, location_id) DO UPDATE SET
+           par_qty           = EXCLUDED.par_qty,
+           par_unit          = EXCLUDED.par_unit,
+           buy_frequency     = EXCLUDED.buy_frequency,
+           buy_day_of_week   = EXCLUDED.buy_day_of_week,
+           buy_day_of_month  = EXCLUDED.buy_day_of_month,
+           buy_week_of_month = EXCLUDED.buy_week_of_month`,
+        [req.params.id, ls.location_id, cId(req),
+         optionalNumeric(ls.par_qty), ls.par_unit || null,
+         ls.buy_frequency || null, optionalNumeric(ls.buy_day_of_week),
+         optionalNumeric(ls.buy_day_of_month), optionalNumeric(ls.buy_week_of_month)]
+      );
+    }
   }
 
   const out = await query(
