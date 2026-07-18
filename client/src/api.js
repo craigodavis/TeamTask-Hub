@@ -1686,6 +1686,33 @@ export async function getKitchenShoppingList(locationId) {
   return d;
 }
 
+// Set a per-location par level (manager). body: { par_qty, par_unit }
+export async function setKitchenPar(ingredientId, locationId, body) {
+  const res = await fetch(`${API}/recipes/inventory/${ingredientId}/${locationId}/par`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to set par');
+  return d;
+}
+
+export async function getKitchenSettings() {
+  const res = await fetch(`${API}/recipes/kitchen-settings`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load kitchen settings');
+  return d;
+}
+
+// Update the single company-wide cost to shop (manager). body: { cost_to_shop }
+export async function updateKitchenSettings(body) {
+  const res = await fetch(`${API}/recipes/kitchen-settings`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save kitchen settings');
+  return d;
+}
+
 export async function getRecipes(params = {}) {
   const q = new URLSearchParams(params);
   const res = await fetch(`${API}/recipes?${q}`, { headers: headers() });

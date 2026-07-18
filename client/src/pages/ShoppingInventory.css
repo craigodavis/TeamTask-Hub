@@ -49,3 +49,21 @@
 .inv-key-save { flex: 2; height: 56px; border: none; border-radius: 10px; background: #1976d2;
   color: #fff; font-size: 1.1rem; font-weight: 600; cursor: pointer; }
 .inv-key-save:active { background: #1565c0; }
+
+/* Weekly Inventory title */
+.inv-title { font-size: 1.25rem; font-weight: 700; margin: 0 0 0.75rem; color: #333; }
+
+/* Manager par-edit (tap the par to set it per location) */
+.inv-par-edit { background: none; border: none; padding: 0; text-align: left; cursor: pointer;
+  color: #1976d2; font: inherit; font-size: 0.8rem; }
+.inv-par-edit:active { opacity: 0.6; }
+
+/* Par edit modal (reuses the numpad overlay) */
+.inv-par-modal { background: #fff; border-radius: 20px 20px 0 0; padding: 1.25rem 1rem 2rem;
+  width: 100%; max-width: 400px; }
+.inv-par-sub { text-align: center; color: #888; font-size: 0.85rem; margin-bottom: 1rem; }
+.inv-par-fields { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+.inv-par-fields label { flex: 1; display: flex; flex-direction: column; gap: 0.25rem;
+  font-size: 0.75rem; color: #888; }
+.inv-par-fields input { min-height: 52px; font-size: 1.25rem; text-align: center; border: 1px solid #ccc;
+  border-radius: 10px; padding: 0 0.5rem; box-sizing: border-box; width: 100%; }

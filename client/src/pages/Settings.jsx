@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
 import './Settings.css';
 
-const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7', 'ai-models'];
+const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7', 'ai-models', 'kitchen'];
 
 // Common IANA timezone list — covers all US zones plus a broad international set
 const TIMEZONES = [
@@ -136,6 +136,65 @@ function GeneralSettingsPanel({ timezone, opsManagerName, onSave, saving }) {
               ))}
             </select>
             <small>Shown in task-completion SMS when not all tasks are finished.</small>
+          </label>
+        </fieldset>
+        <div className="settings-actions">
+          <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function KitchenSettingsPanel() {
+  const [costToShop, setCostToShop] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    getKitchenSettings()
+      .then((d) => setCostToShop(d.cost_to_shop != null ? String(d.cost_to_shop) : '0'))
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true); setMsg(''); setErr('');
+    try {
+      const d = await updateKitchenSettings({ cost_to_shop: parseFloat(costToShop) || 0 });
+      setCostToShop(String(d.cost_to_shop));
+      setMsg('Saved.');
+    } catch (e2) { setErr(e2.message); }
+    finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="settings-section"><p>Loading…</p></div>;
+
+  return (
+    <div className="settings-section">
+      <h2>Kitchen</h2>
+      <p className="settings-intro">
+        The <strong>cost to shop</strong> is the added cost of a shopping trip (labor, fuel, etc.).
+        It is spread across the items on each shopping list by dollar value, so you can see each
+        item&apos;s price before and after its share of the trip.
+      </p>
+      {err && <p className="settings-error">{err}</p>}
+      {msg && <p className="settings-message">{msg}</p>}
+      <form onSubmit={save}>
+        <fieldset>
+          <legend>Cost to shop</legend>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            $
+            <input
+              type="number" min="0" step="0.01"
+              value={costToShop}
+              onChange={(e) => setCostToShop(e.target.value)}
+              style={{ maxWidth: 160 }}
+            />
+            <span style={{ color: '#888' }}>per shopping trip</span>
           </label>
         </fieldset>
         <div className="settings-actions">
@@ -600,9 +659,14 @@ export function Settings() {
         {isOwner && (
           <button type="button" className={tab === 'ai-models' ? 'active' : ''} onClick={() => setSettingsTab('ai-models')}>AI Models</button>
         )}
+        {isOwner && (
+          <button type="button" className={tab === 'kitchen' ? 'active' : ''} onClick={() => setSettingsTab('kitchen')}>Kitchen</button>
+        )}
       </nav>
       {error && <p className="settings-error">{error}</p>}
       {message && <p className="settings-message">{message}</p>}
+
+      {tab === 'kitchen' && <KitchenSettingsPanel />}
 
       {tab === 'general' && (
         <>

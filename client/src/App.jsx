@@ -12,6 +12,7 @@ import { Square } from './pages/Square';
 import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
+import { ShoppingLists } from './pages/ShoppingLists';
 import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
 import { WineInventory } from './pages/WineInventory';
@@ -109,7 +110,23 @@ function App() {
           <Route path="/manage" element={<Manager />} />
           <Route path="/policies" element={<Policies />} />
           <Route path="/food" element={<FoodLayout />}>
-            <Route index element={<Navigate to="waste" replace />} />
+            <Route
+              index
+              element={
+                <Navigate
+                  to={(user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner') ? 'lists' : 'waste'}
+                  replace
+                />
+              }
+            />
+            <Route
+              path="lists"
+              element={
+                (user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner')
+                  ? <ShoppingLists />
+                  : <Navigate to="/food/waste" replace />
+              }
+            />
             <Route path="ingredients" element={<FoodIngredients />} />
             <Route path="waste" element={<WasteList />} />
             <Route path="waste/:entryId" element={<WasteEntry />} />
@@ -251,10 +268,18 @@ function App() {
             <Route path="scan"        element={<ScanReceipt />} />
             <Route path="catalog"     element={<RecipesCatalog />} />
             <Route path="ingredients" element={<RecipesIngredients />} />
-            <Route path="inventory"   element={<KitchenInventory />} />
+            <Route path="inventory"   element={<Navigate to="/kitchen/inventory" replace />} />
             <Route path="list"        element={<RecipesList />} />
             <Route path=":id"         element={<RecipeDetail />} />
           </Route>
+          <Route
+            path="/kitchen/inventory"
+            element={
+              (user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner')
+                ? <KitchenInventory />
+                : <Navigate to="/" replace />
+            }
+          />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />
