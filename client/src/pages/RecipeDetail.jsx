@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   getRecipe, updateRecipe, deleteRecipe, uploadRecipePhoto,
   putRecipeIngredients, getRecipesIngredients, getLocations, getRecipesCategories,
+  putRecipeComponents, getRecipes,
 } from '../api';
 
 const UNITS = ['g', 'oz', 'ml', 'each', 'lb', 'kg'];
@@ -83,15 +84,19 @@ export function RecipeDetail() {
   const [locationIds, setLocIds]    = useState([]);
   const [ingredients, setIngr]      = useState([]);
   const [addIngId, setAddIngId]     = useState('');
+  const [components, setComponents]       = useState([]);
+  const [addComponentId, setAddCompId]    = useState('');
+  const [allRecipes, setAllRecipes]       = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [recipeRes, allIngrRes, locsRes, catsRes] = await Promise.all([
+      const [recipeRes, allIngrRes, locsRes, catsRes, recipesRes] = await Promise.all([
         getRecipe(id),
         getRecipesIngredients(),
         getLocations(),
         getRecipesCategories(),
+        getRecipes(),
       ]);
       const r = recipeRes.recipe;
       setRecipe(r);
@@ -104,9 +109,11 @@ export function RecipeDetail() {
       setMenuPrice(r.menu_price ?? '');
       setLocIds(r.location_ids || []);
       setIngr(r.ingredients || []);
+      setComponents(r.components || []);
       setAllIngr((allIngrRes.ingredients || []).filter((i) => i.is_active !== false));
       setAllLocs(locsRes.locations || []);
       setCategories(catsRes.categories || []);
+      setAllRecipes((recipesRes.recipes || []).filter((x) => x.id !== id));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -137,6 +144,13 @@ export function RecipeDetail() {
         quantity: i.quantity,
         unit: i.unit || null,
         note: i.note || null,
+        position: idx,
+      })));
+      await putRecipeComponents(id, components.map((c, idx) => ({
+        child_recipe_id: c.child_recipe_id,
+        quantity: c.quantity === '' ? null : c.quantity,
+        unit: c.unit || null,
+        note: c.note || null,
         position: idx,
       })));
       flash('Saved');
@@ -189,11 +203,24 @@ export function RecipeDetail() {
     setIngr((prev) => prev.map((row, i) => i === idx ? { ...row, [field]: val } : row));
   };
 
+  const addComponent = () => {
+    if (!addComponentId) return;
+    const rec = allRecipes.find((x) => x.id === addComponentId);
+    if (!rec) return;
+    setComponents((prev) => [...prev, { child_recipe_id: rec.id, child_name: rec.name, quantity: 1, unit: 'each', note: '' }]);
+    setAddCompId('');
+  };
+  const removeComponent = (idx) => setComponents((prev) => prev.filter((_, i) => i !== idx));
+  const updateComponentField = (idx, field, val) =>
+    setComponents((prev) => prev.map((row, i) => i === idx ? { ...row, [field]: val } : row));
+
   if (loading) return <p style={{ color: 'var(--text-muted,#888)', padding: '1rem' }}>Loading…</p>;
   if (!recipe && error) return <p className="recipes-error" style={{ padding: '1rem' }}>{error}</p>;
 
   const usedIngIds = new Set(ingredients.map((i) => i.ingredient_id));
   const availableIngr = allIngredients.filter((i) => !usedIngIds.has(i.id));
+  const usedComponentIds = new Set(components.map((c) => c.child_recipe_id));
+  const availableRecipes = allRecipes.filter((r) => !usedComponentIds.has(r.id));
 
   return (
     <div className="recipe-detail">
@@ -318,6 +345,47 @@ export function RecipeDetail() {
             ))}
           </select>
           <button className="btn-primary" onClick={addIngredient} disabled={!addIngId}>Add</button>
+        </div>
+      </div>
+
+      {/* Sub-recipes (components) */}
+      <div style={{ marginBottom: '1.25rem' }}>
+        <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem' }}>Sub-recipes</h3>
+        {components.length === 0 ? (
+          <p style={{ color: 'var(--text-muted,#888)', fontSize: '0.875rem' }}>
+            No sub-recipes. Add another recipe this one consumes (e.g. Burrata).
+          </p>
+        ) : (
+          <div>
+            {components.map((c, idx) => (
+              <div key={`${c.child_recipe_id}-${idx}`} className="ingredient-line">
+                <span className="ingredient-line-name">{c.child_name}</span>
+                <input
+                  type="number" min="0" step="any"
+                  value={c.quantity ?? ''}
+                  onChange={(e) => updateComponentField(idx, 'quantity', e.target.value)}
+                  title="Quantity"
+                />
+                <select value={c.unit || 'each'} onChange={(e) => updateComponentField(idx, 'unit', e.target.value)}>
+                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+                <input
+                  type="text" placeholder="Note"
+                  value={c.note || ''}
+                  onChange={(e) => updateComponentField(idx, 'note', e.target.value)}
+                  style={{ width: 120 }}
+                />
+                <button className="btn-sm btn-danger" onClick={() => removeComponent(idx)}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="ingredient-picker">
+          <select value={addComponentId} onChange={(e) => setAddCompId(e.target.value)}>
+            <option value="">— Add sub-recipe —</option>
+            {availableRecipes.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <button className="btn-primary" onClick={addComponent} disabled={!addComponentId}>Add</button>
         </div>
       </div>
 

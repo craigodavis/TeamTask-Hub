@@ -189,6 +189,20 @@ async function getRecipeIngredients(recipeId) {
   return r.rows;
 }
 
+// Child recipes consumed by this recipe (sub-recipes / components).
+async function getRecipeComponents(recipeId) {
+  const r = await query(
+    `SELECT rc.id, rc.child_recipe_id, rc.quantity, rc.unit, rc.position, rc.note,
+            cr.name AS child_name, cr.category AS child_category
+     FROM recipe_components rc
+     JOIN recipes cr ON cr.id = rc.child_recipe_id
+     WHERE rc.parent_recipe_id = $1
+     ORDER BY rc.position, rc.id`,
+    [recipeId]
+  );
+  return r.rows;
+}
+
 // ── CATALOG (shopping_item_raw) ───────────────────────────────────────────────
 
 // POST /api/recipes/catalog/backfill
@@ -1189,12 +1203,13 @@ router.get('/:id', requireManager, async (req, res) => {
   );
   if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
   const recipe = r.rows[0];
-  const [ingredients, locationIds] = await Promise.all([
+  const [ingredients, locationIds, components] = await Promise.all([
     getRecipeIngredients(recipe.id),
     getRecipeLocations(recipe.id),
+    getRecipeComponents(recipe.id),
   ]);
   const totalCogs = ingredients.reduce((sum, i) => sum + (parseFloat(i.cogs_contribution) || 0), 0);
-  res.json({ recipe: { ...recipe, ingredients, location_ids: locationIds, total_cogs: totalCogs || null } });
+  res.json({ recipe: { ...recipe, ingredients, components, location_ids: locationIds, total_cogs: totalCogs || null } });
 });
 
 // PATCH /api/recipes/:id
@@ -1229,6 +1244,16 @@ router.patch('/:id', requireManager, async (req, res) => {
 
 // DELETE /api/recipes/:id
 router.delete('/:id', requireManager, async (req, res) => {
+  // Block deletion of a recipe that another recipe consumes as a component.
+  const usedAsComponent = await query(
+    `SELECT p.name FROM recipe_components rc
+     JOIN recipes p ON p.id = rc.parent_recipe_id
+     WHERE rc.child_recipe_id = $1 LIMIT 1`,
+    [req.params.id]
+  );
+  if (usedAsComponent.rows.length) {
+    return res.status(409).json({ error: `Used as a component in "${usedAsComponent.rows[0].name}". Remove it there first.` });
+  }
   const r = await query(
     `DELETE FROM recipes WHERE id = $1 AND company_id = $2 RETURNING id`,
     [req.params.id, cId(req)]
@@ -1274,6 +1299,30 @@ router.put('/:id/ingredients', requireManager, async (req, res) => {
       `INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit, position, note)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [req.params.id, ingredient_id, quantity, unit || null, i, note || null]
+    );
+  }
+  res.json({ ok: true });
+});
+
+// PUT /api/recipes/:id/components
+// Replaces the full sub-recipe (component) list for a recipe.
+router.put('/:id/components', requireManager, async (req, res) => {
+  const { components } = req.body;
+  if (!Array.isArray(components)) return res.status(400).json({ error: 'components array required' });
+
+  const check = await query(`SELECT id FROM recipes WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
+  if (!check.rows.length) return res.status(404).json({ error: 'Not found' });
+
+  await query(`DELETE FROM recipe_components WHERE parent_recipe_id = $1`, [req.params.id]);
+  for (let i = 0; i < components.length; i++) {
+    const { child_recipe_id, quantity, unit, note } = components[i];
+    if (!child_recipe_id || child_recipe_id === req.params.id) continue; // skip empty / self
+    const child = await query(`SELECT id FROM recipes WHERE id = $1 AND company_id = $2`, [child_recipe_id, cId(req)]);
+    if (!child.rows.length) continue;
+    await query(
+      `INSERT INTO recipe_components (parent_recipe_id, child_recipe_id, company_id, quantity, unit, position, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.params.id, child_recipe_id, cId(req), quantity ?? null, unit || null, i, note || null]
     );
   }
   res.json({ ok: true });
