@@ -37,3 +37,10 @@
 .sl-src-vendor { flex-shrink: 0; }
 .sl-src-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888; }
 .sl-src-price { flex-shrink: 0; }
+
+/* Per-store grouping */
+.sl-store-group { margin-bottom: 1rem; }
+.sl-store-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;
+  padding: 0.35rem 0.2rem; margin-bottom: 0.4rem; border-bottom: 2px solid #e2e2e2; }
+.sl-store-name { font-weight: 700; font-size: 0.95rem; color: #333; }
+.sl-store-trip { font-size: 0.8rem; color: #666; text-align: right; }
