@@ -2255,6 +2255,17 @@ const MIGRATIONS = [
     cost_to_shop NUMERIC(10,2) NOT NULL DEFAULT 0,
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
   )`,
+
+  // Cost to shop is PER STORE (two stores on a run = two trip costs). Each
+  // store's cost is spread only across that store's items. kitchen_settings
+  // .cost_to_shop is kept as the default applied to stores with no explicit cost.
+  `CREATE TABLE IF NOT EXISTS kitchen_store_costs (
+    company_id   UUID          NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    vendor       TEXT          NOT NULL,
+    cost_to_shop NUMERIC(10,2) NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (company_id, vendor)
+  )`,
 ];
 
 export async function runMigrations() {

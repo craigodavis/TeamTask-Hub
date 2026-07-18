@@ -871,22 +871,52 @@ router.patch('/inventory/:ingredientId/:locationId/par', requireManager, async (
 
 // ── KITCHEN SETTINGS (single company-wide cost-to-shop) ───────────────────────
 
-// GET /api/recipes/kitchen-settings
+// GET /api/recipes/kitchen-settings — per-store trip costs + a default, plus the
+// list of known vendors (stores) so the UI can offer a cost row for each.
 router.get('/kitchen-settings', requireInventoryAccess, async (req, res) => {
-  const r = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [cId(req)]);
-  res.json({ cost_to_shop: r.rows[0] ? Number(r.rows[0].cost_to_shop) : 0 });
+  const company = cId(req);
+  const def = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [company]);
+  const stores = await query(
+    `SELECT vendor, cost_to_shop FROM kitchen_store_costs WHERE company_id = $1 ORDER BY vendor`,
+    [company]
+  );
+  const vendors = await query(
+    `SELECT DISTINCT vendor FROM shopping_item_raw
+     WHERE company_id = $1 AND vendor IS NOT NULL AND vendor <> '' ORDER BY vendor`,
+    [company]
+  );
+  res.json({
+    default_cost_to_shop: def.rows[0] ? Number(def.rows[0].cost_to_shop) : 0,
+    stores: stores.rows.map((r) => ({ vendor: r.vendor, cost_to_shop: Number(r.cost_to_shop) })),
+    all_vendors: vendors.rows.map((r) => r.vendor),
+  });
 });
 
 // PATCH /api/recipes/kitchen-settings  (manager)
+// Body: { default_cost_to_shop?, stores?: [{ vendor, cost_to_shop }] }
 router.patch('/kitchen-settings', requireManager, async (req, res) => {
-  const r = await query(
-    `INSERT INTO kitchen_settings (company_id, cost_to_shop, updated_at)
-     VALUES ($1,$2,NOW())
-     ON CONFLICT (company_id) DO UPDATE SET cost_to_shop = EXCLUDED.cost_to_shop, updated_at = NOW()
-     RETURNING cost_to_shop`,
-    [cId(req), optionalNumeric(req.body.cost_to_shop) ?? 0]
-  );
-  res.json({ cost_to_shop: Number(r.rows[0].cost_to_shop) });
+  const company = cId(req);
+  const { default_cost_to_shop, stores } = req.body || {};
+  if (default_cost_to_shop != null) {
+    await query(
+      `INSERT INTO kitchen_settings (company_id, cost_to_shop, updated_at)
+       VALUES ($1,$2,NOW())
+       ON CONFLICT (company_id) DO UPDATE SET cost_to_shop = EXCLUDED.cost_to_shop, updated_at = NOW()`,
+      [company, optionalNumeric(default_cost_to_shop) ?? 0]
+    );
+  }
+  if (Array.isArray(stores)) {
+    for (const s of stores) {
+      if (!s || !s.vendor) continue;
+      await query(
+        `INSERT INTO kitchen_store_costs (company_id, vendor, cost_to_shop, updated_at)
+         VALUES ($1,$2,$3,NOW())
+         ON CONFLICT (company_id, vendor) DO UPDATE SET cost_to_shop = EXCLUDED.cost_to_shop, updated_at = NOW()`,
+        [company, s.vendor, optionalNumeric(s.cost_to_shop) ?? 0]
+      );
+    }
+  }
+  res.json({ ok: true });
 });
 
 // GET /api/recipes/shopping-list?location_id=…  — stocked items below (per-location) par.
@@ -930,31 +960,65 @@ router.get('/shopping-list', requireInventoryAccess, async (req, res) => {
     [company, location_id || null]
   );
 
-  const settings = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [company]);
-  const costToShop = settings.rows[0] ? Number(settings.rows[0].cost_to_shop) : 0;
+  const defRow = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [company]);
+  const defaultCost = defRow.rows[0] ? Number(defRow.rows[0].cost_to_shop) : 0;
+  const storeRows = await query(`SELECT vendor, cost_to_shop FROM kitchen_store_costs WHERE company_id = $1`, [company]);
+  const storeCostMap = new Map(storeRows.rows.map((r) => [r.vendor, Number(r.cost_to_shop)]));
+  // Cost to shop is PER STORE: an item with no known store gets no trip cost;
+  // a known store uses its own cost, falling back to the default.
+  const costForStore = (vendor) => {
+    if (!vendor) return 0;
+    return storeCostMap.has(vendor) ? storeCostMap.get(vendor) : defaultCost;
+  };
 
-  // Landed-cost math: distribute the single trip cost across items by each
-  // item's dollar share of the list (needed_qty × default source price).
   const items = r.rows.map((row) => {
     const price = row.default_price != null ? Number(row.default_price) : 0;
     const needed = row.needed_qty != null ? Number(row.needed_qty) : 0;
-    return { ...row, line_cost: Math.round(price * needed * 100) / 100 };
+    return {
+      ...row,
+      store: row.default_vendor || 'Unassigned',
+      line_cost: Math.round(price * needed * 100) / 100,
+    };
   });
-  const totalLineCost = items.reduce((s, it) => s + it.line_cost, 0);
-  for (const it of items) {
-    const share = totalLineCost > 0
-      ? costToShop * (it.line_cost / totalLineCost)
-      : (items.length ? costToShop / items.length : 0);
-    it.shop_cost_share = Math.round(share * 100) / 100;
-    it.price_before = it.line_cost;
-    it.price_after = Math.round((it.line_cost + share) * 100) / 100;
-  }
 
+  // Group by store; distribute each store's trip cost across only its items,
+  // weighted by dollar value. Two stores on the list = two trip costs.
+  const byStore = new Map();
+  for (const it of items) {
+    if (!byStore.has(it.store)) byStore.set(it.store, []);
+    byStore.get(it.store).push(it);
+  }
+  let totalTripCost = 0;
+  const storeSummaries = [];
+  for (const [store, group] of byStore) {
+    const groupLineTotal = group.reduce((s, it) => s + it.line_cost, 0);
+    const tripCost = costForStore(group[0].default_vendor);
+    totalTripCost += tripCost;
+    for (const it of group) {
+      const share = groupLineTotal > 0
+        ? tripCost * (it.line_cost / groupLineTotal)
+        : (group.length ? tripCost / group.length : 0);
+      it.shop_cost_share = Math.round(share * 100) / 100;
+      it.price_before = it.line_cost;
+      it.price_after = Math.round((it.line_cost + share) * 100) / 100;
+    }
+    storeSummaries.push({
+      store,
+      trip_cost: tripCost,
+      items_before: Math.round(groupLineTotal * 100) / 100,
+      items_after: Math.round((groupLineTotal + tripCost) * 100) / 100,
+      count: group.length,
+    });
+  }
+  storeSummaries.sort((a, b) => a.store.localeCompare(b.store));
+
+  const totalBefore = items.reduce((s, it) => s + it.line_cost, 0);
   res.json({
     items,
-    cost_to_shop: costToShop,
-    total_before: Math.round(totalLineCost * 100) / 100,
-    total_after: Math.round((totalLineCost + costToShop) * 100) / 100,
+    stores: storeSummaries,
+    total_before: Math.round(totalBefore * 100) / 100,
+    total_trip_cost: Math.round(totalTripCost * 100) / 100,
+    total_after: Math.round((totalBefore + totalTripCost) * 100) / 100,
   });
 });
 

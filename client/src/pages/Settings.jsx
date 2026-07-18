@@ -147,7 +147,9 @@ function GeneralSettingsPanel({ timezone, opsManagerName, onSave, saving }) {
 }
 
 function KitchenSettingsPanel() {
-  const [costToShop, setCostToShop] = useState('');
+  const [defaultCost, setDefaultCost] = useState('');
+  const [vendors, setVendors] = useState([]);
+  const [storeCosts, setStoreCosts] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -155,17 +157,27 @@ function KitchenSettingsPanel() {
 
   useEffect(() => {
     getKitchenSettings()
-      .then((d) => setCostToShop(d.cost_to_shop != null ? String(d.cost_to_shop) : '0'))
+      .then((d) => {
+        setDefaultCost(d.default_cost_to_shop != null ? String(d.default_cost_to_shop) : '0');
+        setVendors(d.all_vendors || []);
+        const map = {};
+        (d.stores || []).forEach((s) => { map[s.vendor] = String(s.cost_to_shop); });
+        setStoreCosts(map);
+      })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const setStore = (vendor, val) => setStoreCosts((p) => ({ ...p, [vendor]: val }));
 
   const save = async (e) => {
     e.preventDefault();
     setSaving(true); setMsg(''); setErr('');
     try {
-      const d = await updateKitchenSettings({ cost_to_shop: parseFloat(costToShop) || 0 });
-      setCostToShop(String(d.cost_to_shop));
+      const stores = vendors
+        .filter((v) => storeCosts[v] !== undefined && storeCosts[v] !== '')
+        .map((v) => ({ vendor: v, cost_to_shop: parseFloat(storeCosts[v]) || 0 }));
+      await updateKitchenSettings({ default_cost_to_shop: parseFloat(defaultCost) || 0, stores });
       setMsg('Saved.');
     } catch (e2) { setErr(e2.message); }
     finally { setSaving(false); }
@@ -177,25 +189,42 @@ function KitchenSettingsPanel() {
     <div className="settings-section">
       <h2>Kitchen</h2>
       <p className="settings-intro">
-        The <strong>cost to shop</strong> is the added cost of a shopping trip (labor, fuel, etc.).
-        It is spread across the items on each shopping list by dollar value, so you can see each
-        item&apos;s price before and after its share of the trip.
+        The <strong>cost to shop</strong> is the added cost of a trip to a store (labor, fuel, etc.).
+        It&apos;s set <strong>per store</strong> and spread across only that store&apos;s items on a
+        shopping list, by dollar value — so a run to two stores adds both trip costs. The default
+        applies to any store without its own cost.
       </p>
       {err && <p className="settings-error">{err}</p>}
       {msg && <p className="settings-message">{msg}</p>}
       <form onSubmit={save}>
         <fieldset>
-          <legend>Cost to shop</legend>
+          <legend>Default cost to shop</legend>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             $
-            <input
-              type="number" min="0" step="0.01"
-              value={costToShop}
-              onChange={(e) => setCostToShop(e.target.value)}
-              style={{ maxWidth: 160 }}
-            />
-            <span style={{ color: '#888' }}>per shopping trip</span>
+            <input type="number" min="0" step="0.01" value={defaultCost}
+              onChange={(e) => setDefaultCost(e.target.value)} style={{ maxWidth: 140 }} />
+            <span style={{ color: '#888' }}>for stores without a set cost</span>
           </label>
+        </fieldset>
+        <fieldset>
+          <legend>Per-store cost to shop</legend>
+          {vendors.length === 0 ? (
+            <p style={{ color: '#888' }}>No stores yet — they appear once purchases are linked to ingredients.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {vendors.map((v) => (
+                <label key={v} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ flex: 1 }}>{v}</span>
+                  $
+                  <input type="number" min="0" step="0.01"
+                    value={storeCosts[v] ?? ''}
+                    placeholder={defaultCost || '0'}
+                    onChange={(e) => setStore(v, e.target.value)}
+                    style={{ maxWidth: 120 }} />
+                </label>
+              ))}
+            </div>
+          )}
         </fieldset>
         <div className="settings-actions">
           <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
