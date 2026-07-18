@@ -2284,6 +2284,23 @@ const MIGRATIONS = [
      WHERE i.id = il.ingredient_id
        AND il.buy_frequency IS NULL
        AND i.buy_frequency IS NOT NULL`,
+
+  // ── Recipes can consume other recipes (sub-recipes / components) ──────────
+  // e.g. Burrata (a prep recipe) is a component of the Fennel Thyme & Sausage
+  // pizza. child_recipe_id is RESTRICT so a recipe used as a component can't be
+  // deleted out from under its parent.
+  `CREATE TABLE IF NOT EXISTS recipe_components (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_recipe_id UUID NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    child_recipe_id  UUID NOT NULL REFERENCES recipes(id) ON DELETE RESTRICT,
+    company_id       UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    quantity         NUMERIC(10,3),
+    unit             VARCHAR(10),
+    position         INTEGER NOT NULL DEFAULT 0,
+    note             TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_components_parent ON recipe_components(parent_recipe_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_components_child  ON recipe_components(child_recipe_id)`,
 ];
 
 export async function runMigrations() {

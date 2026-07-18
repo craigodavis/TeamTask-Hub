@@ -1787,6 +1787,16 @@ export async function putRecipeIngredients(id, ingredients) {
   return d;
 }
 
+// Replace the sub-recipe (component) list for a recipe.
+export async function putRecipeComponents(id, components) {
+  const res = await fetch(`${API}/recipes/${id}/components`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ components }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save sub-recipes');
+  return d;
+}
+
 export async function getRecipesCategories() {
   const res = await fetch(`${API}/recipes/meta/categories`, { headers: headers() });
   const d = await res.json().catch(() => ({}));
