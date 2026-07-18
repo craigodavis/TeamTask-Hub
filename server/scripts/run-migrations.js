@@ -2230,6 +2230,31 @@ const MIGRATIONS = [
   `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
   `ALTER TABLE users ADD CONSTRAINT users_role_check
      CHECK (role IN ('member', 'manager', 'owner', 'gc', 'inventory'))`,
+
+  // ── Kitchen: per-location PAR levels ─────────────────────────────────────
+  // Par used to be a single global value on ingredients.par_qty. Each location
+  // now sets its own par (stocking config lives on ingredient_locations, the
+  // count lives on ingredient_inventory). Seed each stocked location's par from
+  // the old global value so nothing is lost; ingredients.par_qty stays as the
+  // default applied to newly-stocked locations.
+  `ALTER TABLE ingredient_locations
+     ADD COLUMN IF NOT EXISTS par_qty  NUMERIC(10,2),
+     ADD COLUMN IF NOT EXISTS par_unit TEXT`,
+  `UPDATE ingredient_locations il
+     SET par_qty = i.par_qty, par_unit = i.par_unit
+     FROM ingredients i
+     WHERE i.id = il.ingredient_id
+       AND il.par_qty IS NULL
+       AND i.par_qty IS NOT NULL`,
+
+  // ── Kitchen: single company-wide "cost to shop" ──────────────────────────
+  // One flat trip cost distributed across a shopping list by each item's dollar
+  // share. (Phase 2 source-comparison may later need per-store costs.)
+  `CREATE TABLE IF NOT EXISTS kitchen_settings (
+    company_id   UUID          PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+    cost_to_shop NUMERIC(10,2) NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+  )`,
 ];
 
 export async function runMigrations() {
