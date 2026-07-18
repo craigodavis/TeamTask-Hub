@@ -95,39 +95,63 @@ function EditIngredientModal({ ingredient, onSave, onClose }) {
   const [description, setDesc]  = useState(ingredient.description || '');
   const [baseUnit, setBaseUnit] = useState(ingredient.base_unit || 'g');
   const [isActive, setActive]   = useState(ingredient.is_active !== false);
-  const [parQty, setParQty]     = useState(ingredient.par_qty ?? '');
-  const [parUnit, setParUnit]   = useState(ingredient.par_unit || 'each');
-  const [freq, setFreq]         = useState(ingredient.buy_frequency || '');
-  const [dow, setDow]           = useState(ingredient.buy_day_of_week ?? 1);
-  const [dom, setDom]           = useState(ingredient.buy_day_of_month ?? 1);
-  const [wom, setWom]           = useState(ingredient.buy_week_of_month ?? 1);
   const [locations, setLocations]   = useState([]);
   const [locIds, setLocIds]         = useState(new Set(ingredient.location_ids || []));
+  const [locSettings, setLocSettings] = useState(() => {
+    const map = {};
+    (ingredient.location_settings || []).forEach((s) => {
+      map[s.location_id] = {
+        parQty: s.par_qty ?? '',
+        parUnit: s.par_unit || 'each',
+        freq: s.buy_frequency || '',
+        dow: s.buy_day_of_week ?? 1,
+        dom: s.buy_day_of_month ?? 1,
+        wom: s.buy_week_of_month ?? 1,
+      };
+    });
+    return map;
+  });
   const [saving, setSaving]     = useState(false);
 
   useEffect(() => { getLocations().then((d) => setLocations(d.locations || [])).catch(() => {}); }, []);
 
-  const toggleLoc = (id) => setLocIds((prev) => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
+  const defaultSettings = () => ({ parQty: '', parUnit: 'each', freq: '', dow: 1, dom: 1, wom: 1 });
+
+  const toggleLoc = (id) => {
+    setLocIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+    setLocSettings((prev) => (prev[id] ? prev : { ...prev, [id]: defaultSettings() }));
+  };
+
+  const setLS = (id, key, val) =>
+    setLocSettings((prev) => ({ ...prev, [id]: { ...(prev[id] || defaultSettings()), [key]: val } }));
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      const checked = [...locIds];
+      const location_settings = checked.map((id) => {
+        const s = locSettings[id] || defaultSettings();
+        return {
+          location_id: id,
+          par_qty: s.parQty === '' ? null : s.parQty,
+          par_unit: s.parUnit,
+          buy_frequency: s.freq || null,
+          buy_day_of_week:  (s.freq === 'weekly' || s.freq === 'biweekly' || s.freq === 'monthly_weekday') ? s.dow : null,
+          buy_day_of_month: (s.freq === 'monthly') ? s.dom : null,
+          buy_week_of_month:(s.freq === 'monthly_weekday') ? s.wom : null,
+        };
+      });
       await updateRecipesIngredient(ingredient.id, {
         name: name.trim(),
         description: description.trim() || null,
         base_unit: baseUnit,
         is_active: isActive,
-        par_qty: parQty === '' ? null : parQty,
-        par_unit: parUnit,
-        buy_frequency: freq || null,
-        buy_day_of_week:  (freq === 'weekly' || freq === 'biweekly' || freq === 'monthly_weekday') ? dow : null,
-        buy_day_of_month: (freq === 'monthly') ? dom : null,
-        buy_week_of_month:(freq === 'monthly_weekday') ? wom : null,
-        location_ids: [...locIds],
+        location_ids: checked,
+        location_settings,
       });
       onSave();
     } finally {
@@ -139,7 +163,7 @@ function EditIngredientModal({ ingredient, onSave, onClose }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 560, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 620, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
         <h3>Edit Item</h3>
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
           <label>Name</label>
@@ -149,67 +173,79 @@ function EditIngredientModal({ ingredient, onSave, onClose }) {
           <label>Description</label>
           <input type="text" value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Optional notes" />
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-          <div className="form-group" style={{ flex: '1 1 120px' }}>
-            <label>Base unit (recipes)</label>
-            <select value={baseUnit} onChange={(e) => setBaseUnit(e.target.value)}>
-              {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-          <div className="form-group" style={{ flex: '1 1 100px' }}>
-            <label>Par qty</label>
-            <input type="number" min="0" step="any" value={parQty} onChange={(e) => setParQty(e.target.value)} placeholder="—" />
-          </div>
-          <div className="form-group" style={{ flex: '1 1 100px' }}>
-            <label>Par unit</label>
-            <select value={parUnit} onChange={(e) => setParUnit(e.target.value)}>
-              {PAR_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
+        <div className="form-group" style={{ marginBottom: '0.75rem', maxWidth: 200 }}>
+          <label>Base unit (recipes)</label>
+          <select value={baseUnit} onChange={(e) => setBaseUnit(e.target.value)}>
+            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
         </div>
 
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-          <label>Buy frequency</label>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <select value={freq} onChange={(e) => setFreq(e.target.value)} style={{ ...inputStyle, flex: '1 1 180px' }}>
-              {BUY_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-            </select>
-            {(freq === 'weekly' || freq === 'biweekly') && (
-              <select value={dow} onChange={(e) => setDow(Number(e.target.value))} style={inputStyle}>
-                {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-              </select>
-            )}
-            {freq === 'monthly' && (
-              <select value={dom} onChange={(e) => setDom(Number(e.target.value))} style={inputStyle}>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            )}
-            {freq === 'monthly_weekday' && (
-              <>
-                <select value={wom} onChange={(e) => setWom(Number(e.target.value))} style={inputStyle}>
-                  {[1, 2, 3, 4, 5].map((w) => <option key={w} value={w}>{WEEK_ORDINALS[w]}</option>)}
-                </select>
-                <select value={dow} onChange={(e) => setDow(Number(e.target.value))} style={inputStyle}>
-                  {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                </select>
-              </>
-            )}
-          </div>
-        </div>
-
-        {locations.length > 0 && (
-          <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-            <label>Stock at locations (enables inventory counting)</label>
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              {locations.map((l) => (
-                <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}>
-                  <input type="checkbox" checked={locIds.has(l.id)} onChange={() => toggleLoc(l.id)} />
-                  {l.name}
-                </label>
-              ))}
+          <label>Par level &amp; buy frequency — per location</label>
+          {locations.length === 0 ? (
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted,#888)' }}>No locations configured.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              {locations.map((l) => {
+                const on = locIds.has(l.id);
+                const s = locSettings[l.id] || defaultSettings();
+                return (
+                  <div key={l.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.6rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.9rem' }}>
+                      <input type="checkbox" checked={on} onChange={() => toggleLoc(l.id)} />
+                      {l.name}
+                    </label>
+                    {on && (
+                      <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <div className="form-group" style={{ flex: '1 1 90px' }}>
+                          <label>Par qty</label>
+                          <input type="number" min="0" step="any" value={s.parQty} onChange={(e) => setLS(l.id, 'parQty', e.target.value)} placeholder="—" />
+                        </div>
+                        <div className="form-group" style={{ flex: '1 1 90px' }}>
+                          <label>Par unit</label>
+                          <select value={s.parUnit} onChange={(e) => setLS(l.id, 'parUnit', e.target.value)}>
+                            {PAR_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ flex: '2 1 180px' }}>
+                          <label>Buy frequency</label>
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            <select value={s.freq} onChange={(e) => setLS(l.id, 'freq', e.target.value)} style={{ ...inputStyle, flex: '1 1 140px' }}>
+                              {BUY_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                            </select>
+                            {(s.freq === 'weekly' || s.freq === 'biweekly') && (
+                              <select value={s.dow} onChange={(e) => setLS(l.id, 'dow', Number(e.target.value))} style={inputStyle}>
+                                {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                              </select>
+                            )}
+                            {s.freq === 'monthly' && (
+                              <select value={s.dom} onChange={(e) => setLS(l.id, 'dom', Number(e.target.value))} style={inputStyle}>
+                                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                            )}
+                            {s.freq === 'monthly_weekday' && (
+                              <>
+                                <select value={s.wom} onChange={(e) => setLS(l.id, 'wom', Number(e.target.value))} style={inputStyle}>
+                                  {[1, 2, 3, 4, 5].map((w) => <option key={w} value={w}>{WEEK_ORDINALS[w]}</option>)}
+                                </select>
+                                <select value={s.dow} onChange={(e) => setLS(l.id, 'dow', Number(e.target.value))} style={inputStyle}>
+                                  {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                                </select>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        )}
+          )}
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted,#888)', marginTop: '0.4rem' }}>
+            Checking a location enables inventory counting &amp; shopping lists there. Par and buy frequency are set per location.
+          </p>
+        </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', marginBottom: '1rem' }}>
           <input type="checkbox" checked={isActive} onChange={(e) => setActive(e.target.checked)} />
@@ -274,6 +310,15 @@ export function RecipesIngredients() {
   const [expanded, setExpanded]         = useState(new Set());
   const [editFor, setEditFor]           = useState(null);
   const [purchaseItem, setPurchaseItem] = useState(null);
+  const [locNames, setLocNames]         = useState({});
+
+  useEffect(() => {
+    getLocations().then((d) => {
+      const map = {};
+      (d.locations || []).forEach((l) => { map[l.id] = l.name; });
+      setLocNames(map);
+    }).catch(() => {});
+  }, []);
 
   // Catalog for "add source" dropdowns — loaded once lazily
   const [catalog, setCatalog]           = useState(null);
@@ -394,9 +439,19 @@ export function RecipesIngredients() {
                       </td>
                       <td>{ing.base_unit || '—'}</td>
                       <td style={{ fontSize: '0.78rem', color: 'var(--text-muted,#888)' }}>
-                        {ing.par_qty != null ? <div>Par: {ing.par_qty} {ing.par_unit || ''}</div> : null}
-                        {buyFrequencyLabel(ing) ? <div>{buyFrequencyLabel(ing)}</div> : null}
-                        {ing.par_qty == null && !buyFrequencyLabel(ing) ? '—' : null}
+                        {(() => {
+                          const ls = (ing.location_settings || []).filter((s) => s.par_qty != null || s.buy_frequency);
+                          if (ls.length === 0) return '—';
+                          return ls.map((s) => {
+                            const par = s.par_qty != null ? `${s.par_qty} ${s.par_unit || ''}`.trim() : null;
+                            const bf = buyFrequencyLabel(s);
+                            return (
+                              <div key={s.location_id}>
+                                <strong>{locNames[s.location_id] || '?'}:</strong> {par || '—'}{bf ? ` · ${bf}` : ''}
+                              </div>
+                            );
+                          });
+                        })()}
                       </td>
                       <td style={{ textAlign: 'center', color: sources.length ? 'var(--text)' : 'var(--text-muted,#888)', fontSize: '0.85rem' }}>
                         {sources.length}
