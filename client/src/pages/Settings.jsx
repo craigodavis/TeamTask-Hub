@@ -148,8 +148,10 @@ function GeneralSettingsPanel({ timezone, opsManagerName, onSave, saving }) {
 
 function KitchenSettingsPanel() {
   const [defaultCost, setDefaultCost] = useState('');
-  const [vendors, setVendors] = useState([]);
-  const [storeCosts, setStoreCosts] = useState({});
+  const [storeList, setStoreList] = useState([]);   // store names to show
+  const [storeCosts, setStoreCosts] = useState({}); // name -> cost string
+  const [manualStores, setManualStores] = useState(new Set()); // added by hand
+  const [newStore, setNewStore] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -159,10 +161,13 @@ function KitchenSettingsPanel() {
     getKitchenSettings()
       .then((d) => {
         setDefaultCost(d.default_cost_to_shop != null ? String(d.default_cost_to_shop) : '0');
-        setVendors(d.all_vendors || []);
-        const map = {};
-        (d.stores || []).forEach((s) => { map[s.vendor] = String(s.cost_to_shop); });
-        setStoreCosts(map);
+        const costMap = {};
+        (d.stores || []).forEach((s) => { costMap[s.vendor] = String(s.cost_to_shop); });
+        setStoreCosts(costMap);
+        // Show catalog vendors + any store that already has a saved cost.
+        const names = Array.from(new Set([...(d.all_vendors || []), ...(d.stores || []).map((s) => s.vendor)]));
+        names.sort((a, b) => a.localeCompare(b));
+        setStoreList(names);
       })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
@@ -170,12 +175,25 @@ function KitchenSettingsPanel() {
 
   const setStore = (vendor, val) => setStoreCosts((p) => ({ ...p, [vendor]: val }));
 
+  const addStore = () => {
+    const name = newStore.trim();
+    if (!name) return;
+    if (!storeList.some((s) => s.toLowerCase() === name.toLowerCase())) {
+      setStoreList((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+      setManualStores((prev) => new Set(prev).add(name));
+      setStoreCosts((p) => ({ ...p, [name]: p[name] ?? '' }));
+    }
+    setNewStore('');
+  };
+
   const save = async (e) => {
     e.preventDefault();
     setSaving(true); setMsg(''); setErr('');
     try {
-      const stores = vendors
-        .filter((v) => storeCosts[v] !== undefined && storeCosts[v] !== '')
+      // Persist stores with an explicit cost, plus any hand-added store (even at
+      // 0) so it survives reload. Untouched catalog vendors stay on the default.
+      const stores = storeList
+        .filter((v) => (storeCosts[v] !== undefined && storeCosts[v] !== '') || manualStores.has(v))
         .map((v) => ({ vendor: v, cost_to_shop: parseFloat(storeCosts[v]) || 0 }));
       await updateKitchenSettings({ default_cost_to_shop: parseFloat(defaultCost) || 0, stores });
       setMsg('Saved.');
@@ -208,11 +226,11 @@ function KitchenSettingsPanel() {
         </fieldset>
         <fieldset>
           <legend>Per-store cost to shop</legend>
-          {vendors.length === 0 ? (
-            <p style={{ color: '#888' }}>No stores yet — they appear once purchases are linked to ingredients.</p>
+          {storeList.length === 0 ? (
+            <p style={{ color: '#888' }}>No stores yet — add one below, or they appear once purchases are linked.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {vendors.map((v) => (
+              {storeList.map((v) => (
                 <label key={v} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{ flex: 1 }}>{v}</span>
                   $
@@ -225,6 +243,17 @@ function KitchenSettingsPanel() {
               ))}
             </div>
           )}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="Add a store (e.g. Winco)"
+              value={newStore}
+              onChange={(e) => setNewStore(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addStore(); } }}
+              style={{ flex: 1, maxWidth: 240 }}
+            />
+            <button type="button" onClick={addStore}>+ Add store</button>
+          </div>
         </fieldset>
         <div className="settings-actions">
           <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
