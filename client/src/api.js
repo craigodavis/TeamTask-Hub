@@ -1567,6 +1567,17 @@ export async function patchRecipesCatalogItem(id, body) {
   return d;
 }
 
+// Create an ingredient from a catalog item and link it (+ same-product store
+// rows) as sources. body: { name, description, base_unit }
+export async function convertCatalogItemToIngredient(id, body) {
+  const res = await fetch(`${API}/recipes/catalog/${id}/convert`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to convert to ingredient');
+  return d;
+}
+
 export async function inferCatalogUnits() {
   const res = await fetch(`${API}/recipes/catalog/infer-units`, {
     method: 'POST', headers: headers(),

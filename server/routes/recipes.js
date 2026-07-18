@@ -404,6 +404,55 @@ router.get('/catalog', requireManager, async (req, res) => {
   res.json({ items: r.rows, total: total.rows[0]?.n ?? r.rows.length });
 });
 
+// POST /api/recipes/catalog/:id/convert — create an ingredient from a catalog
+// item, then link that item (primary source) plus any sibling rows for the same
+// product across other stores. Body: { name?, description?, base_unit? }
+router.post('/catalog/:id/convert', requireManager, async (req, res) => {
+  const company = cId(req);
+  const item = await query(
+    `SELECT id, product_name, description_raw FROM shopping_item_raw
+     WHERE id = $1 AND company_id = $2`,
+    [req.params.id, company]
+  );
+  if (!item.rows.length) return res.status(404).json({ error: 'Catalog item not found' });
+  const it = item.rows[0];
+
+  const name = (req.body.name || it.product_name || it.description_raw || 'New ingredient').trim();
+  const description = req.body.description != null ? (String(req.body.description).trim() || null) : null;
+  const baseUnit = req.body.base_unit || null;
+
+  const ing = await query(
+    `INSERT INTO ingredients (company_id, name, description, base_unit)
+     VALUES ($1,$2,$3,$4) RETURNING *`,
+    [company, name, description, baseUnit]
+  );
+  const ingredientId = ing.rows[0].id;
+
+  // The selected catalog item becomes the primary price source.
+  await query(
+    `UPDATE shopping_item_raw SET ingredient_id = $1, is_recipe_primary = true
+     WHERE id = $2 AND company_id = $3`,
+    [ingredientId, it.id, company]
+  );
+
+  // Gather the same product carried by other stores (unlinked rows with the same
+  // product name) as additional, non-primary sources.
+  let linkedSiblings = 0;
+  const matchName = (it.product_name || '').trim();
+  if (matchName) {
+    const sib = await query(
+      `UPDATE shopping_item_raw SET ingredient_id = $1
+       WHERE company_id = $2 AND ingredient_id IS NULL AND id <> $3
+         AND lower(trim(COALESCE(product_name, ''))) = lower($4)
+       RETURNING id`,
+      [ingredientId, company, it.id, matchName]
+    );
+    linkedSiblings = sib.rows.length;
+  }
+
+  res.status(201).json({ ingredient: ing.rows[0], linked_siblings: linkedSiblings });
+});
+
 // GET /api/recipes/catalog/:id/purchases
 // All receipt line items linked to a shopping_item_raw row, ordered newest first.
 router.get('/catalog/:id/purchases', requireManager, async (req, res) => {
