@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   getRecipesCatalog, patchRecipesCatalogItem, bulkSetCatalogUnit,
-  getRecipesIngredients, createRecipesIngredient,
+  getRecipesIngredients, createRecipesIngredient, convertCatalogItemToIngredient,
   backfillRecipesCatalog, enrichRecipesCatalog, getCatalogItemPurchases,
 } from '../api';
 
@@ -210,6 +210,66 @@ function AssociateModal({ item, ingredients, onDone, onClose }) {
   );
 }
 
+function ConvertToIngredientModal({ item, onDone, onClose }) {
+  const [name, setName] = useState(item.product_name || item.description_raw || '');
+  const [description, setDescription] = useState('');
+  const [baseUnit, setBaseUnit] = useState('g');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const r = await convertCatalogItemToIngredient(item.id, {
+        name: name.trim(),
+        description: description.trim() || null,
+        base_unit: baseUnit,
+      });
+      onDone(r);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Convert to Ingredient</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted,#888)', marginTop: 0 }}>
+          Creates an ingredient from <strong>{item.product_name || item.description_raw}</strong>
+          {item.vendor ? ` (${item.vendor})` : ''} and links this item — plus any other stores
+          carrying the same product — as its sources.
+        </p>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label>Ingredient name</label>
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label>Description (optional)</label>
+          <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes" />
+        </div>
+        <div className="form-group" style={{ marginBottom: '1rem', maxWidth: 180 }}>
+          <label>Base unit (recipes)</label>
+          <select value={baseUnit} onChange={(e) => setBaseUnit(e.target.value)}>
+            <option value="g">g (grams)</option>
+            <option value="oz">oz (ounces)</option>
+            <option value="ml">ml</option>
+            <option value="each">each</option>
+            <option value="lb">lb</option>
+            <option value="kg">kg</option>
+          </select>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn-sm" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
+            {saving ? 'Converting…' : 'Convert'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RecipesCatalog() {
   const [items, setItems]               = useState([]);
   const [ingredients, setIngredients]   = useState([]);
@@ -220,6 +280,7 @@ export function RecipesCatalog() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
   const [assocItem, setAssocItem]       = useState(null);
+  const [convertItem, setConvertItem]   = useState(null);
   const [purchaseItem, setPurchaseItem] = useState(null);
   const [backfilling, setBackfilling]   = useState(false);
   const [selected, setSelected]         = useState(new Set());
@@ -482,6 +543,9 @@ export function RecipesCatalog() {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                      {!item.ingredient_id && (
+                        <button className="btn-sm btn-primary" onClick={() => setConvertItem(item)}>Convert</button>
+                      )}
                       <button className="btn-sm" onClick={() => setAssocItem(item)}>
                         {item.ingredient_id ? 'Edit link' : 'Link'}
                       </button>
@@ -506,6 +570,14 @@ export function RecipesCatalog() {
           ingredients={ingredients}
           onDone={() => { setAssocItem(null); load(); }}
           onClose={() => setAssocItem(null)}
+        />
+      )}
+
+      {convertItem && (
+        <ConvertToIngredientModal
+          item={convertItem}
+          onDone={() => { setConvertItem(null); load(); }}
+          onClose={() => setConvertItem(null)}
         />
       )}
 
