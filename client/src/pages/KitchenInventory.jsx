@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getLocations, getKitchenInventory, updateKitchenInventoryCount, reorderKitchenInventory } from '../api';
+import { useOutletContext } from 'react-router-dom';
+import { getLocations, getKitchenInventory, updateKitchenInventoryCount, reorderKitchenInventory, setKitchenPar } from '../api';
 import './ShoppingInventory.css';
 
-// On-hand counting per ingredient × location. An ingredient appears here once it
-// is stocked at a location (set in Kitchen → Ingredients → edit → "Stock at locations").
+// Weekly on-hand counting per ingredient × location. An ingredient appears here
+// once it is stocked at a location (Kitchen → Ingredients → edit → "Stock at
+// locations"). PAR is per-location: managers can tap the par to set it for the
+// current location; the inventory role just enters the count.
 export function KitchenInventory() {
+  const { user } = useOutletContext() || {};
+  const isManager = user?.role === 'manager' || user?.role === 'owner';
+
   const [locations, setLocations] = useState([]);
   const [locationId, setLocationId] = useState('');
   const [inventory, setInventory] = useState([]);
@@ -13,6 +19,9 @@ export function KitchenInventory() {
   const [error, setError] = useState('');
   const [countingId, setCountingId] = useState(null);
   const [countInput, setCountInput] = useState('');
+  const [parEditId, setParEditId] = useState(null);
+  const [parQtyInput, setParQtyInput] = useState('');
+  const [parUnitInput, setParUnitInput] = useState('');
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const listRef = useRef(null);
@@ -66,6 +75,26 @@ export function KitchenInventory() {
     }
   };
 
+  const openParEdit = (item) => {
+    setParEditId(item.id);
+    setParQtyInput(item.par_qty != null ? String(item.par_qty) : '');
+    setParUnitInput(item.par_unit || '');
+  };
+
+  const savePar = async () => {
+    const item = inventory.find((i) => i.id === parEditId);
+    if (!item || !locationId) { setParEditId(null); return; }
+    const qty = parQtyInput === '' ? null : parseFloat(parQtyInput);
+    if (qty != null && isNaN(qty)) { setParEditId(null); return; }
+    try {
+      await setKitchenPar(item.id, locationId, { par_qty: qty, par_unit: parUnitInput || null });
+      setInventory((prev) => prev.map((i) =>
+        i.id === item.id ? { ...i, par_qty: qty, par_unit: parUnitInput || null } : i
+      ));
+    } catch (e) { setError(e.message); }
+    finally { setParEditId(null); }
+  };
+
   const onDragStart = (e, idx) => { setDragIndex(idx); e.dataTransfer.effectAllowed = 'move'; };
   const onDragOver = (e, idx) => { e.preventDefault(); setDragOverIndex(idx); };
   const onDrop = async (e, idx) => {
@@ -93,6 +122,7 @@ export function KitchenInventory() {
 
   return (
     <div className="inv-page">
+      <h1 className="inv-title">Weekly Inventory</h1>
       {error && <div className="inv-error">{error}</div>}
 
       {locations.length > 1 && (
@@ -131,12 +161,21 @@ export function KitchenInventory() {
             <div className="inv-drag-handle">⠿</div>
             <div className="inv-item-info">
               <span className="inv-item-name">{item.name}</span>
-              <span className="inv-item-par">
-                Par: {item.par_qty != null ? `${item.par_qty} ${item.par_unit || ''}` : '—'}
-                {needsReorder(item) && (
-                  <span className="inv-need-badge"> need {needed(item)} {item.par_unit}</span>
-                )}
-              </span>
+              {isManager ? (
+                <button type="button" className="inv-item-par inv-par-edit" onClick={() => openParEdit(item)}>
+                  Par: {item.par_qty != null ? `${item.par_qty} ${item.par_unit || ''}` : 'set'} ✎
+                  {needsReorder(item) && (
+                    <span className="inv-need-badge"> need {needed(item)} {item.par_unit}</span>
+                  )}
+                </button>
+              ) : (
+                <span className="inv-item-par">
+                  Par: {item.par_qty != null ? `${item.par_qty} ${item.par_unit || ''}` : '—'}
+                  {needsReorder(item) && (
+                    <span className="inv-need-badge"> need {needed(item)} {item.par_unit}</span>
+                  )}
+                </span>
+              )}
               {item.last_counted_at && (
                 <span className="inv-last-count">counted {formatDate(item.last_counted_at)}</span>
               )}
@@ -170,6 +209,43 @@ export function KitchenInventory() {
               <div className="inv-numpad-actions">
                 <button type="button" className="inv-key-cancel" onClick={() => setCountingId(null)}>Cancel</button>
                 <button type="button" className="inv-key-save" onClick={saveCount}>Save</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {parEditId && (() => {
+        const item = inventory.find((i) => i.id === parEditId);
+        const locName = locations.find((l) => l.id === locationId)?.name || '';
+        return (
+          <div className="inv-numpad-overlay" onClick={() => setParEditId(null)}>
+            <div className="inv-par-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="inv-numpad-title">{item?.name}</div>
+              <div className="inv-par-sub">Par level at {locName}</div>
+              <div className="inv-par-fields">
+                <label>
+                  Qty
+                  <input
+                    type="number" inputMode="decimal" autoFocus
+                    value={parQtyInput}
+                    onChange={(e) => setParQtyInput(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                  />
+                </label>
+                <label>
+                  Unit
+                  <input
+                    type="text"
+                    value={parUnitInput}
+                    onChange={(e) => setParUnitInput(e.target.value)}
+                    placeholder="e.g. rolls"
+                  />
+                </label>
+              </div>
+              <div className="inv-numpad-actions">
+                <button type="button" className="inv-key-cancel" onClick={() => setParEditId(null)}>Cancel</button>
+                <button type="button" className="inv-key-save" onClick={savePar}>Save Par</button>
               </div>
             </div>
           </div>

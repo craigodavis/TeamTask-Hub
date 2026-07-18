@@ -17,6 +17,7 @@ function isManageTabActive(location, tab) {
 function isKitchenPath(pathname) {
   return pathname.startsWith('/food')
     || pathname.startsWith('/recipes')
+    || pathname.startsWith('/kitchen')
     || pathname.startsWith('/quickbooks');
 }
 
@@ -227,10 +228,10 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Ingredients</span>
                 </Link>
               )}
-              {isManager && (
+              {canAccessInventory && (
                 <Link
-                  to="/recipes/inventory"
-                  className={`nav-sub-item${location.pathname.startsWith('/recipes/inventory') ? ' active' : ''}`}
+                  to="/kitchen/inventory"
+                  className={`nav-sub-item${location.pathname.startsWith('/kitchen/inventory') ? ' active' : ''}`}
                   onClick={() => { if (isMobile()) setCollapsed(true); }}
                 >
                   <span className="nav-sub-icon">📦</span>

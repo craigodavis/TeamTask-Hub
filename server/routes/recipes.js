@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireManager, requireInventoryAccess } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PHOTO_DIR = path.join(__dirname, '..', 'uploads', 'recipes');
@@ -785,11 +785,13 @@ router.delete('/ingredients/:id', requireManager, async (req, res) => {
 // ── INVENTORY (on-hand counts per ingredient per location) ────────────────────
 
 // GET /api/recipes/inventory?location_id=…  — ingredients stocked at a location
-router.get('/inventory', requireManager, async (req, res) => {
+router.get('/inventory', requireInventoryAccess, async (req, res) => {
   const { location_id } = req.query;
   if (!location_id) return res.status(400).json({ error: 'location_id is required' });
   const r = await query(
-    `SELECT i.id, i.name, i.base_unit, i.par_qty, i.par_unit,
+    `SELECT i.id, i.name, i.base_unit,
+            COALESCE(il.par_qty, i.par_qty)   AS par_qty,
+            COALESCE(il.par_unit, i.par_unit) AS par_unit,
             inv.location_id, inv.current_qty, inv.sort_order,
             inv.last_counted_at, inv.last_counted_by,
             u.display_name AS last_counted_by_name,
@@ -809,7 +811,7 @@ router.get('/inventory', requireManager, async (req, res) => {
 });
 
 // PATCH /api/recipes/inventory/:ingredientId/:locationId  — set count / sort
-router.patch('/inventory/:ingredientId/:locationId', requireManager, async (req, res) => {
+router.patch('/inventory/:ingredientId/:locationId', requireInventoryAccess, async (req, res) => {
   const { current_qty, sort_order } = req.body;
   const { ingredientId, locationId } = req.params;
   const company = cId(req);
@@ -836,7 +838,7 @@ router.patch('/inventory/:ingredientId/:locationId', requireManager, async (req,
 });
 
 // POST /api/recipes/inventory/reorder  — persist drag-drop order for a location
-router.post('/inventory/reorder', requireManager, async (req, res) => {
+router.post('/inventory/reorder', requireInventoryAccess, async (req, res) => {
   const { location_id, order } = req.body; // order: [{ ingredient_id, sort_order }]
   if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
   const company = cId(req);
@@ -851,14 +853,63 @@ router.post('/inventory/reorder', requireManager, async (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/recipes/shopping-list?location_id=…  — stocked items below par
-router.get('/shopping-list', requireManager, async (req, res) => {
-  const { location_id } = req.query;
+// PATCH /api/recipes/inventory/:ingredientId/:locationId/par — set per-location par (manager)
+router.patch('/inventory/:ingredientId/:locationId/par', requireManager, async (req, res) => {
+  const { par_qty, par_unit } = req.body;
+  const { ingredientId, locationId } = req.params;
   const r = await query(
-    `SELECT i.id, i.name, i.par_qty, i.par_unit, i.buy_frequency,
-            inv.current_qty, inv.location_id, l.name AS location_name,
-            GREATEST(0, i.par_qty - COALESCE(inv.current_qty, 0)) AS needed_qty,
-            sir.vendor AS last_vendor, sir.last_price
+    `INSERT INTO ingredient_locations (ingredient_id, location_id, company_id, par_qty, par_unit)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (ingredient_id, location_id) DO UPDATE SET
+       par_qty  = EXCLUDED.par_qty,
+       par_unit = EXCLUDED.par_unit
+     RETURNING *`,
+    [ingredientId, locationId, cId(req), optionalNumeric(par_qty), par_unit || null]
+  );
+  res.json(r.rows[0]);
+});
+
+// ── KITCHEN SETTINGS (single company-wide cost-to-shop) ───────────────────────
+
+// GET /api/recipes/kitchen-settings
+router.get('/kitchen-settings', requireInventoryAccess, async (req, res) => {
+  const r = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [cId(req)]);
+  res.json({ cost_to_shop: r.rows[0] ? Number(r.rows[0].cost_to_shop) : 0 });
+});
+
+// PATCH /api/recipes/kitchen-settings  (manager)
+router.patch('/kitchen-settings', requireManager, async (req, res) => {
+  const r = await query(
+    `INSERT INTO kitchen_settings (company_id, cost_to_shop, updated_at)
+     VALUES ($1,$2,NOW())
+     ON CONFLICT (company_id) DO UPDATE SET cost_to_shop = EXCLUDED.cost_to_shop, updated_at = NOW()
+     RETURNING cost_to_shop`,
+    [cId(req), optionalNumeric(req.body.cost_to_shop) ?? 0]
+  );
+  res.json({ cost_to_shop: Number(r.rows[0].cost_to_shop) });
+});
+
+// GET /api/recipes/shopping-list?location_id=…  — stocked items below (per-location) par.
+// Returns shortage qty, all fulfilling vendor sources (default first), and each
+// item's share of the single company cost-to-shop, distributed by dollar value.
+router.get('/shopping-list', requireInventoryAccess, async (req, res) => {
+  const { location_id } = req.query;
+  const company = cId(req);
+  const r = await query(
+    `SELECT i.id, i.name, i.buy_frequency,
+            COALESCE(il.par_qty, i.par_qty)   AS par_qty,
+            COALESCE(il.par_unit, i.par_unit) AS par_unit,
+            inv.current_qty, il.location_id, l.name AS location_name,
+            GREATEST(0, COALESCE(il.par_qty, i.par_qty) - COALESCE(inv.current_qty, 0)) AS needed_qty,
+            def.vendor AS default_vendor, def.last_price AS default_price, def.unit AS default_unit,
+            (SELECT json_agg(json_build_object(
+               'id', s.id, 'vendor', s.vendor, 'product_name', s.product_name,
+               'description', s.description_raw, 'last_price', s.last_price, 'unit', s.unit,
+               'is_primary', s.is_recipe_primary
+             ) ORDER BY s.is_recipe_primary DESC, s.last_price ASC NULLS LAST)
+             FROM shopping_item_raw s
+             WHERE s.ingredient_id = i.id AND s.company_id = $1
+            ) AS sources
      FROM ingredients i
      INNER JOIN ingredient_locations il
        ON il.ingredient_id = i.id AND il.company_id = $1
@@ -867,18 +918,44 @@ router.get('/shopping-list', requireManager, async (req, res) => {
        ON inv.ingredient_id = i.id AND inv.location_id = il.location_id AND inv.company_id = $1
      LEFT JOIN locations l ON l.id = il.location_id
      LEFT JOIN LATERAL (
-       SELECT vendor, last_price FROM shopping_item_raw s
+       SELECT vendor, last_price, unit FROM shopping_item_raw s
        WHERE s.ingredient_id = i.id AND s.company_id = $1
-       ORDER BY s.is_recipe_primary DESC, s.last_purchase_date DESC NULLS LAST
+       ORDER BY s.is_recipe_primary DESC, s.last_price ASC NULLS LAST
        LIMIT 1
-     ) sir ON true
+     ) def ON true
      WHERE i.company_id = $1
-       AND i.par_qty IS NOT NULL
-       AND COALESCE(inv.current_qty, 0) < i.par_qty
-     ORDER BY i.name`,
-    [cId(req), location_id || null]
+       AND COALESCE(il.par_qty, i.par_qty) IS NOT NULL
+       AND COALESCE(inv.current_qty, 0) < COALESCE(il.par_qty, i.par_qty)
+     ORDER BY l.name, i.name`,
+    [company, location_id || null]
   );
-  res.json({ items: r.rows });
+
+  const settings = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [company]);
+  const costToShop = settings.rows[0] ? Number(settings.rows[0].cost_to_shop) : 0;
+
+  // Landed-cost math: distribute the single trip cost across items by each
+  // item's dollar share of the list (needed_qty × default source price).
+  const items = r.rows.map((row) => {
+    const price = row.default_price != null ? Number(row.default_price) : 0;
+    const needed = row.needed_qty != null ? Number(row.needed_qty) : 0;
+    return { ...row, line_cost: Math.round(price * needed * 100) / 100 };
+  });
+  const totalLineCost = items.reduce((s, it) => s + it.line_cost, 0);
+  for (const it of items) {
+    const share = totalLineCost > 0
+      ? costToShop * (it.line_cost / totalLineCost)
+      : (items.length ? costToShop / items.length : 0);
+    it.shop_cost_share = Math.round(share * 100) / 100;
+    it.price_before = it.line_cost;
+    it.price_after = Math.round((it.line_cost + share) * 100) / 100;
+  }
+
+  res.json({
+    items,
+    cost_to_shop: costToShop,
+    total_before: Math.round(totalLineCost * 100) / 100,
+    total_after: Math.round((totalLineCost + costToShop) * 100) / 100,
+  });
 });
 
 // ── RECIPES ───────────────────────────────────────────────────────────────────
