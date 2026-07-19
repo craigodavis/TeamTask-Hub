@@ -23,9 +23,9 @@ function Info({ t }) {
       {open && (
         <span
           onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-          style={{ position: 'absolute', zIndex: 100, top: '140%', left: 0, width: 'min(240px, 72vw)',
-            background: '#1f2430', color: '#fff', padding: '9px 11px', borderRadius: 8, fontSize: 12.5, fontWeight: 400,
-            boxShadow: '0 6px 20px rgba(0,0,0,.28)', lineHeight: 1.45, textAlign: 'left', whiteSpace: 'normal' }}
+          style={{ position: 'absolute', zIndex: 100, top: '140%', left: 0, width: 'min(320px, 84vw)',
+            background: '#1f2430', color: '#fff', padding: '10px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 400,
+            boxShadow: '0 6px 20px rgba(0,0,0,.28)', lineHeight: 1.5, textAlign: 'left', whiteSpace: 'pre-line' }}
         >{t}</span>
       )}
     </span>
@@ -100,7 +100,7 @@ function Scoreboard() {
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, margin: '14px 0' }}>
-              <Stat label="Forecast sales" val={money(loc.forecast_week)} info="Blend of last week (same weekday) and same week last year, scaled by your YoY growth run-rate." />
+              <Stat label="Forecast sales" val={money(loc.forecast_week)} info={`Each day = ${data.settings.forecast_w_lastweek}×(last week, same weekday) + ${data.settings.forecast_w_lastyear}×(same week last year × YoY growth), summed Wed–Tue. YoY growth = trailing 28 days vs the same 28 days last year. Closed days (no history that weekday) show —. Weights are editable in Settings.`} />
               <Stat label="Labor budget" val={money(loc.labor_budget)} info={`Forecast × target labor % (${pct(loc.target_labor_pct)}).`} />
               <Stat label="Target hours" val={loc.target_hours == null ? '—' : loc.target_hours + ' h'} info={`Labor budget ÷ blended wage (${money(loc.blended_wage)}/h).`} />
               <Stat label="YoY growth" val={(loc.yoy_growth_pct >= 0 ? '+' : '') + loc.yoy_growth_pct + '%'} info="Trailing 28 days vs the same 28 days last year (POS sales)." />
@@ -149,7 +149,16 @@ function Correlation() {
   return (
     <div>
       <div style={{ ...card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Performer lift <Info t="Avg POS sales on a performer's nights vs the same weekday with no event, per location. Small samples sharpen over time." /></h3>
+        <h3 style={{ marginTop: 0 }}>Performer lift <Info t={`How it's computed:
+For each performer we take the actual POS net sales on every night they played, and compare it to a baseline — the average sales on that SAME weekday and location, on days with NO event. Lift = their avg ÷ baseline − 1.
+So a Friday act is measured against a typical music-free Friday (day-of-week is controlled for).
+
+Trust it as directional, not exact:
+• Correlation, not causation — weather, holidays and season on their nights are NOT subtracted out yet, so a band that happened to play perfect Saturdays looks better than it is.
+• Small samples (1–2 nights) are noisy and firm up as they play more.
+• The baseline excludes all event days, so "a normal Friday" is built from your music-free Fridays only.
+
+Coming next: a learned score that controls for weather/holiday/season so the number reflects the performer, not their luck.`} /></h3>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead><tr style={{ textAlign: 'left', opacity: 0.6 }}><th>Performer</th><th>Location</th><th>Nights</th><th>Avg/night</th><th>Baseline</th><th>Lift</th></tr></thead>
           <tbody>
@@ -165,7 +174,8 @@ function Correlation() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
         <div style={card}>
-          <h3 style={{ marginTop: 0 }}>By day of week <Info t="Average POS net sales per weekday, per location." /></h3>
+          <h3 style={{ marginTop: 0 }}>By day of week <Info t={`Plain average of POS net sales for each weekday at each location, over the last ~2 years (all days, events included).
+This is your weekly rhythm — the backbone the forecast leans on before any performer/weather/holiday adjustment.`} /></h3>
           <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
             <tbody>{data.day_of_week.sort((a, b) => a.location.localeCompare(b.location) || a.dow_num - b.dow_num).map((r, i) => (
               <tr key={i} style={{ borderTop: '1px solid var(--border,#eee)' }}><td style={{ padding: '4px 0' }}>{r.location}</td><td>{r.dow}</td><td style={{ textAlign: 'right' }}>{money(r.avg)}</td></tr>
@@ -173,7 +183,11 @@ function Correlation() {
           </table>
         </div>
         <div style={card}>
-          <h3 style={{ marginTop: 0 }}>By weather <Info t="Average POS net sales on hot (≥95°F), likely-rain (≥50%), vs mild/dry days." /></h3>
+          <h3 style={{ marginTop: 0 }}>By weather <Info t={`Average POS net sales grouped by that day's weather at each location:
+• hot95+ = daytime high ≥ 95°F
+• likely_rain = ≥ 50% chance of precip
+• mild_dry = everything else
+Directional only — these buckets are NOT yet weekday- or season-adjusted, so treat gaps as a hint, not proof.`} /></h3>
           <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
             <tbody>{data.weather.map((r, i) => (
               <tr key={i} style={{ borderTop: '1px solid var(--border,#eee)' }}><td style={{ padding: '4px 0' }}>{r.location}</td><td>{r.bucket}</td><td style={{ textAlign: 'right' }}>{money(r.avg)} <span style={{ opacity: 0.5 }}>({r.n})</span></td></tr>
