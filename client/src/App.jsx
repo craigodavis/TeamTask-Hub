@@ -31,6 +31,7 @@ import { RecipesIngredients } from './pages/RecipesIngredients';
 import { RecipesList } from './pages/RecipesList';
 import { RecipeDetail } from './pages/RecipeDetail';
 import { KitchenInventory } from './pages/KitchenInventory';
+import { KitchenSources } from './pages/KitchenSources';
 import { ScanReceipt } from './pages/ScanReceipt';
 
 function LegacyWasteEntryRedirect() {
@@ -277,6 +278,14 @@ function App() {
             element={
               (user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner')
                 ? <KitchenInventory />
+                : <Navigate to="/" replace />
+            }
+          />
+          <Route
+            path="/kitchen/sources"
+            element={
+              user?.role === 'owner'
+                ? <KitchenSources />
                 : <Navigate to="/" replace />
             }
           />
