@@ -493,127 +493,6 @@ function AskTab({ token, role }) {
   );
 }
 
-// ── Tables Tab ───────────────────────────────────────────────────────────────
-function TablesTab({ token, timezone }) {
-  const [tables, setTables]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [checked, setChecked] = useState({});
-  const [dateFrom, setDateFrom] = useState(() => ninetyDaysAgoStr(timezone));
-  const [dateTo, setDateTo]     = useState(() => todayInTimezone(timezone));
-
-  useEffect(() => {
-    fetch('/api/square/tables', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then((data) => {
-        setTables(data.tables || []);
-        const defaults = {};
-        (data.tables || []).forEach(({ table_name }) => {
-          const cat = TABLE_META[table_name]?.category;
-          defaults[table_name] = ['Core', 'Orders', 'Payments'].includes(cat);
-        });
-        setChecked(defaults);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [token]);
-
-  const grouped = React.useMemo(() => {
-    const map = {};
-    tables.forEach((t) => {
-      const cat = TABLE_META[t.table_name]?.category || 'Other';
-      if (!map[cat]) map[cat] = [];
-      map[cat].push(t);
-    });
-    return map;
-  }, [tables]);
-
-  const toggleTable = (name) => setChecked((prev) => ({ ...prev, [name]: !prev[name] }));
-  const toggleCategory = useCallback((cat) => {
-    const names = (grouped[cat] || []).map((t) => t.table_name);
-    const allOn = names.every((n) => checked[n]);
-    setChecked((prev) => { const next = { ...prev }; names.forEach((n) => (next[n] = !allOn)); return next; });
-  }, [grouped, checked]);
-  const toggleAll = () => {
-    const all = tables.map((t) => t.table_name);
-    const allOn = all.every((n) => checked[n]);
-    const next = {}; all.forEach((n) => (next[n] = !allOn)); setChecked(next);
-  };
-
-  const selectedCount = Object.values(checked).filter(Boolean).length;
-  const allChecked = tables.length > 0 && selectedCount === tables.length;
-  const anyChecked = selectedCount > 0;
-
-  return (
-    <div className="sq-tables-wrap">
-      {/* Toolbar */}
-      <div className="sq-toolbar">
-        <div className="sq-toolbar-left">
-          <div className="sq-date-group">
-            <label className="sq-label" htmlFor="sq-from">From</label>
-            <input id="sq-from" type="date" className="sq-date-input" value={dateFrom} max={dateTo} onChange={(e) => setDateFrom(e.target.value)} />
-          </div>
-          <span className="sq-date-sep">→</span>
-          <div className="sq-date-group">
-            <label className="sq-label" htmlFor="sq-to">To</label>
-            <input id="sq-to" type="date" className="sq-date-input" value={dateTo} min={dateFrom} max={todayInTimezone(timezone)} onChange={(e) => setDateTo(e.target.value)} />
-          </div>
-        </div>
-        <div className="sq-toolbar-right">
-          {anyChecked && <span className="sq-selected-badge">{selectedCount} table{selectedCount !== 1 ? 's' : ''} selected</span>}
-          <button className="sq-sync-btn" disabled title="Sync capability coming soon">↻ Sync Selected</button>
-        </div>
-      </div>
-
-      {loading && <div className="sq-state">Loading tables…</div>}
-      {error   && <div className="sq-state sq-state-error">⚠ {error}</div>}
-
-      {!loading && !error && (
-        <div className="sq-content">
-          <div className="sq-select-all-row">
-            <label className="sq-check-label">
-              <input type="checkbox" className="sq-checkbox" checked={allChecked} onChange={toggleAll} />
-              <span className="sq-select-all-text">{allChecked ? 'Deselect all' : 'Select all'} ({tables.length} tables)</span>
-            </label>
-          </div>
-
-          {CATEGORY_ORDER.filter((cat) => grouped[cat]?.length > 0).map((cat) => {
-            const catTables  = grouped[cat];
-            const catChecked = catTables.filter((t) => checked[t.table_name]).length;
-            const allCatOn   = catChecked === catTables.length;
-            const someCatOn  = catChecked > 0 && !allCatOn;
-            return (
-              <div key={cat} className="sq-group">
-                <div className="sq-group-header">
-                  <label className="sq-check-label sq-group-label">
-                    <input type="checkbox" className="sq-checkbox" checked={allCatOn}
-                      ref={(el) => { if (el) el.indeterminate = someCatOn; }}
-                      onChange={() => toggleCategory(cat)} />
-                    <span className="sq-group-icon">{CATEGORY_ICONS[cat]}</span>
-                    <span className="sq-group-name">{cat}</span>
-                    <span className="sq-group-count">{catTables.length} tables</span>
-                  </label>
-                </div>
-                <div className="sq-group-body">
-                  {catTables.map(({ table_name, row_count }) => (
-                    <label key={table_name} className={`sq-row ${checked[table_name] ? 'sq-row-checked' : ''}`}>
-                      <input type="checkbox" className="sq-checkbox" checked={!!checked[table_name]} onChange={() => toggleTable(table_name)} />
-                      <span className="sq-row-label">{TABLE_META[table_name]?.label || table_name}</span>
-                      <span className="sq-row-raw">{table_name}</span>
-                      <span className="sq-row-count">{formatCount(row_count)}</span>
-                      <span className="sq-row-synced">—</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Mappings Tab ─────────────────────────────────────────────────────────────
 function MappingsTab({ token }) {
   const [mappings, setMappings] = useState([]);
@@ -1149,7 +1028,6 @@ export function Square() {
   const ALL_TABS = [
     { id: 'ask',       label: '✦ Ask AiRon',   managerOnly: false },
     { id: 'knowledge', label: '🧠 Knowledge',   managerOnly: true  },
-    { id: 'tables',    label: '⬡ Tables',       managerOnly: true  },
     { id: 'mappings',  label: '⟳ Mappings',     managerOnly: true  },
     { id: 'journal',   label: '📓 Journal',     managerOnly: true  },
   ];
@@ -1182,7 +1060,6 @@ export function Square() {
       <div className="sq-tab-body">
         {tab === 'ask'       && <AskTab       token={token} role={user?.role} />}
         {tab === 'knowledge' && <KnowledgeTab token={token} />}
-        {tab === 'tables'    && <TablesTab    token={token} timezone={timezone} />}
         {tab === 'mappings'  && <MappingsTab  token={token} />}
         {tab === 'journal'   && <JournalTab   token={token} />}
       </div>
