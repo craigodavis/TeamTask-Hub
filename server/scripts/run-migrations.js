@@ -2555,6 +2555,13 @@ const MIGRATIONS = [
      WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113'`,
   // 092: post-shift feedback emphasis (1–5, how strongly the employee wants us to act; default 1)
   `ALTER TABLE day_feedback ADD COLUMN IF NOT EXISTS emphasis SMALLINT NOT NULL DEFAULT 1`,
+  // 093: feedback_always — users who get the shift survey even without a Square clock-out (owners/floaters)
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS feedback_always BOOLEAN NOT NULL DEFAULT false`,
+  // 094: mark Craig + Elisha as always-on (they don't clock out but need the survey)
+  `UPDATE users SET feedback_always = true
+     WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113' AND display_name IN ('Craig Davis','Elisha Brooks')`,
+  // 095: send hour (company-local) for always-on recipients; default 8pm
+  `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS feedback_send_hour INTEGER NOT NULL DEFAULT 20`,
 ];
 
 export async function runMigrations() {

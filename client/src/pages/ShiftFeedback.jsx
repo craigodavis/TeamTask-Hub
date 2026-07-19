@@ -14,6 +14,7 @@ export default function ShiftFeedback() {
   const [sentiment, setSentiment] = useState(null);
   const [staffing, setStaffing] = useState(null);
   const [emphasis, setEmphasis] = useState(1);
+  const [locationId, setLocationId] = useState(null);
   const [note, setNote] = useState('');
   const [pin, setPin] = useState('');
   const [done, setDone] = useState(false);
@@ -30,7 +31,7 @@ export default function ShiftFeedback() {
     try {
       const r = await fetch(`/api/feedback/${token}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin, sentiment, staffing, note, emphasis }),
+        body: JSON.stringify({ pin, sentiment, staffing, note, emphasis, location_id: locationId }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Something went wrong');
@@ -48,13 +49,24 @@ export default function ShiftFeedback() {
     </div>
   );
 
-  const canSubmit = sentiment && staffing && pin.length >= 3 && !busy;
+  const canSubmit = sentiment && staffing && pin.length >= 3 && (!ctx.needs_location || locationId) && !busy;
   return (
     <div style={wrap}>
       <h2 style={{ marginBottom: 2 }}>🍷 Kindred</h2>
       <p style={{ marginTop: 0, opacity: 0.7 }}>
         How did {ctx.location ? ctx.location + ' ' : ''}go{ctx.work_date ? ` on ${new Date(ctx.work_date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}` : ''}? Takes 10 seconds.
       </p>
+
+      {ctx.needs_location && (
+        <>
+          <label style={{ fontWeight: 600, fontSize: 14 }}>Which location?</label>
+          <div style={{ display: 'flex', gap: 10, margin: '8px 0 20px' }}>
+            {(ctx.locations || []).map((l) => (
+              <button key={l.id} onClick={() => setLocationId(l.id)} style={bigBtn(locationId === l.id, '#7c2d3a')}>{l.name}</button>
+            ))}
+          </div>
+        </>
+      )}
 
       <label style={{ fontWeight: 600, fontSize: 14 }}>How did today go?</label>
       <div style={{ display: 'flex', gap: 10, margin: '8px 0 20px' }}>
