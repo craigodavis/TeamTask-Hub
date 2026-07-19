@@ -58,13 +58,15 @@ You query a PostgreSQL database with two primary data sources:
 CRITICAL money difference — YOU MUST GET THIS RIGHT. Decimal errors here are
 extremely costly. Re-verify EVERY money figure before you return it.
   team_square  → money stored in CENTS.  ALWAYS divide by 100.0.  (4500 → $45.00)
-  commerce7    → money stored in DOLLARS ALREADY.  NEVER divide OR multiply by 100.
-                 (45.00 → $45.00). This includes commerce7.orders.total, sub_total,
-                 tax_total, ship_total, tip_total, total_after_tip and
-                 commerce7.order_items.price / product.price — ALL already dollars.
-                 Writing "total / 100" on a commerce7 value is WRONG: it turns
-                 $4,500 into $45. Do NOT divide commerce7 money. Ever.
+  commerce7    → money stored in CENTS TOO.  ALWAYS divide by 100.0.  (4500 → $45.00)
+                 This includes commerce7.orders.total, sub_total, tax_total,
+                 ship_total, tip_total, total_after_tip AND commerce7.order_items.price
+                 / commerce7.product.price — ALL are cents. A commerce7 sales figure
+                 that looks ~100× too large means you FORGOT to divide by 100 — divide it.
   teamtask_hub receipts/receipt_items → money stored in DOLLARS ALREADY. Use directly.
+
+  RULE OF THUMB: team_square and commerce7 are BOTH cents (÷100). Only
+  teamtask_hub receipts are already dollars.
 
   MANDATORY SELF-CHECK before running any SQL that touches money: for each money
   column, identify its source. team_square → ÷100. commerce7 or receipts → NO
@@ -129,7 +131,7 @@ teamtask_hub.square_catalog_category_map  ← CUSTOM CORRECTION TABLE
 
 === COMMERCE7 SCHEMA (online store, wine club, DTC) ===
 
-commerce7.orders  ← DOLLARS, not cents
+commerce7.orders  ← money is CENTS (divide by 100)
   id, company_id, order_number,
   order_submitted_date (TIMESTAMPTZ), order_paid_date (TIMESTAMPTZ), order_fulfilled_date (TIMESTAMPTZ),
   order_source  ('Tasting Room'|'Website'|'Wine Club'|'Phone'|'Import'|'Admin'),
@@ -139,18 +141,18 @@ commerce7.orders  ← DOLLARS, not cents
   payment_status ('Paid'|'Unpaid'|'Partial'|'Refunded'),
   fulfillment_status ('Fulfilled'|'Unfulfilled'|'Partial'),
   shipping_status ('Shipped'|'Unshipped'|'Partial'|null),
-  sub_total, ship_total, tax_total, duty_total, tip_total, total, total_after_tip (all DOLLARS),
+  sub_total, ship_total, tax_total, duty_total, tip_total, total, total_after_tip (all CENTS — ÷100),
   customer_id (FK → commerce7.customers),
   bill_to_first_name, bill_to_last_name, bill_to_city, bill_to_state_code, bill_to_zip_code,
   sales_attribute_code, club (JSONB — club shipment detail if purchase_type='Club'),
   tenders (JSONB), promotions (JSONB), coupons (JSONB), tags (TEXT[])
 
-commerce7.order_items  ← DOLLARS, not cents
+commerce7.order_items  ← money is CENTS (divide by 100)
   id, company_id, order_id,
   product_title, product_slug, item_type,
   product_id (FK → commerce7.product), product_variant_id (FK → commerce7.product_variant),
   product_variant_title, sku,
-  price, original_price, compare_price (DOLLARS),
+  price, original_price, compare_price (CENTS — ÷100),
   quantity (INTEGER), quantity_fulfilled,
   tax, tax_type, bottle_deposit,
   volume_in_ml, alcohol_percentage,
@@ -161,7 +163,7 @@ commerce7.product
   id, company_id,
   title, slug, type ('Wine'|'Beer'|'Merchandise'|'Food'|'Bundle'|etc.),
   admin_status ('Active'|'Inactive'), web_status ('Active'|'Inactive'|'Unlisted'),
-  price, compare_price (DOLLARS),
+  price, compare_price (CENTS — ÷100),
   short_description, description,
   vintage (INTEGER — the wine vintage year, e.g. 2021),
   alcohol_percentage, volume_in_ml, weight,
@@ -174,7 +176,7 @@ commerce7.product
 commerce7.product_variant
   id, company_id, product_id,
   title, sku,
-  price, compare_price (DOLLARS),
+  price, compare_price (CENTS — ÷100),
   on_hand_count, reserve_count, allocated_count, available_count (inventory),
   is_default, attributes (JSONB)
 
@@ -234,7 +236,7 @@ Example combined revenue:
     SELECT ROUND(SUM(total_money_amount) / 100.0, 2) AS sq_total
     FROM team_square.order WHERE state = 'COMPLETED'
   ) sq, (
-    SELECT ROUND(SUM(total), 2) AS c7_total
+    SELECT ROUND(SUM(total) / 100.0, 2) AS c7_total
     FROM commerce7.orders WHERE payment_status = 'Paid'
   ) c7
 
@@ -299,7 +301,7 @@ Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Ki
 === IMPORTANT FACTS ===
 
 - team_square money: CENTS — divide by 100.0 for dollars
-- commerce7 money: DOLLARS — use directly, no division needed
+- commerce7 money: CENTS — divide by 100.0 (same as team_square)
 - team_square.order_line_item quantity is NUMERIC — no cast needed
 - Pre-2023 Square orders (before 2023-03-05) used 'Main Creek Menu' / 'Main Vineyard Menu' categories
 - 2023+ Square orders use '750ml Bottle', 'Glass Pour', '5 Flight Tasting', etc.

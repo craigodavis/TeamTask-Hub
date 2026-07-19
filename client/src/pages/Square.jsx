@@ -375,7 +375,7 @@ function AskTab({ token, role }) {
   return (
     <div className="sq-ask-layout">
       <aside className={`sq-sessions${sidebarOpen ? ' open' : ''}`}>
-        <button className="sq-new-chat" onClick={newChat}>+ New chat</button>
+        <button className="sq-new-chat" onClick={newChat}>+ New Session</button>
         <ul className="sq-session-list">
           {sessions.length === 0 && <li className="sq-session-empty">No saved chats yet</li>}
           {sessions.map((s) => (
