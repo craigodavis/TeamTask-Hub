@@ -4,7 +4,7 @@ import { getSchedulingScoreboard, getSchedulingCorrelation, getSchedulingSetting
 const money = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString());
 const pct = (n) => (n == null ? '—' : Number(n).toFixed(1) + '%');
 
-function Info({ t }) {
+function Info({ t, align = 'left' }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -23,7 +23,7 @@ function Info({ t }) {
       {open && (
         <span
           onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-          style={{ position: 'absolute', zIndex: 100, top: '140%', left: 0, width: 'min(320px, 84vw)',
+          style={{ position: 'absolute', zIndex: 100, top: '140%', [align === 'right' ? 'right' : 'left']: 0, width: 'min(320px, 84vw)',
             background: '#1f2430', color: '#fff', padding: '10px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 400,
             boxShadow: '0 6px 20px rgba(0,0,0,.28)', lineHeight: 1.5, textAlign: 'left', whiteSpace: 'pre-line' }}
         >{t}</span>
@@ -108,12 +108,30 @@ function Scoreboard() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 6 }}>
-              {loc.days.map((d) => {
+              {loc.days.map((d, di) => {
                 const evs = evByDay[loc.location_id + '|' + d.date] || [];
                 const wx = wxByDay[loc.location_id + '|' + d.date];
+                const gy = loc.yoy_growth_pct;
+                const warnThresh = data.settings.labor_warn_threshold;
+                const lines = [
+                  `Forecast for ${d.dow} ${d.date}`,
+                  `• last week (same weekday): ${d.last_week == null ? 'no data yet' : money(d.last_week)}`,
+                  `• last year (same weekday): ${d.last_year == null ? 'no data' : money(d.last_year) + ` × ${gy >= 0 ? '+' : ''}${gy}% YoY`}`,
+                  `→ forecast ${money(d.forecast)}`,
+                  `Music booked: ${evs.length ? evs.map((e) => e.performer || e.title?.slice(0, 20)).join(', ') : 'none'}`,
+                  `The forecast is historical only — it does NOT yet add a lift for booked music (that's the learned-score phase). A slow, music-free ${d.dow} looks slow here.`,
+                ];
+                if (d.warn_labor) {
+                  const basis = (d.ly_labor_pct != null && d.ly_labor_pct >= warnThresh)
+                    ? `${d.ly_labor_pct}% last year` : `${d.lw_labor_pct}% last week`;
+                  lines.push(`⚠ Labor warning: a comparable ${d.dow} ran ${basis} labor (over your ${warnThresh}% threshold). Cut staff that day, or drive traffic — e.g. book an act.`);
+                }
                 return (
                   <div key={d.date} style={{ border: '1px solid var(--border,#eee)', borderRadius: 8, padding: 8, fontSize: 12, borderLeft: d.warn_labor ? '3px solid #d33' : '1px solid var(--border,#eee)' }}>
-                    <div style={{ fontWeight: 700 }}>{d.dow} <span style={{ opacity: 0.5, fontWeight: 400 }}>{d.date.slice(5)}</span></div>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>{d.dow} <span style={{ opacity: 0.5, fontWeight: 400 }}>{d.date.slice(5)}</span></span>
+                      <Info t={lines.join('\n')} align={di >= 4 ? 'right' : 'left'} />
+                    </div>
                     <div style={{ margin: '4px 0', fontSize: 14 }}>{money(d.forecast)}</div>
                     {wx && <div style={{ opacity: 0.7 }}>{Math.round(wx.temp_max)}°/{Math.round(wx.temp_min)}° {wx.condition || ''}{wx.precip_prob >= 40 ? ` ☔${wx.precip_prob}%` : ''}</div>}
                     {evs.map((e, i) => <div key={i} style={{ marginTop: 3, color: 'var(--accent,#4f46e5)' }}>🎵 {e.performer || e.title?.slice(0, 22)}</div>)}
