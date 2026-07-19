@@ -717,9 +717,41 @@ Present results as natural sentences or a short readable list — not raw JSON o
 Example: "You sold 1,234 bottles for $45,678.90 in revenue last month."
 
 You may use Markdown to make answers readable — it is rendered in the chat:
-  **bold**, ## / ### headings, "- " bullet lists, and "1." numbered lists.
+  **bold**, ## / ### headings, "- " bullet lists, "1." numbered lists, and tables.
 When rewriting or formatting something (e.g. a recipe), USE this: a bold/heading
 title, then a bulleted or numbered list of steps/ingredients, so it's easy to read.
+
+── HOW TO ANSWER — THIS MATTERS AS MUCH AS THE SQL ──
+ALWAYS finish by WRITING a complete, self-contained answer in prose. The raw
+result table is NOT the answer, and a bare number ("4", "27%") is NEVER an
+acceptable answer. If you run a query, you MUST then explain what it means.
+
+PLAN before you query. If the question has multiple parts, or asks for a
+comparison, trend, benchmark, or recommendation, work out EVERY number you need
+and run as many queries as it takes to get them, THEN write the answer:
+  - year-over-year / "compared to last year" needs BOTH years queried;
+  - a "change" or "how much" needs both endpoints and the difference ($ and %);
+  - a multi-part question must have EVERY part answered, each clearly labeled.
+
+For analytical / advisory / "is this good, bad, optimal, dangerous" questions,
+write a structured report a manager could paste into an email:
+  - a short **bold headline** with the key number and the takeaway;
+  - a Markdown table for comparisons (this year vs last year: $ and %);
+  - benchmarks and judgement from your OWN knowledge when asked what's "optimal",
+    "normal", "healthy", or "dangerous" — these are NOT in the database, so reason
+    about them; do NOT run a query and give up;
+  - a concrete recommendation or the specific number requested at the end.
+
+Judgement context for labor questions:
+  - Labor % is on Square NET SALES (excl tax & tips), HOURLY staff only — it
+    EXCLUDES salaried staff and payroll taxes/benefits, so the true loaded cost is
+    higher. State this caveat whenever you report a labor %.
+  - Healthy hourly service labor ≈ 24–28% of net sales; 29–32% = watch;
+    >33% sustained = dangerous. The TREND (labor growth vs sales growth) matters
+    more than the level — always compare the two growth rates when asked about labor.
+
+If a query returns nothing useful, or you are unsure, say what you found and what
+you'd need next — never answer with just a count or an empty reply.
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────
@@ -993,12 +1025,13 @@ router.post('/ask', async (req, res) => {
   // Agentic tool-use loop
   const accumulated = { text: '', sql: null, rows: null, fields: null, facts_saved: [] };
   let usageIn = 0, usageOut = 0;
+  let synthNudged = false; // ensures a data question never ends without a written answer
 
   try {
     while (true) {
       const response = await ai.messages.create({
         model: kindredAiModel,
-        max_tokens: 2048,
+        max_tokens: 4096,
         system: systemBlocks,
         tools: SQUARE_TOOLS,
         messages,
@@ -1010,7 +1043,20 @@ router.post('/ask', async (req, res) => {
       const textBlock = response.content.find((b) => b.type === 'text');
       if (textBlock?.text) accumulated.text = textBlock.text.trim();
 
-      if (response.stop_reason === 'end_turn') break;
+      if (response.stop_reason === 'end_turn') {
+        // Never let a data question end with just a result table / no prose.
+        // Nudge the model once to synthesize a proper written answer.
+        if (!accumulated.text && accumulated.rows && !synthNudged) {
+          synthNudged = true;
+          messages.push({ role: 'assistant', content: [{ type: 'text', text: textBlock?.text?.trim() || 'Results gathered.' }] });
+          messages.push({ role: 'user', content:
+            'Now write the complete, well-formatted answer for the user based on the query results above. ' +
+            'Answer every part of the original question, include the comparison/benchmark/recommendation that was asked for, ' +
+            'and never reply with just a number or a bare table.' });
+          continue;
+        }
+        break;
+      }
 
       if (response.stop_reason === 'tool_use') {
         // Add assistant's response (with tool_use blocks) to messages
