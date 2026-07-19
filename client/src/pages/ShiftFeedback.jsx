@@ -13,6 +13,7 @@ export default function ShiftFeedback() {
   const [err, setErr] = useState('');
   const [sentiment, setSentiment] = useState(null);
   const [staffing, setStaffing] = useState(null);
+  const [emphasis, setEmphasis] = useState(1);
   const [note, setNote] = useState('');
   const [pin, setPin] = useState('');
   const [done, setDone] = useState(false);
@@ -29,7 +30,7 @@ export default function ShiftFeedback() {
     try {
       const r = await fetch(`/api/feedback/${token}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin, sentiment, staffing, note }),
+        body: JSON.stringify({ pin, sentiment, staffing, note, emphasis }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Something went wrong');
@@ -74,6 +75,19 @@ export default function ShiftFeedback() {
       <label style={{ fontWeight: 600, fontSize: 14 }}>Anything to add? <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></label>
       <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="e.g. slammed 2–5pm, needed another pourer"
         style={{ width: '100%', margin: '8px 0 20px', padding: 10, borderRadius: 10, border: '1px solid #ccc', fontSize: 15, boxSizing: 'border-box' }} />
+
+      <label style={{ fontWeight: 600, fontSize: 14 }}>How important is this?</label>
+      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{['', 'Just FYI', 'Minor', 'Worth a look', 'Important', 'Please act on it'][emphasis]}</div>
+      <div style={{ display: 'flex', gap: 8, margin: '8px 0 20px' }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} onClick={() => setEmphasis(n)} aria-label={`Importance ${n} of 5`}
+            style={{ flex: 1, padding: '12px 0', fontSize: 30, lineHeight: 1, cursor: 'pointer', borderRadius: 10,
+              border: emphasis >= n ? '1px solid #e0a500' : '1px solid #ddd',
+              background: emphasis >= n ? '#fff6df' : '#fff', color: emphasis >= n ? '#e0a500' : '#cfcfcf' }}>
+            {emphasis >= n ? '★' : '☆'}
+          </button>
+        ))}
+      </div>
 
       <label style={{ fontWeight: 600, fontSize: 14 }}>Your PIN <span style={{ opacity: 0.5, fontWeight: 400 }}>(so we know it's you)</span></label>
       <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} inputMode="numeric" type="password" placeholder="••••"

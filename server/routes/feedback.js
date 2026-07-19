@@ -32,7 +32,7 @@ router.get('/:token', async (req, res) => {
 router.post('/:token', async (req, res) => {
   if (!UUID_RE.test(req.params.token || '')) return res.status(404).json({ error: 'This feedback link is not valid or has expired.' });
   try {
-    const { pin, sentiment, staffing, note } = req.body || {};
+    const { pin, sentiment, staffing, note, emphasis } = req.body || {};
     const r = await query(
       `SELECT df.id, u.pin_hash FROM day_feedback df JOIN users u ON u.id = df.user_id WHERE df.token = $1`,
       [req.params.token]);
@@ -43,9 +43,10 @@ router.post('/:token', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Incorrect PIN.' });
     const sent = [1, 2, 3].includes(Number(sentiment)) ? Number(sentiment) : null;
     const staff = ['over', 'right', 'under'].includes(staffing) ? staffing : null;
+    const emph = Math.min(5, Math.max(1, Number(emphasis) || 1));
     await query(
-      `UPDATE day_feedback SET sentiment = $1, staffing = $2, note = $3, responded_at = NOW() WHERE id = $4`,
-      [sent, staff, (note || '').toString().slice(0, 500), row.id]);
+      `UPDATE day_feedback SET sentiment = $1, staffing = $2, note = $3, emphasis = $4, responded_at = NOW() WHERE id = $5`,
+      [sent, staff, (note || '').toString().slice(0, 500), emph, row.id]);
     res.json({ ok: true });
   } catch (e) { console.error('feedback post', e); res.status(500).json({ error: e.message }); }
 });
