@@ -198,13 +198,19 @@ function useSpeech({ onResult, onError }) {
 }
 
 const AI_MODELS = [
-  { id: '',                label: 'Default model' },
   { id: 'claude-fable-5',  label: 'Fable 5' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
 ];
 
-function AskTab({ token }) {
+// Which models each role may pick (server enforces this too). Tier: Fable > Opus > Sonnet.
+function modelsForRole(role) {
+  if (role === 'owner')   return AI_MODELS;
+  if (role === 'manager') return AI_MODELS.filter((m) => m.id !== 'claude-fable-5');
+  return AI_MODELS.filter((m) => m.id === 'claude-sonnet-5');
+}
+
+function AskTab({ token, role }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [messages, setMessages] = useState([]); // { role, content, sql, rows, fields, error }
   const [input, setInput]       = useState('');
@@ -213,7 +219,7 @@ function AskTab({ token }) {
   const [micError, setMicError] = useState('');
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState(null);
-  const [model, setModel]       = useState('');
+  const [model, setModel]       = useState('claude-sonnet-5'); // every session starts on Sonnet
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice]     = useState('');
   const bottomRef = useRef(null);
@@ -259,7 +265,7 @@ function AskTab({ token }) {
     })();
   }, [searchParams, authFetch, loadSessions, openSession, setSearchParams]);
 
-  const newChat = () => { setSessionId(null); setMessages([]); setInput(''); setSidebarOpen(false); };
+  const newChat = () => { setSessionId(null); setMessages([]); setInput(''); setSidebarOpen(false); setModel('claude-sonnet-5'); };
 
   const handleAsk = useCallback(async (question) => {
     const q = (question || input).trim();
@@ -394,7 +400,7 @@ function AskTab({ token }) {
         <div className="sq-ask-toolbar">
           <button className="sq-sessions-toggle" onClick={() => setSidebarOpen((v) => !v)}>☰ Chats</button>
           <select className="sq-model-select" value={model} onChange={(e) => setModel(e.target.value)} title="AI model">
-            {AI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            {modelsForRole(role).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </div>
         {notice && <p className="sq-notice">{notice}</p>}
@@ -1174,7 +1180,7 @@ export function Square() {
       </div>
 
       <div className="sq-tab-body">
-        {tab === 'ask'       && <AskTab       token={token} />}
+        {tab === 'ask'       && <AskTab       token={token} role={user?.role} />}
         {tab === 'knowledge' && <KnowledgeTab token={token} />}
         {tab === 'tables'    && <TablesTab    token={token} timezone={timezone} />}
         {tab === 'mappings'  && <MappingsTab  token={token} />}

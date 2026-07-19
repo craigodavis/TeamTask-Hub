@@ -14,6 +14,38 @@ const KINDRED_AI_MODELS = {
   'claude-sonnet-5': 'Sonnet 5',
 };
 
+// Model access by role (tier: Fable > Opus > Sonnet). Enforced server-side —
+// the client dropdown is only a convenience. Everyone defaults to Sonnet.
+const MODEL_TIERS = {
+  owner:   ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+  manager: ['claude-opus-4-8', 'claude-sonnet-5'],
+};
+const DEFAULT_AI_MODEL = 'claude-sonnet-5';
+function allowedModels(role) { return MODEL_TIERS[role] || ['claude-sonnet-5']; }
+
+// Data access for regular employees (not owner/manager): no employee wage/hours
+// data at all (hard-blocked), and no sales older than 7 days (heuristic backstop
+// on top of the prompt rule). Returns { allowed, reason }.
+function aiSqlPolicy(sql, role) {
+  if (role === 'owner' || role === 'manager') return { allowed: true };
+  const s = (sql || '').toLowerCase();
+  const wageHours = [
+    'team_square.shift', 'team_member_job_assignment', 'scheduled_shift', 'shift_break',
+    'wage_hourly_rate', 'hourly_rate', 'declared_cash_tip', 'wage_title', 'salary', 'payroll',
+  ];
+  if (wageHours.some((w) => s.includes(w))) {
+    return { allowed: false, reason: 'You do not have access to employee wage, hours, or timeclock data.' };
+  }
+  const touchesSales = /(order_line_item|\border\b|\bpayment\b|commerce7\.orders|order_items)/.test(s);
+  if (touchesSales) {
+    const oldRange = /interval\s*'\s*\d+\s*(week|month|year|quarter)/.test(s)
+      || /interval\s*'\s*(?:[89]|[1-9]\d\d*)\s*day/.test(s)
+      || /\b20(1\d|2[0-4])\b/.test(s);
+    if (oldRange) return { allowed: false, reason: 'You can only query sales from the last 7 days.' };
+  }
+  return { allowed: true };
+}
+
 // ── Schema context for AI ────────────────────────────────────────────────────
 const SQUARE_SCHEMA_CONTEXT = `
 You are a SQL analyst for Kindred Vineyards, a winery and tasting room in Sunnyslope, Idaho.
@@ -770,9 +802,10 @@ router.post('/ask', async (req, res) => {
   } catch { /* ignore — table may not have column yet */ }
   if (!apiKey) return res.status(500).json({ error: 'Anthropic API key not configured — add it in Settings → Integrations' });
 
-  const kindredAiModel = KINDRED_AI_MODELS[requestedModel]
-    ? requestedModel
-    : await getModelForProcess(req.companyId, 'kindred_ai', 'claude-sonnet-4-5');
+  // Role-gated model selection: use the requested model only if the role allows
+  // it; otherwise fall back to Sonnet (the default for every session).
+  const allowed = allowedModels(req.role);
+  const kindredAiModel = allowed.includes(requestedModel) ? requestedModel : DEFAULT_AI_MODEL;
   const ai = new Anthropic({ apiKey });
 
   // Let the client cancel a running query: abort the Anthropic call on disconnect.
@@ -799,6 +832,18 @@ router.post('/ask', async (req, res) => {
     },
   ];
   systemBlocks.push({ type: 'text', text: dateBlock + (facts || '') + (lessons || '') });
+
+  // Regular employees: restrict employee data + old sales at the prompt level
+  // (a hard SQL guard backs this up).
+  if (req.role !== 'owner' && req.role !== 'manager') {
+    systemBlocks.push({ type: 'text', text:
+      '\n=== ACCESS RESTRICTIONS FOR THIS USER ===\n' +
+      'This user is a regular employee. You MUST NOT return any employee wage, salary, ' +
+      'hours, tips, or timeclock data for anyone (do not query team_square.shift, ' +
+      'scheduled_shift, shift_break, team_member_job_assignment, or any wage/pay column). ' +
+      'You may only report sales from the LAST 7 DAYS — politely refuse older sales ranges. ' +
+      'If asked for restricted data, decline and explain the access limit.\n' });
+  }
 
   // Prefer stored session history (persistent memory); fall back to client history.
   let priorHistory = history;
@@ -844,6 +889,11 @@ router.post('/ask', async (req, res) => {
           if (block.type !== 'tool_use') continue;
 
           if (block.name === 'run_sql') {
+            const policy = aiSqlPolicy(block.input.sql, req.role);
+            if (!policy.allowed) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Access denied: ${policy.reason}` });
+              continue;
+            }
             let result;
             try {
               result = await executeSql(block.input.sql);
