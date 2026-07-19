@@ -9,11 +9,11 @@
  * All sources are HTTPS and run from the prod box. Everything is upsert/idempotent.
  * Manual run:  DB_HOST=localhost node lib/factorSync.js [companyId]
  */
+import fs from 'fs';
+import mysql from 'mysql2/promise';
 import { query } from '../db.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// WordPress WAF blocks default fetch UA — present a browser UA.
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
 const TZ = 'America/Denver';
 const WCODE = {
   0: 'Clear', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Overcast',
@@ -55,32 +55,55 @@ function matchLocation(venueName, locations) {
 }
 const strip = (h) => (h || '').replace(/<[^>]+>/g, ' ').replace(/&#?\w+;/g, ' ').replace(/\s+/g, ' ').trim();
 
-// ── our events (WordPress / The Events Calendar) ─────────────────────────────
+// ── our events (WordPress / The Events Calendar, via localhost MySQL) ─────────
+// The prod box can't reach its own public domain (WAF/CDN in front of the origin),
+// so we read the co-located WordPress DB directly. Creds come from wp-config.php,
+// which the app (same cPanel user) can read. Dev can point at a MySQL tunnel via opts.db.
+function parseWpConfig(path) {
+  const txt = fs.readFileSync(path, 'utf8');
+  const g = (k) => {
+    const m = txt.match(new RegExp("define\\(\\s*['\"]" + k + "['\"]\\s*,\\s*['\"]([^'\"]*)['\"]"));
+    return m ? m[1] : null;
+  };
+  const pm = txt.match(/\$table_prefix\s*=\s*['"]([^'"]+)['"]/);
+  return {
+    host: g('DB_HOST') || 'localhost', name: g('DB_NAME'), user: g('DB_USER'),
+    password: g('DB_PASSWORD'), prefix: pm ? pm[1] : 'wp_',
+  };
+}
+
 export async function syncKindredEvents(company, opts = {}) {
-  const base = (company.wordpress_url || '').replace(/\/$/, '');
-  if (!base) return { skipped: 'no wordpress_url' };
+  const cfgPath = company.wordpress_config_path;
+  if (!cfgPath || !fs.existsSync(cfgPath)) return { skipped: 'no wp-config (' + cfgPath + ')' };
+  const wp = parseWpConfig(cfgPath);
+  if (!/^[a-z0-9_]+$/i.test(wp.prefix || '')) return { skipped: 'bad table prefix' };
   const locs = (await query(
     `SELECT id, name, square_location_id FROM locations WHERE company_id = $1`, [company.company_id])).rows;
-  // Daily sync uses a rolling ±400-day window; an initial backfill passes startDate to reach all history.
-  const start = opts.startDate || new Date(Date.now() - 400 * DAY_MS).toISOString().slice(0, 10);
-  const end = opts.endDate || new Date(Date.now() + 400 * DAY_MS).toISOString().slice(0, 10);
-  let page = 1, seen = 0, upserts = 0;
-  while (page <= 30) {
-    const url = `${base}/wp-json/tribe/events/v1/events?per_page=50&page=${page}&start_date=${start}&end_date=${end}`;
-    let j;
-    try {
-      const res = await fetch(url, { headers: { 'User-Agent': UA } });
-      if (!res.ok) break;
-      j = await res.json();
-    } catch (e) { console.error('  events fetch failed p' + page + ':', e.message); break; }
-    const events = j.events || [];
-    if (events.length === 0) break;
-    for (const e of events) {
-      const evDate = (e.start_date || '').slice(0, 10);
-      if (!evDate) continue;
-      const venue = (e.venue && e.venue.venue) || null;
-      const loc = matchLocation(venue, locs);
-      const perf = extractPerformer(e.title, e.description);
+  const startDate = opts.startDate || new Date(Date.now() - 400 * DAY_MS).toISOString().slice(0, 10);
+  const endDate = opts.endDate || new Date(Date.now() + 400 * DAY_MS).toISOString().slice(0, 10);
+  const conn = await mysql.createConnection({
+    host: opts.db?.host || wp.host, port: opts.db?.port || 3306,
+    user: wp.user, password: wp.password, database: wp.name,
+    charset: 'utf8mb4', dateStrings: true,
+  });
+  const P = wp.prefix;
+  let seen = 0, upserts = 0;
+  try {
+    const [rows] = await conn.execute(
+      `SELECT te.start_date, te.end_date, p.ID AS id, p.post_title AS title,
+              p.post_content AS body, v.post_title AS venue
+         FROM ${P}tec_events te
+         JOIN ${P}posts p ON p.ID = te.post_id
+         LEFT JOIN ${P}postmeta vm ON vm.post_id = p.ID AND vm.meta_key = '_EventVenueID'
+         LEFT JOIN ${P}posts v ON v.ID = vm.meta_value
+        WHERE p.post_status = 'publish' AND te.start_date >= ? AND te.start_date <= ?
+        ORDER BY te.start_date`,
+      [startDate + ' 00:00:00', endDate + ' 23:59:59']);
+    for (const e of rows) {
+      const evDate = String(e.start_date).slice(0, 10);
+      if (!/^\d{4}-\d\d-\d\d$/.test(evDate)) continue;
+      const loc = matchLocation(e.venue, locs);
+      const perf = extractPerformer(e.title, e.body);
       await query(
         `INSERT INTO kindred_events
            (company_id, location_id, source, source_id, event_date, start_at, end_at, title, performer, category, venue_name, raw_excerpt, synced_at)
@@ -89,14 +112,12 @@ export async function syncKindredEvents(company, opts = {}) {
            location_id = EXCLUDED.location_id, start_at = EXCLUDED.start_at, end_at = EXCLUDED.end_at,
            title = EXCLUDED.title, performer = EXCLUDED.performer, category = EXCLUDED.category,
            venue_name = EXCLUDED.venue_name, raw_excerpt = EXCLUDED.raw_excerpt, synced_at = NOW()`,
-        [company.company_id, loc?.id || null, String(e.id), evDate, e.start_date || null, e.end_date || null,
-         e.title || null, perf, categorize(e.title, perf), venue, strip(e.excerpt || e.description).slice(0, 500)]);
-      upserts++;
+        [company.company_id, loc?.id || null, String(e.id), evDate,
+         e.start_date || null, e.end_date || null, e.title || null, perf,
+         categorize(e.title, perf), e.venue || null, strip(e.body).slice(0, 500)]);
+      upserts++; seen++;
     }
-    seen += events.length;
-    if (events.length < 50) break;
-    page++;
-  }
+  } finally { await conn.end(); }
   return { seen, upserts };
 }
 
@@ -174,6 +195,7 @@ async function companiesToSync() {
   return (await query(
     `SELECT ci.company_id,
             ss.wordpress_url,
+            ss.wordpress_config_path,
             ss.event_feeds
        FROM company_integrations ci
        LEFT JOIN scheduling_settings ss ON ss.company_id = ci.company_id
@@ -212,11 +234,13 @@ if (process.argv[1]?.endsWith('factorSync.js')) {
     if (companyId) {
       const rows = await companiesToSync();
       const c = rows.find((r) => r.company_id === companyId) || { company_id: companyId };
-      if (!c.wordpress_url) {
-        const s = (await query(`SELECT wordpress_url, event_feeds FROM scheduling_settings WHERE company_id=$1`, [companyId])).rows[0];
+      if (!c.wordpress_config_path) {
+        const s = (await query(`SELECT wordpress_url, wordpress_config_path, event_feeds FROM scheduling_settings WHERE company_id=$1`, [companyId])).rows[0];
         Object.assign(c, s || {});
       }
-      console.log('events (full history):', await syncKindredEvents(c, { startDate: '2023-01-01' }));
+      // Optional dev override: WP_DB_HOST/WP_DB_PORT to reach a MySQL tunnel.
+      const dbOverride = process.env.WP_DB_HOST ? { host: process.env.WP_DB_HOST, port: Number(process.env.WP_DB_PORT || 3306) } : undefined;
+      console.log('events (full history):', await syncKindredEvents(c, { startDate: '2023-01-01', db: dbOverride }));
       console.log('weather forecast:', await syncWeather(c));
       console.log('weather history:', await backfillWeatherHistory(c));
     } else {

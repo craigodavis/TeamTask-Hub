@@ -2547,6 +2547,12 @@ const MIGRATIONS = [
      SELECT id, 'https://kindredvineyards.com' FROM companies
      WHERE id = '8d2df498-b5c0-4f73-94cd-323956036113'
      ON CONFLICT (company_id) DO UPDATE SET wordpress_url = EXCLUDED.wordpress_url`,
+  // 090: events sync reads WordPress DB creds from wp-config.php on the co-located box
+  // (the prod server can't reach its own public domain, so REST-over-HTTPS is out).
+  `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS wordpress_config_path VARCHAR(255)`,
+  // 091: seed Kindred's wp-config path
+  `UPDATE scheduling_settings SET wordpress_config_path = '/home/kindredv/public_html/wp-config.php'
+     WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113'`,
 ];
 
 export async function runMigrations() {
