@@ -2346,6 +2346,69 @@ const MIGRATIONS = [
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_usage_company_date ON ai_usage_log(company_id, created_at DESC)`,
+
+  // ── Canonical reporting views ────────────────────────────────────────────
+  // Single source of truth for sales & labor figures. All amounts are already
+  // in DOLLARS (cents ÷ 100 baked in) so nothing downstream — Kindred AI or the
+  // scheduled reports — ever has to remember to divide, exclude tax, or scope
+  // out Commerce7. Definitions match the emailed labor reports and Square's
+  // Reporting-API "Net Sales" (gross line-item sales − discounts, EXCLUDES tax,
+  // tips, service charges; Square/tasting-room only). Day boundaries use the
+  // company timezone (America/Denver).
+
+  // Square Net Sales per day/location, in dollars, excl tax — Square only.
+  `CREATE OR REPLACE VIEW team_square.v_square_net_sales_daily AS
+   SELECT
+     (o.created_at AT TIME ZONE 'America/Denver')::date AS sales_date,
+     o.location_id,
+     SUM(li.gross_sales_amount - COALESCE(li.total_discount_amount, 0)) / 100.0 AS net_sales,
+     COUNT(DISTINCT o.id) AS order_count
+   FROM team_square."order" o
+   JOIN team_square.order_line_item li ON li.order_id = o.id
+   WHERE o.state = 'COMPLETED'
+   GROUP BY 1, 2`,
+
+  // Labor cost + hours per shift, in dollars — closed shifts only.
+  `CREATE OR REPLACE VIEW team_square.v_labor_daily AS
+   SELECT
+     (s.start_at AT TIME ZONE 'America/Denver')::date AS work_date,
+     s.location_id,
+     s.wage_title,
+     s.team_member_id,
+     s.id AS shift_id,
+     EXTRACT(EPOCH FROM (s.end_at - s.start_at)) / 3600.0 AS hours,
+     EXTRACT(EPOCH FROM (s.end_at - s.start_at)) / 3600.0 * COALESCE(s.wage_hourly_rate_amount, 0) / 100.0 AS labor_cost
+   FROM team_square.shift s
+   WHERE s.status = 'CLOSED' AND s.end_at IS NOT NULL AND s.start_at IS NOT NULL`,
+
+  // Labor % per day = labor cost ÷ Square Net Sales (Square-only). To get a
+  // labor % for any range, SUM(labor_cost) / SUM(net_sales) over the range —
+  // never average the daily percentages.
+  `CREATE OR REPLACE VIEW team_square.v_labor_pct_daily AS
+   SELECT
+     COALESCE(sd.sales_date, ld.work_date) AS the_date,
+     COALESCE(sd.net_sales, 0) AS net_sales,
+     COALESCE(ld.labor_cost, 0) AS labor_cost,
+     CASE WHEN COALESCE(sd.net_sales, 0) > 0
+          THEN ROUND((ld.labor_cost / sd.net_sales * 100)::numeric, 2) END AS labor_pct
+   FROM (SELECT sales_date, SUM(net_sales) AS net_sales
+         FROM team_square.v_square_net_sales_daily GROUP BY 1) sd
+   FULL JOIN (SELECT work_date, SUM(labor_cost) AS labor_cost
+              FROM team_square.v_labor_daily GROUP BY 1) ld
+     ON sd.sales_date = ld.work_date`,
+
+  // Commerce7 (online / club / DTC) sales per day, in dollars. Kept SEPARATE
+  // from the labor % denominator on purpose — this is whole-company revenue,
+  // not tasting-room sales served by hourly labor.
+  `CREATE OR REPLACE VIEW commerce7.v_sales_daily AS
+   SELECT
+     (order_paid_date AT TIME ZONE 'America/Denver')::date AS sales_date,
+     SUM(total) / 100.0 AS total_sales,
+     SUM(sub_total) / 100.0 AS subtotal,
+     COUNT(*) AS order_count
+   FROM commerce7.orders
+   WHERE payment_status = 'Paid' AND order_paid_date IS NOT NULL
+   GROUP BY 1`,
 ];
 
 export async function runMigrations() {

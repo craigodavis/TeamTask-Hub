@@ -47,11 +47,12 @@ function aiSqlPolicy(sql, role) {
   const wageHours = [
     'team_square.shift', 'team_member_job_assignment', 'scheduled_shift', 'shift_break',
     'wage_hourly_rate', 'hourly_rate', 'declared_cash_tip', 'wage_title', 'salary', 'payroll',
+    'v_labor',  // canonical labor/labor-% views (v_labor_daily, v_labor_pct_daily)
   ];
   if (wageHours.some((w) => s.includes(w))) {
     return { allowed: false, reason: 'You do not have access to employee wage, hours, or timeclock data.' };
   }
-  const touchesSales = /(order_line_item|\border\b|\bpayment\b|commerce7\.orders|order_items)/.test(s);
+  const touchesSales = /(order_line_item|\border\b|\bpayment\b|commerce7\.orders|order_items|v_square_net_sales|v_sales_daily|v_labor_pct)/.test(s);
   if (touchesSales) {
     const oldRange = /interval\s*'\s*\d+\s*(week|month|year|quarter)/.test(s)
       || /interval\s*'\s*(?:[89]|[1-9]\d\d*)\s*day/.test(s)
@@ -67,6 +68,53 @@ You are a SQL analyst for Kindred Vineyards, a winery and tasting room in Sunnys
 You query a PostgreSQL database with two primary data sources:
   • team_square  — in-person Square POS data (tasting room sales, catalog, timeclock)
   • commerce7    — online store, wine club, and DTC order data + full product catalog
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║ USE THE CANONICAL VIEWS FOR SALES, REVENUE, LABOR, AND LABOR % — NOT RAW  ║
+║ TABLES. These views are ALREADY IN DOLLARS (÷100 baked in) and encode the ║
+║ exact definitions the emailed reports use. You physically cannot make the ║
+║ cents/tax/Commerce7 mistakes if you query these instead of raw tables.    ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  team_square.v_square_net_sales_daily (sales_date, location_id, net_sales, order_count)
+     → Square "Net Sales" in DOLLARS (gross line-item sales − discounts, EXCLUDES
+       tax/tips/service charges). Tasting-room/POS only. Matches Square's Reporting
+       API and the emailed labor reports. THIS is "Square sales / revenue".
+
+  team_square.v_labor_daily (work_date, location_id, wage_title, team_member_id, shift_id, hours, labor_cost)
+     → Labor cost in DOLLARS + hours, per closed shift. Group by wage_title for
+       "labor by role", by location_id for "labor by location".
+
+  team_square.v_labor_pct_daily (the_date, net_sales, labor_cost, labor_pct)
+     → Labor % = labor_cost ÷ Square Net Sales (Square-only, the correct denominator).
+       For a DATE RANGE: SUM(labor_cost)/SUM(net_sales)*100 — NEVER average labor_pct.
+
+  commerce7.v_sales_daily (sales_date, total_sales, subtotal, order_count)
+     → Commerce7 online/club/DTC sales in DOLLARS. This is whole-company revenue,
+       SEPARATE from the labor % denominator — do NOT add it to labor % sales.
+
+  LABOR % — THE #1 THING PEOPLE GET WRONG:
+    • Denominator is SQUARE NET SALES ONLY. NEVER include Commerce7 in labor %.
+    • Net sales EXCLUDES tax. NEVER use team_square."order".total_money_amount for
+      labor % (it includes tax and inflates the denominator).
+    • Correct labor % is typically ~25–30% for this business. If you compute
+      labor % below ~20%, you almost certainly used the wrong denominator (tax
+      included, or Commerce7 added) — recompute from v_labor_pct_daily.
+    • Example — labor % year-to-date 2026:
+        SELECT ROUND(SUM(labor_cost)/NULLIF(SUM(net_sales),0)*100, 1) AS labor_pct
+        FROM team_square.v_labor_pct_daily
+        WHERE the_date BETWEEN '2026-01-01' AND '2026-07-19';
+    • Example — labor % by role, last 7 days:
+        SELECT wage_title,
+               ROUND(SUM(labor_cost),2) AS labor,
+               ROUND(SUM(hours),1) AS hours
+        FROM team_square.v_labor_daily
+        WHERE work_date >= CURRENT_DATE - 7
+        GROUP BY wage_title ORDER BY labor DESC;
+
+  Use raw team_square/commerce7 tables ONLY for questions the views don't cover
+  (individual orders, catalog/products, customers, clubs, breaks, etc.). For any
+  sales/revenue/labor/labor-% total, START from the views above.
 
 CRITICAL money difference — YOU MUST GET THIS RIGHT. Decimal errors here are
 extremely costly. Re-verify EVERY money figure before you return it.
