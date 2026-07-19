@@ -2,8 +2,17 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { pool, query } from '../db.js';
 import { getModelForProcess } from '../lib/aiModelSettings.js';
+import { randomUUID } from 'crypto';
 
 const router = express.Router();
+
+// Models the Kindred AI chat may switch between (id → label). A requested model
+// must be in this allowlist; otherwise the company default is used.
+const KINDRED_AI_MODELS = {
+  'claude-fable-5':  'Fable 5',
+  'claude-opus-4-8': 'Opus 4.8',
+  'claude-sonnet-5': 'Sonnet 5',
+};
 
 // ── Schema context for AI ────────────────────────────────────────────────────
 const SQUARE_SCHEMA_CONTEXT = `
@@ -271,10 +280,14 @@ Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Ki
 
 You have two tools: run_sql and save_fact.
 
-── WHEN TO USE save_fact ──
-Use save_fact when the user tells you something about the business:
+── WHEN TO USE save_fact (long-term memory, shared by ALL users) ──
+save_fact is your persistent, company-wide memory: everything saved is recalled
+in every future chat, for every user. Use it to remember durable facts about the
+business or the user's preferences — whether they tell you directly OR you learn
+it during the conversation:
   "those are our red wines", "we close at 5pm", "Craig is the owner"
-Save each distinct fact as a separate save_fact call.
+Save each distinct fact as a separate save_fact call. Don't save one-off values
+you can re-query (e.g. last month's sales) — only durable knowledge.
 After saving, confirm conversationally what you stored.
 
 ── WHEN TO USE run_sql ──
@@ -736,8 +749,15 @@ async function executeSql(sql) {
 
 // ── POST /api/square/ask ─────────────────────────────────────────────────────
 router.post('/ask', async (req, res) => {
-  const { question, history = [] } = req.body;
+  const { question, history = [], session_id = null, model: requestedModel = null } = req.body;
   if (!question?.trim()) return res.status(400).json({ error: 'Question is required' });
+
+  // If a session was supplied, verify access and use its stored history.
+  let session = null;
+  if (session_id) {
+    session = await sessionAccess(session_id, req);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+  }
 
   // Read API key from DB (company_integrations), fall back to env var
   let apiKey = process.env.ANTHROPIC_API_KEY;
@@ -750,8 +770,15 @@ router.post('/ask', async (req, res) => {
   } catch { /* ignore — table may not have column yet */ }
   if (!apiKey) return res.status(500).json({ error: 'Anthropic API key not configured — add it in Settings → Integrations' });
 
-  const kindredAiModel = await getModelForProcess(req.companyId, 'kindred_ai', 'claude-sonnet-4-5');
+  const kindredAiModel = KINDRED_AI_MODELS[requestedModel]
+    ? requestedModel
+    : await getModelForProcess(req.companyId, 'kindred_ai', 'claude-sonnet-4-5');
   const ai = new Anthropic({ apiKey });
+
+  // Let the client cancel a running query: abort the Anthropic call on disconnect.
+  const abort = new AbortController();
+  let clientClosed = false;
+  req.on('close', () => { clientClosed = true; abort.abort(); });
 
   const [facts, lessons] = await Promise.all([buildFactsBlock(), buildLessonsBlock()]);
 
@@ -773,9 +800,19 @@ router.post('/ask', async (req, res) => {
   ];
   systemBlocks.push({ type: 'text', text: dateBlock + (facts || '') + (lessons || '') });
 
-  // History from frontend is [{role, content}] with string content — safe for multi-turn
+  // Prefer stored session history (persistent memory); fall back to client history.
+  let priorHistory = history;
+  if (session) {
+    const past = await query(
+      `SELECT role, content FROM ai_messages
+       WHERE session_id = $1 AND content IS NOT NULL AND content <> ''
+       ORDER BY created_at DESC LIMIT 12`,
+      [session_id]
+    );
+    priorHistory = past.rows.reverse();
+  }
   const messages = [
-    ...history.map((m) => ({ role: m.role, content: m.content })),
+    ...priorHistory.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: question },
   ];
 
@@ -790,7 +827,7 @@ router.post('/ask', async (req, res) => {
         system: systemBlocks,
         tools: SQUARE_TOOLS,
         messages,
-      });
+      }, { signal: abort.signal });
 
       // Collect any text from this turn
       const textBlock = response.content.find((b) => b.type === 'text');
@@ -849,10 +886,29 @@ router.post('/ask', async (req, res) => {
       }
     }
   } catch (err) {
+    if (clientClosed || err?.name === 'AbortError') return; // client cancelled
     console.error('[square/ask] AI error:', err.message);
     return res.status(500).json({ error: 'AI request failed', details: err.message });
   }
 
+  // Persist the exchange to the session (auto-title from the first question).
+  if (session && !clientClosed) {
+    try {
+      await query(`INSERT INTO ai_messages (session_id, role, content) VALUES ($1,'user',$2)`, [session_id, question]);
+      await query(
+        `INSERT INTO ai_messages (session_id, role, content, sql, rows, fields) VALUES ($1,'assistant',$2,$3,$4,$5)`,
+        [session_id, accumulated.text || null, accumulated.sql || null,
+         accumulated.rows ? JSON.stringify(accumulated.rows) : null,
+         accumulated.fields ? JSON.stringify(accumulated.fields) : null]
+      );
+      await query(
+        `UPDATE ai_sessions SET title = COALESCE(title, $1), updated_at = NOW() WHERE id = $2`,
+        [question.trim().slice(0, 60), session_id]
+      );
+    } catch (e) { console.error('[square/ask] persist error:', e.message); }
+  }
+
+  if (clientClosed) return;
   res.json({
     text:        accumulated.text,
     sql:         accumulated.sql,
@@ -1148,6 +1204,113 @@ router.delete('/lessons/:id', async (req, res) => {
     console.error('[square] lessons delete error:', err.message);
     res.status(500).json({ error: 'Failed to delete lesson' });
   }
+});
+
+// ── KINDRED AI SESSIONS (private by default, shareable via invite link) ───────
+
+// Returns the session row if the requester owns it or it's shared with them.
+async function sessionAccess(sessionId, req) {
+  const r = await query(
+    `SELECT s.*, (s.user_id = $2) AS is_owner
+     FROM ai_sessions s
+     WHERE s.id = $1 AND s.company_id = $3
+       AND (s.user_id = $2 OR EXISTS (
+         SELECT 1 FROM ai_session_shares sh WHERE sh.session_id = s.id AND sh.user_id = $2))`,
+    [sessionId, req.userId, req.companyId]
+  );
+  return r.rows[0] || null;
+}
+
+// GET /api/square/sessions — my sessions + ones shared with me
+router.get('/sessions', async (req, res) => {
+  const r = await query(
+    `SELECT s.id, s.title, s.updated_at, (s.user_id = $1) AS is_owner, u.display_name AS owner_name
+     FROM ai_sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.company_id = $2
+       AND (s.user_id = $1 OR EXISTS (
+         SELECT 1 FROM ai_session_shares sh WHERE sh.session_id = s.id AND sh.user_id = $1))
+     ORDER BY s.updated_at DESC`,
+    [req.userId, req.companyId]
+  );
+  res.json({ sessions: r.rows });
+});
+
+// POST /api/square/sessions — new (empty) session
+router.post('/sessions', async (req, res) => {
+  const r = await query(
+    `INSERT INTO ai_sessions (company_id, user_id, title) VALUES ($1,$2,$3)
+     RETURNING id, title, updated_at`,
+    [req.companyId, req.userId, req.body.title || null]
+  );
+  res.status(201).json({ session: { ...r.rows[0], is_owner: true } });
+});
+
+// GET /api/square/sessions/:id — session + its messages
+router.get('/sessions/:id', async (req, res) => {
+  const s = await sessionAccess(req.params.id, req);
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  const msgs = await query(
+    `SELECT role, content, sql, rows, fields FROM ai_messages WHERE session_id = $1 ORDER BY created_at`,
+    [req.params.id]
+  );
+  res.json({
+    session: { id: s.id, title: s.title, is_owner: s.is_owner, share_token: s.is_owner ? s.share_token : null },
+    messages: msgs.rows,
+  });
+});
+
+// PATCH /api/square/sessions/:id — rename (owner only)
+router.patch('/sessions/:id', async (req, res) => {
+  const r = await query(
+    `UPDATE ai_sessions SET title = $1, updated_at = NOW()
+     WHERE id = $2 AND user_id = $3 AND company_id = $4 RETURNING id`,
+    [req.body.title || null, req.params.id, req.userId, req.companyId]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+});
+
+// DELETE /api/square/sessions/:id — owner only
+router.delete('/sessions/:id', async (req, res) => {
+  const r = await query(
+    `DELETE FROM ai_sessions WHERE id = $1 AND user_id = $2 AND company_id = $3 RETURNING id`,
+    [req.params.id, req.userId, req.companyId]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+});
+
+// POST /api/square/sessions/:id/share — generate/return the invite token (owner only)
+router.post('/sessions/:id/share', async (req, res) => {
+  const own = await query(
+    `SELECT share_token FROM ai_sessions WHERE id = $1 AND user_id = $2 AND company_id = $3`,
+    [req.params.id, req.userId, req.companyId]
+  );
+  if (!own.rows.length) return res.status(404).json({ error: 'Not found' });
+  let shareToken = own.rows[0].share_token;
+  if (!shareToken) {
+    shareToken = randomUUID().replace(/-/g, '');
+    await query(`UPDATE ai_sessions SET share_token = $1 WHERE id = $2`, [shareToken, req.params.id]);
+  }
+  res.json({ share_token: shareToken });
+});
+
+// POST /api/square/sessions/join/:token — accept an invite link (adds me to shares)
+router.post('/sessions/join/:token', async (req, res) => {
+  const s = await query(
+    `SELECT id, user_id FROM ai_sessions WHERE share_token = $1 AND company_id = $2`,
+    [req.params.token, req.companyId]
+  );
+  if (!s.rows.length) return res.status(404).json({ error: 'Invalid or expired invite link' });
+  const sess = s.rows[0];
+  if (sess.user_id !== req.userId) {
+    await query(
+      `INSERT INTO ai_session_shares (session_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [sess.id, req.userId]
+    );
+  }
+  res.json({ session_id: sess.id });
 });
 
 export { router as squareRouter };

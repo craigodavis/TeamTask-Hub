@@ -2301,6 +2301,36 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_components_parent ON recipe_components(parent_recipe_id)`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_components_child  ON recipe_components(child_recipe_id)`,
+
+  // ── Kindred AI: persistent chat sessions (private by default, shareable via
+  // invite link). Long-term company-wide memory already lives in square_ai_facts.
+  `CREATE TABLE IF NOT EXISTS ai_sessions (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title       TEXT,
+    share_token TEXT UNIQUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_sessions_company_user ON ai_sessions(company_id, user_id, updated_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS ai_messages (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES ai_sessions(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL,
+    content    TEXT,
+    sql        TEXT,
+    rows       JSONB,
+    fields     JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS ai_session_shares (
+    session_id UUID NOT NULL REFERENCES ai_sessions(id) ON DELETE CASCADE,
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (session_id, user_id)
+  )`,
 ];
 
 export async function runMigrations() {
