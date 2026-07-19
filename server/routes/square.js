@@ -165,7 +165,7 @@ commerce7.order_items  ← money is CENTS (divide by 100)
   product_title, product_slug, item_type,
   product_id (FK → commerce7.product), product_variant_id (FK → commerce7.product_variant),
   product_variant_title, sku,
-  price, original_price, compare_price (CENTS — ÷100),
+  price, original_price, compare_price, cost_of_good (all CENTS — ÷100; cost_of_good for margin),
   quantity (INTEGER), quantity_fulfilled,
   tax, tax_type, bottle_deposit,
   volume_in_ml, alcohol_percentage,
@@ -222,7 +222,7 @@ commerce7.wine_appellation
   id, company_id, title  (e.g. 'Snake River Valley', 'Idaho')
 
 commerce7.collection
-  id, company_id, title, slug, status  (product groupings / categories)
+  id, company_id, title, slug, is_published (BOOLEAN), description  (product groupings / categories)
 
 === KITCHEN: RECIPES (teamtask_hub schema — no cents, these are counts/text) ===
 
