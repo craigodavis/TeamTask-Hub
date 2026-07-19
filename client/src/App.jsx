@@ -18,6 +18,7 @@ import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
 import { WineInventory } from './pages/WineInventory';
 import { WineInventoryReport } from './pages/WineInventoryReport';
+import Scheduling from './pages/Scheduling';
 import { getGeneralSettings } from './api';
 import { ProductDetail } from './pages/ProductDetail';
 import { BettyComparison } from './pages/BettyComparison';
@@ -110,6 +111,9 @@ function App() {
         <Route element={<AppShellLayout user={user} onLogout={onLogout} timezone={timezone} />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/manage" element={<Manager />} />
+          <Route path="/scheduling" element={
+            (user?.role === 'schedule' || user?.role === 'manager' || user?.role === 'owner')
+              ? <Scheduling /> : <Navigate to="/" replace />} />
           <Route path="/policies" element={<Policies />} />
           <Route path="/food" element={<FoodLayout />}>
             <Route

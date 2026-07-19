@@ -1849,3 +1849,33 @@ export async function getRecipesCategories() {
   if (!res.ok) throw new Error(d.error || 'Failed to load categories');
   return d;
 }
+
+// ── Scheduling ────────────────────────────────────────────────────────────────
+export async function getSchedulingSettings() {
+  const res = await fetch(`${API}/scheduling/settings`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load scheduling settings');
+  return d;
+}
+
+export async function updateSchedulingSettings(body) {
+  const res = await fetch(`${API}/scheduling/settings`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save scheduling settings');
+  return d;
+}
+
+export async function getSchedulingScoreboard(week) {
+  const qs = week ? `?week=${week}` : '';
+  const res = await fetch(`${API}/scheduling/scoreboard${qs}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load scoreboard');
+  return d;
+}
+
+export async function getSchedulingCorrelation() {
+  const res = await fetch(`${API}/scheduling/correlation`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load correlation');
+  return d;
+}
