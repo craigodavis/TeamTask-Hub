@@ -26,6 +26,7 @@ import { groundControlRouter } from './routes/groundControl.js';
 import { startRachioScheduler } from './lib/rachioScheduler.js';
 import { startGatewayAutoApproveScheduler } from './lib/gatewayRules.js';
 import { startC7SyncScheduler } from './lib/commerce7Sync.js';
+import { startFactorSyncScheduler } from './lib/factorSync.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -133,6 +134,7 @@ runMigrations()
     startSkynetScheduler();
     startDailyArchiveScheduler();
     startRachioScheduler();
+    startFactorSyncScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -144,4 +146,5 @@ runMigrations()
     startSkynetScheduler();
     startDailyArchiveScheduler();
     startRachioScheduler();
+    startFactorSyncScheduler();
   });
