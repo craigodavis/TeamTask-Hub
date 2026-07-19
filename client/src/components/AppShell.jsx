@@ -55,6 +55,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const isOwner = user?.role === 'owner';
   const canAccessGC = user?.role === 'gc' || user?.role === 'manager' || user?.role === 'owner';
   const canAccessInventory = user?.role === 'inventory' || isManager;
+  const canAccessSchedule = user?.role === 'schedule' || isManager;
   const appTitle = appHubTitle(user);
 
   const managerLinks = isManager
@@ -142,6 +143,17 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           >
             <span>Policies</span>
           </NavLink>
+          {canAccessSchedule && (
+            <NavLink
+              to="/scheduling"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="📅"
+              title="Scheduling"
+              onClick={() => { if (isMobile()) setCollapsed(true); }}
+            >
+              <span>Scheduling</span>
+            </NavLink>
+          )}
           {isManager && (
             <NavLink
               to="/square"

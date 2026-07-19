@@ -67,6 +67,12 @@ export function requireInventoryAccess(req, res, next) {
   return res.status(403).json({ error: 'Inventory access required' });
 }
 
+// Scheduling: accessible to schedule (Manager + Schedule), manager, and owner.
+export function requireScheduleAccess(req, res, next) {
+  if (req.role === 'schedule' || req.role === 'manager' || req.role === 'owner') return next();
+  return res.status(403).json({ error: 'Scheduling access required' });
+}
+
 export function requireOwner(req, res, next) {
   if (req.role === 'owner') return next();
   return res.status(403).json({ error: 'Owner access required' });
