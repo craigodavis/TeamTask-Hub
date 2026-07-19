@@ -1752,6 +1752,14 @@ export async function updateKitchenSettings(body) {
   return d;
 }
 
+// Kindred AI usage + estimated cost per user (manager).
+export async function getAiUsageReport(days = 30) {
+  const res = await fetch(`${API}/square/usage-report?days=${days}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load usage report');
+  return d;
+}
+
 // Day-by-day DB vs live Square sales reconciliation.
 export async function getSquareReconcile({ start, end, loc }) {
   const p = new URLSearchParams({ start, end });
