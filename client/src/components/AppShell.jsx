@@ -208,6 +208,16 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Receipts</span>
                 </Link>
               )}
+              {isOwner && (
+                <Link
+                  to="/kitchen/sources"
+                  className={`nav-sub-item${location.pathname === '/kitchen/sources' ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">📥</span>
+                  <span>Receipt Sources</span>
+                </Link>
+              )}
               {isManager && (
                 <Link
                   to="/recipes/catalog"

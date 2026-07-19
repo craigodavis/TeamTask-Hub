@@ -786,6 +786,34 @@ export async function runHarvesterSource(id) {
   return data;
 }
 
+export async function getHarvesterConnectorTypes() {
+  const res = await fetch(`${API}/harvester/connector-types`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load connector types');
+  return data;
+}
+
+export async function createHarvesterSource(body) {
+  const res = await fetch(`${API}/harvester/sources`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create harvester source');
+  return data;
+}
+
+export async function deleteHarvesterSource(id) {
+  const res = await fetch(`${API}/harvester/sources/${id}`, {
+    method: 'DELETE',
+    headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete harvester source');
+  return data;
+}
+
 export async function uploadReceipts(files) {
   const formData = new FormData();
   for (const file of files) formData.append('pdfs', file);
