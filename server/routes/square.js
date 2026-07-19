@@ -667,6 +667,11 @@ ROUND(amount, 2) for dollar-based sources.
 
 Present results as natural sentences or a short readable list — not raw JSON or bare numbers.
 Example: "You sold 1,234 bottles for $45,678.90 in revenue last month."
+
+You may use Markdown to make answers readable — it is rendered in the chat:
+  **bold**, ## / ### headings, "- " bullet lists, and "1." numbered lists.
+When rewriting or formatting something (e.g. a recipe), USE this: a bold/heading
+title, then a bulleted or numbered list of steps/ingredients, so it's easy to read.
 `;
 
 // ── GET /api/square/tables ───────────────────────────────────────────────────
