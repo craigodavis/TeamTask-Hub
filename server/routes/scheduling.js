@@ -91,6 +91,37 @@ router.get('/scoreboard', async (req, res) => {
     const yearStart = new Date().getFullYear() + '-01-01';
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
+    // Prior-year post-shift feedback, indexed by location + MM-DD; summarized emphasis-weighted.
+    const EMPHASIS_W = { 1: 0, 2: 0.2, 3: 0.3, 4: 0.4, 5: 0.5 };
+    const fbRows = (await query(
+      `SELECT work_date::text AS d, location_id, sentiment, staffing, note, emphasis
+         FROM day_feedback WHERE company_id = $1 AND responded_at IS NOT NULL`, [companyId])).rows;
+    const fbIndex = {};
+    for (const r of fbRows) (fbIndex[r.location_id + '|' + r.d.slice(5)] ??= []).push(r);
+    function summarizeFeedback(locId, dateStr) {
+      const rows = (fbIndex[locId + '|' + dateStr.slice(5)] || []).filter((r) => r.d < weekStart);
+      if (!rows.length) return null;
+      let wNum = 0, wDen = 0, uNum = 0, uDen = 0;
+      const staffW = { over: 0, right: 0, under: 0 }, staffU = { over: 0, right: 0, under: 0 };
+      const comments = [];
+      for (const r of rows) {
+        const w = EMPHASIS_W[r.emphasis] ?? 0;
+        if (r.sentiment) { wNum += r.sentiment * w; wDen += w; uNum += r.sentiment; uDen++; }
+        if (r.staffing && staffW[r.staffing] != null) { staffW[r.staffing] += w; staffU[r.staffing]++; }
+        if (r.note) comments.push({ note: r.note, emphasis: r.emphasis, sentiment: r.sentiment, year: r.d.slice(0, 4) });
+      }
+      const grade = wDen > 0 ? wNum / wDen : (uDen > 0 ? uNum / uDen : null);
+      const staffScore = Object.values(staffW).some((v) => v > 0) ? staffW : staffU;
+      const leanEntry = Object.entries(staffScore).sort((a, b) => b[1] - a[1])[0];
+      comments.sort((a, b) => b.emphasis - a.emphasis);
+      return {
+        n: rows.length, years: [...new Set(rows.map((r) => r.d.slice(0, 4)))],
+        grade: grade == null ? null : Math.round(grade * 10) / 10,
+        staffing_lean: leanEntry && leanEntry[1] > 0 ? leanEntry[0] : null,
+        comments: comments.slice(0, 6),
+      };
+    }
+
     const locationCards = [];
     for (const loc of locs) {
       const sid = loc.square_location_id;
@@ -125,6 +156,7 @@ router.get('/scoreboard', async (req, res) => {
           ly_labor_pct: lyPct == null ? null : Math.round(lyPct),
           lw_labor_pct: lwPct == null ? null : Math.round(lwPct),
           warn_labor: worstPct >= warn ? Math.round(worstPct) : null,
+          feedback: summarizeFeedback(loc.id, d),
         };
       });
 

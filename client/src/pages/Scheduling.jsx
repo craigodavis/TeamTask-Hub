@@ -3,6 +3,7 @@ import { getSchedulingScoreboard, getSchedulingCorrelation, getSchedulingSetting
 
 const money = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString());
 const pct = (n) => (n == null ? '—' : Number(n).toFixed(1) + '%');
+const fbFace = (g) => (g == null ? '—' : g >= 2.5 ? '🙂' : g >= 1.75 ? '😐' : '🙁');
 
 function Info({ t, align = 'left' }) {
   const [open, setOpen] = useState(false);
@@ -126,6 +127,12 @@ function Scoreboard() {
                     ? `${d.ly_labor_pct}% last year` : `${d.lw_labor_pct}% last week`;
                   lines.push(`⚠ Labor warning: a comparable ${d.dow} ran ${basis} labor (over your ${warnThresh}% threshold). Cut staff that day, or drive traffic — e.g. book an act.`);
                 }
+                if (d.feedback) {
+                  const fb = d.feedback;
+                  lines.push(`— Crew feedback, same date ${fb.years.join('/')} (${fb.n} response${fb.n === 1 ? '' : 's'}) —`);
+                  lines.push(`Grade ${fbFace(fb.grade)}${fb.grade != null ? ` (${fb.grade}/3)` : ''} · staffing: ${fb.staffing_lean || '—'} (emphasis-weighted)`);
+                  fb.comments.forEach((c) => lines.push(`  ${'★'.repeat(c.emphasis)} "${c.note}"`));
+                }
                 return (
                   <div key={d.date} style={{ border: '1px solid var(--border,#eee)', borderRadius: 8, padding: 8, fontSize: 12, borderLeft: d.warn_labor ? '3px solid #d33' : '1px solid var(--border,#eee)' }}>
                     <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -136,6 +143,7 @@ function Scoreboard() {
                     {wx && <div style={{ opacity: 0.7 }}>{Math.round(wx.temp_max)}°/{Math.round(wx.temp_min)}° {wx.condition || ''}{wx.precip_prob >= 40 ? ` ☔${wx.precip_prob}%` : ''}</div>}
                     {evs.map((e, i) => <div key={i} style={{ marginTop: 3, color: 'var(--accent,#4f46e5)' }}>🎵 {e.performer || e.title?.slice(0, 22)}</div>)}
                     {d.warn_labor && <div style={{ marginTop: 3, color: '#d33', fontWeight: 600 }}>⚠ {d.warn_labor}% labor — close or drive business</div>}
+                    {d.feedback && <div style={{ marginTop: 3, opacity: 0.8 }}>📝 {fbFace(d.feedback.grade)} {d.feedback.staffing_lean || ''} ({d.feedback.n})</div>}
                   </div>
                 );
               })}
