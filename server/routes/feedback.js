@@ -5,9 +5,11 @@ import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 
 const router = express.Router();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET /api/feedback/:token — context for the form
 router.get('/:token', async (req, res) => {
+  if (!UUID_RE.test(req.params.token || '')) return res.status(404).json({ error: 'This feedback link is not valid or has expired.' });
   try {
     const r = await query(
       `SELECT df.work_date, df.responded_at, u.display_name, l.name AS location
@@ -28,6 +30,7 @@ router.get('/:token', async (req, res) => {
 
 // POST /api/feedback/:token — submit { pin, sentiment(1-3), staffing, note }
 router.post('/:token', async (req, res) => {
+  if (!UUID_RE.test(req.params.token || '')) return res.status(404).json({ error: 'This feedback link is not valid or has expired.' });
   try {
     const { pin, sentiment, staffing, note } = req.body || {};
     const r = await query(
