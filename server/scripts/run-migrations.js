@@ -2553,6 +2553,8 @@ const MIGRATIONS = [
   // 091: seed Kindred's wp-config path
   `UPDATE scheduling_settings SET wordpress_config_path = '/home/kindredv/public_html/wp-config.php'
      WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113'`,
+  // 092: post-shift feedback emphasis (1–5, how strongly the employee wants us to act; default 1)
+  `ALTER TABLE day_feedback ADD COLUMN IF NOT EXISTS emphasis SMALLINT NOT NULL DEFAULT 1`,
 ];
 
 export async function runMigrations() {
