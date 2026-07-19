@@ -76,7 +76,7 @@ export default function ShiftFeedback() {
       <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="e.g. slammed 2–5pm, needed another pourer"
         style={{ width: '100%', margin: '8px 0 20px', padding: 10, borderRadius: 10, border: '1px solid #ccc', fontSize: 15, boxSizing: 'border-box' }} />
 
-      <label style={{ fontWeight: 600, fontSize: 14 }}>How important is this?</label>
+      <label style={{ fontWeight: 600, fontSize: 14 }}>Emphasis</label>
       <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{['', 'Just FYI', 'Minor', 'Worth a look', 'Important', 'Please act on it'][emphasis]}</div>
       <div style={{ display: 'flex', gap: 8, margin: '8px 0 20px' }}>
         {[1, 2, 3, 4, 5].map((n) => (
