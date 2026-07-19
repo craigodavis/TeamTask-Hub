@@ -25,6 +25,19 @@ const MODEL_TIERS = {
 const DEFAULT_AI_MODEL = 'claude-sonnet-5';
 function allowedModels(role) { return MODEL_TIERS[role] || ['claude-sonnet-5']; }
 
+// Approximate per-1M-token pricing (USD) — for the usage cost estimate only.
+const MODEL_PRICING = {
+  'claude-fable-5':            { in: 15, out: 75 },
+  'claude-opus-4-8':           { in: 15, out: 75 },
+  'claude-sonnet-5':           { in: 3,  out: 15 },
+  'claude-sonnet-4-5':         { in: 3,  out: 15 },
+  'claude-haiku-4-5-20251001': { in: 1,  out: 5 },
+};
+function estimateCost(model, inTok, outTok) {
+  const p = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-5'];
+  return Math.round(((inTok / 1e6) * p.in + (outTok / 1e6) * p.out) * 10000) / 10000;
+}
+
 // Data access for regular employees (not owner/manager): no employee wage/hours
 // data at all (hard-blocked), and no sales older than 7 days (heuristic backstop
 // on top of the prompt rule). Returns { allowed, reason }.
@@ -210,6 +223,29 @@ commerce7.wine_appellation
 
 commerce7.collection
   id, company_id, title, slug, status  (product groupings / categories)
+
+=== KITCHEN: RECIPES (teamtask_hub schema — no cents, these are counts/text) ===
+
+recipes
+  id, company_id, name, category ('Pizza'|'Other'|etc.), description, instructions
+  (free-text ingredient breakdown), menu_price, status, prep_time_minutes
+recipe_ingredients  (structured ingredient list for a recipe)
+  recipe_id → recipes, ingredient_id → ingredients, quantity, unit, position, note
+ingredients
+  id, company_id, name, base_unit, description
+recipe_components  (a recipe that consumes another recipe / sub-recipe)
+  parent_recipe_id → recipes, child_recipe_id → recipes, quantity, unit, note
+
+Recipe questions ("what's in the Pequeño Diablo pizza?", "recipe for X"):
+  SELECT r.name, r.instructions FROM recipes r
+  WHERE r.company_id = $company AND r.name ILIKE '%pequeño diablo%'
+For the structured ingredient list, join recipe_ingredients + ingredients:
+  SELECT i.name, ri.quantity, ri.unit, ri.note
+  FROM recipes r JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+  JOIN ingredients i ON i.id = ri.ingredient_id
+  WHERE r.name ILIKE '%pequeño diablo%' ORDER BY ri.position
+Note: a recipe's full detail may be in the free-text instructions column even if
+it has no structured recipe_ingredients rows yet — check both.
 
 === WHEN TO USE WHICH SOURCE ===
 
@@ -903,6 +939,7 @@ router.post('/ask', async (req, res) => {
 
   // Agentic tool-use loop
   const accumulated = { text: '', sql: null, rows: null, fields: null, facts_saved: [] };
+  let usageIn = 0, usageOut = 0;
 
   try {
     while (true) {
@@ -913,6 +950,8 @@ router.post('/ask', async (req, res) => {
         tools: SQUARE_TOOLS,
         messages,
       }, { signal: abort.signal });
+      usageIn  += response.usage?.input_tokens  || 0;
+      usageOut += response.usage?.output_tokens || 0;
 
       // Collect any text from this turn
       const textBlock = response.content.find((b) => b.type === 'text');
@@ -1026,6 +1065,17 @@ router.post('/ask', async (req, res) => {
         [question.trim().slice(0, 60), session_id]
       );
     } catch (e) { console.error('[square/ask] persist error:', e.message); }
+  }
+
+  // Usage + estimated cost logging (every answered question, session or not).
+  if (!clientClosed) {
+    try {
+      await query(
+        `INSERT INTO ai_usage_log (company_id, user_id, model, question, input_tokens, output_tokens, cost_usd)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.companyId, req.userId, kindredAiModel, question, usageIn, usageOut, estimateCost(kindredAiModel, usageIn, usageOut)]
+      );
+    } catch (e) { console.error('[square/ask] usage log error:', e.message); }
   }
 
   if (clientClosed) return;
@@ -1359,6 +1409,37 @@ router.get('/reconcile', async (req, res) => {
       db_total: Math.round(dbTotal * 100) / 100,
       live_total: Math.round(liveTotal * 100) / 100,
       diff: Math.round((dbTotal - liveTotal) * 100) / 100,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/square/usage-report?days=30 — per-user Kindred AI usage + estimated cost
+router.get('/usage-report', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days, 10) || 30, 365);
+  try {
+    const byUser = await query(
+      `SELECT COALESCE(u.display_name, 'Unknown') AS user_name,
+              COUNT(*)::int AS questions,
+              COALESCE(SUM(l.input_tokens), 0)::bigint  AS input_tokens,
+              COALESCE(SUM(l.output_tokens), 0)::bigint AS output_tokens,
+              ROUND(COALESCE(SUM(l.cost_usd), 0), 2) AS cost
+       FROM ai_usage_log l LEFT JOIN users u ON u.id = l.user_id
+       WHERE l.company_id = $1 AND l.created_at >= NOW() - ($2 || ' days')::interval
+       GROUP BY 1 ORDER BY cost DESC NULLS LAST`,
+      [req.companyId, days]
+    );
+    const totals = await query(
+      `SELECT COUNT(*)::int AS questions, ROUND(COALESCE(SUM(cost_usd), 0), 2) AS cost
+       FROM ai_usage_log WHERE company_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval`,
+      [req.companyId, days]
+    );
+    res.json({
+      days,
+      by_user: byUser.rows.map((r) => ({ ...r, input_tokens: Number(r.input_tokens), output_tokens: Number(r.output_tokens), cost: Number(r.cost) })),
+      total_questions: totals.rows[0].questions,
+      total_cost: Number(totals.rows[0].cost),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

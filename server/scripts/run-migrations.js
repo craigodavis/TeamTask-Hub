@@ -2331,6 +2331,21 @@ const MIGRATIONS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (session_id, user_id)
   )`,
+
+  // Kindred AI usage log — one row per question, with token counts and an
+  // estimated cost, for the manager-only usage report.
+  `CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+    model         TEXT,
+    question      TEXT,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd      NUMERIC(10,4) NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_usage_company_date ON ai_usage_log(company_id, created_at DESC)`,
 ];
 
 export async function runMigrations() {

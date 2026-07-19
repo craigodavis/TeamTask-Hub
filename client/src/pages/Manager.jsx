@@ -39,6 +39,7 @@ import {
   approveAnnouncement,
   publishAnnouncement,
   getPendingMyApproval,
+  getAiUsageReport,
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
@@ -48,6 +49,62 @@ import './Manager.css';
 import { todayInTimezone } from '../utils/dateUtils';
 
 const VALID_TABS = new Set(['announcements', 'tasks', 'reports', 'integrations', 'users']);
+
+// Kindred AI usage + estimated cost per user (manager-only report).
+function AiUsageReport() {
+  const [days, setDays] = React.useState(30);
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState('');
+  React.useEffect(() => {
+    let live = true;
+    setLoading(true); setErr('');
+    getAiUsageReport(days)
+      .then((d) => { if (live) setData(d); })
+      .catch((e) => { if (live) setErr(e.message); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [days]);
+  return (
+    <div className="manager-report-panel">
+      <h3 className="manager-report-panel-title">Kindred AI usage &amp; estimated cost</h3>
+      <p className="hint">Questions asked and estimated model cost per user. Cost is approximate (token counts × model pricing).</p>
+      <label className="report-location-filter">
+        Period
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+          <option value={365}>Last year</option>
+        </select>
+      </label>
+      {err && <p className="recipes-error">{err}</p>}
+      {loading ? <p className="hint">Loading…</p> : data && (
+        <div className="report-result">
+          <p className="report-meta">Last {data.days} days · {data.total_questions} questions · est. ${data.total_cost.toFixed(2)}</p>
+          <table className="report-table">
+            <thead>
+              <tr><th>User</th><th>Questions</th><th>Input tokens</th><th>Output tokens</th><th>Est. cost</th></tr>
+            </thead>
+            <tbody>
+              {data.by_user.length === 0 ? (
+                <tr><td colSpan={5}>No usage in this period.</td></tr>
+              ) : data.by_user.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.user_name}</td>
+                  <td>{r.questions}</td>
+                  <td>{r.input_tokens.toLocaleString()}</td>
+                  <td>{r.output_tokens.toLocaleString()}</td>
+                  <td>${r.cost.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Manager() {
   const { user, timezone } = useOutletContext();
@@ -534,9 +591,18 @@ export function Manager() {
                 Scheduled reports
               </button>
             )}
+            {isManager && (
+              <button
+                type="button"
+                className={activeReport === 'ai-usage' ? 'active' : ''}
+                onClick={() => setActiveReport('ai-usage')}
+              >
+                AI usage
+              </button>
+            )}
           </nav>
 
-          {activeReport !== 'scheduled' && (
+          {activeReport !== 'scheduled' && activeReport !== 'ai-usage' && (
           <p className="hint">
             {activeReport === 'debt'
               ? 'Debt report compares month-end balances for two calendar years. Edit the table and save.'
@@ -544,7 +610,7 @@ export function Manager() {
           </p>
           )}
 
-          {activeReport !== 'debt' && activeReport !== 'scheduled' && (
+          {activeReport !== 'debt' && activeReport !== 'scheduled' && activeReport !== 'ai-usage' && (
           <div className="report-filters">
             <label>
               From
@@ -664,6 +730,8 @@ export function Manager() {
           {activeReport === 'debt' && <DebtReportSection />}
 
           {activeReport === 'scheduled' && isManager && <ScheduledReports />}
+
+          {activeReport === 'ai-usage' && isManager && <AiUsageReport />}
         </section>
       )}
 
