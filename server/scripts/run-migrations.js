@@ -2409,6 +2409,144 @@ const MIGRATIONS = [
    FROM commerce7.orders
    WHERE payment_status = 'Paid' AND order_paid_date IS NOT NULL
    GROUP BY 1`,
+
+  // ===== Scheduling module (docs/SCHEDULING.md) =====
+  // 080: add 'schedule' role (Manager + Schedule) — drop then re-add the CHECK
+  `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
+  `ALTER TABLE users ADD CONSTRAINT users_role_check
+     CHECK (role IN ('member','manager','owner','gc','inventory','schedule'))`,
+  // 081: scheduling_settings — one row per company
+  `CREATE TABLE IF NOT EXISTS scheduling_settings (
+    company_id            UUID PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+    target_labor_pct      NUMERIC(5,2)  NOT NULL DEFAULT 25.00,
+    avoid_overtime        BOOLEAN       NOT NULL DEFAULT true,
+    forecast_w_lastweek   NUMERIC(4,3)  NOT NULL DEFAULT 0.400,
+    forecast_w_lastyear   NUMERIC(4,3)  NOT NULL DEFAULT 0.600,
+    labor_warn_threshold  NUMERIC(5,2)  NOT NULL DEFAULT 50.00,
+    week_start_dow        INTEGER       NOT NULL DEFAULT 3,          -- 3 = Wednesday (Square workweek)
+    feedback_prompt_enabled BOOLEAN     NOT NULL DEFAULT false,
+    operating_hours       JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    coverage_rules        JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    max_hours_per_week    NUMERIC(5,2),
+    updated_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_by            UUID REFERENCES users(id) ON DELETE SET NULL
+  )`,
+  // 082: kindred_events — events + performers (factor layer; backfilled from WordPress TEC)
+  `CREATE TABLE IF NOT EXISTS kindred_events (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    location_id   UUID REFERENCES locations(id) ON DELETE SET NULL,
+    source        VARCHAR(30) NOT NULL DEFAULT 'wordpress',
+    source_id     VARCHAR(64),
+    event_date    DATE NOT NULL,
+    start_at      TIMESTAMPTZ,
+    end_at        TIMESTAMPTZ,
+    title         TEXT,
+    performer     VARCHAR(120),
+    category      VARCHAR(40),
+    venue_name    VARCHAR(120),
+    raw_excerpt   TEXT,
+    synced_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, source, source_id, event_date)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kindred_events_date ON kindred_events(company_id, event_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_kindred_events_perf ON kindred_events(company_id, performer)`,
+  // 083: weather_daily — per-location daily weather (Open-Meteo forecast + ERA5 archive)
+  `CREATE TABLE IF NOT EXISTS weather_daily (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    location_id   UUID REFERENCES locations(id) ON DELETE CASCADE,
+    wx_date       DATE NOT NULL,
+    temp_max      NUMERIC(5,1),
+    temp_min      NUMERIC(5,1),
+    precip_prob   INTEGER,
+    precip_sum    NUMERIC(6,2),
+    weather_code  INTEGER,
+    condition     VARCHAR(40),
+    is_forecast   BOOLEAN NOT NULL DEFAULT false,
+    synced_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, location_id, wx_date)
+  )`,
+  // 084: special_days — holidays + auto-detected special/slow days
+  `CREATE TABLE IF NOT EXISTS special_days (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    label          VARCHAR(120) NOT NULL,
+    rule_type      VARCHAR(20) NOT NULL,          -- fixed_date | floating | one_off
+    month          INTEGER,
+    day            INTEGER,
+    weekday        INTEGER,
+    week_of_month  INTEGER,
+    one_off_date   DATE,
+    effect         VARCHAR(20),                   -- big | slow | closed
+    multiplier     NUMERIC(5,3),
+    recommend_action VARCHAR(20),                 -- open | reduced | closed
+    auto_detected  BOOLEAN NOT NULL DEFAULT false,
+    confirmed      BOOLEAN NOT NULL DEFAULT false,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  // 085: schedule_drafts — a weekly draft per location (Wed–Tue)
+  `CREATE TABLE IF NOT EXISTS schedule_drafts (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id       UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    location_id      UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    week_start       DATE NOT NULL,               -- Wednesday
+    status           VARCHAR(20) NOT NULL DEFAULT 'draft', -- draft|pending_approval|approved|published
+    forecast_sales     NUMERIC(12,2),
+    labor_budget       NUMERIC(12,2),
+    target_hours       NUMERIC(8,2),
+    projected_labor_pct NUMERIC(5,2),
+    notes            TEXT,
+    created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_at      TIMESTAMPTZ,
+    published_at     TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, location_id, week_start)
+  )`,
+  // 086: schedule_draft_shifts — individual shifts within a draft
+  `CREATE TABLE IF NOT EXISTS schedule_draft_shifts (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    draft_id               UUID NOT NULL REFERENCES schedule_drafts(id) ON DELETE CASCADE,
+    square_team_member_id  VARCHAR(64),
+    user_id                UUID REFERENCES users(id) ON DELETE SET NULL,
+    square_job_id          VARCHAR(64),
+    job_title              VARCHAR(120),
+    start_at               TIMESTAMPTZ NOT NULL,
+    end_at                 TIMESTAMPTZ NOT NULL,
+    source                 VARCHAR(20) NOT NULL DEFAULT 'scaled',   -- scaled | manual
+    square_scheduled_shift_id VARCHAR(64),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_draft_shifts_draft ON schedule_draft_shifts(draft_id)`,
+  // 087: day_feedback — post-shift SMS+PIN feedback (default disabled via settings)
+  `CREATE TABLE IF NOT EXISTS day_feedback (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    location_id   UUID REFERENCES locations(id) ON DELETE SET NULL,
+    work_date     DATE NOT NULL,
+    user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+    sentiment     SMALLINT,                        -- 1 frown | 2 neutral | 3 smile
+    staffing      VARCHAR(12),                     -- over | right | under
+    note          TEXT,
+    token         UUID NOT NULL DEFAULT gen_random_uuid(),
+    sent_at       TIMESTAMPTZ,
+    responded_at  TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, work_date, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_day_feedback_token ON day_feedback(token)`,
+  // 088: factor sync config — WordPress events source + local-events feeds + last-sync stamp
+  `ALTER TABLE scheduling_settings
+     ADD COLUMN IF NOT EXISTS wordpress_url   VARCHAR(255),
+     ADD COLUMN IF NOT EXISTS event_feeds     JSONB NOT NULL DEFAULT '[]'::jsonb,
+     ADD COLUMN IF NOT EXISTS factor_synced_at TIMESTAMPTZ`,
+  // 089: seed Kindred's scheduling_settings row + WordPress events URL (living-data source)
+  `INSERT INTO scheduling_settings (company_id, wordpress_url)
+     SELECT id, 'https://kindredvineyards.com' FROM companies
+     WHERE id = '8d2df498-b5c0-4f73-94cd-323956036113'
+     ON CONFLICT (company_id) DO UPDATE SET wordpress_url = EXCLUDED.wordpress_url`,
 ];
 
 export async function runMigrations() {
