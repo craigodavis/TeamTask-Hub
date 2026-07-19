@@ -1752,6 +1752,16 @@ export async function updateKitchenSettings(body) {
   return d;
 }
 
+// Day-by-day DB vs live Square sales reconciliation.
+export async function getSquareReconcile({ start, end, loc }) {
+  const p = new URLSearchParams({ start, end });
+  if (loc) p.set('loc', loc);
+  const res = await fetch(`${API}/square/reconcile?${p.toString()}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load reconciliation');
+  return d;
+}
+
 export async function getRecipes(params = {}) {
   const q = new URLSearchParams(params);
   const res = await fetch(`${API}/recipes?${q}`, { headers: headers() });

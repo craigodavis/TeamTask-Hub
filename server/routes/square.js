@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { pool, query } from '../db.js';
 import { getModelForProcess } from '../lib/aiModelSettings.js';
 import { randomUUID } from 'crypto';
+import { fetchLiveSquareSales } from '../lib/squareLiveSales.js';
+import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
 
@@ -324,6 +326,14 @@ After saving, confirm conversationally what you stored.
 
 ── WHEN TO USE run_sql ──
 Use run_sql for data questions (sales, revenue, counts, dates, etc.).
+
+── CROSS-CHECK SALES TOTALS AGAINST LIVE SQUARE ──
+When the user asks for a SALES TOTAL or revenue figure for a date range, also
+call get_live_square_sales for the same range, then present BOTH the database
+figure and the live Square figure side by side (e.g. "Database: $X · Live Square:
+$Y"). If they differ by more than ~2%, call flag_sales_discrepancy with both
+totals and the range so the owner is alerted. (This only applies to sales totals,
+not to arbitrary breakdowns the live API can't answer.)
 
 SQL rules:
 - No markdown, no semicolons, no backticks
@@ -752,6 +762,34 @@ const SQUARE_TOOLS = [
       required: ['category', 'content'],
     },
   },
+  {
+    name: 'get_live_square_sales',
+    description: "Fetch total sales for a date range directly from Square's live Orders API (the source of truth). When a user asks for a sales total or revenue figure, run the DB query AND call this for the same range, then present BOTH the database figure and the live Square figure side by side so drift is visible.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        start_date:    { type: 'string', description: 'Start date YYYY-MM-DD (inclusive).' },
+        end_date:      { type: 'string', description: 'End date YYYY-MM-DD (inclusive).' },
+        location_name: { type: 'string', description: 'Optional location filter, e.g. "Creek" or "Kindred Vineyards".' },
+      },
+      required: ['start_date', 'end_date'],
+    },
+  },
+  {
+    name: 'flag_sales_discrepancy',
+    description: 'Call ONLY when a DB sales total and the live Square total for the same range differ by more than ~2%. Alerts the owner by SMS with a link to the day-by-day difference. Provide both totals and the range.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        db_total:      { type: 'number', description: 'Sales total from the database (dollars).' },
+        live_total:    { type: 'number', description: 'Sales total from live Square (dollars).' },
+        start_date:    { type: 'string', description: 'YYYY-MM-DD.' },
+        end_date:      { type: 'string', description: 'YYYY-MM-DD.' },
+        location_name: { type: 'string', description: 'Optional location filter.' },
+      },
+      required: ['db_total', 'live_total', 'start_date', 'end_date'],
+    },
+  },
 ];
 
 // ── Helper: execute SQL safely ────────────────────────────────────────────────
@@ -926,6 +964,36 @@ router.post('/ask', async (req, res) => {
               toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'Fact saved successfully.' });
             } catch (err) {
               toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Failed to save fact: ${err.message}` });
+            }
+
+          } else if (block.name === 'get_live_square_sales') {
+            try {
+              const live = await fetchLiveSquareSales(req.companyId, block.input.start_date, block.input.end_date, block.input.location_name || null);
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content:
+                `Live Square sales ${block.input.start_date}..${block.input.end_date}${block.input.location_name ? ' (' + block.input.location_name + ')' : ''}: $${live.total.toFixed(2)} across ${live.order_count} orders (locations: ${live.locations.join(', ') || 'all'}).` });
+            } catch (err) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Live Square lookup failed: ${err.message}` });
+            }
+
+          } else if (block.name === 'flag_sales_discrepancy') {
+            try {
+              const { db_total, live_total, start_date, end_date, location_name } = block.input;
+              const higher = Math.max(Math.abs(db_total), Math.abs(live_total)) || 1;
+              const pct = Math.abs(db_total - live_total) / higher * 100;
+              if (pct < 2) {
+                toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Difference is only ${pct.toFixed(1)}% — under the 2% threshold, no alert sent.` });
+              } else {
+                const owners = await query(`SELECT id FROM users WHERE company_id = $1 AND role = 'owner'`, [req.companyId]);
+                const appUrl = process.env.APP_URL || 'https://team.kindredvineyards.com';
+                const params = new URLSearchParams({ start: start_date, end: end_date });
+                if (location_name) params.set('loc', location_name);
+                const link = `${appUrl}/square/reconcile?${params.toString()}`;
+                const msg = `⚠️ Square sales mismatch ${start_date}..${end_date}${location_name ? ' (' + location_name + ')' : ''}: DB $${Number(db_total).toFixed(2)} vs live Square $${Number(live_total).toFixed(2)} (${pct.toFixed(1)}% off). See what's off: ${link}`;
+                await sendSmsToUsers(req.companyId, owners.rows.map((o) => o.id), msg, req.userId);
+                toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Discrepancy is ${pct.toFixed(1)}% — owner alerted by SMS with a reconciliation link.` });
+              }
+            } catch (err) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Failed to flag discrepancy: ${err.message}` });
             }
           }
         }
@@ -1253,6 +1321,45 @@ router.delete('/lessons/:id', async (req, res) => {
   } catch (err) {
     console.error('[square] lessons delete error:', err.message);
     res.status(500).json({ error: 'Failed to delete lesson' });
+  }
+});
+
+// GET /api/square/reconcile?start=&end=&loc= — day-by-day DB vs live Square sales
+router.get('/reconcile', async (req, res) => {
+  const { start, end, loc } = req.query;
+  if (!start || !end) return res.status(400).json({ error: 'start and end (YYYY-MM-DD) are required' });
+  try {
+    const live = await fetchLiveSquareSales(req.companyId, start, end, loc || null);
+    const dbRes = await query(
+      `SELECT to_char(DATE(o.created_at AT TIME ZONE 'America/Boise'), 'YYYY-MM-DD') AS day,
+              ROUND(SUM(o.total_money_amount)/100.0, 2) AS total, COUNT(*) AS count
+       FROM team_square."order" o
+       LEFT JOIN team_square."location" l ON l.id = o.location_id
+       WHERE o.state = 'COMPLETED'
+         AND o.created_at >= ($1 || 'T00:00:00')::timestamptz
+         AND o.created_at <  (($2)::date + 1)::timestamptz
+         AND ($3::text IS NULL OR l.name ILIKE '%' || $3 || '%')
+       GROUP BY 1 ORDER BY 1`,
+      [start, end, loc || null]
+    );
+    const dbByDay = {};
+    for (const r of dbRes.rows) dbByDay[r.day] = { total: Number(r.total), count: Number(r.count) };
+    const days = Array.from(new Set([...Object.keys(dbByDay), ...Object.keys(live.byDay)])).sort();
+    const rows = days.map((d) => {
+      const db_total = dbByDay[d]?.total || 0;
+      const live_total = live.byDay[d]?.total || 0;
+      return { date: d, db_total, live_total, diff: Math.round((db_total - live_total) * 100) / 100 };
+    });
+    const dbTotal = rows.reduce((s, r) => s + r.db_total, 0);
+    const liveTotal = rows.reduce((s, r) => s + r.live_total, 0);
+    res.json({
+      start, end, location: loc || null, rows,
+      db_total: Math.round(dbTotal * 100) / 100,
+      live_total: Math.round(liveTotal * 100) / 100,
+      diff: Math.round((dbTotal - liveTotal) * 100) / 100,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

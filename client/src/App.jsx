@@ -9,6 +9,7 @@ import { WasteList } from './pages/WasteList';
 import { Settings } from './pages/Settings';
 import { Quickbooks } from './pages/Quickbooks';
 import { Square } from './pages/Square';
+import { SquareReconcile } from './pages/SquareReconcile';
 import { ResetPassword } from './pages/ResetPassword';
 import { FoodLayout } from './pages/FoodLayout';
 import { FoodIngredients } from './pages/FoodIngredients';
@@ -160,6 +161,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Square />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/square/reconcile"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <SquareReconcile />
               ) : (
                 <Navigate to="/" replace />
               )
