@@ -1290,9 +1290,8 @@
   font-size: 0.85rem; color: var(--text,#333); padding: 0.35rem 0.4rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sq-session-shared { color: #999; font-size: 0.72rem; }
-.sq-session-actions { display: none; gap: 0.05rem; flex-shrink: 0; }
-.sq-session-item:hover .sq-session-actions,
-.sq-session-item.active .sq-session-actions { display: flex; }
+/* Always visible — hover-only would be untappable on touch devices. */
+.sq-session-actions { display: flex; gap: 0.1rem; flex-shrink: 0; }
 .sq-session-actions button { background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 0.15rem; }
 .sq-ask-wrap { flex: 1; min-width: 0; }
 .sq-ask-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
