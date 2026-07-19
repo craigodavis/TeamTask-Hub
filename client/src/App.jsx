@@ -19,6 +19,7 @@ import { Products } from './pages/Products';
 import { WineInventory } from './pages/WineInventory';
 import { WineInventoryReport } from './pages/WineInventoryReport';
 import Scheduling from './pages/Scheduling';
+import ShiftFeedback from './pages/ShiftFeedback';
 import { getGeneralSettings } from './api';
 import { ProductDetail } from './pages/ProductDetail';
 import { BettyComparison } from './pages/BettyComparison';
@@ -105,6 +106,7 @@ function App() {
     <Routes>
       {/* Public routes — no auth required */}
       <Route path="/r/:token" element={<ReportView />} />
+      <Route path="/feedback/:token" element={<ShiftFeedback />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login onLogin={onLogin} />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AuthGate user={user} />}>
