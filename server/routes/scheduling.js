@@ -122,6 +122,8 @@ router.get('/scoreboard', async (req, res) => {
           forecast: forecast == null ? null : Math.round(forecast),
           last_week: Number.isFinite(lastWeek) ? Math.round(lastWeek) : null,
           last_year: Number.isFinite(lastYear) ? Math.round(lastYear) : null,
+          ly_labor_pct: lyPct == null ? null : Math.round(lyPct),
+          lw_labor_pct: lwPct == null ? null : Math.round(lwPct),
           warn_labor: worstPct >= warn ? Math.round(worstPct) : null,
         };
       });
