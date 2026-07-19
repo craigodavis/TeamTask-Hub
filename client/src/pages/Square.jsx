@@ -197,6 +197,39 @@ function useSpeech({ onResult, onError }) {
   return { supported, listening, start, stop };
 }
 
+// Minimal, safe Markdown → HTML for AI answers. HTML is escaped first, then only
+// our own tags are injected (no raw model HTML survives), so it's XSS-safe.
+function mdEscape(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function mdInline(s) {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*(?!\s)([^*]+?)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/`([^`]+?)`/g, '<code>$1</code>');
+}
+function renderMarkdown(md) {
+  const lines = mdEscape(md || '').split('\n');
+  const out = [];
+  let list = null; // 'ul' | 'ol'
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim()) { closeList(); continue; }
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { closeList(); const lvl = Math.min(h[1].length + 2, 6); out.push(`<h${lvl}>${mdInline(h[2])}</h${lvl}>`); continue; }
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ul) { if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${mdInline(ul[1])}</li>`); continue; }
+    if (ol) { if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${mdInline(ol[1])}</li>`); continue; }
+    closeList();
+    out.push(`<p>${mdInline(line)}</p>`);
+  }
+  closeList();
+  return out.join('');
+}
+
 const AI_MODELS = [
   { id: 'claude-fable-5',  label: 'Fable 5' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
@@ -216,6 +249,7 @@ function AskTab({ token, role }) {
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [showSql, setShowSql]   = useState({});
+  const [copiedIdx, setCopiedIdx] = useState(null);
   const [micError, setMicError] = useState('');
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState(null);
@@ -421,7 +455,24 @@ function AskTab({ token, role }) {
         {messages.map((msg, i) => (
           <div key={i} className={`sq-msg sq-msg-${msg.role}`}>
             <div className="sq-msg-bubble">
-              {msg.content && <p className="sq-msg-text">{msg.content}</p>}
+              {msg.content && (msg.role === 'assistant' ? (
+                <div className="sq-msg-text sq-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+              ) : (
+                <p className="sq-msg-text">{msg.content}</p>
+              ))}
+              {msg.role === 'assistant' && msg.content && (
+                <button
+                  className="sq-copy-btn"
+                  title="Copy answer"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(msg.content);
+                    setCopiedIdx(i);
+                    setTimeout(() => setCopiedIdx((c) => (c === i ? null : c)), 1500);
+                  }}
+                >
+                  {copiedIdx === i ? '✓ Copied' : '⧉ Copy'}
+                </button>
+              )}
               {msg.error && <p className="sq-msg-error">{msg.error}</p>}
               {msg.facts_saved?.length > 0 && (
                 <div className="sq-facts-saved">

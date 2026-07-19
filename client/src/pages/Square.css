@@ -1310,3 +1310,16 @@
   .sq-sessions.open { transform: translateX(0); }
   .sq-sessions-toggle { display: inline-block; }
 }
+
+/* Formatted (Markdown) AI answers + copy button */
+.sq-md p { margin: 0 0 0.5rem; }
+.sq-md p:last-child { margin-bottom: 0; }
+.sq-md ul, .sq-md ol { margin: 0.25rem 0 0.6rem; padding-left: 1.3rem; }
+.sq-md li { margin: 0.15rem 0; }
+.sq-md h3, .sq-md h4, .sq-md h5, .sq-md h6 { margin: 0.6rem 0 0.3rem; font-weight: 700; line-height: 1.25; }
+.sq-md h3 { font-size: 1.05rem; } .sq-md h4 { font-size: 0.98rem; }
+.sq-md strong { font-weight: 700; }
+.sq-md code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.3rem; border-radius: 4px; font-size: 0.9em; }
+.sq-copy-btn { margin-top: 0.45rem; background: none; border: 1px solid var(--border,#ccc);
+  border-radius: 6px; font-size: 0.72rem; padding: 0.15rem 0.55rem; cursor: pointer; color: var(--text-muted,#888); }
+.sq-copy-btn:hover { color: var(--text,#333); border-color: var(--text-muted,#999); }
