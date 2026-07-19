@@ -5,7 +5,31 @@ const money = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString());
 const pct = (n) => (n == null ? '—' : Number(n).toFixed(1) + '%');
 
 function Info({ t }) {
-  return <span title={t} style={{ cursor: 'help', opacity: 0.45, marginLeft: 4, fontSize: 12 }}>ⓘ</span>;
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const h = () => setOpen(false);
+    document.addEventListener('click', h);
+    return () => document.removeEventListener('click', h);
+  }, [open]);
+  return (
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        aria-label="More info"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        style={{ cursor: 'pointer', border: 'none', background: 'none', color: 'inherit', opacity: open ? 0.9 : 0.5, marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1, verticalAlign: 'middle' }}
+      >ⓘ</button>
+      {open && (
+        <span
+          onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+          style={{ position: 'absolute', zIndex: 100, top: '140%', left: 0, width: 'min(240px, 72vw)',
+            background: '#1f2430', color: '#fff', padding: '9px 11px', borderRadius: 8, fontSize: 12.5, fontWeight: 400,
+            boxShadow: '0 6px 20px rgba(0,0,0,.28)', lineHeight: 1.45, textAlign: 'left', whiteSpace: 'normal' }}
+        >{t}</span>
+      )}
+    </span>
+  );
 }
 const card = { background: 'var(--card-bg, #fff)', border: '1px solid var(--border, #e3e3e3)', borderRadius: 10, padding: 16 };
 const chip = (bg, fg) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color: fg });
