@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { todayInTimezone } from '../utils/dateUtils';
 import './Square.css';
 
@@ -197,17 +197,69 @@ function useSpeech({ onResult, onError }) {
   return { supported, listening, start, stop };
 }
 
+const AI_MODELS = [
+  { id: '',                label: 'Default model' },
+  { id: 'claude-fable-5',  label: 'Fable 5' },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+];
+
 function AskTab({ token }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [messages, setMessages] = useState([]); // { role, content, sql, rows, fields, error }
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [showSql, setShowSql]   = useState({});
   const [micError, setMicError] = useState('');
+  const [sessions, setSessions] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
+  const [model, setModel]       = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notice, setNotice]     = useState('');
   const bottomRef = useRef(null);
+  const abortRef  = useRef(null);
 
+  const authFetch = useCallback((url, opts = {}) =>
+    fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } }),
+  [token]);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const r = await authFetch('/api/square/sessions');
+      const d = await r.json();
+      if (r.ok) setSessions(d.sessions || []);
+    } catch { /* ignore */ }
+  }, [authFetch]);
+
+  useEffect(() => { loadSessions(); }, [loadSessions]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
+
+  const openSession = useCallback(async (id) => {
+    try {
+      const r = await authFetch(`/api/square/sessions/${id}`);
+      const d = await r.json();
+      if (!r.ok) return;
+      setSessionId(id);
+      setMessages((d.messages || []).map((m) => ({ role: m.role, content: m.content, sql: m.sql, rows: m.rows, fields: m.fields })));
+      setSidebarOpen(false);
+    } catch { /* ignore */ }
+  }, [authFetch]);
+
+  // Accept an invite link (?join=<token>)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+    const joinTok = searchParams.get('join');
+    if (!joinTok) return;
+    (async () => {
+      try {
+        const r = await authFetch(`/api/square/sessions/join/${joinTok}`, { method: 'POST' });
+        const d = await r.json();
+        if (r.ok && d.session_id) { await loadSessions(); await openSession(d.session_id); }
+      } catch { /* ignore */ }
+      const next = new URLSearchParams(searchParams); next.delete('join'); setSearchParams(next, { replace: true });
+    })();
+  }, [searchParams, authFetch, loadSessions, openSession, setSearchParams]);
+
+  const newChat = () => { setSessionId(null); setMessages([]); setInput(''); setSidebarOpen(false); };
 
   const handleAsk = useCallback(async (question) => {
     const q = (question || input).trim();
@@ -215,41 +267,74 @@ function AskTab({ token }) {
     setInput('');
     setLoading(true);
 
-    const userMsg = { role: 'user', content: q };
-    setMessages((prev) => [...prev, userMsg]);
+    // Ensure a session exists so the conversation persists.
+    let sid = sessionId;
+    if (!sid) {
+      try {
+        const r = await authFetch('/api/square/sessions', { method: 'POST', body: JSON.stringify({}) });
+        const d = await r.json();
+        if (r.ok) { sid = d.session.id; setSessionId(sid); }
+      } catch { /* ignore — ask without persistence */ }
+    }
 
-    // Build history for context (last 6 turns, text only)
+    setMessages((prev) => [...prev, { role: 'user', content: q }]);
     const history = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
 
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const r = await fetch('/api/square/ask', {
+      const r = await authFetch('/api/square/ask', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ question: q, history }),
+        body: JSON.stringify({ question: q, history, session_id: sid, model: model || null }),
+        signal: controller.signal,
       });
       const data = await r.json();
       if (!r.ok) {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.error || 'Error', error: data.details, sql: data.sql }]);
       } else {
-        // Build a natural content summary if AI didn't provide text
         let content = data.text || '';
         if (!content && data.rows) content = `${data.count} row${data.count !== 1 ? 's' : ''} returned`;
-        if (!content && data.facts_saved?.length) content = '';
-        setMessages((prev) => [...prev, {
-          role: 'assistant',
-          content,
-          sql: data.sql,
-          rows: data.rows,
-          fields: data.fields,
-          facts_saved: data.facts_saved,
-        }]);
+        setMessages((prev) => [...prev, { role: 'assistant', content, sql: data.sql, rows: data.rows, fields: data.fields, facts_saved: data.facts_saved }]);
       }
+      loadSessions();
     } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Request failed', error: err.message }]);
+      if (err.name === 'AbortError') {
+        setMessages((prev) => [...prev, { role: 'assistant', content: '⏹ Canceled.' }]);
+      } else {
+        setMessages((prev) => [...prev, { role: 'assistant', content: 'Request failed', error: err.message }]);
+      }
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
-  }, [input, loading, messages, token]);
+  }, [input, loading, messages, model, sessionId, authFetch, loadSessions]);
+
+  const cancel = () => { abortRef.current?.abort(); };
+
+  const renameSession = async (id, currentTitle) => {
+    const title = window.prompt('Rename chat', currentTitle || '');
+    if (title == null) return;
+    await authFetch(`/api/square/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) });
+    loadSessions();
+  };
+  const deleteSession = async (id) => {
+    if (!window.confirm('Delete this chat?')) return;
+    await authFetch(`/api/square/sessions/${id}`, { method: 'DELETE' });
+    if (id === sessionId) newChat();
+    loadSessions();
+  };
+  const shareSession = async (id) => {
+    try {
+      const r = await authFetch(`/api/square/sessions/${id}/share`, { method: 'POST' });
+      const d = await r.json();
+      if (r.ok && d.share_token) {
+        const link = `${window.location.origin}/square?join=${d.share_token}`;
+        try { await navigator.clipboard.writeText(link); setNotice('Invite link copied to clipboard'); }
+        catch { setNotice(link); }
+        setTimeout(() => setNotice(''), 5000);
+      }
+    } catch { /* ignore */ }
+  };
 
   const handleKey = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAsk(); }
@@ -282,7 +367,37 @@ function AskTab({ token }) {
   };
 
   return (
-    <div className="sq-ask-wrap">
+    <div className="sq-ask-layout">
+      <aside className={`sq-sessions${sidebarOpen ? ' open' : ''}`}>
+        <button className="sq-new-chat" onClick={newChat}>+ New chat</button>
+        <ul className="sq-session-list">
+          {sessions.length === 0 && <li className="sq-session-empty">No saved chats yet</li>}
+          {sessions.map((s) => (
+            <li key={s.id} className={`sq-session-item${s.id === sessionId ? ' active' : ''}`}>
+              <button className="sq-session-title" onClick={() => openSession(s.id)}>
+                {s.title || 'Untitled chat'}
+                {!s.is_owner && <span className="sq-session-shared"> · shared by {s.owner_name}</span>}
+              </button>
+              {s.is_owner && (
+                <span className="sq-session-actions">
+                  <button title="Copy invite link" onClick={() => shareSession(s.id)}>🔗</button>
+                  <button title="Rename" onClick={() => renameSession(s.id, s.title)}>✎</button>
+                  <button title="Delete" onClick={() => deleteSession(s.id)}>🗑</button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </aside>
+
+      <div className="sq-ask-wrap">
+        <div className="sq-ask-toolbar">
+          <button className="sq-sessions-toggle" onClick={() => setSidebarOpen((v) => !v)}>☰ Chats</button>
+          <select className="sq-model-select" value={model} onChange={(e) => setModel(e.target.value)} title="AI model">
+            {AI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+        </div>
+        {notice && <p className="sq-notice">{notice}</p>}
       {/* Suggestions (shown when no messages) */}
       {messages.length === 0 && (
         <div className="sq-suggestions">
@@ -361,13 +476,12 @@ function AskTab({ token }) {
             {listening ? '🔴' : '🎤'}
           </button>
         )}
-        <button
-          className="sq-send-btn"
-          onClick={() => handleAsk()}
-          disabled={loading || !input.trim()}
-        >
-          {loading ? '…' : '↑'}
-        </button>
+        {loading ? (
+          <button className="sq-send-btn sq-cancel-btn" onClick={cancel} title="Cancel query">■</button>
+        ) : (
+          <button className="sq-send-btn" onClick={() => handleAsk()} disabled={!input.trim()}>↑</button>
+        )}
+      </div>
       </div>
     </div>
   );
