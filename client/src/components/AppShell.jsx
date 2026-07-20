@@ -154,6 +154,17 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Scheduling</span>
             </NavLink>
           )}
+          {canAccessSchedule && (
+            <NavLink
+              to="/events"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🎪"
+              title="Events"
+              onClick={() => { if (isMobile()) setCollapsed(true); }}
+            >
+              <span>Events</span>
+            </NavLink>
+          )}
           {isManager && (
             <NavLink
               to="/square"

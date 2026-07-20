@@ -1879,3 +1879,48 @@ export async function getSchedulingCorrelation() {
   if (!res.ok) throw new Error(d.error || 'Failed to load correlation');
   return d;
 }
+
+// ── Events & Musicians ────────────────────────────────────────────────────────
+export async function getEvents(range) {
+  const qs = range ? `?range=${range}` : '';
+  const res = await fetch(`${API}/events${qs}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load events');
+  return d;
+}
+export async function createEvent(body) {
+  const res = await fetch(`${API}/events`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create event');
+  return d;
+}
+export async function updateEvent(id, body) {
+  const res = await fetch(`${API}/events/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update event');
+  return d;
+}
+export async function deleteEvent(id) {
+  const res = await fetch(`${API}/events/${id}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete event');
+  return d;
+}
+export async function getMusicians() {
+  const res = await fetch(`${API}/musicians`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load musicians');
+  return d;
+}
+export async function createMusician(body) {
+  const res = await fetch(`${API}/musicians`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create musician');
+  return d;
+}
+export async function updateMusician(id, body) {
+  const res = await fetch(`${API}/musicians/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update musician');
+  return d;
+}
