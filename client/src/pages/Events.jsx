@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getEvents, createEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations } from '../api';
+import { getEvents, createEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -30,7 +30,15 @@ function EventsTab() {
   const [locations, setLocations] = useState([]);
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft' });
+  const [uploading, setUploading] = useState(false);
+  const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+
+  const onPhoto = async (file) => {
+    if (!file) return;
+    setUploading(true); setErr('');
+    try { const { url } = await uploadEventImage(file); setForm((f) => ({ ...f, image_url: url })); }
+    catch (x) { setErr(x.message); } finally { setUploading(false); }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +102,15 @@ function EventsTab() {
               <option value="draft">Draft (not on website)</option>
               <option value="published">Published (to website)</option>
             </select>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={lbl}>Photo</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {form.image_url && <img src={form.image_url} alt="" style={{ height: 60, borderRadius: 8, objectFit: 'cover' }} />}
+              <input type="file" accept="image/*" onChange={(e) => onPhoto(e.target.files[0])} />
+              {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
+              {form.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => set('image_url', '')}>Remove</button>}
+            </div>
           </div>
         </div>
         {err && <p style={{ color: 'crimson' }}>{err}</p>}
