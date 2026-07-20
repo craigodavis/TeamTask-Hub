@@ -354,22 +354,26 @@ function Builder() {
       <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, margin: '0 2px 4px' }}>This pay period · 2 weeks ({data.period_start} → {data.period_end})</div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap', background: over ? '#fde2e2' : '#e2f7e6', borderRadius: 8, padding: '10px 14px', marginBottom: 6 }}>
         <div style={{ paddingRight: 16 }}>
-          <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>Target (hit {target}%)</div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{pTargetHours == null ? '—' : Math.round(pTargetHours) + ' h'}</div>
-          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(pBudget))} on {money(Math.round(pForecast))} sales</div>
+          <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>Labor budget · cap {target}%</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{money(Math.round(pBudget))}</div>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>≈ {pTargetHours == null ? '—' : Math.round(pTargetHours) + ' h max on ' + money(Math.round(pForecast)) + ' sales'}</div>
         </div>
         <div style={{ borderLeft: '1px solid rgba(0,0,0,.12)', paddingLeft: 16, paddingRight: 16 }}>
           <div style={{ fontSize: 11, opacity: 0.7 }}>Scheduled</div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{Math.round(pHours)} h</div>
-          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(pLabor))} · {pct(pPct)}</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{money(Math.round(pLabor))}</div>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{Math.round(pHours)} h · {pct(pPct)} labor</div>
         </div>
         <div style={{ borderLeft: '1px solid rgba(0,0,0,.12)', paddingLeft: 16, display: 'flex', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>To hit target</div>
+            <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>{over ? 'Over budget' : 'Headroom'}</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: over ? '#a11' : '#137a2f' }}>
-              {pGap == null ? '—' : pGap >= 0.5 ? '＋ add ~' + Math.round(pGap) + ' h' : pGap <= -0.5 ? '－ cut ~' + Math.round(-pGap) + ' h' : '✓ on target'}
+              {pGap == null ? '—' : over ? 'over by ' + money(Math.round(pLabor - pBudget)) : money(Math.round(pBudget - pLabor)) + ' to spare'}
             </div>
-            <div style={{ fontSize: 11, opacity: 0.7 }}>{busy ? 'updating…' : 'over the 2-week period'}</div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>
+              {busy ? 'updating…' : over
+                ? 'trim ~' + Math.round(-pGap) + ' h, or drive ~' + money(Math.round((pLabor - pBudget) / (target / 100))) + ' more sales'
+                : 'under the cap — you have room for ~' + Math.round(pGap) + ' h if coverage needs it'}
+            </div>
           </div>
         </div>
       </div>
