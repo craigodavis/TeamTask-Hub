@@ -42,6 +42,7 @@ import { productsRouter } from './routes/products.js';
 import { productInventoryRouter } from './routes/productInventory.js';
 import { schedulingRouter } from './routes/scheduling.js';
 import { feedbackRouter } from './routes/feedback.js';
+import { eventsRouter, musiciansRouter } from './routes/events.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -90,6 +91,8 @@ app.use('/api/square/sync', requireAuth, requireManager, squareSyncRouter);
 app.use('/api/products/inventory', requireAuth, productInventoryRouter);
 app.use('/api/scheduling', requireAuth, requireScheduleAccess, schedulingRouter);
 app.use('/api/feedback', feedbackRouter);                        // public — token + PIN, no login
+app.use('/api/events', requireAuth, requireScheduleAccess, eventsRouter);
+app.use('/api/musicians', requireAuth, requireScheduleAccess, musiciansRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);

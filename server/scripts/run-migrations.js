@@ -2562,6 +2562,57 @@ const MIGRATIONS = [
      WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113' AND display_name IN ('Craig Davis','Elisha Brooks')`,
   // 095: send hour (company-local) for always-on recipients; default 8pm
   `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS feedback_send_hour INTEGER NOT NULL DEFAULT 20`,
+  // 096: musicians — performer roster + factor (lift, photo, links, rate, contact)
+  `CREATE TABLE IF NOT EXISTS musicians (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name         VARCHAR(160) NOT NULL,
+    stage_name   VARCHAR(160),
+    bio          TEXT,
+    photo_url    TEXT,
+    website_url  TEXT,
+    links        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    rate_amount  NUMERIC(10,2),
+    rate_unit    VARCHAR(10),
+    phone        VARCHAR(40),
+    email        VARCHAR(160),
+    lift_pct     NUMERIC(6,1),
+    lift_nights  INTEGER,
+    lift_updated_at TIMESTAMPTZ,
+    notes        TEXT,
+    active       BOOLEAN NOT NULL DEFAULT true,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(company_id, name)
+  )`,
+  // 097: events — TeamHub-authored events (source of truth; pushed to The Events Calendar)
+  `CREATE TABLE IF NOT EXISTS events (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    location_id   UUID REFERENCES locations(id) ON DELETE SET NULL,
+    musician_id   UUID REFERENCES musicians(id) ON DELETE SET NULL,
+    title         TEXT NOT NULL,
+    description   TEXT,
+    start_at      TIMESTAMPTZ NOT NULL,
+    end_at        TIMESTAMPTZ,
+    all_day       BOOLEAN NOT NULL DEFAULT false,
+    cost          NUMERIC(10,2),
+    event_url     TEXT,
+    image_url     TEXT,
+    category      VARCHAR(60),
+    status        VARCHAR(20) NOT NULL DEFAULT 'draft',
+    wp_event_id   VARCHAR(64),
+    wp_synced_at  TIMESTAMPTZ,
+    source        VARCHAR(30) NOT NULL DEFAULT 'teamhub',
+    reminder_week_sent_at TIMESTAMPTZ,
+    reminder_day_sent_at  TIMESTAMPTZ,
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_events_start ON events(company_id, start_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_musician ON events(musician_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_wp ON events(wp_event_id)`,
 ];
 
 export async function runMigrations() {
