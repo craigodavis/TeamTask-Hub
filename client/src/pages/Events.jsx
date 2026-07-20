@@ -15,7 +15,7 @@ export default function Events() {
       <h1 style={{ margin: '0 0 4px' }}>🎪 Events</h1>
       <p style={{ marginTop: 0, opacity: 0.7 }}>Plan events in TeamHub. Publishing pushes them to the website. Musician lift helps you book with staffing in mind.</p>
       <div style={{ display: 'flex', gap: 8, margin: '14px 0 18px' }}>
-        {[['events', 'Events'], ['musicians', 'Musicians']].map(([k, l]) => (
+        {[['events', 'Events'], ['musicians', 'Musician/Talent']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ ...btn(tab === k), borderRadius: 20 }}>{l}</button>
         ))}
       </div>
@@ -142,7 +142,7 @@ function MusiciansTab() {
   const load = useCallback(async () => { try { setList(await getMusicians()); } catch (x) { setErr(x.message); } }, []);
   useEffect(() => { load(); }, [load]);
 
-  const blank = { name: '', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', notes: '' };
+  const blank = { name: '', type: 'musician', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', notes: '' };
   const save = async () => {
     try {
       const body = { ...form }; Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
@@ -154,13 +154,22 @@ function MusiciansTab() {
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ Add musician</button>}
+        {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>Add Talent</button>}
       </div>
       {form && (
         <div style={{ ...card, marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'New'} musician</h3>
+          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'Add'} Talent</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
             <div><label style={lbl}>Name</label><input style={inp} value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div><label style={lbl}>Type</label>
+              <select style={inp} value={form.type || 'musician'} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                <option value="musician">Musician</option>
+                <option value="instructor">Class / Instructor</option>
+                <option value="business">Business / Vendor</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div><label style={lbl}>Phone <span style={{ color: '#c0392b' }}>*required</span></label><input style={inp} value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="for event reminders" /></div>
             <div><label style={lbl}>Website / social</label><input style={inp} value={form.website_url || ''} onChange={(e) => setForm({ ...form, website_url: e.target.value })} /></div>
             <div><label style={lbl}>Photo URL</label><input style={inp} value={form.photo_url || ''} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} /></div>
             <div><label style={lbl}>Rate</label><input type="number" style={inp} value={form.rate_amount || ''} onChange={(e) => setForm({ ...form, rate_amount: e.target.value })} /></div>
@@ -169,14 +178,14 @@ function MusiciansTab() {
                 <option value="event">per event</option><option value="hour">per hour</option>
               </select>
             </div>
-            <div><label style={lbl}>Phone</label><input style={inp} value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
             <div><label style={lbl}>Email</label><input style={inp} value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Notes</label><textarea rows={2} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
           </div>
           {err && <p style={{ color: 'crimson' }}>{err}</p>}
           <div style={{ marginTop: 12 }}>
-            <button style={btn(true)} disabled={!form.name} onClick={save}>Save</button>
+            <button style={btn(true)} disabled={!form.name || !form.phone?.trim()} onClick={save}>Save</button>
             <button style={{ ...btn(false), marginLeft: 8 }} onClick={() => setForm(null)}>Cancel</button>
+            {!form.phone?.trim() && <span style={{ marginLeft: 10, fontSize: 12, color: '#c0392b' }}>Phone required</span>}
           </div>
         </div>
       )}
@@ -186,7 +195,7 @@ function MusiciansTab() {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               {m.photo_url ? <img src={m.photo_url} alt="" style={{ width: 44, height: 44, borderRadius: 22, objectFit: 'cover' }} /> : <div style={{ width: 44, height: 44, borderRadius: 22, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎵</div>}
               <div>
-                <div style={{ fontWeight: 700 }}>{m.name}</div>
+                <div style={{ fontWeight: 700 }}>{m.name}{m.type && m.type !== 'musician' ? <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}> · {m.type}</span> : ''}{!m.phone ? <span style={{ fontSize: 11, color: '#c0392b' }}> · no phone</span> : ''}</div>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>
                   {m.lift_pct != null ? `lift +${m.lift_pct}% · ${m.lift_nights}n` : 'no lift yet'}
                   {m.rate_amount != null ? ` · ${money(m.rate_amount)}/${m.rate_unit || 'event'}` : ''}

@@ -2613,6 +2613,8 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_events_start ON events(company_id, start_at)`,
   `CREATE INDEX IF NOT EXISTS idx_events_musician ON events(musician_id)`,
   `CREATE INDEX IF NOT EXISTS idx_events_wp ON events(wp_event_id)`,
+  // 098: talent type (musician / class instructor / business / other)
+  `ALTER TABLE musicians ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'musician'`,
 ];
 
 export async function runMigrations() {

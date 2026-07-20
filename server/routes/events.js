@@ -25,17 +25,18 @@ export const musiciansRouter = express.Router();
 musiciansRouter.get('/', async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, name, stage_name, bio, photo_url, website_url, links, rate_amount, rate_unit,
+      `SELECT id, name, type, stage_name, bio, photo_url, website_url, links, rate_amount, rate_unit,
               phone, email, lift_pct, lift_nights, notes, active
          FROM musicians WHERE company_id = $1 ORDER BY active DESC, lift_pct DESC NULLS LAST, name`, [cId(req)]);
     res.json(r.rows);
   } catch (e) { console.error('musicians list', e); res.status(500).json({ error: e.message }); }
 });
 
-const MUS_FIELDS = ['name', 'stage_name', 'bio', 'photo_url', 'website_url', 'links', 'rate_amount', 'rate_unit', 'phone', 'email', 'notes', 'active'];
+const MUS_FIELDS = ['name', 'type', 'stage_name', 'bio', 'photo_url', 'website_url', 'links', 'rate_amount', 'rate_unit', 'phone', 'email', 'notes', 'active'];
 musiciansRouter.post('/', async (req, res) => {
   try {
     if (!req.body.name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    if (!req.body.phone?.trim()) return res.status(400).json({ error: 'Phone is required (we text talent event reminders)' });
     const cols = ['company_id'], vals = [cId(req)], ph = ['$1'];
     for (const f of MUS_FIELDS) if (f in req.body) {
       cols.push(f); vals.push(f === 'links' ? JSON.stringify(req.body[f] || []) : req.body[f]); ph.push('$' + vals.length);
