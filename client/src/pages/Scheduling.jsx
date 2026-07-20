@@ -277,20 +277,16 @@ function Builder() {
   const [week, setWeek] = useState(0);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [loc, setLoc] = useState(null);
   const [periodStart, setPeriodStart] = useState('');
 
-  const load = useCallback(async (locationId, weekStart) => {
+  const load = useCallback(async (weekStart) => {
     setBusy(true); setErr('');
     try {
-      const qs = [];
-      if (locationId) qs.push('location_id=' + locationId);
-      if (weekStart) qs.push('week_start=' + weekStart);
-      const d = await apiGet('/builder' + (qs.length ? '?' + qs.join('&') : ''));
-      setData(d); setLoc(d.location.id); setPeriodStart(d.period_start);
+      const d = await apiGet('/builder' + (weekStart ? '?week_start=' + weekStart : ''));
+      setData(d); setPeriodStart(d.period_start);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }, []);
-  useEffect(() => { load(null, ''); }, [load]);
+  useEffect(() => { load(''); }, [load]);
 
   if (err && !data) return <p style={{ color: 'crimson' }}>{err}</p>;
   if (!data) return <p>Loading…</p>;
@@ -299,6 +295,9 @@ function Builder() {
   const nameBy = Object.fromEntries(data.roster.map((r) => [r.tmid, r]));
   const shiftMap = {};
   for (const s of data.shifts) (shiftMap[s.tmid + '|' + s.date] ??= []).push(s);
+  const draftByCode = {};
+  for (const dr of data.drafts) draftByCode[dr.location_name[0].toUpperCase()] = dr;
+  const locColor = (name) => (/creek/i.test(name) ? ['#dff5ec', '#0f6e56'] : ['#eeedfe', '#3c3489']);
   const byRole = {};
   for (const r of data.roster) (byRole[r.role] ??= []).push(r);
   const weekDays = data.days.slice(week * 7, week * 7 + 7);
@@ -317,18 +316,21 @@ function Builder() {
   const wkStats = (w) => { const ds = data.days.slice(w * 7, w * 7 + 7); const f = ds.reduce((a, d) => a + (data.forecast[d] || 0), 0); const h = ds.reduce((a, d) => a + shiftHrsOn(d), 0); const l = ds.reduce((a, d) => a + dayLabor(d), 0); return { f, h, pct: f > 0 ? (l / f) * 100 : null }; };
   const wk = [wkStats(0), wkStats(1)];
 
-  const reload = () => load(loc, periodStart);
+  const reload = () => load(periodStart);
   const addShift = async (tmid, date, role) => {
+    const codes = data.drafts.map((d) => d.location_name[0].toUpperCase() + '=' + d.location_name).join(', ');
+    const c = (window.prompt('Location? ' + codes, data.drafts[0].location_name[0].toUpperCase()) || '').toUpperCase();
+    const dft = draftByCode[c]; if (!dft) return;
     const start = window.prompt('Start time (24h, e.g. 12:00)', '12:00'); if (!start) return;
     const end = window.prompt('End time (24h, e.g. 18:00)', '18:00'); if (!end) return;
-    try { await apiPost('/builder/shift', { draft_id: data.draft.id, tmid, job_title: role, date, start, end }); reload(); }
+    try { await apiPost('/builder/shift', { draft_id: dft.id, tmid, job_title: role, date, start, end }); reload(); }
     catch (e) { setErr(e.message); }
   };
   const delShift = async (id) => { try { await apiDel('/builder/shift/' + id); reload(); } catch (e) { setErr(e.message); } };
   const fill = async () => {
-    if (!window.confirm('Replace this draft with last pay period’s published Square schedule (shifted forward 2 weeks)?')) return;
+    if (!window.confirm('Replace both locations’ drafts with last pay period’s published Square schedule (shifted forward 2 weeks)?')) return;
     setBusy(true);
-    try { const r = await apiPost('/builder/fill-from-last', { draft_id: data.draft.id, location_id: loc, period_start: periodStart }); await load(loc, periodStart); if (!r.copied) setErr('No published Square schedule found for the prior 2 weeks.'); }
+    try { const r = await apiPost('/builder/fill-from-last', { period_start: periodStart }); await load(periodStart); if (!r.copied) setErr('No published Square schedule found for the prior 2 weeks.'); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const hrsBadge = (tmid) => {
@@ -341,16 +343,11 @@ function Builder() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {data.locations.map((l) => (
-            <button key={l.id} onClick={() => { setLoc(l.id); load(l.id, periodStart); }}
-              style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border,#ddd)', background: loc === l.id ? 'var(--accent,#4f46e5)' : 'transparent', color: loc === l.id ? '#fff' : 'inherit' }}>{l.name}</button>
-          ))}
-        </div>
+        <strong style={{ fontSize: 14 }}>All locations (combined)</strong>
         <span style={{ opacity: 0.6 }}>|</span>
-        <button onClick={() => load(loc, addDays(periodStart, -14))} style={navBtn}>← Prev</button>
+        <button onClick={() => load(addDays(periodStart, -14))} style={navBtn}>← Prev</button>
         <strong style={{ fontSize: 13 }}>{data.period_start} → {data.period_end}</strong>
-        <button onClick={() => load(loc, addDays(periodStart, 14))} style={navBtn}>Next →</button>
+        <button onClick={() => load(addDays(periodStart, 14))} style={navBtn}>Next →</button>
         <button onClick={fill} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
       </div>
 
@@ -412,15 +409,16 @@ function Builder() {
                     {weekDays.map((d) => {
                       const ss = shiftMap[m.tmid + '|' + d] || [];
                       return (
-                        <td key={d} onClick={() => !ss.length && addShift(m.tmid, d, m.role)}
-                          style={{ border: '1px solid var(--border,#eee)', textAlign: 'center', cursor: ss.length ? 'default' : 'pointer', padding: 3, minWidth: 70 }}>
-                          {ss.length ? ss.map((s) => (
+                        <td key={d} onClick={() => addShift(m.tmid, d, m.role)}
+                          style={{ border: '1px solid var(--border,#eee)', textAlign: 'center', cursor: 'pointer', padding: 3, minWidth: 76 }}>
+                          {ss.map((s) => { const [bg, fg] = locColor(s.location_name); return (
                             <span key={s.id} onClick={(e) => { e.stopPropagation(); if (window.confirm('Remove this shift?')) delShift(s.id); }}
-                              title="click to remove"
-                              style={{ display: 'inline-block', background: 'var(--accent-bg,#eef)', color: 'var(--accent,#4f46e5)', borderRadius: 5, padding: '2px 5px', fontWeight: 600, cursor: 'pointer' }}>
-                              {fmtTime(s.start_at)}–{fmtTime(s.end_at)}
+                              title={s.location_name + ' · click to remove'}
+                              style={{ display: 'inline-block', background: bg, color: fg, borderRadius: 5, padding: '2px 5px', fontWeight: 600, cursor: 'pointer', margin: 1, fontSize: 11 }}>
+                              {fmtTime(s.start_at)}–{fmtTime(s.end_at)}<sup style={{ fontSize: 8, marginLeft: 2 }}>{s.location_name[0]}</sup>
                             </span>
-                          )) : <span style={{ opacity: 0.3 }}>+</span>}
+                          ); })}
+                          {!ss.length && <span style={{ opacity: 0.3 }}>+</span>}
                         </td>
                       );
                     })}
@@ -441,7 +439,9 @@ function Builder() {
           </tfoot>
         </table>
       </div>
-      <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Past days show <b style={{ color: '#137a2f' }}>actual</b> sales; upcoming days are <b>fcst</b>. Click an empty cell to add a shift · click a shift to remove it · hours badge = the selected week’s total across both locations (overtime). Publishing to Square comes later.</p>
+      <p style={{ fontSize: 11, opacity: 0.7, marginTop: 8 }}>
+        Combined across both locations — each shift is tagged <sup style={{ background: '#dff5ec', color: '#0f6e56', padding: '0 3px', borderRadius: 3 }}>C</sup> Creek / <sup style={{ background: '#eeedfe', color: '#3c3489', padding: '0 3px', borderRadius: 3 }}>W</sup> Winery. Click a cell to add a shift (pick location) · click a shift to remove · hours badge = week total across both locations (overtime) · past days = <b style={{ color: '#137a2f' }}>actual</b> sales, upcoming = fcst.
+      </p>
     </div>
   );
 }
