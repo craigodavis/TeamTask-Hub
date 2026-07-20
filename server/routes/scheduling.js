@@ -354,7 +354,13 @@ router.get('/builder', async (req, res) => {
     const nn = net[sid] || {};
     const growth = computeGrowth(nn);
     const wLast = Number(settings.forecast_w_lastweek), wYear = Number(settings.forecast_w_lastyear);
-    const forecast = {}; for (const d of days) forecast[d] = dayForecast(nn, d, wLast, wYear, growth) ?? null;
+    // A period in progress: days already complete use ACTUAL sales; today + future use forecast.
+    const today = todayISO();
+    const forecast = {}, isActual = {};
+    for (const d of days) {
+      if (d < today && Number.isFinite(nn[d])) { forecast[d] = nn[d]; isActual[d] = true; }
+      else { forecast[d] = dayForecast(nn, d, wLast, wYear, growth) ?? null; }
+    }
 
     const draft = await getOrCreateDraft(companyId, location.id, periodStart, req.userId);
     const shifts = (await query(
@@ -382,7 +388,7 @@ router.get('/builder', async (req, res) => {
       location: { id: location.id, name: location.name },
       locations: locs.map((l) => ({ id: l.id, name: l.name })),
       draft: { id: draft.id, status: draft.status },
-      forecast, shifts, roster: staff, member_hours: memberHours,
+      forecast, is_actual: isActual, today, shifts, roster: staff, member_hours: memberHours,
       settings: { target_labor_pct: Number(settings.target_labor_pct) },
     });
   } catch (e) { console.error('builder', e); res.status(500).json({ error: e.message }); }
