@@ -37,14 +37,21 @@ const chip = (bg, fg) => ({ display: 'inline-block', padding: '2px 8px', borderR
 
 function addDays(ds, n) { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
 
+const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('teamtask_token') });
+async function apiGet(p) { const r = await fetch('/api/scheduling' + p, { headers: authHeaders() }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Failed'); return d; }
+async function apiPost(p, b) { const r = await fetch('/api/scheduling' + p, { method: 'POST', headers: authHeaders(), body: JSON.stringify(b || {}) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Failed'); return d; }
+async function apiDel(p) { const r = await fetch('/api/scheduling' + p, { method: 'DELETE', headers: authHeaders() }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Failed'); return d; }
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', '').toLowerCase();
+const DOWNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 export default function Scheduling() {
-  const [tab, setTab] = useState('scoreboard');
+  const [tab, setTab] = useState('build');
   return (
-    <div style={{ padding: 20, maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: 20, maxWidth: 1180, margin: '0 auto' }}>
       <h1 style={{ margin: '0 0 4px' }}>📅 Scheduling</h1>
-      <p style={{ marginTop: 0, opacity: 0.7 }}>Forecast-driven labor planning for the Wed–Tue week. Deterministic engine; every number has an ⓘ.</p>
+      <p style={{ marginTop: 0, opacity: 0.7 }}>Forecast-driven labor planning. Bi-weekly pay period, Wed–Tue weeks. Deterministic engine.</p>
       <div style={{ display: 'flex', gap: 8, margin: '14px 0 18px', flexWrap: 'wrap' }}>
-        {[['scoreboard', 'Scoreboard'], ['correlation', 'What drives revenue'], ['settings', 'Settings']].map(([k, label]) => (
+        {[['build', 'Build schedule'], ['scoreboard', 'Scoreboard'], ['correlation', 'What drives revenue'], ['settings', 'Settings']].map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{ padding: '7px 14px', borderRadius: 20, border: '1px solid var(--border,#ddd)', cursor: 'pointer',
               background: tab === k ? 'var(--accent,#4f46e5)' : 'transparent', color: tab === k ? '#fff' : 'inherit', fontWeight: 600 }}>
@@ -52,6 +59,7 @@ export default function Scheduling() {
           </button>
         ))}
       </div>
+      {tab === 'build' && <Builder />}
       {tab === 'scoreboard' && <Scoreboard />}
       {tab === 'correlation' && <Correlation />}
       {tab === 'settings' && <Settings />}
@@ -259,6 +267,144 @@ function Settings() {
         <span>Post-shift feedback prompt<Info t="SMS + PIN survey to that day's workers after close. Off while we build." /></span>
       </label>
       {saved && <span style={chip('#e2f7e6', '#137a2f')}>✓ saved</span>}
+    </div>
+  );
+}
+
+// ── Build schedule (the grid) ─────────────────────────────────────────────────
+function Builder() {
+  const [data, setData] = useState(null);
+  const [week, setWeek] = useState(0);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [loc, setLoc] = useState(null);
+  const [periodStart, setPeriodStart] = useState('');
+
+  const load = useCallback(async (locationId, weekStart) => {
+    setBusy(true); setErr('');
+    try {
+      const qs = [];
+      if (locationId) qs.push('location_id=' + locationId);
+      if (weekStart) qs.push('week_start=' + weekStart);
+      const d = await apiGet('/builder' + (qs.length ? '?' + qs.join('&') : ''));
+      setData(d); setLoc(d.location.id); setPeriodStart(d.period_start);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }, []);
+  useEffect(() => { load(null, ''); }, [load]);
+
+  if (err && !data) return <p style={{ color: 'crimson' }}>{err}</p>;
+  if (!data) return <p>Loading…</p>;
+
+  const wageBy = Object.fromEntries(data.roster.map((r) => [r.tmid, r.wage || 12]));
+  const nameBy = Object.fromEntries(data.roster.map((r) => [r.tmid, r]));
+  const shiftMap = {};
+  for (const s of data.shifts) (shiftMap[s.tmid + '|' + s.date] ??= []).push(s);
+  const byRole = {};
+  for (const r of data.roster) (byRole[r.role] ??= []).push(r);
+  const weekDays = data.days.slice(week * 7, week * 7 + 7);
+  const dayLabor = (d) => (data.shifts.filter((s) => s.date === d).reduce((a, s) => a + s.hours * (wageBy[s.tmid] || 12), 0));
+  const weekForecast = weekDays.reduce((a, d) => a + (data.forecast[d] || 0), 0);
+  const weekLabor = weekDays.reduce((a, d) => a + dayLabor(d), 0);
+  const weekPct = weekForecast > 0 ? (weekLabor / weekForecast) * 100 : null;
+  const target = data.settings.target_labor_pct;
+  const over = weekPct != null && weekPct > target;
+
+  const reload = () => load(loc, periodStart);
+  const addShift = async (tmid, date, role) => {
+    const start = window.prompt('Start time (24h, e.g. 12:00)', '12:00'); if (!start) return;
+    const end = window.prompt('End time (24h, e.g. 18:00)', '18:00'); if (!end) return;
+    try { await apiPost('/builder/shift', { draft_id: data.draft.id, tmid, job_title: role, date, start, end }); reload(); }
+    catch (e) { setErr(e.message); }
+  };
+  const delShift = async (id) => { try { await apiDel('/builder/shift/' + id); reload(); } catch (e) { setErr(e.message); } };
+  const fill = async () => {
+    if (!window.confirm('Replace this draft with last pay period’s published Square schedule (shifted forward 2 weeks)?')) return;
+    setBusy(true);
+    try { const r = await apiPost('/builder/fill-from-last', { draft_id: data.draft.id, location_id: loc, period_start: periodStart }); await load(loc, periodStart); if (!r.copied) setErr('No published Square schedule found for the prior 2 weeks.'); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const hrsBadge = (tmid) => {
+    const mh = data.member_hours[tmid] || { w1: 0, w2: 0 };
+    const h = Math.round(week === 0 ? mh.w1 : mh.w2);
+    const c = h >= 40 ? ['#fde2e2', '#a11', ' OT'] : h >= 34 ? ['#fdf0d5', '#8a5a00', ' •'] : ['#e2f7e6', '#137a2f', ''];
+    return <span style={{ ...chip(c[0], c[1]), fontSize: 10, marginLeft: 6 }}>{h}h{c[2]}</span>;
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {data.locations.map((l) => (
+            <button key={l.id} onClick={() => { setLoc(l.id); load(l.id, periodStart); }}
+              style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border,#ddd)', background: loc === l.id ? 'var(--accent,#4f46e5)' : 'transparent', color: loc === l.id ? '#fff' : 'inherit' }}>{l.name}</button>
+          ))}
+        </div>
+        <span style={{ opacity: 0.6 }}>|</span>
+        <button onClick={() => load(loc, addDays(periodStart, -14))} style={navBtn}>← Prev</button>
+        <strong style={{ fontSize: 13 }}>{data.period_start} → {data.period_end}</strong>
+        <button onClick={() => load(loc, addDays(periodStart, 14))} style={navBtn}>Next →</button>
+        <span style={{ opacity: 0.6 }}>|</span>
+        {[0, 1].map((w) => (
+          <button key={w} onClick={() => setWeek(w)} style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border,#ddd)', background: week === w ? 'var(--accent,#4f46e5)' : 'transparent', color: week === w ? '#fff' : 'inherit' }}>Week {w + 1}</button>
+        ))}
+        <button onClick={fill} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: over ? '#fde2e2' : '#e2f7e6', borderRadius: 8, padding: '9px 14px', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>Week {week + 1} labor %</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: over ? '#a11' : '#137a2f', lineHeight: 1 }}>{pct(weekPct)}</div>
+        </div>
+        <div style={{ fontSize: 12, color: over ? '#a11' : '#137a2f' }}>{over ? 'Over' : 'Under'} your {target}% target · {money(Math.round(weekLabor))} labor on {money(Math.round(weekForecast))} forecast. {busy ? '…' : ''}</div>
+      </div>
+      {err && <p style={{ color: 'crimson', marginTop: 0 }}>{err}</p>}
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820, fontSize: 12 }}>
+          <thead><tr>
+            <th style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border,#ddd)' }}>Staff · wk hrs</th>
+            {weekDays.map((d) => (
+              <th key={d} style={{ padding: '4px 2px', borderBottom: '1px solid var(--border,#ddd)', fontWeight: 600 }}>
+                {DOWNAMES[new Date(d + 'T12:00:00').getDay()]}<div style={{ opacity: 0.5, fontWeight: 400 }}>{d.slice(5)}</div>
+              </th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {Object.entries(byRole).map(([role, members]) => (
+              <>
+                <tr key={'r' + role}><td colSpan={8} style={{ padding: '6px 6px 2px', fontSize: 10, opacity: 0.6, fontWeight: 600, textTransform: 'uppercase' }}>{role}</td></tr>
+                {members.map((m) => (
+                  <tr key={m.tmid}>
+                    <td style={{ padding: '4px 6px', border: '1px solid var(--border,#eee)', whiteSpace: 'nowrap' }}>{m.name}{hrsBadge(m.tmid)}</td>
+                    {weekDays.map((d) => {
+                      const ss = shiftMap[m.tmid + '|' + d] || [];
+                      return (
+                        <td key={d} onClick={() => !ss.length && addShift(m.tmid, d, m.role)}
+                          style={{ border: '1px solid var(--border,#eee)', textAlign: 'center', cursor: ss.length ? 'default' : 'pointer', padding: 3, minWidth: 70 }}>
+                          {ss.length ? ss.map((s) => (
+                            <span key={s.id} onClick={(e) => { e.stopPropagation(); if (window.confirm('Remove this shift?')) delShift(s.id); }}
+                              title="click to remove"
+                              style={{ display: 'inline-block', background: 'var(--accent-bg,#eef)', color: 'var(--accent,#4f46e5)', borderRadius: 5, padding: '2px 5px', fontWeight: 600, cursor: 'pointer' }}>
+                              {fmtTime(s.start_at)}–{fmtTime(s.end_at)}
+                            </span>
+                          )) : <span style={{ opacity: 0.3 }}>+</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr><td style={{ padding: '5px 6px', fontWeight: 600, borderTop: '1px solid var(--border,#ddd)' }}>Forecast</td>
+              {weekDays.map((d) => <td key={d} style={{ textAlign: 'center', borderTop: '1px solid var(--border,#ddd)', opacity: 0.7 }}>{data.forecast[d] == null ? '—' : money(Math.round(data.forecast[d]))}</td>)}</tr>
+            <tr><td style={{ padding: '5px 6px' }}>Labor % <span style={{ opacity: 0.5 }}>(day)</span></td>
+              {weekDays.map((d) => { const f = data.forecast[d], l = dayLabor(d); const p = f > 0 ? (l / f) * 100 : null; return <td key={d} style={{ textAlign: 'center', fontWeight: 600, color: p == null ? '#999' : p > target ? '#d33' : '#137a2f' }}>{p == null ? '—' : Math.round(p) + '%'}</td>; })}</tr>
+          </tfoot>
+        </table>
+      </div>
+      <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Click an empty cell to add a shift · click a shift to remove it · hours badge = the selected week’s total across both locations (overtime). Publishing to Square comes later.</p>
     </div>
   );
 }

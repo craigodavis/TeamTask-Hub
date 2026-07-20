@@ -291,4 +291,153 @@ router.get('/correlation', async (req, res) => {
   } catch (e) { console.error('scheduling correlation', e); res.status(500).json({ error: e.message }); }
 });
 
+// ════════════════ Schedule builder ════════════════
+const TZ = 'America/Denver';
+function computeGrowth(nn) {
+  const anchor = todayISO(); let rSum = 0, yaSum = 0;
+  for (let i = 1; i <= 28; i++) { const rv = nn[addDays(anchor, -i)], yv = nn[addDays(anchor, -i - 364)]; if (Number.isFinite(rv) && Number.isFinite(yv)) { rSum += rv; yaSum += yv; } }
+  const g = yaSum > 0 ? rSum / yaSum : 1; return Math.min(2, Math.max(0.5, g));
+}
+function dayForecast(nn, d, wLast, wYear, growth) {
+  const lw = nn[addDays(d, -7)], ly = nn[addDays(d, -364)];
+  if (Number.isFinite(lw) && Number.isFinite(ly)) return wLast * lw + wYear * ly * growth;
+  if (Number.isFinite(ly)) return ly * growth;
+  if (Number.isFinite(lw)) return lw;
+  return null;
+}
+async function roster(companyId) {
+  const r = await query(
+    `SELECT tm.id AS tmid, tm.given_name, tm.family_name, rw.role, rw.wage_cents
+       FROM team_square.team_member tm
+       LEFT JOIN LATERAL (
+         SELECT mode() WITHIN GROUP (ORDER BY wage_title) AS role,
+                AVG(wage_hourly_rate_amount) AS wage_cents
+           FROM team_square.shift
+          WHERE team_member_id = tm.id AND wage_title IS NOT NULL
+            AND start_at > NOW() - INTERVAL '180 days'
+       ) rw ON true
+      WHERE tm.status = 'ACTIVE' AND tm.is_owner = false
+      ORDER BY rw.role NULLS LAST, tm.given_name`);
+  return r.rows.map((x) => ({
+    tmid: x.tmid,
+    name: [x.given_name, x.family_name].filter(Boolean).join(' ') || '(unnamed)',
+    role: x.role || 'Staff',
+    wage: x.wage_cents != null ? Math.round(Number(x.wage_cents)) / 100 : null,
+  }));
+}
+async function getOrCreateDraft(companyId, locationId, weekStart, userId) {
+  const r = await query(
+    `INSERT INTO schedule_drafts (company_id, location_id, week_start, status, created_by)
+     VALUES ($1,$2,$3,'draft',$4)
+     ON CONFLICT (company_id, location_id, week_start) DO UPDATE SET updated_at = NOW()
+     RETURNING *`, [companyId, locationId, weekStart, userId || null]);
+  return r.rows[0];
+}
+const hrs = (s) => (new Date(s.end_at) - new Date(s.start_at)) / 3600000;
+
+// GET /builder?location_id=&week_start=  — everything the grid needs
+router.get('/builder', async (req, res) => {
+  try {
+    const companyId = cId(req);
+    const settings = await ensureSettings(companyId);
+    const dow = settings.week_start_dow ?? 3;
+    const periodStart = weekStartOf(req.query.week_start || todayISO(), dow);
+    const days = Array.from({ length: 14 }, (_, i) => addDays(periodStart, i));
+    const periodEnd = days[13];
+    const locs = await getLocations(companyId);
+    const location = locs.find((l) => l.id === req.query.location_id) || locs[0];
+    if (!location) return res.status(400).json({ error: 'No locations configured' });
+    const sid = location.square_location_id;
+
+    const rangeStart = periodStart < todayISO() ? periodStart : todayISO();
+    const net = await netSalesMap(companyId, addDays(rangeStart, -400), periodEnd);
+    const nn = net[sid] || {};
+    const growth = computeGrowth(nn);
+    const wLast = Number(settings.forecast_w_lastweek), wYear = Number(settings.forecast_w_lastyear);
+    const forecast = {}; for (const d of days) forecast[d] = dayForecast(nn, d, wLast, wYear, growth) ?? null;
+
+    const draft = await getOrCreateDraft(companyId, location.id, periodStart, req.userId);
+    const shifts = (await query(
+      `SELECT id, square_team_member_id AS tmid, square_job_id, job_title, start_at, end_at, source,
+              (start_at AT TIME ZONE $2)::date::text AS date
+         FROM schedule_draft_shifts WHERE draft_id = $1 ORDER BY start_at`, [draft.id, TZ])).rows
+      .map((s) => ({ ...s, hours: Math.round(hrs(s) * 10) / 10 }));
+
+    const staff = await roster(companyId);
+    const wageBy = Object.fromEntries(staff.map((s) => [s.tmid, s.wage || 12]));
+
+    // per-member hours per week (BOTH locations — overtime is cross-location)
+    const wk = (await query(
+      `SELECT s.square_team_member_id AS tmid,
+              (s.start_at AT TIME ZONE $2)::date < $4 AS wk1,
+              SUM(EXTRACT(EPOCH FROM (s.end_at - s.start_at))/3600.0) AS h
+         FROM schedule_draft_shifts s JOIN schedule_drafts d ON d.id = s.draft_id
+        WHERE d.company_id = $1 AND (s.start_at AT TIME ZONE $2)::date BETWEEN $3 AND $5
+        GROUP BY 1,2`, [companyId, TZ, periodStart, addDays(periodStart, 7), periodEnd])).rows;
+    const memberHours = {}; // tmid -> {w1,w2}
+    for (const r of wk) { (memberHours[r.tmid] ??= { w1: 0, w2: 0 })[r.wk1 ? 'w1' : 'w2'] += Number(r.h); }
+
+    res.json({
+      period_start: periodStart, period_end: periodEnd, days,
+      location: { id: location.id, name: location.name },
+      locations: locs.map((l) => ({ id: l.id, name: l.name })),
+      draft: { id: draft.id, status: draft.status },
+      forecast, shifts, roster: staff, member_hours: memberHours,
+      settings: { target_labor_pct: Number(settings.target_labor_pct) },
+    });
+  } catch (e) { console.error('builder', e); res.status(500).json({ error: e.message }); }
+});
+
+// POST /builder/shift — add/update a shift  { draft_id, tmid, job_title, square_job_id, date, start, end }
+router.post('/builder/shift', async (req, res) => {
+  try {
+    const { draft_id, tmid, job_title, square_job_id, date, start, end } = req.body || {};
+    if (!draft_id || !tmid || !date || !start || !end) return res.status(400).json({ error: 'Missing fields' });
+    const r = await query(
+      `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
+       VALUES ($1,$2,$3,$4, (($5||' '||$6)::timestamp AT TIME ZONE $8), (($5||' '||$7)::timestamp AT TIME ZONE $8), 'manual')
+       RETURNING id`, [draft_id, tmid, square_job_id || null, job_title || null, date, start, end, TZ]);
+    await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE id = $1`, [draft_id]);
+    res.json({ ok: true, id: r.rows[0].id });
+  } catch (e) { console.error('builder shift', e); res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /builder/shift/:id
+router.delete('/builder/shift/:id', async (req, res) => {
+  try { await query(`DELETE FROM schedule_draft_shifts WHERE id = $1`, [req.params.id]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /builder/fill-from-last — copy the last published Square week into the draft (shifted +14 days)
+router.post('/builder/fill-from-last', async (req, res) => {
+  try {
+    const companyId = cId(req);
+    const { draft_id, location_id, period_start } = req.body || {};
+    const loc = (await query(`SELECT square_location_id FROM locations WHERE id = $1 AND company_id = $2`, [location_id, companyId])).rows[0];
+    if (!loc) return res.status(400).json({ error: 'Bad location' });
+    const sid = loc.square_location_id;
+    // published scheduled shifts for the prior 2 weeks at this location
+    const prior = (await query(
+      `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at
+         FROM team_square.scheduled_shift
+        WHERE pub_location_id = $1 AND pub_is_deleted = false AND pub_start_at IS NOT NULL
+          AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4`,
+      [sid, TZ, addDays(period_start, -14), addDays(period_start, -1)])).rows;
+    // clear existing manual/scaled and repopulate
+    await query(`DELETE FROM schedule_draft_shifts WHERE draft_id = $1`, [draft_id]);
+    let n = 0;
+    for (const p of prior) {
+      const start = new Date(new Date(p.pub_start_at).getTime() + 14 * 86400000).toISOString();
+      const end = new Date(new Date(p.pub_end_at).getTime() + 14 * 86400000).toISOString();
+      const jt = (await query(`SELECT job_title FROM team_square.team_member_job_assignment WHERE job_id = $1 LIMIT 1`, [p.pub_job_id])).rows[0]?.job_title || null;
+      await query(
+        `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
+         VALUES ($1,$2,$3,$4,$5,$6,'scaled')`, [draft_id, p.tmid, p.pub_job_id, jt, start, end]);
+      n++;
+    }
+    await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE id = $1`, [draft_id]);
+    res.json({ ok: true, copied: n, source_shifts: prior.length });
+  } catch (e) { console.error('fill-from-last', e); res.status(500).json({ error: e.message }); }
+});
+
 export { router as schedulingRouter };
