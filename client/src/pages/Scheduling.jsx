@@ -303,16 +303,19 @@ function Builder() {
   for (const r of data.roster) (byRole[r.role] ??= []).push(r);
   const weekDays = data.days.slice(week * 7, week * 7 + 7);
   const dayLabor = (d) => (data.shifts.filter((s) => s.date === d).reduce((a, s) => a + s.hours * (wageBy[s.tmid] || 12), 0));
-  const weekForecast = weekDays.reduce((a, d) => a + (data.forecast[d] || 0), 0);
-  const weekHours = weekDays.reduce((a, d) => a + data.shifts.filter((s) => s.date === d).reduce((x, s) => x + s.hours, 0), 0);
-  const weekLabor = weekDays.reduce((a, d) => a + dayLabor(d), 0);
-  const weekPct = weekForecast > 0 ? (weekLabor / weekForecast) * 100 : null;
+  const shiftHrsOn = (d) => data.shifts.filter((s) => s.date === d).reduce((x, s) => x + s.hours, 0);
   const target = data.settings.target_labor_pct;
-  const over = weekPct != null && weekPct > target;
-  const budget = (target / 100) * weekForecast;                 // labor $ allowed at target
-  const blendedWage = weekHours > 0 ? weekLabor / weekHours : 14;
-  const targetHours = blendedWage > 0 ? budget / blendedWage : null;
-  const gapHours = targetHours != null ? targetHours - weekHours : null; // + = room to add, − = cut
+  const pForecast = data.days.reduce((a, d) => a + (data.forecast[d] || 0), 0);
+  const pHours = data.days.reduce((a, d) => a + shiftHrsOn(d), 0);
+  const pLabor = data.days.reduce((a, d) => a + dayLabor(d), 0);
+  const pPct = pForecast > 0 ? (pLabor / pForecast) * 100 : null;
+  const pBudget = (target / 100) * pForecast;
+  const blendedWage = pHours > 0 ? pLabor / pHours : 14;
+  const pTargetHours = blendedWage > 0 ? pBudget / blendedWage : null;
+  const pGap = pTargetHours != null ? pTargetHours - pHours : null;
+  const over = pPct != null && pPct > target;
+  const wkStats = (w) => { const ds = data.days.slice(w * 7, w * 7 + 7); const f = ds.reduce((a, d) => a + (data.forecast[d] || 0), 0); const h = ds.reduce((a, d) => a + shiftHrsOn(d), 0); const l = ds.reduce((a, d) => a + dayLabor(d), 0); return { f, h, pct: f > 0 ? (l / f) * 100 : null }; };
+  const wk = [wkStats(0), wkStats(1)];
 
   const reload = () => load(loc, periodStart);
   const addShift = async (tmid, date, role) => {
@@ -348,33 +351,44 @@ function Builder() {
         <button onClick={() => load(loc, addDays(periodStart, -14))} style={navBtn}>← Prev</button>
         <strong style={{ fontSize: 13 }}>{data.period_start} → {data.period_end}</strong>
         <button onClick={() => load(loc, addDays(periodStart, 14))} style={navBtn}>Next →</button>
-        <span style={{ opacity: 0.6 }}>|</span>
-        {[0, 1].map((w) => (
-          <button key={w} onClick={() => setWeek(w)} style={{ padding: '5px 12px', borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border,#ddd)', background: week === w ? 'var(--accent,#4f46e5)' : 'transparent', color: week === w ? '#fff' : 'inherit' }}>Week {w + 1}</button>
-        ))}
         <button onClick={fill} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap', background: over ? '#fde2e2' : '#e2f7e6', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, margin: '0 2px 4px' }}>This pay period · 2 weeks ({data.period_start} → {data.period_end})</div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap', background: over ? '#fde2e2' : '#e2f7e6', borderRadius: 8, padding: '10px 14px', marginBottom: 6 }}>
         <div style={{ paddingRight: 16 }}>
           <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>Target (hit {target}%)</div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{targetHours == null ? '—' : Math.round(targetHours) + ' h'}</div>
-          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(budget))} on {money(Math.round(weekForecast))} forecast</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{pTargetHours == null ? '—' : Math.round(pTargetHours) + ' h'}</div>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(pBudget))} on {money(Math.round(pForecast))} sales</div>
         </div>
         <div style={{ borderLeft: '1px solid rgba(0,0,0,.12)', paddingLeft: 16, paddingRight: 16 }}>
           <div style={{ fontSize: 11, opacity: 0.7 }}>Scheduled</div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{Math.round(weekHours)} h</div>
-          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(weekLabor))} · {pct(weekPct)}</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{Math.round(pHours)} h</div>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(pLabor))} · {pct(pPct)}</div>
         </div>
         <div style={{ borderLeft: '1px solid rgba(0,0,0,.12)', paddingLeft: 16, display: 'flex', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>To hit target</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: over ? '#a11' : '#137a2f' }}>
-              {gapHours == null ? '—' : gapHours >= 0.5 ? '＋ add ~' + Math.round(gapHours) + ' h' : gapHours <= -0.5 ? '－ cut ~' + Math.round(-gapHours) + ' h' : '✓ on target'}
+              {pGap == null ? '—' : pGap >= 0.5 ? '＋ add ~' + Math.round(pGap) + ' h' : pGap <= -0.5 ? '－ cut ~' + Math.round(-pGap) + ' h' : '✓ on target'}
             </div>
-            <div style={{ fontSize: 11, opacity: 0.7 }}>{busy ? 'updating…' : 'updates as you edit shifts'}</div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>{busy ? 'updating…' : 'over the 2-week period'}</div>
           </div>
         </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 12 }}>
+        {[0, 1].map((w) => {
+          const s = wk[w]; const wOver = s.pct != null && s.pct > target;
+          return (
+            <button key={w} onClick={() => setWeek(w)}
+              style={{ flex: 1, textAlign: 'left', cursor: 'pointer', borderRadius: 8, padding: '6px 10px',
+                border: week === w ? '2px solid var(--accent,#4f46e5)' : '1px solid var(--border,#ddd)', background: 'transparent' }}>
+              <span style={{ fontWeight: 600 }}>Week {w + 1}</span>{week === w ? ' · editing' : ''}
+              <span style={{ float: 'right', color: wOver ? '#a11' : '#137a2f', fontWeight: 600 }}>{pct(s.pct)}</span>
+              <div style={{ opacity: 0.6 }}>{Math.round(s.h)} h · {money(Math.round(s.f))} sales</div>
+            </button>
+          );
+        })}
       </div>
       {err && <p style={{ color: 'crimson', marginTop: 0 }}>{err}</p>}
 
