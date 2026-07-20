@@ -304,10 +304,15 @@ function Builder() {
   const weekDays = data.days.slice(week * 7, week * 7 + 7);
   const dayLabor = (d) => (data.shifts.filter((s) => s.date === d).reduce((a, s) => a + s.hours * (wageBy[s.tmid] || 12), 0));
   const weekForecast = weekDays.reduce((a, d) => a + (data.forecast[d] || 0), 0);
+  const weekHours = weekDays.reduce((a, d) => a + data.shifts.filter((s) => s.date === d).reduce((x, s) => x + s.hours, 0), 0);
   const weekLabor = weekDays.reduce((a, d) => a + dayLabor(d), 0);
   const weekPct = weekForecast > 0 ? (weekLabor / weekForecast) * 100 : null;
   const target = data.settings.target_labor_pct;
   const over = weekPct != null && weekPct > target;
+  const budget = (target / 100) * weekForecast;                 // labor $ allowed at target
+  const blendedWage = weekHours > 0 ? weekLabor / weekHours : 14;
+  const targetHours = blendedWage > 0 ? budget / blendedWage : null;
+  const gapHours = targetHours != null ? targetHours - weekHours : null; // + = room to add, − = cut
 
   const reload = () => load(loc, periodStart);
   const addShift = async (tmid, date, role) => {
@@ -350,12 +355,26 @@ function Builder() {
         <button onClick={fill} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: over ? '#fde2e2' : '#e2f7e6', borderRadius: 8, padding: '9px 14px', marginBottom: 10 }}>
-        <div>
-          <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>Week {week + 1} labor %</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: over ? '#a11' : '#137a2f', lineHeight: 1 }}>{pct(weekPct)}</div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap', background: over ? '#fde2e2' : '#e2f7e6', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
+        <div style={{ paddingRight: 16 }}>
+          <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>Target (hit {target}%)</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{targetHours == null ? '—' : Math.round(targetHours) + ' h'}</div>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(budget))} on {money(Math.round(weekForecast))} forecast</div>
         </div>
-        <div style={{ fontSize: 12, color: over ? '#a11' : '#137a2f' }}>{over ? 'Over' : 'Under'} your {target}% target · {money(Math.round(weekLabor))} labor on {money(Math.round(weekForecast))} forecast. {busy ? '…' : ''}</div>
+        <div style={{ borderLeft: '1px solid rgba(0,0,0,.12)', paddingLeft: 16, paddingRight: 16 }}>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>Scheduled</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{Math.round(weekHours)} h</div>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{money(Math.round(weekLabor))} · {pct(weekPct)}</div>
+        </div>
+        <div style={{ borderLeft: '1px solid rgba(0,0,0,.12)', paddingLeft: 16, display: 'flex', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 11, color: over ? '#a11' : '#137a2f' }}>To hit target</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: over ? '#a11' : '#137a2f' }}>
+              {gapHours == null ? '—' : gapHours >= 0.5 ? '＋ add ~' + Math.round(gapHours) + ' h' : gapHours <= -0.5 ? '－ cut ~' + Math.round(-gapHours) + ' h' : '✓ on target'}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>{busy ? 'updating…' : 'updates as you edit shifts'}</div>
+          </div>
+        </div>
       </div>
       {err && <p style={{ color: 'crimson', marginTop: 0 }}>{err}</p>}
 
