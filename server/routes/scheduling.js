@@ -174,9 +174,13 @@ router.get('/scoreboard', async (req, res) => {
       const laborBudget = forecastWeek * target / 100;
       const targetHours = blendedWage ? laborBudget / blendedWage : null;
 
-      // YTD labor % (this location)
+      // YTD labor % (this location) — sum ALL labor and ALL sales INDEPENDENTLY so labor
+      // on closed-but-staffed days (no sales) is still counted, matching the canonical
+      // v_labor_pct_daily / labor reports / Kindred AI. (Gating labor on sales-days
+      // understated it, e.g. Winery 22% vs the correct 27%.)
       let ytdCost = 0, ytdSales = 0;
-      for (const d of Object.keys(nn)) if (d >= yearStart && d <= todayISO()) { ytdSales += nn[d]; if (ll[d]) ytdCost += ll[d].cost; }
+      for (const d of Object.keys(nn)) if (d >= yearStart && d <= todayISO()) ytdSales += nn[d];
+      for (const d of Object.keys(ll)) if (d >= yearStart && d <= todayISO()) ytdCost += ll[d].cost;
       const ytdLaborPct = ytdSales > 0 ? (ytdCost / ytdSales) * 100 : null;
       // same week last year
       const lyWeekSales = sum(days.map((d) => nn[addDays(d, -364)]).filter(Number.isFinite));
