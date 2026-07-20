@@ -345,34 +345,38 @@ router.get('/builder', async (req, res) => {
     const days = Array.from({ length: 14 }, (_, i) => addDays(periodStart, i));
     const periodEnd = days[13];
     const locs = await getLocations(companyId);
-    const location = locs.find((l) => l.id === req.query.location_id) || locs[0];
-    if (!location) return res.status(400).json({ error: 'No locations configured' });
-    const sid = location.square_location_id;
+    if (!locs.length) return res.status(400).json({ error: 'No locations configured' });
 
     const rangeStart = periodStart < todayISO() ? periodStart : todayISO();
     const net = await netSalesMap(companyId, addDays(rangeStart, -400), periodEnd);
-    const nn = net[sid] || {};
-    const growth = computeGrowth(nn);
     const wLast = Number(settings.forecast_w_lastweek), wYear = Number(settings.forecast_w_lastyear);
-    // A period in progress: days already complete use ACTUAL sales; today + future use forecast.
     const today = todayISO();
+    // COMBINED forecast across both locations: actual for elapsed days, forecast for the rest.
+    const growthBy = {}; for (const l of locs) growthBy[l.square_location_id] = computeGrowth(net[l.square_location_id] || {});
     const forecast = {}, isActual = {};
     for (const d of days) {
-      if (d < today && Number.isFinite(nn[d])) { forecast[d] = nn[d]; isActual[d] = true; }
-      else { forecast[d] = dayForecast(nn, d, wLast, wYear, growth) ?? null; }
+      let sum = 0, any = false;
+      for (const l of locs) {
+        const nn = net[l.square_location_id] || {};
+        const v = (d < today && Number.isFinite(nn[d])) ? nn[d] : dayForecast(nn, d, wLast, wYear, growthBy[l.square_location_id]);
+        if (Number.isFinite(v)) { sum += v; any = true; }
+      }
+      forecast[d] = any ? sum : null; isActual[d] = any && d < today;
     }
 
-    const draft = await getOrCreateDraft(companyId, location.id, periodStart, req.userId);
+    // A draft per location; shifts from both, each tagged with its location.
+    const drafts = [];
+    for (const l of locs) { const dr = await getOrCreateDraft(companyId, l.id, periodStart, req.userId); drafts.push({ id: dr.id, location_id: l.id, location_name: l.name }); }
     const shifts = (await query(
-      `SELECT id, square_team_member_id AS tmid, square_job_id, job_title, start_at, end_at, source,
-              (start_at AT TIME ZONE $2)::date::text AS date
-         FROM schedule_draft_shifts WHERE draft_id = $1 ORDER BY start_at`, [draft.id, TZ])).rows
+      `SELECT s.id, s.square_team_member_id AS tmid, s.square_job_id, s.job_title, s.start_at, s.end_at, s.source,
+              d.location_id, l.name AS location_name, (s.start_at AT TIME ZONE $2)::date::text AS date
+         FROM schedule_draft_shifts s JOIN schedule_drafts d ON d.id = s.draft_id JOIN locations l ON l.id = d.location_id
+        WHERE s.draft_id = ANY($1) ORDER BY s.start_at`, [drafts.map((x) => x.id), TZ])).rows
       .map((s) => ({ ...s, hours: Math.round(hrs(s) * 10) / 10 }));
 
     const staff = await roster(companyId);
-    const wageBy = Object.fromEntries(staff.map((s) => [s.tmid, s.wage || 12]));
 
-    // per-member hours per week (BOTH locations — overtime is cross-location)
+    // per-member hours per week (across both locations — overtime is cross-location)
     const wk = (await query(
       `SELECT s.square_team_member_id AS tmid,
               (s.start_at AT TIME ZONE $2)::date < $4 AS wk1,
@@ -380,14 +384,13 @@ router.get('/builder', async (req, res) => {
          FROM schedule_draft_shifts s JOIN schedule_drafts d ON d.id = s.draft_id
         WHERE d.company_id = $1 AND (s.start_at AT TIME ZONE $2)::date BETWEEN $3 AND $5
         GROUP BY 1,2`, [companyId, TZ, periodStart, addDays(periodStart, 7), periodEnd])).rows;
-    const memberHours = {}; // tmid -> {w1,w2}
+    const memberHours = {};
     for (const r of wk) { (memberHours[r.tmid] ??= { w1: 0, w2: 0 })[r.wk1 ? 'w1' : 'w2'] += Number(r.h); }
 
     res.json({
       period_start: periodStart, period_end: periodEnd, days,
-      location: { id: location.id, name: location.name },
       locations: locs.map((l) => ({ id: l.id, name: l.name })),
-      draft: { id: draft.id, status: draft.status },
+      drafts,
       forecast, is_actual: isActual, today, shifts, roster: staff, member_hours: memberHours,
       settings: { target_labor_pct: Number(settings.target_labor_pct) },
     });
@@ -414,35 +417,37 @@ router.delete('/builder/shift/:id', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /builder/fill-from-last — copy the last published Square week into the draft (shifted +14 days)
+// POST /builder/fill-from-last — copy the last published Square week into BOTH
+// locations' drafts (shifted +14 days). Body: { period_start }
 router.post('/builder/fill-from-last', async (req, res) => {
   try {
     const companyId = cId(req);
-    const { draft_id, location_id, period_start } = req.body || {};
-    const loc = (await query(`SELECT square_location_id FROM locations WHERE id = $1 AND company_id = $2`, [location_id, companyId])).rows[0];
-    if (!loc) return res.status(400).json({ error: 'Bad location' });
-    const sid = loc.square_location_id;
-    // published scheduled shifts for the prior 2 weeks at this location
-    const prior = (await query(
-      `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at
-         FROM team_square.scheduled_shift
-        WHERE pub_location_id = $1 AND pub_is_deleted = false AND pub_start_at IS NOT NULL
-          AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4`,
-      [sid, TZ, addDays(period_start, -14), addDays(period_start, -1)])).rows;
-    // clear existing manual/scaled and repopulate
-    await query(`DELETE FROM schedule_draft_shifts WHERE draft_id = $1`, [draft_id]);
-    let n = 0;
-    for (const p of prior) {
-      const start = new Date(new Date(p.pub_start_at).getTime() + 14 * 86400000).toISOString();
-      const end = new Date(new Date(p.pub_end_at).getTime() + 14 * 86400000).toISOString();
-      const jt = (await query(`SELECT job_title FROM team_square.team_member_job_assignment WHERE job_id = $1 LIMIT 1`, [p.pub_job_id])).rows[0]?.job_title || null;
-      await query(
-        `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
-         VALUES ($1,$2,$3,$4,$5,$6,'scaled')`, [draft_id, p.tmid, p.pub_job_id, jt, start, end]);
-      n++;
+    const { period_start } = req.body || {};
+    const locs = await getLocations(companyId);
+    let copied = 0, source = 0;
+    for (const loc of locs) {
+      const sid = loc.square_location_id;
+      const draft = await getOrCreateDraft(companyId, loc.id, period_start, req.userId);
+      const prior = (await query(
+        `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at
+           FROM team_square.scheduled_shift
+          WHERE pub_location_id = $1 AND pub_is_deleted = false AND pub_start_at IS NOT NULL
+            AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4`,
+        [sid, TZ, addDays(period_start, -14), addDays(period_start, -1)])).rows;
+      source += prior.length;
+      await query(`DELETE FROM schedule_draft_shifts WHERE draft_id = $1`, [draft.id]);
+      for (const p of prior) {
+        const start = new Date(new Date(p.pub_start_at).getTime() + 14 * 86400000).toISOString();
+        const end = new Date(new Date(p.pub_end_at).getTime() + 14 * 86400000).toISOString();
+        const jt = (await query(`SELECT job_title FROM team_square.team_member_job_assignment WHERE job_id = $1 LIMIT 1`, [p.pub_job_id])).rows[0]?.job_title || null;
+        await query(
+          `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
+           VALUES ($1,$2,$3,$4,$5,$6,'scaled')`, [draft.id, p.tmid, p.pub_job_id, jt, start, end]);
+        copied++;
+      }
+      await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE id = $1`, [draft.id]);
     }
-    await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE id = $1`, [draft_id]);
-    res.json({ ok: true, copied: n, source_shifts: prior.length });
+    res.json({ ok: true, copied, source_shifts: source });
   } catch (e) { console.error('fill-from-last', e); res.status(500).json({ error: e.message }); }
 });
 
