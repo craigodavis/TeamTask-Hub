@@ -35,7 +35,8 @@ function EventsTab() {
   const load = useCallback(async () => {
     try {
       const [e, m, l] = await Promise.all([getEvents('upcoming'), getMusicians(), getLocations()]);
-      setEvents(e); setMusicians(m); setLocations(l);
+      setEvents(Array.isArray(e) ? e : []); setMusicians(Array.isArray(m) ? m : []);
+      setLocations(Array.isArray(l) ? l : (l?.locations || []));
     } catch (x) { setErr(x.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
