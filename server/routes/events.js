@@ -1,7 +1,23 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { query } from '../db.js';
 
 const cId = (req) => req.companyId;
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const eventUploadsDir = path.join(__dirname, '..', 'uploads', 'events');
+fs.mkdirSync(eventUploadsDir, { recursive: true });
+const imgUpload = multer({
+  storage: multer.diskStorage({
+    destination: eventUploadsDir,
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname).toLowerCase() || '.jpg'}`),
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => (file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Only image files are allowed'))),
+});
 
 // ── Musicians ────────────────────────────────────────────────────────────────
 export const musiciansRouter = express.Router();
@@ -62,6 +78,11 @@ eventsRouter.get('/', async (req, res) => {
         ORDER BY e.start_at ${order} LIMIT 300`, [cId(req)]);
     res.json(r.rows);
   } catch (e) { console.error('events list', e); res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/upload-image', imgUpload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
+  res.json({ url: `/api/uploads/events/${req.file.filename}` });
 });
 
 const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'event_url', 'image_url', 'category', 'status'];

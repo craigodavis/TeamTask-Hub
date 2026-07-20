@@ -1924,3 +1924,14 @@ export async function updateMusician(id, body) {
   if (!res.ok) throw new Error(d.error || 'Failed to update musician');
   return d;
 }
+
+export async function uploadEventImage(file) {
+  const fd = new FormData();
+  fd.append('image', file);
+  const h = {};
+  if (getToken()) h['Authorization'] = `Bearer ${getToken()}`;
+  const res = await fetch(`${API}/events/upload-image`, { method: 'POST', headers: h, body: fd });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to upload image');
+  return d;
+}
