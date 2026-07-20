@@ -416,14 +416,18 @@ function Builder() {
             ))}
           </tbody>
           <tfoot>
-            <tr><td style={{ padding: '5px 6px', fontWeight: 600, borderTop: '1px solid var(--border,#ddd)' }}>Forecast</td>
-              {weekDays.map((d) => <td key={d} style={{ textAlign: 'center', borderTop: '1px solid var(--border,#ddd)', opacity: 0.7 }}>{data.forecast[d] == null ? '—' : money(Math.round(data.forecast[d]))}</td>)}</tr>
+            <tr><td style={{ padding: '5px 6px', fontWeight: 600, borderTop: '1px solid var(--border,#ddd)' }}>Sales</td>
+              {weekDays.map((d) => { const act = data.is_actual && data.is_actual[d]; return (
+                <td key={d} style={{ textAlign: 'center', borderTop: '1px solid var(--border,#ddd)' }}>
+                  <div style={{ color: act ? '#137a2f' : 'inherit', opacity: act ? 1 : 0.7, fontWeight: act ? 600 : 400 }}>{data.forecast[d] == null ? '—' : money(Math.round(data.forecast[d]))}</div>
+                  {data.forecast[d] != null && <div style={{ fontSize: 9, opacity: 0.5 }}>{act ? 'actual' : 'fcst'}</div>}
+                </td>); })}</tr>
             <tr><td style={{ padding: '5px 6px' }}>Labor % <span style={{ opacity: 0.5 }}>(day)</span></td>
               {weekDays.map((d) => { const f = data.forecast[d], l = dayLabor(d); const p = f > 0 ? (l / f) * 100 : null; return <td key={d} style={{ textAlign: 'center', fontWeight: 600, color: p == null ? '#999' : p > target ? '#d33' : '#137a2f' }}>{p == null ? '—' : Math.round(p) + '%'}</td>; })}</tr>
           </tfoot>
         </table>
       </div>
-      <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Click an empty cell to add a shift · click a shift to remove it · hours badge = the selected week’s total across both locations (overtime). Publishing to Square comes later.</p>
+      <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Past days show <b style={{ color: '#137a2f' }}>actual</b> sales; upcoming days are <b>fcst</b>. Click an empty cell to add a shift · click a shift to remove it · hours badge = the selected week’s total across both locations (overtime). Publishing to Square comes later.</p>
     </div>
   );
 }
