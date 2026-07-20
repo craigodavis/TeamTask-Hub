@@ -84,9 +84,12 @@ router.get('/scoreboard', async (req, res) => {
     const warn = Number(settings.labor_warn_threshold);
     const locs = await getLocations(companyId);
 
-    // Load 400 days of history (covers last week, last year, YTD, growth run-rate).
-    const histStart = addDays(weekStart, -400);
-    const [net, labor] = [await netSalesMap(companyId, histStart, weekEnd), await laborMap(companyId, addDays(weekStart, -400), weekEnd)];
+    // Load 400 days of history back from whichever is earlier — the week being viewed
+    // or today — so the today-anchored growth window is always fully covered even for
+    // future weeks (otherwise a later histStart clips its year-ago days).
+    const rangeStart = weekStart < todayISO() ? weekStart : todayISO();
+    const histStart = addDays(rangeStart, -400);
+    const [net, labor] = [await netSalesMap(companyId, histStart, weekEnd), await laborMap(companyId, histStart, weekEnd)];
 
     const yearStart = new Date().getFullYear() + '-01-01';
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -126,11 +129,18 @@ router.get('/scoreboard', async (req, res) => {
     for (const loc of locs) {
       const sid = loc.square_location_id;
       const nn = net[sid] || {}, ll = labor[sid] || {};
-      // YoY growth run-rate: trailing 28 days actual vs same 28 days ~364d earlier.
-      const recent = [], yrAgo = [];
-      for (let i = 1; i <= 28; i++) { recent.push(nn[addDays(weekStart, -i)]); yrAgo.push(nn[addDays(weekStart, -i - 364)]); }
-      const rSum = sum(recent.filter(Number.isFinite)), yaSum = sum(yrAgo.filter(Number.isFinite));
-      const growth = (yaSum > 0 && rSum > 0) ? rSum / yaSum : 1;
+      // YoY growth run-rate: trailing 28 ACTUAL days vs the same calendar days last year.
+      // Anchor on today (NOT weekStart) so forecasting future weeks doesn't deflate the
+      // recent side with not-yet-happened days, and pair days so both sides cover the
+      // same dates. Guard against sparse-data extremes.
+      const anchor = todayISO();
+      let rSum = 0, yaSum = 0;
+      for (let i = 1; i <= 28; i++) {
+        const rv = nn[addDays(anchor, -i)], yv = nn[addDays(anchor, -i - 364)];
+        if (Number.isFinite(rv) && Number.isFinite(yv)) { rSum += rv; yaSum += yv; }
+      }
+      let growth = yaSum > 0 ? rSum / yaSum : 1;
+      growth = Math.min(2, Math.max(0.5, growth));
       // blended wage: last 90 days
       let wc = 0, wh = 0;
       for (let i = 1; i <= 90; i++) { const e = ll[addDays(weekStart, -i)]; if (e) { wc += e.cost; wh += e.hours; } }
