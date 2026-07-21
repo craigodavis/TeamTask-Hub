@@ -514,8 +514,8 @@ router.post('/builder/clear', async (req, res) => {
   try {
     const companyId = cId(req);
     const { period_start } = req.body || {};
-    if (addDays(period_start, 13) < todayISO()) {
-      return res.status(400).json({ error: 'This pay period is in the past — clearing it would erase its planned-schedule history. Use “Pull from Square” to refresh instead.' });
+    if (period_start <= todayISO()) {
+      return res.status(400).json({ error: 'This pay period has already started — the schedule is set. You can only clear a period that hasn’t started yet.' });
     }
     const r = await query(
       `DELETE FROM schedule_draft_shifts WHERE draft_id IN
