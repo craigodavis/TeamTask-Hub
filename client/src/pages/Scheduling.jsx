@@ -315,6 +315,13 @@ function Builder() {
   const over = pPct != null && pPct > target;
   const wkStats = (w) => { const ds = data.days.slice(w * 7, w * 7 + 7); const f = ds.reduce((a, d) => a + (data.forecast[d] || 0), 0); const h = ds.reduce((a, d) => a + shiftHrsOn(d), 0); const l = ds.reduce((a, d) => a + dayLabor(d), 0); return { f, h, pct: f > 0 ? (l / f) * 100 : null }; };
   const wk = [wkStats(0), wkStats(1)];
+  // Forecast vs actual over the days that have completed (retrospective).
+  const doneDays = data.days.filter((d) => data.actual_sales && data.actual_sales[d] != null);
+  const fcSales = doneDays.reduce((a, d) => a + (data.model_forecast?.[d] || 0), 0);
+  const acSales = doneDays.reduce((a, d) => a + (data.actual_sales?.[d] || 0), 0);
+  const planLabor = doneDays.reduce((a, d) => a + dayLabor(d), 0);
+  const acLabor = doneDays.reduce((a, d) => a + (data.actual_labor?.[d] || 0), 0);
+  const vpct = (act, base) => (base > 0 ? Math.round((act / base - 1) * 100) : null);
 
   const reload = () => load(periodStart);
   const addShift = async (tmid, date, role) => {
@@ -377,6 +384,19 @@ function Builder() {
           </div>
         </div>
       </div>
+      {doneDays.length > 0 && (
+        <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap', border: '1px solid var(--border,#ddd)', borderRadius: 8, padding: '8px 14px', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, alignSelf: 'center', paddingRight: 16 }}>Forecast vs actual<div style={{ fontSize: 10, fontWeight: 400, opacity: 0.6 }}>{doneDays.length} days done</div></div>
+          <div style={{ borderLeft: '1px solid var(--border,#eee)', paddingLeft: 16, paddingRight: 16 }}>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>Sales · forecast → actual</div>
+            <div style={{ fontSize: 14 }}>{money(Math.round(fcSales))} → <b>{money(Math.round(acSales))}</b> {vpct(acSales, fcSales) != null && <span style={{ color: vpct(acSales, fcSales) >= 0 ? '#137a2f' : '#a11' }}>({vpct(acSales, fcSales) >= 0 ? '+' : ''}{vpct(acSales, fcSales)}%)</span>}</div>
+          </div>
+          <div style={{ borderLeft: '1px solid var(--border,#eee)', paddingLeft: 16 }}>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>Labor · planned → spent</div>
+            <div style={{ fontSize: 14 }}>{money(Math.round(planLabor))} → <b>{money(Math.round(acLabor))}</b> {vpct(acLabor, planLabor) != null && <span style={{ color: vpct(acLabor, planLabor) <= 0 ? '#137a2f' : '#a11' }}>({vpct(acLabor, planLabor) >= 0 ? '+' : ''}{vpct(acLabor, planLabor)}%)</span>}</div>
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: 12 }}>
         {[0, 1].map((w) => {
           const s = wk[w]; const wOver = s.pct != null && s.pct > target;
