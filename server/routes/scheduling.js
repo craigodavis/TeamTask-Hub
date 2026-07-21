@@ -58,7 +58,8 @@ router.get('/settings', async (req, res) => {
 
 router.patch('/settings', async (req, res) => {
   const allowed = ['target_labor_pct', 'avoid_overtime', 'forecast_w_lastweek', 'forecast_w_lastyear',
-    'labor_warn_threshold', 'feedback_prompt_enabled', 'max_hours_per_week'];
+    'labor_warn_threshold', 'feedback_prompt_enabled', 'max_hours_per_week',
+    'talent_reminders_enabled', 'reminder_msg_month', 'reminder_msg_week', 'reminder_msg_day'];
   const sets = [], vals = [];
   for (const k of allowed) if (k in req.body) { sets.push(`${k} = $${sets.length + 1}`); vals.push(req.body[k]); }
   if (!sets.length) return res.json(await ensureSettings(cId(req)));

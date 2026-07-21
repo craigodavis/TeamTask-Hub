@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getEvents, createEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage } from '../api';
+import { getEvents, createEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -15,11 +15,11 @@ export default function Events() {
       <h1 style={{ margin: '0 0 4px' }}>🎪 Events</h1>
       <p style={{ marginTop: 0, opacity: 0.7 }}>Plan events in TeamHub. Publishing pushes them to the website. Musician lift helps you book with staffing in mind.</p>
       <div style={{ display: 'flex', gap: 8, margin: '14px 0 18px' }}>
-        {[['events', 'Events'], ['musicians', 'Musician/Talent']].map(([k, l]) => (
+        {[['events', 'Events'], ['musicians', 'Musician/Talent'], ['reminders', 'Reminders']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ ...btn(tab === k), borderRadius: 20 }}>{l}</button>
         ))}
       </div>
-      {tab === 'events' ? <EventsTab /> : <MusiciansTab />}
+      {tab === 'events' ? <EventsTab /> : tab === 'musicians' ? <MusiciansTab /> : <RemindersTab />}
     </div>
   );
 }
@@ -67,7 +67,7 @@ function EventsTab() {
       delete body._auto;
       Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
       await createEvent(body);
-      setForm({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft' });
+      setForm({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
       await load();
     } catch (x) { setErr(x.message); } finally { setSaving(false); }
   };
@@ -205,6 +205,42 @@ function MusiciansTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function RemindersTab() {
+  const [s, setS] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { getSchedulingSettings().then(setS).catch((e) => setErr(e.message)); }, []);
+  if (err) return <p style={{ color: 'crimson' }}>{err}</p>;
+  if (!s) return <p>Loading…</p>;
+  const save = async (patch) => {
+    try { const n = await updateSchedulingSettings(patch); setS(n); setSaved(true); setTimeout(() => setSaved(false), 1500); }
+    catch (e) { setErr(e.message); }
+  };
+  const tpl = (key, label) => (
+    <div style={{ marginBottom: 16 }}>
+      <label style={lbl}>{label}</label>
+      <textarea rows={3} style={inp} defaultValue={s[key] || ''} onBlur={(e) => save({ [key]: e.target.value })} />
+    </div>
+  );
+  return (
+    <div style={{ ...card, maxWidth: 640 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <input type="checkbox" defaultChecked={s.talent_reminders_enabled} onChange={(e) => save({ talent_reminders_enabled: e.target.checked })} />
+        <span style={{ fontWeight: 600 }}>Send talent reminders automatically</span>
+        <span style={{ opacity: 0.6, fontSize: 12 }}>({s.talent_reminders_enabled ? 'ON — texts go out' : 'OFF — nothing sends'})</span>
+      </label>
+      <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 16, background: 'var(--card-bg,#f6f6f6)', border: '1px solid var(--border,#eee)', padding: 10, borderRadius: 8 }}>
+        Reminders text the talent at each mark before their event. Placeholders you can use:&nbsp;
+        <code>{'{talent}'}</code> <code>{'{event}'}</code> <code>{'{date}'}</code> <code>{'{time}'}</code> <code>{'{location}'}</code>. Changes save on blur.
+      </div>
+      {tpl('reminder_msg_month', '1 month before')}
+      {tpl('reminder_msg_week', '1 week before')}
+      {tpl('reminder_msg_day', '1 day before')}
+      {saved && <span style={{ color: '#137a2f', fontWeight: 600 }}>✓ saved</span>}
     </div>
   );
 }

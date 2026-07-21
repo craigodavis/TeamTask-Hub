@@ -86,3 +86,28 @@ export async function sendSmsToUsers(companyId, userIds, message, sentByUserId) 
 
   return { sent, failed, results };
 }
+
+/**
+ * Send an SMS to an arbitrary phone number (e.g. talent, who aren't app users).
+ * Logs to sms_log with a null recipient_user_id. Never throws.
+ */
+export async function sendSmsToPhone(companyId, phone, message, sentByUserId = null) {
+  const { accountSid, authToken, fromNumber } = await getTwilioConfig(companyId);
+  if (!accountSid || !authToken || !fromNumber) return { ok: false, reason: 'Twilio not configured' };
+  let to = String(phone || '').replace(/[^\d+]/g, '');
+  if (to && !to.startsWith('+')) { const digits = to.replace(/\D/g, ''); to = digits.length === 10 ? `+1${digits}` : `+${digits}`; }
+  if (!to) return { ok: false, reason: 'No phone number' };
+  const client = twilio(accountSid, authToken);
+  try {
+    const msg = await client.messages.create({ body: message, from: fromNumber, to });
+    await query(
+      `INSERT INTO sms_log (company_id, sent_by, recipient_user_id, recipient_phone, message_body, twilio_message_sid, status)
+       VALUES ($1,$2,NULL,$3,$4,$5,$6)`, [companyId, sentByUserId, to, message, msg.sid, msg.status || 'sent']);
+    return { ok: true, sid: msg.sid };
+  } catch (err) {
+    await query(
+      `INSERT INTO sms_log (company_id, sent_by, recipient_user_id, recipient_phone, message_body, status)
+       VALUES ($1,$2,NULL,$3,$4,$5)`, [companyId, sentByUserId, to, message, 'failed']).catch(() => {});
+    return { ok: false, reason: err.message };
+  }
+}

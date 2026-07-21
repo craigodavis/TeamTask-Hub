@@ -2615,6 +2615,12 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_events_wp ON events(wp_event_id)`,
   // 098: talent type (musician / class instructor / business / other)
   `ALTER TABLE musicians ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'musician'`,
+  // 099: talent reminders — track the 1-month mark + enable toggle + editable templates
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS reminder_month_sent_at TIMESTAMPTZ`,
+  `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS talent_reminders_enabled BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS reminder_msg_month TEXT DEFAULT 'Hi {talent}! You are booked for {event} at {location} on {date} at {time}. We are excited to have you — reply if anything changes.'`,
+  `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS reminder_msg_week TEXT DEFAULT 'Hi {talent} — one week out! {event} at {location} on {date} at {time}. Reply with any questions.'`,
+  `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS reminder_msg_day TEXT DEFAULT 'Hi {talent}, reminder: you are playing {event} at {location} tomorrow, {date} at {time}. See you there!'`,
 ];
 
 export async function runMigrations() {
