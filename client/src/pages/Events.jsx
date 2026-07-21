@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -16,11 +16,11 @@ export default function Events() {
       <h1 style={{ margin: '0 0 4px' }}>🎪 Events</h1>
       <p style={{ marginTop: 0, opacity: 0.7 }}>Plan events in TeamHub. Publishing pushes them to the website. Musician lift helps you book with staffing in mind.</p>
       <div style={{ display: 'flex', gap: 8, margin: '14px 0 18px' }}>
-        {[['events', 'Events'], ['musicians', 'Musician/Talent'], ['reminders', 'Reminders']].map(([k, l]) => (
+        {[['events', 'Events'], ['musicians', 'Musician/Talent'], ['reminders', 'Reminders'], ['promo', 'Promotion']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ ...btn(tab === k), borderRadius: 20 }}>{l}</button>
         ))}
       </div>
-      {tab === 'events' ? <EventsTab /> : tab === 'musicians' ? <MusiciansTab /> : <RemindersTab />}
+      {tab === 'events' ? <EventsTab /> : tab === 'musicians' ? <MusiciansTab /> : tab === 'reminders' ? <RemindersTab /> : <PromoTab />}
     </div>
   );
 }
@@ -302,6 +302,10 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [savedNotes, setSavedNotes] = useState(false);
   const [promo, setPromo] = useState([]);
   const [np, setNp] = useState({ title: 'Post to Facebook Events', channel: 'facebook_event', assignee_user_id: '', escalate_to: [] });
+  const [emails, setEmails] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [ne, setNe] = useState({ contact_id: '', template_id: '', send_at: '' });
   const toLocal = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
@@ -318,7 +322,12 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const onPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('image_url', url); await updateEvent(ev.id, { image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
   const loadPromo = () => getPromoTasks(ev.id).then((p) => setPromo(Array.isArray(p) ? p : [])).catch(() => {});
-  useEffect(() => { loadTasks(); loadPromo(); }, [ev.id]);
+  const loadEmails = () => getEventEmails(ev.id).then((x) => setEmails(Array.isArray(x) ? x : [])).catch(() => {});
+  useEffect(() => { loadTasks(); loadPromo(); loadEmails(); }, [ev.id]);
+  useEffect(() => { getContacts().then((c) => setContacts(Array.isArray(c) ? c : [])).catch(() => {}); getTemplates().then((t) => setTemplates(Array.isArray(t) ? t : [])).catch(() => {}); }, []);
+  const addEmail = async () => { if (!ne.contact_id || !ne.send_at) return; await createEventEmail(ev.id, ne); setNe({ contact_id: '', template_id: '', send_at: '' }); loadEmails(); };
+  const delEmail = async (id) => { await deleteEventEmail(id); loadEmails(); };
+  const sendNow = async (id) => { await sendEventEmailNow(id); loadEmails(); };
   const addPromo = async () => { if (!np.title.trim()) return; await createPromoTask(ev.id, np); setNp({ ...np, title: '' }); loadPromo(); };
   const togglePromo = async (t) => { await updatePromoTask(t.id, { done: !t.done }); loadPromo(); };
   const delPromo = async (t) => { await deletePromoTask(t.id); loadPromo(); };
@@ -461,6 +470,36 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           </div>
           <button style={{ ...btn(true), marginTop: 12 }} disabled={!np.title.trim()} onClick={addPromo}>Add promotion task</button>
         </div>
+
+        <div style={{ marginTop: 18, borderTop: '2px solid var(--border,#eee)', paddingTop: 14 }}>
+          <h4 style={{ margin: '0 0 4px' }}>Scheduled emails <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(auto-sent to contacts)</span></h4>
+          <p style={{ fontSize: 12, opacity: 0.65, marginTop: 0 }}>Emails a contact from a template on the chosen date (e.g. schedule Sep 9 for a Nov 9 event). Manage contacts &amp; templates on the Promotion tab.</p>
+          {emails.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>None scheduled.</p>}
+          {emails.map((m) => (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border,#eee)', fontSize: 13 }}>
+              <div style={{ flex: 1 }}>
+                <b>{m.contact_name}</b>{m.org ? ` (${m.org})` : ''} · {m.template_name || 'no template'}
+                <div style={{ opacity: 0.7, fontSize: 12 }}>{new Date(m.send_at).toLocaleDateString()} · <span style={{ color: m.status === 'sent' ? '#137a2f' : m.status === 'failed' ? '#c0392b' : '#999' }}>{m.status}{m.error ? `: ${m.error}` : ''}</span></div>
+              </div>
+              {m.status !== 'sent' && <button style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }} onClick={() => sendNow(m.id)}>Send now</button>}
+              <button style={{ ...btn(false), padding: '2px 8px' }} onClick={() => delEmail(m.id)}>✕</button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10 }}>
+            <div><label style={lbl}>Contact</label>
+              <select style={{ ...inp, minWidth: 160 }} value={ne.contact_id} onChange={(e) => setNe({ ...ne, contact_id: e.target.value })}>
+                <option value="">— select —</option>{contacts.map((c) => <option key={c.id} value={c.id}>{c.name}{c.org ? ` (${c.org})` : ''}</option>)}
+              </select>
+            </div>
+            <div><label style={lbl}>Template</label>
+              <select style={{ ...inp, minWidth: 150 }} value={ne.template_id} onChange={(e) => setNe({ ...ne, template_id: e.target.value })}>
+                <option value="">— none —</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+            <div><label style={lbl}>Send date</label><input type="date" style={inp} value={ne.send_at} onChange={(e) => setNe({ ...ne, send_at: e.target.value })} /></div>
+            <button style={btn(true)} disabled={!ne.contact_id || !ne.send_at} onClick={addEmail}>Schedule</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -532,7 +571,7 @@ function CalendarView({ events, onOpen }) {
   );
 }
 
-function HtmlDesc({ value, onChange }) {
+function HtmlDesc({ value, onChange, label = 'Description', hint = 'shows on the website' }) {
   const ref = useRef(null);
   const [source, setSource] = useState(false);
   useEffect(() => {
@@ -549,7 +588,7 @@ function HtmlDesc({ value, onChange }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <label style={lbl}>Description <span style={{ opacity: 0.5, fontWeight: 400 }}>(shows on the website)</span></label>
+        <label style={lbl}>{label} <span style={{ opacity: 0.5, fontWeight: 400 }}>({hint})</span></label>
         <button type="button" style={{ ...btn(false), padding: '2px 10px', fontSize: 11 }} onClick={() => setSource((s) => !s)}>{source ? '‹ Editor' : '</> HTML'}</button>
       </div>
       {source ? (
@@ -576,6 +615,102 @@ function HtmlDesc({ value, onChange }) {
             style={{ minHeight: 120, padding: 10, fontSize: 15, outline: 'none', lineHeight: 1.5 }} />
         </div>
       )}
+    </div>
+  );
+}
+
+function PromoTab() {
+  const [sub, setSub] = useState('contacts');
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['contacts', 'Contacts'], ['templates', 'Email templates']].map(([k, l]) => (
+          <button key={k} onClick={() => setSub(k)} style={{ ...btn(sub === k), borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>{l}</button>
+        ))}
+      </div>
+      {sub === 'contacts' ? <ContactsSub /> : <TemplatesSub />}
+    </div>
+  );
+}
+
+function ContactsSub() {
+  const [list, setList] = useState([]);
+  const [form, setForm] = useState(null);
+  const [err, setErr] = useState('');
+  const load = () => getContacts().then((c) => setList(Array.isArray(c) ? c : [])).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  const blank = { name: '', org: '', email: '', phone: '', website: '', role: '', notes: '' };
+  const save = async () => { try { if (form.id) await updateContact(form.id, form); else await createContact(form); setForm(null); load(); } catch (e) { setErr(e.message); } };
+  const del = async (id) => { if (window.confirm('Delete contact?')) { await deleteContact(id); load(); } };
+  return (
+    <div>
+      {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ Add contact</button>}
+      {err && <p style={{ color: 'crimson' }}>{err}</p>}
+      {form && (
+        <div style={{ ...card, margin: '12px 0' }}>
+          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'New'} contact</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
+            {[['name', 'Name'], ['org', 'Organization'], ['email', 'Email'], ['phone', 'Phone'], ['website', 'Website'], ['role', 'Role / title']].map(([k, l]) => (
+              <div key={k}><label style={lbl}>{l}</label><input style={inp} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })} /></div>
+            ))}
+            <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Notes</label><textarea rows={2} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+          </div>
+          <div style={{ marginTop: 10 }}><button style={btn(true)} disabled={!form.name} onClick={save}>Save</button><button style={{ ...btn(false), marginLeft: 8 }} onClick={() => setForm(null)}>Cancel</button></div>
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        {list.length === 0 && <p style={{ opacity: 0.6 }}>No contacts yet — add orgs you notify (e.g. Mary Smith @ Destination Caldwell).</p>}
+        {list.map((c) => (
+          <div key={c.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div onClick={() => setForm({ ...c })} style={{ cursor: 'pointer', flex: 1 }}>
+              <div style={{ fontWeight: 700 }}>{c.name}{c.org ? ` · ${c.org}` : ''}</div>
+              <div style={{ fontSize: 13, opacity: 0.7 }}>{c.email || 'no email'}{c.role ? ` · ${c.role}` : ''}</div>
+            </div>
+            <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => del(c.id)}>Delete</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TemplatesSub() {
+  const [list, setList] = useState([]);
+  const [form, setForm] = useState(null);
+  const [err, setErr] = useState('');
+  const load = () => getTemplates().then((t) => setList(Array.isArray(t) ? t : [])).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  const blank = { name: '', subject: '', body_html: '' };
+  const save = async () => { try { if (form.id) await updateTemplate(form.id, form); else await createTemplate(form); setForm(null); load(); } catch (e) { setErr(e.message); } };
+  const del = async (id) => { if (window.confirm('Delete template?')) { await deleteTemplate(id); load(); } };
+  return (
+    <div>
+      {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ New template</button>}
+      {err && <p style={{ color: 'crimson' }}>{err}</p>}
+      {form && (
+        <div style={{ ...card, margin: '12px 0' }}>
+          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'New'} email template</h3>
+          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10, background: 'var(--card-bg,#f6f6f6)', border: '1px solid var(--border,#eee)', padding: 8, borderRadius: 8 }}>
+            Tags: <code>{'{contact}'}</code> <code>{'{org}'}</code> <code>{'{event}'}</code> <code>{'{date}'}</code> <code>{'{time}'}</code> <code>{'{location}'}</code> <code>{'{description}'}</code> <code>{'{link}'}</code> <code>{'{image}'}</code>
+          </div>
+          <div><label style={lbl}>Template name</label><input style={inp} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div style={{ marginTop: 10 }}><label style={lbl}>Subject</label><input style={inp} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Kindred event: {event} on {date}" /></div>
+          <div style={{ marginTop: 10 }}><HtmlDesc value={form.body_html} onChange={(v) => setForm({ ...form, body_html: v })} label="Email body" hint="tags allowed" /></div>
+          <div style={{ marginTop: 10 }}><button style={btn(true)} disabled={!form.name || !form.subject} onClick={save}>Save</button><button style={{ ...btn(false), marginLeft: 8 }} onClick={() => setForm(null)}>Cancel</button></div>
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        {list.length === 0 && <p style={{ opacity: 0.6 }}>No email templates yet.</p>}
+        {list.map((t) => (
+          <div key={t.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div onClick={() => setForm({ ...t })} style={{ cursor: 'pointer', flex: 1 }}>
+              <div style={{ fontWeight: 700 }}>{t.name}</div>
+              <div style={{ fontSize: 13, opacity: 0.7 }}>{t.subject}</div>
+            </div>
+            <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => del(t.id)}>Delete</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

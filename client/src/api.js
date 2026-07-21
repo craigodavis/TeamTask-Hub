@@ -1973,3 +1973,18 @@ export async function deletePromoTask(taskId) {
   const res = await fetch(`${API}/events/promo-tasks/${taskId}`, { method: 'DELETE', headers: headers() });
   const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
 }
+
+// ── Promotion: contacts, templates, scheduled emails ──────────────────────────
+async function pj(res) { const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d; }
+export async function getContacts() { return pj(await fetch(`${API}/promo/contacts`, { headers: headers() })); }
+export async function createContact(b) { return pj(await fetch(`${API}/promo/contacts`, { method: 'POST', headers: headers(), body: JSON.stringify(b) })); }
+export async function updateContact(id, b) { return pj(await fetch(`${API}/promo/contacts/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(b) })); }
+export async function deleteContact(id) { return pj(await fetch(`${API}/promo/contacts/${id}`, { method: 'DELETE', headers: headers() })); }
+export async function getTemplates() { return pj(await fetch(`${API}/promo/templates`, { headers: headers() })); }
+export async function createTemplate(b) { return pj(await fetch(`${API}/promo/templates`, { method: 'POST', headers: headers(), body: JSON.stringify(b) })); }
+export async function updateTemplate(id, b) { return pj(await fetch(`${API}/promo/templates/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(b) })); }
+export async function deleteTemplate(id) { return pj(await fetch(`${API}/promo/templates/${id}`, { method: 'DELETE', headers: headers() })); }
+export async function getEventEmails(eventId) { return pj(await fetch(`${API}/events/${eventId}/emails`, { headers: headers() })); }
+export async function createEventEmail(eventId, b) { return pj(await fetch(`${API}/events/${eventId}/emails`, { method: 'POST', headers: headers(), body: JSON.stringify(b) })); }
+export async function deleteEventEmail(id) { return pj(await fetch(`${API}/events/emails/${id}`, { method: 'DELETE', headers: headers() })); }
+export async function sendEventEmailNow(id) { return pj(await fetch(`${API}/events/emails/${id}/send-now`, { method: 'POST', headers: headers() })); }
