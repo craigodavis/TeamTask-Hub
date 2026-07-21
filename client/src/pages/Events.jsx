@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getEvents, createEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -31,6 +31,8 @@ function EventsTab() {
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
 
   const onPhoto = async (file) => {
@@ -42,9 +44,9 @@ function EventsTab() {
 
   const load = useCallback(async () => {
     try {
-      const [e, m, l] = await Promise.all([getEvents('upcoming'), getMusicians(), getLocations()]);
+      const [e, m, l, u] = await Promise.all([getEvents('upcoming'), getMusicians(), getLocations(), getAssignableUsers()]);
       setEvents(Array.isArray(e) ? e : []); setMusicians(Array.isArray(m) ? m : []);
-      setLocations(Array.isArray(l) ? l : (l?.locations || []));
+      setLocations(Array.isArray(l) ? l : (l?.locations || [])); setUsers(Array.isArray(u) ? u : []);
     } catch (x) { setErr(x.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -73,6 +75,8 @@ function EventsTab() {
   };
 
   const remove = async (id) => { if (window.confirm('Delete this event?')) { await deleteEvent(id); load(); } };
+
+  if (selected) return <EventDetail ev={selected} users={users} onBack={() => { setSelected(null); load(); }} />;
 
   return (
     <div>
@@ -124,7 +128,7 @@ function EventsTab() {
       {events.length === 0 && <p style={{ opacity: 0.6 }}>No upcoming events yet.</p>}
       {events.map((e) => (
         <div key={e.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <div>
+          <div onClick={() => setSelected(e)} style={{ cursor: 'pointer', flex: 1 }}>
             <div style={{ fontWeight: 700 }}>{e.title} {e.status === 'published' ? <span style={{ fontSize: 11, color: '#137a2f' }}>● live</span> : <span style={{ fontSize: 11, opacity: 0.5 }}>draft</span>}</div>
             <div style={{ fontSize: 13, opacity: 0.75 }}>{fmtDT(e.start_at)}{e.location_name ? ` · ${e.location_name}` : ''}{e.musician_name ? ` · 🎵 ${e.musician_name}${e.lift_pct != null ? ` (+${e.lift_pct}%)` : ''}` : ''}{e.cost != null ? ` · ${money(e.cost)}` : ''}</div>
           </div>
@@ -241,6 +245,78 @@ function RemindersTab() {
       {tpl('reminder_msg_week', '1 week before')}
       {tpl('reminder_msg_day', '1 day before')}
       {saved && <span style={{ color: '#137a2f', fontWeight: 600 }}>✓ saved</span>}
+    </div>
+  );
+}
+
+function EventDetail({ ev, users, onBack }) {
+  const [notes, setNotes] = useState(ev.internal_notes || '');
+  const [tasks, setTasks] = useState([]);
+  const [nt, setNt] = useState({ checklist: 'Final Checklist', title: '', assignee_user_id: '' });
+  const [savedNotes, setSavedNotes] = useState(false);
+  const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
+  useEffect(() => { loadTasks(); }, [ev.id]);
+
+  const saveNotes = async () => { await updateEvent(ev.id, { internal_notes: notes }); setSavedNotes(true); setTimeout(() => setSavedNotes(false), 1200); };
+  const addTask = async () => { if (!nt.title.trim()) return; await createEventTask(ev.id, nt); setNt({ ...nt, title: '' }); loadTasks(); };
+  const toggle = async (t) => { await updateEventTask(t.id, { done: !t.done }); loadTasks(); };
+  const assign = async (t, uid) => { await updateEventTask(t.id, { assignee_user_id: uid || null }); loadTasks(); };
+  const del = async (t) => { await deleteEventTask(t.id); loadTasks(); };
+
+  const groups = {};
+  for (const t of tasks) (groups[t.checklist] ??= []).push(t);
+  const checklistNames = [...new Set([...Object.keys(groups), 'Final Checklist', 'Setup', 'Day-of'])];
+
+  return (
+    <div>
+      <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>← Back to events</button>
+      <div style={{ ...card, marginBottom: 16 }}>
+        <h2 style={{ margin: '0 0 2px' }}>{ev.title}</h2>
+        <div style={{ opacity: 0.7, fontSize: 13 }}>{fmtDT(ev.start_at)}{ev.location_name ? ` · ${ev.location_name}` : ''}{ev.musician_name ? ` · 🎵 ${ev.musician_name}` : ''} · <span style={{ color: ev.status === 'published' ? '#137a2f' : '#999' }}>{ev.status}</span></div>
+      </div>
+
+      <div style={{ ...card, marginBottom: 16 }}>
+        <label style={lbl}>Internal notes <span style={{ opacity: 0.5, fontWeight: 400 }}>(stays in TeamHub — never sent to the website)</span></label>
+        <textarea rows={3} style={inp} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes} />
+        {savedNotes && <span style={{ color: '#137a2f', fontSize: 12 }}>✓ saved</span>}
+      </div>
+
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Checklists &amp; tasks <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(internal)</span></h3>
+        {Object.keys(groups).length === 0 && <p style={{ opacity: 0.6 }}>No items yet — add one below.</p>}
+        {Object.entries(groups).map(([name, items]) => (
+          <div key={name} style={{ marginBottom: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 4 }}>{name} <span style={{ fontWeight: 400, opacity: 0.6 }}>({items.filter((i) => i.done).length}/{items.length})</span></div>
+            {items.map((t) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                <input type="checkbox" checked={t.done} onChange={() => toggle(t)} />
+                <span style={{ flex: 1, textDecoration: t.done ? 'line-through' : 'none', opacity: t.done ? 0.55 : 1 }}>{t.title}</span>
+                <select value={t.assignee_user_id || ''} onChange={(e) => assign(t, e.target.value)} style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 12 }}>
+                  <option value="">unassigned</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                </select>
+                <button style={{ ...btn(false), padding: '2px 8px' }} onClick={() => del(t)}>✕</button>
+              </div>
+            ))}
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div><label style={lbl}>Checklist</label>
+            <input list="checklist-names" style={{ ...inp, width: 150 }} value={nt.checklist} onChange={(e) => setNt({ ...nt, checklist: e.target.value })} />
+            <datalist id="checklist-names">{checklistNames.map((n) => <option key={n} value={n} />)}</datalist>
+          </div>
+          <div style={{ flex: 1, minWidth: 160 }}><label style={lbl}>New item</label>
+            <input style={inp} value={nt.title} onChange={(e) => setNt({ ...nt, title: e.target.value })} placeholder="e.g. Musician contacted? Tickets added?" onKeyDown={(e) => { if (e.key === 'Enter') addTask(); }} />
+          </div>
+          <div><label style={lbl}>Assign</label>
+            <select style={{ ...inp, width: 140 }} value={nt.assignee_user_id} onChange={(e) => setNt({ ...nt, assignee_user_id: e.target.value })}>
+              <option value="">unassigned</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+            </select>
+          </div>
+          <button style={btn(true)} onClick={addTask} disabled={!nt.title.trim()}>Add</button>
+        </div>
+      </div>
     </div>
   );
 }

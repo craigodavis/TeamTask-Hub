@@ -2621,6 +2621,21 @@ const MIGRATIONS = [
   `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS reminder_msg_month TEXT DEFAULT 'Hi {talent}! You are booked for {event} at {location} on {date} at {time}. We are excited to have you — reply if anything changes.'`,
   `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS reminder_msg_week TEXT DEFAULT 'Hi {talent} — one week out! {event} at {location} on {date} at {time}. Reply with any questions.'`,
   `ALTER TABLE scheduling_settings ADD COLUMN IF NOT EXISTS reminder_msg_day TEXT DEFAULT 'Hi {talent}, reminder: you are playing {event} at {location} tomorrow, {date} at {time}. See you there!'`,
+  // 100: event internal layer — notes (never promoted to WordPress) + tasks/checklists
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS internal_notes TEXT`,
+  `CREATE TABLE IF NOT EXISTS event_tasks (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    event_id      UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    checklist     VARCHAR(80) NOT NULL DEFAULT 'Checklist',
+    title         TEXT NOT NULL,
+    assignee_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    done          BOOLEAN NOT NULL DEFAULT false,
+    done_at       TIMESTAMPTZ,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_event_tasks_event ON event_tasks(event_id)`,
 ];
 
 export async function runMigrations() {
