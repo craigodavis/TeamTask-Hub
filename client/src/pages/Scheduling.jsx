@@ -340,6 +340,12 @@ function Builder() {
     try { const r = await apiPost('/builder/fill-from-last', { period_start: periodStart }); await load(periodStart); if (!r.copied) setErr('No published Square schedule found for the prior 2 weeks.'); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  const clearAll = async () => {
+    if (!window.confirm('Empty this pay period (both locations) so you can build from scratch?')) return;
+    setBusy(true);
+    try { await apiPost('/builder/clear', { period_start: periodStart }); await load(periodStart); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
   const hrsBadge = (tmid) => {
     const mh = data.member_hours[tmid] || { w1: 0, w2: 0 };
     const h = Math.round(week === 0 ? mh.w1 : mh.w2);
@@ -356,6 +362,7 @@ function Builder() {
         <strong style={{ fontSize: 13 }}>{data.period_start} → {data.period_end}</strong>
         <button onClick={() => load(addDays(periodStart, 14))} style={navBtn}>Next →</button>
         <button onClick={fill} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
+        <button onClick={clearAll} disabled={busy} style={{ ...navBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}>🗑 Clear</button>
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, margin: '0 2px 4px' }}>This pay period · 2 weeks ({data.period_start} → {data.period_end})</div>
