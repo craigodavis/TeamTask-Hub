@@ -370,15 +370,31 @@ router.get('/builder', async (req, res) => {
     const today = todayISO();
     // COMBINED forecast across both locations: actual for elapsed days, forecast for the rest.
     const growthBy = {}; for (const l of locs) growthBy[l.square_location_id] = computeGrowth(net[l.square_location_id] || {});
-    const forecast = {}, isActual = {};
+    const forecast = {}, isActual = {}, modelForecast = {}, actualSales = {};
     for (const d of days) {
-      let sum = 0, any = false;
+      let basis = 0, model = 0, act = 0, anyBasis = false, anyModel = false, anyAct = false;
       for (const l of locs) {
         const nn = net[l.square_location_id] || {};
-        const v = (d < today && Number.isFinite(nn[d])) ? nn[d] : dayForecast(nn, d, wLast, wYear, growthBy[l.square_location_id]);
-        if (Number.isFinite(v)) { sum += v; any = true; }
+        const m = dayForecast(nn, d, wLast, wYear, growthBy[l.square_location_id]);
+        if (Number.isFinite(m)) { model += m; anyModel = true; }
+        const a = (d < today && Number.isFinite(nn[d])) ? nn[d] : null;
+        if (a != null) { act += a; anyAct = true; }
+        const b = a != null ? a : m;
+        if (Number.isFinite(b)) { basis += b; anyBasis = true; }
       }
-      forecast[d] = any ? sum : null; isActual[d] = any && d < today;
+      forecast[d] = anyBasis ? basis : null;         // budget basis: actual where available
+      modelForecast[d] = anyModel ? model : null;    // pure model forecast (for accuracy)
+      actualSales[d] = anyAct ? act : null;
+      isActual[d] = anyAct && d < today;
+    }
+    // Actual labor SPENT per day (both locations, from timecards)
+    const actualLabor = {};
+    for (const r of (await query(
+      `SELECT v.work_date::text AS d, SUM(v.labor_cost) AS lab
+         FROM team_square.v_labor_daily v
+         JOIN locations l ON l.square_location_id = v.location_id AND l.company_id = $1
+        WHERE v.work_date BETWEEN $2 AND $3 GROUP BY 1`, [companyId, periodStart, periodEnd])).rows) {
+      actualLabor[r.d] = Number(r.lab);
     }
 
     // A draft per location; shifts from both, each tagged with its location.
@@ -412,7 +428,8 @@ router.get('/builder', async (req, res) => {
       period_start: periodStart, period_end: periodEnd, days,
       locations: locs.map((l) => ({ id: l.id, name: l.name })),
       drafts,
-      forecast, is_actual: isActual, today, shifts, roster: staff, member_hours: memberHours,
+      forecast, is_actual: isActual, model_forecast: modelForecast, actual_sales: actualSales, actual_labor: actualLabor,
+      today, shifts, roster: staff, member_hours: memberHours,
       settings: { target_labor_pct: Number(settings.target_labor_pct) },
     });
   } catch (e) { console.error('builder', e); res.status(500).json({ error: e.message }); }
