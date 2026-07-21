@@ -17,6 +17,13 @@ function weekStartOf(ds, dow = 3) {
   return addDays(ds, -diff);
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
+// Bi-weekly pay-period grid anchored to a real pay-period-start Wednesday.
+// Adjust BIWEEKLY_ANCHOR if payroll starts on a different Wednesday.
+const BIWEEKLY_ANCHOR = '2026-07-08';
+function periodStartOf(dateStr) {
+  const days = Math.floor((new Date(dateStr + 'T12:00:00') - new Date(BIWEEKLY_ANCHOR + 'T12:00:00')) / 86400000);
+  return addDays(BIWEEKLY_ANCHOR, Math.floor(days / 14) * 14);
+}
 
 async function ensureSettings(companyId) {
   await query(`INSERT INTO scheduling_settings (company_id) VALUES ($1) ON CONFLICT (company_id) DO NOTHING`, [companyId]);
@@ -357,8 +364,7 @@ router.get('/builder', async (req, res) => {
   try {
     const companyId = cId(req);
     const settings = await ensureSettings(companyId);
-    const dow = settings.week_start_dow ?? 3;
-    const periodStart = weekStartOf(req.query.week_start || todayISO(), dow);
+    const periodStart = periodStartOf(req.query.week_start || todayISO());
     const days = Array.from({ length: 14 }, (_, i) => addDays(periodStart, i));
     const periodEnd = days[13];
     const locs = await getLocations(companyId);
