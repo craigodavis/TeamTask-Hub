@@ -310,17 +310,18 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const toLocal = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
-    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '',
+    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
   const [uploading, setUploading] = useState(false);
   const setField = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const saveDetails = async () => {
     const body = {};
-    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url']) body[k] = f[k] === '' ? null : f[k];
+    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url']) body[k] = f[k] === '' ? null : f[k];
     await updateEvent(ev.id, body); setSavedD(true); setTimeout(() => setSavedD(false), 1200);
   };
   const onPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('image_url', url); await updateEvent(ev.id, { image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
+  const onSocialPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('social_image_url', url); await updateEvent(ev.id, { social_image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
   const loadPromo = () => getPromoTasks(ev.id).then((p) => setPromo(Array.isArray(p) ? p : [])).catch(() => {});
   const loadEmails = () => getEventEmails(ev.id).then((x) => setEmails(Array.isArray(x) ? x : [])).catch(() => {});
@@ -381,6 +382,14 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               <input type="file" accept="image/*" onChange={(e) => onPhoto(e.target.files[0])} />
               {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
               {f.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('image_url', ''); updateEvent(ev.id, { image_url: null }); }}>Remove</button>}
+            </div>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={lbl}>Social / Google image <span style={{ opacity: 0.5, fontWeight: 400 }}>(landscape 1200×900 for Google Business & FB posts; falls back to Photo)</span></label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {f.social_image_url && <img src={f.social_image_url} alt="" style={{ height: 60, borderRadius: 8, objectFit: 'cover' }} />}
+              <input type="file" accept="image/*" onChange={(e) => onSocialPhoto(e.target.files[0])} />
+              {f.social_image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('social_image_url', ''); updateEvent(ev.id, { social_image_url: null }); }}>Remove</button>}
             </div>
           </div>
         </div>
@@ -759,6 +768,7 @@ function PostPackage({ ev }) {
   const when = fmtDT(ev.start_at);
   const where = ev.location_name || '';
   const caption = `${ev.title}\n${when}${where ? ` · ${where}` : ''}${ev.cost != null ? ` · $${ev.cost}` : ''}\n\n${plain}`;
+  const gImg = ev.social_image_url || ev.image_url;
   const copy = (t, k) => { navigator.clipboard?.writeText(t || ''); setCopied(k); setTimeout(() => setCopied(''), 1200); };
   const Row = ({ k, label, val }) => (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 0', borderTop: '1px solid var(--border,#eee)' }}>
@@ -776,14 +786,19 @@ function PostPackage({ ev }) {
       <Row k="l" label="Where" val={where} />
       <Row k="d" label="Description" val={plain} />
       <Row k="c" label="Full caption" val={caption} />
-      {ev.image_url && (
+      {gImg && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--border,#eee)' }}>
-          <div style={{ width: 84, fontSize: 12, opacity: 0.6 }}>Image</div>
-          <img src={ev.image_url} alt="" style={{ height: 44, borderRadius: 6 }} />
-          <a href={ev.image_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>open / download</a>
-          <button style={{ ...btn(false), padding: '2px 8px', fontSize: 11 }} onClick={() => copy(ev.image_url, 'img')}>{copied === 'img' ? '✓' : 'Copy URL'}</button>
+          <div style={{ width: 84, fontSize: 12, opacity: 0.6 }}>Image{ev.social_image_url ? '' : ' (photo)'}</div>
+          <img src={gImg} alt="" style={{ height: 44, borderRadius: 6 }} />
+          <a href={gImg} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>open / download</a>
+          <button style={{ ...btn(false), padding: '2px 8px', fontSize: 11 }} onClick={() => copy(gImg, 'img')}>{copied === 'img' ? '✓' : 'Copy URL'}</button>
         </div>
       )}
+      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8, background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 8, lineHeight: 1.5 }}>
+        <b>Google Business post check:</b><br />
+        Title {ev.title.length}/58 {ev.title.length > 58 ? '⚠ trim it' : '✓'} · Caption {caption.length}/1500 {caption.length > 1500 ? '⚠ shorten' : '✓'} <span style={{ opacity: 0.6 }}>(first ~100 chars show before "Read more" — front-load the hook)</span><br />
+        Image: {ev.social_image_url ? '✓ landscape image set' : (ev.image_url ? '⚠ using the square/portrait Photo — add a 1200×900 “Social / Google image” above for a cleaner post' : 'none set')} · Suggested button: “Learn more” → event page.
+      </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <a href="https://www.facebook.com/events/create/" target="_blank" rel="noreferrer" style={lnk}>Create Facebook Event ↗</a>
         <a href="https://business.google.com/posts" target="_blank" rel="noreferrer" style={lnk}>Google Business post ↗</a>
