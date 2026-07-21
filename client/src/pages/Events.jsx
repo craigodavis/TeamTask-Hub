@@ -7,6 +7,7 @@ const lbl = { fontSize: 12, opacity: 0.7, fontWeight: 600, display: 'block', mar
 const btn = (primary) => ({ padding: '9px 16px', borderRadius: 8, border: primary ? 'none' : '1px solid var(--border,#ccc)', cursor: 'pointer', fontWeight: 600, background: primary ? '#7c2d3a' : 'transparent', color: primary ? '#fff' : 'inherit' });
 const money = (n) => (n == null ? '' : '$' + Number(n).toLocaleString());
 const fmtDT = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+const toLocalInput = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 
 export default function Events() {
   const [tab, setTab] = useState('events');
@@ -33,6 +34,7 @@ function EventsTab() {
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [users, setUsers] = useState([]);
+  const [view, setView] = useState('list');
   const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
 
   const onPhoto = async (file) => {
@@ -44,7 +46,7 @@ function EventsTab() {
 
   const load = useCallback(async () => {
     try {
-      const [e, m, l, u] = await Promise.all([getEvents('upcoming'), getMusicians(), getLocations(), getAssignableUsers()]);
+      const [e, m, l, u] = await Promise.all([getEvents('all'), getMusicians(), getLocations(), getAssignableUsers()]);
       setEvents(Array.isArray(e) ? e : []); setMusicians(Array.isArray(m) ? m : []);
       setLocations(Array.isArray(l) ? l : (l?.locations || [])); setUsers(Array.isArray(u) ? u : []);
     } catch (x) { setErr(x.message); }
@@ -77,6 +79,8 @@ function EventsTab() {
   const remove = async (id) => { if (window.confirm('Delete this event?')) { await deleteEvent(id); load(); } };
 
   if (selected) return <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={() => { setSelected(null); load(); }} />;
+
+  const upcoming = [...events].filter((e) => new Date(e.start_at) >= Date.now() - 864e5).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
 
   return (
     <div>
@@ -124,17 +128,27 @@ function EventsTab() {
         </div>
       </div>
 
-      <h3>Upcoming ({events.length})</h3>
-      {events.length === 0 && <p style={{ opacity: 0.6 }}>No upcoming events yet.</p>}
-      {events.map((e) => (
-        <div key={e.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <div onClick={() => setSelected(e)} style={{ cursor: 'pointer', flex: 1 }}>
-            <div style={{ fontWeight: 700 }}>{e.title} {e.status === 'published' ? <span style={{ fontSize: 11, color: '#137a2f' }}>● live</span> : <span style={{ fontSize: 11, opacity: 0.5 }}>draft</span>}</div>
-            <div style={{ fontSize: 13, opacity: 0.75 }}>{fmtDT(e.start_at)}{e.location_name ? ` · ${e.location_name}` : ''}{e.musician_name ? ` · 🎵 ${e.musician_name}${e.lift_pct != null ? ` (+${e.lift_pct}%)` : ''}` : ''}{e.cost != null ? ` · ${money(e.cost)}` : ''}</div>
+      <div style={{ display: 'flex', gap: 8, margin: '4px 0 14px' }}>
+        {[['list', 'List'], ['grid', 'Spreadsheet'], ['calendar', 'Calendar']].map(([k, l]) => (
+          <button key={k} onClick={() => setView(k)} style={{ ...btn(view === k), borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>{l}</button>
+        ))}
+      </div>
+
+      {view === 'list' && <>
+        <h3 style={{ marginTop: 0 }}>Upcoming ({upcoming.length})</h3>
+        {upcoming.length === 0 && <p style={{ opacity: 0.6 }}>No upcoming events.</p>}
+        {upcoming.map((e) => (
+          <div key={e.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div onClick={() => setSelected(e)} style={{ cursor: 'pointer', flex: 1 }}>
+              <div style={{ fontWeight: 700 }}>{e.title} {e.status === 'published' ? <span style={{ fontSize: 11, color: '#137a2f' }}>● live</span> : <span style={{ fontSize: 11, opacity: 0.5 }}>draft</span>}</div>
+              <div style={{ fontSize: 13, opacity: 0.75 }}>{fmtDT(e.start_at)}{e.location_name ? ` · ${e.location_name}` : ''}{e.musician_name ? ` · 🎵 ${e.musician_name}${e.lift_pct != null ? ` (+${e.lift_pct}%)` : ''}` : ''}{e.cost != null ? ` · ${money(e.cost)}` : ''}</div>
+            </div>
+            <button style={{ ...btn(false), padding: '5px 10px' }} onClick={() => remove(e.id)}>Delete</button>
           </div>
-          <button style={{ ...btn(false), padding: '5px 10px' }} onClick={() => remove(e.id)}>Delete</button>
-        </div>
-      ))}
+        ))}
+      </>}
+      {view === 'grid' && <SpreadsheetView events={events} musicians={musicians} locations={locations} onOpen={setSelected} onChanged={load} />}
+      {view === 'calendar' && <CalendarView events={events} onOpen={setSelected} />}
     </div>
   );
 }
@@ -368,6 +382,72 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           </div>
           <button style={btn(true)} onClick={addTask} disabled={!nt.title.trim()}>Add</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SpreadsheetView({ events, musicians, locations, onOpen, onChanged }) {
+  const sorted = [...events].sort((a, b) => new Date(b.start_at) - new Date(a.start_at));
+  const save = async (id, patch) => { await updateEvent(id, patch); onChanged && onChanged(); };
+  const th = { padding: '4px 6px', borderBottom: '2px solid var(--border,#ddd)', fontSize: 12, opacity: 0.6, textAlign: 'left' };
+  const td = { padding: '2px 6px', borderBottom: '1px solid var(--border,#eee)', fontSize: 13 };
+  const ci = { border: '1px solid transparent', background: 'transparent', fontSize: 13, padding: 3, color: 'inherit', width: '100%' };
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+        <thead><tr><th style={th}>Date/time</th><th style={th}>Title</th><th style={th}>Musician</th><th style={th}>Location</th><th style={th}>Status</th><th style={th}>Internal notes</th><th style={th}></th></tr></thead>
+        <tbody>
+          {sorted.map((e) => (
+            <tr key={e.id}>
+              <td style={td}><input type="datetime-local" style={{ ...ci, width: 170 }} defaultValue={toLocalInput(e.start_at)} onBlur={(ev) => ev.target.value && save(e.id, { start_at: ev.target.value })} /></td>
+              <td style={td}><input style={{ ...ci, minWidth: 160 }} defaultValue={e.title} onBlur={(ev) => save(e.id, { title: ev.target.value })} /></td>
+              <td style={td}><select style={ci} defaultValue={e.musician_id || ''} onChange={(ev) => save(e.id, { musician_id: ev.target.value || null })}><option value="">—</option>{musicians.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
+              <td style={td}><select style={ci} defaultValue={e.location_id || ''} onChange={(ev) => save(e.id, { location_id: ev.target.value || null })}><option value="">—</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></td>
+              <td style={td}><select style={{ ...ci, color: e.status === 'published' ? '#137a2f' : 'inherit' }} defaultValue={e.status} onChange={(ev) => save(e.id, { status: ev.target.value })}><option value="draft">draft</option><option value="published">live</option></select></td>
+              <td style={td}><input style={{ ...ci, minWidth: 140 }} defaultValue={e.internal_notes || ''} placeholder="…" onBlur={(ev) => save(e.id, { internal_notes: ev.target.value })} /></td>
+              <td style={td}><button style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }} onClick={() => onOpen(e)}>Open ›</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CalendarView({ events, onOpen }) {
+  const [month, setMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const first = new Date(month.y, month.m, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(month.y, month.m + 1, 0).getDate();
+  const byDay = {};
+  for (const e of events) { const d = new Date(e.start_at); const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; (byDay[key] ??= []).push(e); }
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const prev = () => setMonth((m) => (m.m - 1 < 0 ? { y: m.y - 1, m: 11 } : { y: m.y, m: m.m - 1 }));
+  const next = () => setMonth((m) => (m.m + 1 > 11 ? { y: m.y + 1, m: 0 } : { y: m.y, m: m.m + 1 }));
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <button style={{ ...btn(false), padding: '4px 10px' }} onClick={prev}>←</button>
+        <strong>{first.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</strong>
+        <button style={{ ...btn(false), padding: '4px 10px' }} onClick={next}>→</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} style={{ fontSize: 11, opacity: 0.6, textAlign: 'center' }}>{d}</div>)}
+        {cells.map((d, i) => {
+          if (d === null) return <div key={'e' + i} />;
+          const key = `${month.y}-${String(month.m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const evs = byDay[key] || [];
+          return (
+            <div key={i} style={{ minHeight: 80, border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 4, fontSize: 11 }}>
+              <div style={{ opacity: 0.5, textAlign: 'right' }}>{d}</div>
+              {evs.slice(0, 3).map((e) => <div key={e.id} onClick={() => onOpen(e)} title={e.title} style={{ cursor: 'pointer', background: e.status === 'published' ? '#e2f7e6' : '#eef0f4', color: '#333', borderRadius: 4, padding: '1px 4px', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.musician_name || e.title}</div>)}
+              {evs.length > 3 && <div style={{ opacity: 0.5, marginTop: 2 }}>+{evs.length - 3} more</div>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
