@@ -142,32 +142,42 @@ async function isLoggedIn(page) {
 async function login(page, email, password, otpSecret) {
   console.log('[amazon-sync] Starting login flow…');
 
-  await page.goto(`${AMAZON_BASE}/`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+  const debugDir = path.join(__dirname, '..', 'uploads', 'debug');
+  fs.mkdirSync(debugDir, { recursive: true });
 
-  // Click "Sign in" if on the business home page
-  const signInLink = page.locator('a[href*="signin"], a[data-nav-ref="nav_signin"]').first();
-  if (await signInLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await signInLink.click();
+  // Go STRAIGHT to Amazon's sign-in form (robust) rather than landing on
+  // business.amazon.com and hunting for a sign-in link. This is the flow the
+  // harvester connector uses and it reliably renders the email field.
+  await page.goto(
+    'https://www.amazon.com/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.com%2F&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=usflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0',
+    { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }
+  );
+  await page.screenshot({ path: path.join(debugDir, 'amazon-login-1.png') }).catch(() => {});
+
+  // Email step — tolerate both classic (#ap_email) and newer sign-in forms.
+  const emailInput = page.locator('#ap_email, input[type="email"], input[name="email"], input[placeholder*="email" i], input[placeholder*="mobile" i]').first();
+  try {
+    await emailInput.waitFor({ state: 'visible', timeout: LOGIN_TIMEOUT });
+  } catch (e) {
+    await page.screenshot({ path: path.join(debugDir, 'amazon-login-noemail.png') }).catch(() => {});
+    throw new Error(`Amazon sign-in form did not load (no email field). Amazon may be showing a bot check. URL: ${page.url()}`);
   }
-
-  // Email step
-  const emailInput = page.locator('#ap_email');
-  await emailInput.waitFor({ timeout: LOGIN_TIMEOUT });
   await emailInput.fill(email);
 
-  const continueBtn = page.locator('#continue');
+  const continueBtn = page.locator('#continue, input[type="submit"], button[type="submit"]').first();
   if (await continueBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
     await continueBtn.click();
   } else {
     await page.keyboard.press('Enter');
   }
+  await page.waitForLoadState('domcontentloaded', { timeout: LOGIN_TIMEOUT }).catch(() => {});
 
   // Password step
-  const passwordInput = page.locator('#ap_password');
-  await passwordInput.waitFor({ timeout: LOGIN_TIMEOUT });
+  const passwordInput = page.locator('#ap_password, input[type="password"]').first();
+  await passwordInput.waitFor({ state: 'visible', timeout: LOGIN_TIMEOUT });
   await passwordInput.fill(password);
 
-  const signInBtn = page.locator('#signInSubmit');
+  const signInBtn = page.locator('#signInSubmit, input[type="submit"], button[type="submit"]').first();
   await signInBtn.click();
 
   // Wait for navigation — success, captcha, or MFA prompt
