@@ -331,8 +331,24 @@ async function getOrCreateDraft(companyId, locationId, weekStart, userId) {
     `INSERT INTO schedule_drafts (company_id, location_id, week_start, status, created_by)
      VALUES ($1,$2,$3,'draft',$4)
      ON CONFLICT (company_id, location_id, week_start) DO UPDATE SET updated_at = NOW()
-     RETURNING *`, [companyId, locationId, weekStart, userId || null]);
+     RETURNING *, (xmax = 0) AS just_created`, [companyId, locationId, weekStart, userId || null]);
   return r.rows[0];
+}
+// Seed a new draft from the ACTUAL published Square schedule for the SAME period (not a template).
+async function seedDraftFromPublished(sid, draftId, periodStart, periodEnd) {
+  const pub = (await query(
+    `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at
+       FROM team_square.scheduled_shift
+      WHERE pub_location_id = $1 AND pub_is_deleted = false AND pub_start_at IS NOT NULL
+        AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4`,
+    [sid, TZ, periodStart, periodEnd])).rows;
+  for (const p of pub) {
+    const jt = (await query(`SELECT job_title FROM team_square.team_member_job_assignment WHERE job_id = $1 LIMIT 1`, [p.pub_job_id])).rows[0]?.job_title || null;
+    await query(
+      `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
+       VALUES ($1,$2,$3,$4,$5,$6,'published')`, [draftId, p.tmid, p.pub_job_id, jt, p.pub_start_at, p.pub_end_at]);
+  }
+  return pub.length;
 }
 const hrs = (s) => (new Date(s.end_at) - new Date(s.start_at)) / 3600000;
 
@@ -367,7 +383,11 @@ router.get('/builder', async (req, res) => {
 
     // A draft per location; shifts from both, each tagged with its location.
     const drafts = [];
-    for (const l of locs) { const dr = await getOrCreateDraft(companyId, l.id, periodStart, req.userId); drafts.push({ id: dr.id, location_id: l.id, location_name: l.name }); }
+    for (const l of locs) {
+      const dr = await getOrCreateDraft(companyId, l.id, periodStart, req.userId);
+      if (dr.just_created) await seedDraftFromPublished(l.square_location_id, dr.id, periodStart, periodEnd);
+      drafts.push({ id: dr.id, location_id: l.id, location_name: l.name });
+    }
     const shifts = (await query(
       `SELECT s.id, s.square_team_member_id AS tmid, s.square_job_id, s.job_title, s.start_at, s.end_at, s.source,
               d.location_id, l.name AS location_name, (s.start_at AT TIME ZONE $2)::date::text AS date
