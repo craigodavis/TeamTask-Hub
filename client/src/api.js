@@ -1956,3 +1956,20 @@ export async function deleteEventTask(taskId) {
   const res = await fetch(`${API}/events/tasks/${taskId}`, { method: 'DELETE', headers: headers() });
   const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
 }
+
+export async function getPromoTasks(eventId) {
+  const res = await fetch(`${API}/events/${eventId}/promo-tasks`, { headers: headers() });
+  const d = await res.json().catch(() => ([])); return res.ok ? d : [];
+}
+export async function createPromoTask(eventId, body) {
+  const res = await fetch(`${API}/events/${eventId}/promo-tasks`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
+}
+export async function updatePromoTask(taskId, body) {
+  const res = await fetch(`${API}/events/promo-tasks/${taskId}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
+}
+export async function deletePromoTask(taskId) {
+  const res = await fetch(`${API}/events/promo-tasks/${taskId}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
+}

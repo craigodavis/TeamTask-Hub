@@ -144,6 +144,52 @@ eventsRouter.delete('/tasks/:taskId', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ── Promotion ticklers (escalating reminders) ────────────────────────────────
+eventsRouter.get('/:id/promo-tasks', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT pt.id, pt.title, pt.channel, pt.assignee_user_id, pt.escalate_to, pt.done, pt.done_at, pt.reminders_sent, u.display_name AS assignee_name
+         FROM promo_tasks pt LEFT JOIN users u ON u.id = pt.assignee_user_id
+        WHERE pt.event_id = $1 AND pt.company_id = $2 ORDER BY pt.created_at`, [req.params.id, cId(req)]);
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/:id/promo-tasks', async (req, res) => {
+  try {
+    const { title, channel, assignee_user_id, escalate_to } = req.body || {};
+    if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+    const r = await query(
+      `INSERT INTO promo_tasks (company_id, event_id, title, channel, assignee_user_id, escalate_to)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [cId(req), req.params.id, title.trim(), channel || null, assignee_user_id || null, JSON.stringify(Array.isArray(escalate_to) ? escalate_to : [])]);
+    res.json({ id: r.rows[0].id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.patch('/promo-tasks/:tid', async (req, res) => {
+  try {
+    const b = req.body || {}, sets = [], vals = [];
+    const add = (c, v) => { vals.push(v); sets.push(`${c} = $${vals.length}`); };
+    if ('title' in b) add('title', b.title);
+    if ('channel' in b) add('channel', b.channel || null);
+    if ('assignee_user_id' in b) add('assignee_user_id', b.assignee_user_id || null);
+    if ('escalate_to' in b) add('escalate_to', JSON.stringify(Array.isArray(b.escalate_to) ? b.escalate_to : []));
+    if ('done' in b) { add('done', !!b.done); add('done_at', b.done ? new Date() : null); add('done_by', b.done ? (req.userId || null) : null); }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.tid, cId(req));
+    await query(`UPDATE promo_tasks SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND company_id = $${vals.length}`, vals);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.delete('/promo-tasks/:tid', async (req, res) => {
+  try {
+    await query(`DELETE FROM promo_tasks WHERE id = $1 AND company_id = $2`, [req.params.tid, cId(req)]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 eventsRouter.post('/', async (req, res) => {
   try {
     if (!req.body.title?.trim()) return res.status(400).json({ error: 'Title is required' });
