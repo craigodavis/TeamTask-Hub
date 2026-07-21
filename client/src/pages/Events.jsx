@@ -247,8 +247,7 @@ function MusiciansTab() {
               <div>
                 <div style={{ fontWeight: 700 }}>{m.name}{m.type && m.type !== 'musician' ? <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}> · {m.type}</span> : ''}{!m.phone ? <span style={{ fontSize: 11, color: '#c0392b' }}> · no phone</span> : ''}</div>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>
-                  {m.lift_pct != null ? `lift +${m.lift_pct}% · ${m.lift_nights}n` : 'no lift yet'}
-                  {m.rate_amount != null ? ` · ${money(m.rate_amount)}/${m.rate_unit || 'event'}` : ''}
+                  {m.rate_amount != null ? `${money(m.rate_amount)}/${m.rate_unit || 'event'}` : (m.phone || m.email || '—')}
                 </div>
               </div>
             </div>
