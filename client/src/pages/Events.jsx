@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -485,17 +485,50 @@ function CalendarView({ events, onOpen }) {
   );
 }
 
-function HtmlDesc({ value, onChange, onBlur }) {
-  const [preview, setPreview] = useState(false);
+function HtmlDesc({ value, onChange }) {
+  const ref = useRef(null);
+  const [source, setSource] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && document.activeElement !== el && el.innerHTML !== (value || '')) el.innerHTML = value || '';
+  }, [value, source]);
+  const exec = (cmd, arg) => { document.execCommand(cmd, false, arg); if (ref.current) { ref.current.focus(); onChange(ref.current.innerHTML); } };
+  const link = () => { const url = window.prompt('Link URL (https://…):'); if (url) exec('createLink', url); };
+  const tbBtn = { border: '1px solid var(--border,#ddd)', background: 'transparent', color: 'inherit', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 13, minWidth: 30 };
+  const tbSel = { border: '1px solid var(--border,#ddd)', borderRadius: 6, padding: '3px 4px', fontSize: 12, background: 'transparent', color: 'inherit' };
+  const B = ({ cmd, arg, title, onClick, children }) => (
+    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick || (() => exec(cmd, arg))} style={tbBtn}>{children}</button>
+  );
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <label style={lbl}>Description <span style={{ opacity: 0.5, fontWeight: 400 }}>(HTML allowed — renders on the website)</span></label>
-        <button type="button" style={{ ...btn(false), padding: '2px 10px', fontSize: 11 }} onClick={() => setPreview((p) => !p)}>{preview ? '‹ Edit HTML' : 'Preview ›'}</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <label style={lbl}>Description <span style={{ opacity: 0.5, fontWeight: 400 }}>(shows on the website)</span></label>
+        <button type="button" style={{ ...btn(false), padding: '2px 10px', fontSize: 11 }} onClick={() => setSource((s) => !s)}>{source ? '‹ Editor' : '</> HTML'}</button>
       </div>
-      {preview
-        ? <div style={{ ...inp, minHeight: 60, whiteSpace: 'normal', background: 'var(--card-bg,#fafafa)' }} dangerouslySetInnerHTML={{ __html: value || '<em style="opacity:.5">nothing yet</em>' }} />
-        : <textarea rows={5} style={{ ...inp, fontFamily: 'monospace', fontSize: 13 }} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} placeholder="<p>Join us for an evening of live music…</p>" />}
+      {source ? (
+        <textarea rows={6} style={{ ...inp, fontFamily: 'monospace', fontSize: 13 }} value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="<p>Join us…</p>" />
+      ) : (
+        <div style={{ border: '1px solid var(--border,#ccc)', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: 6, borderBottom: '1px solid var(--border,#eee)', background: 'var(--card-bg,#fafafa)' }}>
+            <B cmd="bold" title="Bold"><b>B</b></B>
+            <B cmd="italic" title="Italic"><i>I</i></B>
+            <B cmd="underline" title="Underline"><u>U</u></B>
+            <select title="Text style" onMouseDown={(e) => e.preventDefault()} onChange={(e) => { exec('formatBlock', e.target.value); e.target.selectedIndex = 0; }} style={tbSel}>
+              <option value="">Style…</option><option value="P">Normal</option><option value="H2">Heading</option><option value="H3">Subheading</option>
+            </select>
+            <select title="Size" onMouseDown={(e) => e.preventDefault()} onChange={(e) => { exec('fontSize', e.target.value); e.target.selectedIndex = 0; }} style={tbSel}>
+              <option value="">Size…</option><option value="2">Small</option><option value="3">Normal</option><option value="5">Large</option><option value="6">X-Large</option>
+            </select>
+            <B cmd="insertUnorderedList" title="Bullet list">• List</B>
+            <B cmd="insertOrderedList" title="Numbered list">1. List</B>
+            <B title="Add link" onClick={link}>🔗 Link</B>
+            <B cmd="unlink" title="Remove link">Unlink</B>
+            <B cmd="removeFormat" title="Clear formatting">Clear</B>
+          </div>
+          <div ref={ref} contentEditable suppressContentEditableWarning onInput={() => onChange(ref.current.innerHTML)}
+            style={{ minHeight: 120, padding: 10, fontSize: 15, outline: 'none', lineHeight: 1.5 }} />
+        </div>
+      )}
     </div>
   );
 }
