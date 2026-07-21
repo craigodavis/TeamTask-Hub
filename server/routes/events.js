@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
+import { syncEventToWp, removeEventFromWp } from '../lib/wpEventPush.js';
 
 const cId = (req) => req.companyId;
 
@@ -152,7 +153,9 @@ eventsRouter.post('/', async (req, res) => {
       cols.push(f); vals.push(req.body[f]); ph.push('$' + vals.length);
     }
     const r = await query(`INSERT INTO events (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING id`, vals);
-    res.json({ id: r.rows[0].id });
+    const id = r.rows[0].id;
+    if (req.body.status === 'published') syncEventToWp(cId(req), id).catch((e) => console.error('wp push (create)', e.message));
+    res.json({ id });
   } catch (e) { console.error('event create', e); res.status(500).json({ error: e.message }); }
 });
 
@@ -163,13 +166,21 @@ eventsRouter.patch('/:id', async (req, res) => {
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id, cId(req));
     await query(`UPDATE events SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length - 1} AND company_id = $${vals.length}`, vals);
+    // Reconcile the website copy: published → push/update; back to draft (with a prior push) → remove.
+    const ev = (await query(`SELECT status, wp_event_id FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (ev) {
+      if (ev.status === 'published') syncEventToWp(cId(req), req.params.id).catch((e) => console.error('wp push (update)', e.message));
+      else if (ev.wp_event_id) removeEventFromWp(cId(req), req.params.id, ev.wp_event_id).catch((e) => console.error('wp unpublish', e.message));
+    }
     res.json({ ok: true });
   } catch (e) { console.error('event patch', e); res.status(500).json({ error: e.message }); }
 });
 
 eventsRouter.delete('/:id', async (req, res) => {
   try {
+    const ev = (await query(`SELECT wp_event_id FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
     await query(`DELETE FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
+    if (ev?.wp_event_id) removeEventFromWp(cId(req), req.params.id, ev.wp_event_id).catch((e) => console.error('wp delete', e.message));
     res.json({ ok: true });
   } catch (e) { console.error('event delete', e); res.status(500).json({ error: e.message }); }
 });
