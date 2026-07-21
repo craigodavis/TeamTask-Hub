@@ -346,6 +346,12 @@ function Builder() {
     try { await apiPost('/builder/clear', { period_start: periodStart }); await load(periodStart); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  const pullSquare = async () => {
+    if (!window.confirm('Pull this period’s current published Square schedule (replaces the draft, both locations)?')) return;
+    setBusy(true);
+    try { const r = await apiPost('/builder/pull-from-square', { period_start: periodStart }); await load(periodStart); if (!r.copied) setErr('No published Square schedule found for this period yet.'); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
   const hrsBadge = (tmid) => {
     const mh = data.member_hours[tmid] || { w1: 0, w2: 0 };
     const h = Math.round(week === 0 ? mh.w1 : mh.w2);
@@ -361,7 +367,8 @@ function Builder() {
         <button onClick={() => load(addDays(periodStart, -14))} style={navBtn}>← Prev</button>
         <strong style={{ fontSize: 13 }}>{data.period_start} → {data.period_end}</strong>
         <button onClick={() => load(addDays(periodStart, 14))} style={navBtn}>Next →</button>
-        <button onClick={fill} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
+        <button onClick={pullSquare} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>⤓ Pull from Square</button>
+        <button onClick={fill} disabled={busy} style={{ ...navBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
         <button onClick={clearAll} disabled={busy} style={{ ...navBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}>🗑 Clear</button>
       </div>
 
