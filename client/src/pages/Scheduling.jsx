@@ -322,6 +322,7 @@ function Builder() {
   const planLabor = doneDays.reduce((a, d) => a + dayLabor(d), 0);
   const acLabor = doneDays.reduce((a, d) => a + (data.actual_labor?.[d] || 0), 0);
   const vpct = (act, base) => (base > 0 ? Math.round((act / base - 1) * 100) : null);
+  const periodPast = data.period_end < data.today;
 
   const reload = () => load(periodStart);
   const addShift = async (tmid, date, role) => {
@@ -369,7 +370,8 @@ function Builder() {
         <button onClick={() => load(addDays(periodStart, 14))} style={navBtn}>Next →</button>
         <button onClick={pullSquare} disabled={busy} style={{ ...navBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>⤓ Pull from Square</button>
         <button onClick={fill} disabled={busy} style={{ ...navBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}>📋 Fill from last period</button>
-        <button onClick={clearAll} disabled={busy} style={{ ...navBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}>🗑 Clear</button>
+        <button onClick={clearAll} disabled={busy || periodPast} title={periodPast ? 'Past pay periods are history — can’t clear' : 'Empty this period'}
+          style={{ ...navBtn, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: periodPast ? 0.4 : 1, cursor: periodPast ? 'not-allowed' : 'pointer' }}>🗑 Clear</button>
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, margin: '0 2px 4px' }}>This pay period · 2 weeks ({data.period_start} → {data.period_end})</div>
