@@ -489,6 +489,26 @@ router.post('/builder/fill-from-last', async (req, res) => {
   } catch (e) { console.error('fill-from-last', e); res.status(500).json({ error: e.message }); }
 });
 
+// POST /builder/pull-from-square — refresh the draft from THIS period's currently
+// published Square schedule (both locations). For the workflow where she still
+// authors in Square and uses this as a forecasting view.
+router.post('/builder/pull-from-square', async (req, res) => {
+  try {
+    const companyId = cId(req);
+    const { period_start } = req.body || {};
+    const periodEnd = addDays(period_start, 13);
+    const locs = await getLocations(companyId);
+    let copied = 0;
+    for (const l of locs) {
+      const draft = await getOrCreateDraft(companyId, l.id, period_start, req.userId);
+      await query(`DELETE FROM schedule_draft_shifts WHERE draft_id = $1`, [draft.id]);
+      copied += await seedDraftFromPublished(l.square_location_id, draft.id, period_start, periodEnd);
+      await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE id = $1`, [draft.id]);
+    }
+    res.json({ ok: true, copied });
+  } catch (e) { console.error('pull-from-square', e); res.status(500).json({ error: e.message }); }
+});
+
 // POST /builder/clear — empty both locations' drafts for the period (reset to blank).
 router.post('/builder/clear', async (req, res) => {
   try {
