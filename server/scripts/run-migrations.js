@@ -2657,6 +2657,43 @@ const MIGRATIONS = [
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_promo_tasks_event ON promo_tasks(event_id)`,
+  // 102: promotion contacts (orgs we email), email templates, and scheduled event emails
+  `CREATE TABLE IF NOT EXISTS promo_contacts (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name       VARCHAR(160) NOT NULL,
+    org        VARCHAR(160),
+    email      VARCHAR(200),
+    phone      VARCHAR(40),
+    website    TEXT,
+    role       VARCHAR(80),
+    notes      TEXT,
+    active     BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS promo_templates (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name       VARCHAR(160) NOT NULL,
+    subject    TEXT NOT NULL,
+    body_html  TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS promo_emails (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    event_id    UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    contact_id  UUID REFERENCES promo_contacts(id) ON DELETE CASCADE,
+    template_id UUID REFERENCES promo_templates(id) ON DELETE SET NULL,
+    send_at     TIMESTAMPTZ NOT NULL,
+    status      VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+    sent_at     TIMESTAMPTZ,
+    error       TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_promo_emails_due ON promo_emails(status, send_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_promo_emails_event ON promo_emails(event_id)`,
 ];
 
 export async function runMigrations() {

@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
 import { syncEventToWp, removeEventFromWp } from '../lib/wpEventPush.js';
+import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
 
 const cId = (req) => req.companyId;
 
@@ -188,6 +189,44 @@ eventsRouter.delete('/promo-tasks/:tid', async (req, res) => {
   try {
     await query(`DELETE FROM promo_tasks WHERE id = $1 AND company_id = $2`, [req.params.tid, cId(req)]);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Scheduled promotion emails on an event ───────────────────────────────────
+eventsRouter.get('/:id/emails', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT pe.id, pe.send_at, pe.status, pe.sent_at, pe.error, pe.contact_id, pe.template_id,
+              c.name AS contact_name, c.org, c.email AS contact_email, t.name AS template_name
+         FROM promo_emails pe
+         LEFT JOIN promo_contacts c ON c.id = pe.contact_id
+         LEFT JOIN promo_templates t ON t.id = pe.template_id
+        WHERE pe.event_id = $1 AND pe.company_id = $2 ORDER BY pe.send_at`, [req.params.id, cId(req)]);
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/:id/emails', async (req, res) => {
+  try {
+    const { contact_id, template_id, send_at } = req.body || {};
+    if (!contact_id || !send_at) return res.status(400).json({ error: 'Contact and send date are required' });
+    const r = await query(
+      `INSERT INTO promo_emails (company_id, event_id, contact_id, template_id, send_at) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [cId(req), req.params.id, contact_id, template_id || null, send_at]);
+    res.json({ id: r.rows[0].id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.delete('/emails/:eid', async (req, res) => {
+  try { await query(`DELETE FROM promo_emails WHERE id = $1 AND company_id = $2`, [req.params.eid, cId(req)]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/emails/:eid/send-now', async (req, res) => {
+  try {
+    const own = await query(`SELECT id FROM promo_emails WHERE id = $1 AND company_id = $2`, [req.params.eid, cId(req)]);
+    if (!own.rows.length) return res.status(404).json({ error: 'not found' });
+    res.json(await sendOnePromoEmail(req.params.eid));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 eventsRouter.post('/', async (req, res) => {

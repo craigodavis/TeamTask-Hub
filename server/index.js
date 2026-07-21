@@ -45,6 +45,8 @@ import { productInventoryRouter } from './routes/productInventory.js';
 import { schedulingRouter } from './routes/scheduling.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { eventsRouter, musiciansRouter } from './routes/events.js';
+import { promoRouter } from './routes/promo.js';
+import { startPromoEmailScheduler } from './lib/promoEmailSender.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -95,6 +97,7 @@ app.use('/api/scheduling', requireAuth, requireScheduleAccess, schedulingRouter)
 app.use('/api/feedback', feedbackRouter);                        // public — token + PIN, no login
 app.use('/api/events', requireAuth, requireScheduleAccess, eventsRouter);
 app.use('/api/musicians', requireAuth, requireScheduleAccess, musiciansRouter);
+app.use('/api/promo', requireAuth, requireScheduleAccess, promoRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
@@ -148,6 +151,7 @@ runMigrations()
     startFeedbackScheduler();
     startTalentReminderScheduler();
     startPromoReminderScheduler();
+    startPromoEmailScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -163,4 +167,5 @@ runMigrations()
     startFeedbackScheduler();
     startTalentReminderScheduler();
     startPromoReminderScheduler();
+    startPromoEmailScheduler();
   });
