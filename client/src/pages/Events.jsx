@@ -76,7 +76,7 @@ function EventsTab() {
 
   const remove = async (id) => { if (window.confirm('Delete this event?')) { await deleteEvent(id); load(); } };
 
-  if (selected) return <EventDetail ev={selected} users={users} onBack={() => { setSelected(null); load(); }} />;
+  if (selected) return <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={() => { setSelected(null); load(); }} />;
 
   return (
     <div>
@@ -249,11 +249,25 @@ function RemindersTab() {
   );
 }
 
-function EventDetail({ ev, users, onBack }) {
+function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [notes, setNotes] = useState(ev.internal_notes || '');
   const [tasks, setTasks] = useState([]);
   const [nt, setNt] = useState({ checklist: 'Final Checklist', title: '', assignee_user_id: '' });
   const [savedNotes, setSavedNotes] = useState(false);
+  const toLocal = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const [f, setF] = useState({
+    title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
+    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '',
+  });
+  const [savedD, setSavedD] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const setField = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  const saveDetails = async () => {
+    const body = {};
+    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url']) body[k] = f[k] === '' ? null : f[k];
+    await updateEvent(ev.id, body); setSavedD(true); setTimeout(() => setSavedD(false), 1200);
+  };
+  const onPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('image_url', url); await updateEvent(ev.id, { image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
   useEffect(() => { loadTasks(); }, [ev.id]);
 
@@ -271,8 +285,46 @@ function EventDetail({ ev, users, onBack }) {
     <div>
       <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>← Back to events</button>
       <div style={{ ...card, marginBottom: 16 }}>
-        <h2 style={{ margin: '0 0 2px' }}>{ev.title}</h2>
-        <div style={{ opacity: 0.7, fontSize: 13 }}>{fmtDT(ev.start_at)}{ev.location_name ? ` · ${ev.location_name}` : ''}{ev.musician_name ? ` · 🎵 ${ev.musician_name}` : ''} · <span style={{ color: ev.status === 'published' ? '#137a2f' : '#999' }}>{ev.status}</span></div>
+        <h3 style={{ marginTop: 0 }}>Event details</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
+          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Title</label><input style={inp} value={f.title} onChange={(e) => setField('title', e.target.value)} /></div>
+          <div><label style={lbl}>Starts</label><input type="datetime-local" style={inp} value={f.start_at} onChange={(e) => setField('start_at', e.target.value)} /></div>
+          <div><label style={lbl}>Ends</label><input type="datetime-local" style={inp} value={f.end_at} onChange={(e) => setField('end_at', e.target.value)} /></div>
+          <div><label style={lbl}>Musician</label>
+            <select style={inp} value={f.musician_id || ''} onChange={(e) => setField('musician_id', e.target.value)}>
+              <option value="">— none —</option>
+              {(musicians || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <div><label style={lbl}>Location</label>
+            <select style={inp} value={f.location_id || ''} onChange={(e) => setField('location_id', e.target.value)}>
+              <option value="">— select —</option>
+              {(locations || []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+          <div><label style={lbl}>Category</label><input style={inp} value={f.category} onChange={(e) => setField('category', e.target.value)} /></div>
+          <div><label style={lbl}>Cost</label><input type="number" style={inp} value={f.cost} onChange={(e) => setField('cost', e.target.value)} /></div>
+          <div><label style={lbl}>Status</label>
+            <select style={inp} value={f.status} onChange={(e) => setField('status', e.target.value)}>
+              <option value="draft">Draft (not on website)</option>
+              <option value="published">Published (to website)</option>
+            </select>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Description</label><textarea rows={2} style={inp} value={f.description} onChange={(e) => setField('description', e.target.value)} /></div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={lbl}>Photo</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {f.image_url && <img src={f.image_url} alt="" style={{ height: 70, borderRadius: 8, objectFit: 'cover' }} />}
+              <input type="file" accept="image/*" onChange={(e) => onPhoto(e.target.files[0])} />
+              {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
+              {f.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('image_url', ''); updateEvent(ev.id, { image_url: null }); }}>Remove</button>}
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button style={btn(true)} onClick={saveDetails}>Save details</button>
+          {savedD && <span style={{ marginLeft: 10, color: '#137a2f', fontWeight: 600 }}>✓ saved</span>}
+        </div>
       </div>
 
       <div style={{ ...card, marginBottom: 16 }}>
