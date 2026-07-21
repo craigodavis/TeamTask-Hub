@@ -306,6 +306,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [contacts, setContacts] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [ne, setNe] = useState({ contact_id: '', template_id: '', send_at: '' });
+  const [pkg, setPkg] = useState(false);
   const toLocal = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
@@ -433,8 +434,12 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
       </div>
 
       <div style={{ ...card, marginTop: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Promotion <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(escalating reminders)</span></h3>
-        <p style={{ fontSize: 12, opacity: 0.65, marginTop: 0 }}>The assignee is texted at <b>1 month / 3 weeks / 2 weeks / 1 week</b> before the event until they mark it done. From <b>2 weeks</b> out, an incomplete task also texts the escalation group + managers.</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0 }}>Promotion <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(escalating reminders)</span></h3>
+          <button style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }} onClick={() => setPkg((p) => !p)}>📦 {pkg ? 'Hide package' : 'Package for posting'}</button>
+        </div>
+        {pkg && <PostPackage ev={ev} />}
+        <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>The assignee is texted at <b>1 month / 3 weeks / 2 weeks / 1 week</b> before the event until they mark it done. From <b>2 weeks</b> out, an incomplete task also texts the escalation group + managers.</p>
         {promo.length === 0 && <p style={{ opacity: 0.6 }}>No promotion tasks yet — add one below (e.g. "Post to Facebook Events").</p>}
         {promo.map((t) => (
           <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--border,#eee)' }}>
@@ -743,6 +748,47 @@ function TemplatesSub() {
             <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => del(t.id)}>Delete</button>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function PostPackage({ ev }) {
+  const [copied, setCopied] = useState('');
+  const plain = (ev.description || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
+  const when = fmtDT(ev.start_at);
+  const where = ev.location_name || '';
+  const caption = `${ev.title}\n${when}${where ? ` · ${where}` : ''}${ev.cost != null ? ` · $${ev.cost}` : ''}\n\n${plain}`;
+  const copy = (t, k) => { navigator.clipboard?.writeText(t || ''); setCopied(k); setTimeout(() => setCopied(''), 1200); };
+  const Row = ({ k, label, val }) => (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 0', borderTop: '1px solid var(--border,#eee)' }}>
+      <div style={{ width: 84, fontSize: 12, opacity: 0.6, flexShrink: 0 }}>{label}</div>
+      <div style={{ flex: 1, fontSize: 13, whiteSpace: 'pre-wrap' }}>{val || '—'}</div>
+      <button style={{ ...btn(false), padding: '2px 8px', fontSize: 11, flexShrink: 0 }} onClick={() => copy(val, k)}>{copied === k ? '✓' : 'Copy'}</button>
+    </div>
+  );
+  const lnk = { ...btn(false), textDecoration: 'none', fontSize: 12, padding: '5px 10px' };
+  return (
+    <div style={{ marginTop: 12, background: 'var(--card-bg,#fafafa)', border: '1px solid var(--border,#eee)', borderRadius: 8, padding: 12 }}>
+      <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>Copy-ready bundle for manual posting (Facebook Event, Google Business, web forms). Facebook Events must be created by hand — this makes it ~30 seconds.</p>
+      <Row k="t" label="Title" val={ev.title} />
+      <Row k="w" label="When" val={when} />
+      <Row k="l" label="Where" val={where} />
+      <Row k="d" label="Description" val={plain} />
+      <Row k="c" label="Full caption" val={caption} />
+      {ev.image_url && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--border,#eee)' }}>
+          <div style={{ width: 84, fontSize: 12, opacity: 0.6 }}>Image</div>
+          <img src={ev.image_url} alt="" style={{ height: 44, borderRadius: 6 }} />
+          <a href={ev.image_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>open / download</a>
+          <button style={{ ...btn(false), padding: '2px 8px', fontSize: 11 }} onClick={() => copy(ev.image_url, 'img')}>{copied === 'img' ? '✓' : 'Copy URL'}</button>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        <a href="https://www.facebook.com/events/create/" target="_blank" rel="noreferrer" style={lnk}>Create Facebook Event ↗</a>
+        <a href="https://business.google.com/posts" target="_blank" rel="noreferrer" style={lnk}>Google Business post ↗</a>
+        <a href="https://www.eventbrite.com/create" target="_blank" rel="noreferrer" style={lnk}>Eventbrite ↗</a>
+        <a href="https://www.bandsintown.com/artist-signup" target="_blank" rel="noreferrer" style={lnk}>Bandsintown ↗</a>
       </div>
     </div>
   );
