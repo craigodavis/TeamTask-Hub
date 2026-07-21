@@ -192,7 +192,17 @@ function MusiciansTab() {
   const load = useCallback(async () => { try { setList(await getMusicians()); } catch (x) { setErr(x.message); } }, []);
   useEffect(() => { load(); }, [load]);
 
-  const blank = { name: '', type: 'musician', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', main_contact: '', write_check_to: '', address: '', notes: '' };
+  const blank = { name: '', type: 'musician', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', main_contact: '', write_check_to: '', address: '', notes: '', active: true };
+  const [filter, setFilter] = useState({ status: 'all', phone: 'all' });
+  const toggleActive = async (m) => { await updateMusician(m.id, { active: !m.active }); load(); };
+  const mfsel = { padding: '5px 7px', borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 13, background: 'transparent', color: 'inherit' };
+  const filtered = list.filter((m) => {
+    if (filter.status === 'active' && !m.active) return false;
+    if (filter.status === 'inactive' && m.active) return false;
+    if (filter.phone === 'has' && !m.phone) return false;
+    if (filter.phone === 'no' && m.phone) return false;
+    return true;
+  });
   const save = async () => {
     try {
       const body = { ...form }; Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
@@ -233,6 +243,10 @@ function MusiciansTab() {
             <div><label style={lbl}>Write check to <span style={{ opacity: 0.5, fontWeight: 400 }}>(defaults to main contact)</span></label><input style={inp} value={form.write_check_to || ''} onChange={(e) => setForm({ ...form, write_check_to: e.target.value })} placeholder={form.main_contact || ''} /></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Address</label><textarea rows={2} style={inp} value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Notes</label><textarea rows={2} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+            <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.active !== false} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+              <span style={{ fontWeight: 600, fontSize: 13 }}>Active</span>
+            </label>
           </div>
           {err && <p style={{ color: 'crimson' }}>{err}</p>}
           <div style={{ marginTop: 12 }}>
@@ -242,17 +256,28 @@ function MusiciansTab() {
           </div>
         </div>
       )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <select style={mfsel} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
+          <option value="all">All statuses</option><option value="active">Active only</option><option value="inactive">Inactive only</option>
+        </select>
+        <select style={mfsel} value={filter.phone} onChange={(e) => setFilter({ ...filter, phone: e.target.value })}>
+          <option value="all">Any phone</option><option value="has">Has phone</option><option value="no">No phone</option>
+        </select>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{filtered.length} talent</span>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 }}>
-        {list.map((m) => (
-          <div key={m.id} style={{ ...card, cursor: 'pointer' }} onClick={() => setForm({ ...m, rate_amount: m.rate_amount ?? '' })}>
+        {filtered.map((m) => (
+          <div key={m.id} style={{ ...card, opacity: m.active ? 1 : 0.6 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               {m.photo_url ? <img src={m.photo_url} alt="" style={{ width: 44, height: 44, borderRadius: 22, objectFit: 'cover' }} /> : <div style={{ width: 44, height: 44, borderRadius: 22, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎵</div>}
-              <div>
+              <div onClick={() => setForm({ ...m, rate_amount: m.rate_amount ?? '' })} style={{ cursor: 'pointer', flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{m.name}{m.type && m.type !== 'musician' ? <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}> · {m.type}</span> : ''}{!m.phone ? <span style={{ fontSize: 11, color: '#c0392b' }}> · no phone</span> : ''}</div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>
-                  {m.rate_amount != null ? `${money(m.rate_amount)}/${m.rate_unit || 'event'}` : (m.phone || m.email || '—')}
-                </div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>{m.rate_amount != null ? `${money(m.rate_amount)}/${m.rate_unit || 'event'}` : (m.phone || m.email || '—')}</div>
               </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: m.active ? '#e2f7e6' : '#eee', color: m.active ? '#137a2f' : '#777' }}>{m.active ? 'Active' : 'Inactive'}</span>
+              <button style={{ ...btn(false), padding: '2px 8px', fontSize: 11 }} onClick={() => toggleActive(m)}>{m.active ? 'Deactivate' : 'Activate'}</button>
             </div>
           </div>
         ))}
