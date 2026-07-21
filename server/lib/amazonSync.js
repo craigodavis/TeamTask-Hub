@@ -13,10 +13,19 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { TOTP, Secret } from 'otpauth';
 import { query } from '../db.js';
 import { loadReceiptContext, processReceiptPDF } from './processReceiptPDF.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Generate a current 6-digit TOTP code from an Amazon authenticator-app secret
+// (the base32 key Amazon shows under "Can't scan the barcode?"). Spaces ok.
+function generateOtp(secret) {
+  const clean = String(secret).replace(/\s+/g, '').toUpperCase();
+  const totp = new TOTP({ issuer: 'Amazon', algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(clean) });
+  return totp.generate();
+}
 
 // Where Playwright session state is persisted per company
 const SESSION_DIR = path.join(__dirname, '..', 'uploads', 'amazon_sessions');
@@ -130,7 +139,7 @@ async function isLoggedIn(page) {
  * Perform a full login to Amazon Business.
  * Throws if login fails or if MFA/CAPTCHA is encountered.
  */
-async function login(page, email, password) {
+async function login(page, email, password, otpSecret) {
   console.log('[amazon-sync] Starting login flow…');
 
   await page.goto(`${AMAZON_BASE}/`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
@@ -171,9 +180,33 @@ async function login(page, email, password) {
     throw new Error('Amazon is showing a CAPTCHA — manual login required. Visit Amazon Business and complete the CAPTCHA, then retry.');
   }
 
-  // Check for MFA / OTP
-  if (url.includes('mfa') || url.includes('ap/cvf') || url.includes('ap/signin?') || await page.$('#auth-mfa-otpcode')) {
-    throw new Error('Amazon requires two-factor authentication. Please log in manually to establish a session, then retry.');
+  // MFA / OTP — enter the authenticator code automatically instead of bailing.
+  const otpField = page.locator('#auth-mfa-otpcode, input[name="otpCode"], #cvf-input-code').first();
+  if (await otpField.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (!otpSecret) {
+      throw new Error('Amazon requires a 2FA code but no authenticator secret is configured. Add it in Settings → Integrations.');
+    }
+    console.log('[amazon-sync] 2FA prompt detected — entering authenticator code…');
+    const remember = page.locator('#auth-mfa-remember-device').first();
+    if (await remember.isVisible({ timeout: 2000 }).catch(() => false)) await remember.check().catch(() => {});
+
+    let ok = false;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const code = generateOtp(otpSecret);
+      await otpField.fill('');
+      await otpField.fill(code);
+      const submit = page.locator('#auth-signin-button, input[type="submit"], button[type="submit"]').first();
+      await submit.click().catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: LOGIN_TIMEOUT }).catch(() => {});
+      await page.waitForTimeout(1500);
+      const stillPrompting = await page.locator('#auth-mfa-otpcode, input[name="otpCode"], #cvf-input-code').first()
+        .isVisible({ timeout: 2000 }).catch(() => false);
+      if (!stillPrompting) { ok = true; break; }
+      console.warn(`[amazon-sync] 2FA code rejected (attempt ${attempt}) — retrying…`);
+      await page.waitForTimeout(2000);
+    }
+    if (!ok) throw new Error('Amazon 2FA failed — the authenticator secret may be wrong. Check Settings → Integrations.');
+    console.log('[amazon-sync] 2FA passed.');
   }
 
   // Check for error message
@@ -413,10 +446,11 @@ export async function runAmazonSync(companyId) {
 
   // 1. Load credentials
   const credRow = await query(
-    `SELECT amazon_email, amazon_password FROM company_integrations WHERE company_id = $1`,
+    `SELECT amazon_email, amazon_password, amazon_otp_secret FROM company_integrations WHERE company_id = $1`,
     [companyId]
   );
   const creds = credRow.rows[0];
+  const otpSecret = process.env.AMAZON_OTP_SECRET || creds?.amazon_otp_secret || null;
   if (!creds?.amazon_email || !creds?.amazon_password) {
     throw new Error('Amazon Business credentials not configured. Add email and password in Settings → Integrations.');
   }
@@ -465,7 +499,7 @@ export async function runAmazonSync(companyId) {
     if (!alreadyIn) {
       console.log('[amazon-sync] Session expired or not found — logging in…');
       clearSession(companyId);
-      await login(page, creds.amazon_email, creds.amazon_password);
+      await login(page, creds.amazon_email, creds.amazon_password, otpSecret);
       // Save new session
       const state = await context.storageState();
       await saveSession(companyId, state);
@@ -482,7 +516,7 @@ export async function runAmazonSync(companyId) {
       if (alreadyIn) {
         console.warn('[amazon-sync] CSV download failed with saved session — attempting fresh login…');
         clearSession(companyId);
-        await login(page, creds.amazon_email, creds.amazon_password);
+        await login(page, creds.amazon_email, creds.amazon_password, otpSecret);
         const state = await context.storageState();
         await saveSession(companyId, state);
         csvText = await downloadOrderHistoryCSV(page, fromDate, toDate);
@@ -577,6 +611,13 @@ export async function runAmazonSync(companyId) {
 export async function testAmazonLogin(companyId, email, password) {
   clearSession(companyId);
 
+  // Load the stored authenticator secret so the test exercises 2FA end-to-end.
+  let otpSecret = process.env.AMAZON_OTP_SECRET || null;
+  if (!otpSecret) {
+    const r = await query(`SELECT amazon_otp_secret FROM company_integrations WHERE company_id = $1`, [companyId]);
+    otpSecret = r.rows[0]?.amazon_otp_secret || null;
+  }
+
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -588,7 +629,7 @@ export async function testAmazonLogin(companyId, email, password) {
   const page = await context.newPage();
 
   try {
-    await login(page, email, password);
+    await login(page, email, password, otpSecret);
     // Save session so the next real sync doesn't need to log in again
     const state = await context.storageState();
     await saveSession(companyId, state);

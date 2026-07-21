@@ -1,0 +1,9 @@
+2026/06/18-22:21:30.157 2cee2e Reusing MANIFEST /Users/kindred/Dev/teamHub/server/uploads/sysco_profiles/8d2df498-b5c0-4f73-94cd-323956036113/Default/Session Storage/MANIFEST-000001
+2026/06/18-22:21:30.158 2cee2e Recovering log #4
+2026/06/18-22:21:30.160 2cee2e Level-0 table #6: started
+2026/06/18-22:21:30.166 2cee2e Level-0 table #6: 49823 bytes OK
+2026/06/18-22:21:30.167 2cee2e Recovering log #5
+2026/06/18-22:21:30.167 2cee2e Reusing old log /Users/kindred/Dev/teamHub/server/uploads/sysco_profiles/8d2df498-b5c0-4f73-94cd-323956036113/Default/Session Storage/000005.log 
+2026/06/18-22:21:30.171 2cee2e Delete type=0 #4
+2026/06/18-22:21:56.227 2cee30 Level-0 table #8: started
+2026/06/18-22:21:56.307 2cee30 Level-0 table #8: 50242 bytes OK

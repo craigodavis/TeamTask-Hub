@@ -2636,6 +2636,11 @@ const MIGRATIONS = [
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_event_tasks_event ON event_tasks(event_id)`,
+
+  // Amazon authenticator (TOTP) secret — lets the harvester log into Amazon
+  // Business fully automatically (username + password + generated 2FA code),
+  // ending the manual cookie-capture / daily "session expired" cycle.
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS amazon_otp_secret TEXT`,
 ];
 
 export async function runMigrations() {
