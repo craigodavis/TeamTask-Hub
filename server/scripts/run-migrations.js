@@ -2641,6 +2641,22 @@ const MIGRATIONS = [
   // Business fully automatically (username + password + generated 2FA code),
   // ending the manual cookie-capture / daily "session expired" cycle.
   `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS amazon_otp_secret TEXT`,
+  // 101: promo_tasks — manual-assist promotion ticklers with escalating SMS reminders
+  `CREATE TABLE IF NOT EXISTS promo_tasks (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    event_id       UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    title          TEXT NOT NULL,
+    channel        VARCHAR(40),
+    assignee_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    escalate_to    JSONB NOT NULL DEFAULT '[]'::jsonb,
+    done           BOOLEAN NOT NULL DEFAULT false,
+    done_at        TIMESTAMPTZ,
+    done_by        UUID REFERENCES users(id) ON DELETE SET NULL,
+    reminders_sent JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_promo_tasks_event ON promo_tasks(event_id)`,
 ];
 
 export async function runMigrations() {

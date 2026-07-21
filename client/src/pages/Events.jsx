@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -300,6 +300,8 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [tasks, setTasks] = useState([]);
   const [nt, setNt] = useState({ checklist: 'Final Checklist', title: '', assignee_user_id: '' });
   const [savedNotes, setSavedNotes] = useState(false);
+  const [promo, setPromo] = useState([]);
+  const [np, setNp] = useState({ title: 'Post to Facebook Events', channel: 'facebook_event', assignee_user_id: '', escalate_to: [] });
   const toLocal = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
@@ -315,7 +317,12 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   };
   const onPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('image_url', url); await updateEvent(ev.id, { image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
-  useEffect(() => { loadTasks(); }, [ev.id]);
+  const loadPromo = () => getPromoTasks(ev.id).then((p) => setPromo(Array.isArray(p) ? p : [])).catch(() => {});
+  useEffect(() => { loadTasks(); loadPromo(); }, [ev.id]);
+  const addPromo = async () => { if (!np.title.trim()) return; await createPromoTask(ev.id, np); setNp({ ...np, title: '' }); loadPromo(); };
+  const togglePromo = async (t) => { await updatePromoTask(t.id, { done: !t.done }); loadPromo(); };
+  const delPromo = async (t) => { await deletePromoTask(t.id); loadPromo(); };
+  const toggleEsc = (uid) => setNp((n) => ({ ...n, escalate_to: n.escalate_to.includes(uid) ? n.escalate_to.filter((x) => x !== uid) : [...n.escalate_to, uid] }));
 
   const saveNotes = async () => { await updateEvent(ev.id, { internal_notes: notes }); setSavedNotes(true); setTimeout(() => setSavedNotes(false), 1200); };
   const addTask = async () => { if (!nt.title.trim()) return; await createEventTask(ev.id, nt); setNt({ ...nt, title: '' }); loadTasks(); };
@@ -413,6 +420,46 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
             </select>
           </div>
           <button style={btn(true)} onClick={addTask} disabled={!nt.title.trim()}>Add</button>
+        </div>
+      </div>
+
+      <div style={{ ...card, marginTop: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Promotion <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(escalating reminders)</span></h3>
+        <p style={{ fontSize: 12, opacity: 0.65, marginTop: 0 }}>The assignee is texted at <b>1 month / 3 weeks / 2 weeks / 1 week</b> before the event until they mark it done. From <b>2 weeks</b> out, an incomplete task also texts the escalation group + managers.</p>
+        {promo.length === 0 && <p style={{ opacity: 0.6 }}>No promotion tasks yet — add one below (e.g. "Post to Facebook Events").</p>}
+        {promo.map((t) => (
+          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--border,#eee)' }}>
+            <input type="checkbox" checked={t.done} onChange={() => togglePromo(t)} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, textDecoration: t.done ? 'line-through' : 'none', opacity: t.done ? 0.55 : 1 }}>{t.title}</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>{t.assignee_name ? `→ ${t.assignee_name}` : 'unassigned'}{t.done ? ' · done ✓' : ((t.reminders_sent || []).length ? ` · ${(t.reminders_sent || []).length} reminder(s) sent` : ' · reminders scheduled')}</div>
+            </div>
+            <button style={{ ...btn(false), padding: '2px 8px' }} onClick={() => delPromo(t)}>✕</button>
+          </div>
+        ))}
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--border,#eee)', paddingTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
+            <div><label style={lbl}>Task</label>
+              <input list="promo-presets" style={inp} value={np.title} onChange={(e) => setNp({ ...np, title: e.target.value })} />
+              <datalist id="promo-presets"><option value="Post to Facebook Events" /><option value="Post to Instagram" /><option value="Post to TikTok" /><option value="Email Destination Caldwell" /><option value="Submit to Idaho Press calendar" /><option value="Update Bandsintown" /><option value="Submit to Eventbrite" /></datalist>
+            </div>
+            <div><label style={lbl}>Assignee (marketing)</label>
+              <select style={inp} value={np.assignee_user_id} onChange={(e) => setNp({ ...np, assignee_user_id: e.target.value })}>
+                <option value="">— select —</option>{users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <label style={lbl}>Escalation group <span style={{ opacity: 0.5, fontWeight: 400 }}>(also texted from 2 weeks out; managers always included)</span></label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
+              {users.map((u) => (
+                <label key={u.id} style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input type="checkbox" checked={np.escalate_to.includes(u.id)} onChange={() => toggleEsc(u.id)} />{u.display_name}
+                </label>
+              ))}
+            </div>
+          </div>
+          <button style={{ ...btn(true), marginTop: 12 }} disabled={!np.title.trim()} onClick={addPromo}>Add promotion task</button>
         </div>
       </div>
     </div>
