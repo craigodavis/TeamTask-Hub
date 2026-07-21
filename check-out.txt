@@ -1,0 +1,10 @@
+Chef Store pending receipts: 79
+First receipt: {
+  "id": "b5470ad7-3e16-43cc-9ea7-168114285c82",
+  "order_number": "75840110137677",
+  "item_count": "7",
+  "uncategorized_count": "0",
+  "status": "pending",
+  "descriptions": "CHEESE,MOZZ LOG LOW (CHEESE, MOZZARELLA, FRESH) · CHEESE,PARM WDG BAG (CHEESE, PARMESAN, BULK, REFRI"
+}
+RECEIPT_ID=b5470ad7-3e16-43cc-9ea7-168114285c82

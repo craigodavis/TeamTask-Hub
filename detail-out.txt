@@ -1,0 +1,9 @@
+Receipt: 75840110137677 Chef Store pending
+Items:
+ - CHEESE,MOZZ LOG LOW (CHEESE, MOZZARELLA, FRESH) | account: Grocery | status: pending
+ - CHEESE,PARM WDG BAG (CHEESE, PARMESAN, BULK, REFRIGERATED) | account: Grocery | status: pending
+ - CHEESE,PARM WDG BAG (CHEESE, PARMESAN, BULK, REFRIGERATED) | account: Grocery | status: pending
+ - CHS,MOZZ WHL MILK 1 (CHEESE, MOZZARELLA, FRESH) | account: Grocery | status: pending
+ - CHS,MOZZ WHL MILK 1 (CHEESE, MOZZARELLA, FRESH) | account: Grocery | status: pending
+ - CHS,MOZZ WHL MILK 1 (CHEESE, MOZZARELLA, FRESH) | account: Grocery | status: pending
+ - CHS,MOZZ WHL MILK 1 (CHEESE, MOZZARELLA, FRESH) | account: Grocery | status: pending

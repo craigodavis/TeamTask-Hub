@@ -403,33 +403,38 @@ router.get('/amazon', requireOwner, async (req, res) => {
   try {
     const r = await query(
       `SELECT amazon_email,
-              amazon_password IS NOT NULL AND amazon_password != '' AS amazon_configured
+              amazon_password   IS NOT NULL AND amazon_password   != '' AS amazon_configured,
+              amazon_otp_secret IS NOT NULL AND amazon_otp_secret != '' AS amazon_otp_configured
        FROM company_integrations WHERE company_id = $1`,
       [companyId(req)]
     );
     const row = r.rows[0];
     res.json({
-      amazon_email:       row?.amazon_email       || '',
-      amazon_configured:  !!row?.amazon_configured,
+      amazon_email:          row?.amazon_email       || '',
+      amazon_configured:     !!row?.amazon_configured,
+      amazon_otp_configured: !!row?.amazon_otp_configured,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /settings/amazon — save email + password
+// PUT /settings/amazon — save email + password + authenticator (TOTP) secret
 router.put('/amazon', requireOwner, async (req, res) => {
-  const { amazon_email, amazon_password } = req.body ?? {};
+  const { amazon_email, amazon_password, amazon_otp_secret } = req.body ?? {};
+  // Store the OTP secret compactly (strip spaces) so TOTP generation is reliable.
+  const otp = typeof amazon_otp_secret === 'string' ? amazon_otp_secret.replace(/\s+/g, '') : '';
   try {
     await query(
-      `INSERT INTO company_integrations (company_id, amazon_email, amazon_password, updated_by)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO company_integrations (company_id, amazon_email, amazon_password, amazon_otp_secret, updated_by)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (company_id) DO UPDATE SET
-         amazon_email    = COALESCE(NULLIF($2,''), company_integrations.amazon_email),
-         amazon_password = COALESCE(NULLIF($3,''), company_integrations.amazon_password),
-         updated_at      = NOW(),
-         updated_by      = $4`,
-      [companyId(req), amazon_email?.trim() || null, amazon_password || null, req.userId]
+         amazon_email      = COALESCE(NULLIF($2,''), company_integrations.amazon_email),
+         amazon_password   = COALESCE(NULLIF($3,''), company_integrations.amazon_password),
+         amazon_otp_secret = COALESCE(NULLIF($4,''), company_integrations.amazon_otp_secret),
+         updated_at        = NOW(),
+         updated_by        = $5`,
+      [companyId(req), amazon_email?.trim() || null, amazon_password || null, otp || null, req.userId]
     );
     res.json({ ok: true });
   } catch (err) {

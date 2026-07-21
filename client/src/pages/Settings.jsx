@@ -342,6 +342,7 @@ export function Settings() {
   const [amazonSettings, setAmazonSettings]   = useState(null);
   const [amazonEmail, setAmazonEmail]         = useState('');
   const [amazonPassword, setAmazonPassword]   = useState('');
+  const [amazonOtp, setAmazonOtp]             = useState('');
   const [amazonSaving, setAmazonSaving]       = useState(false);
   const [amazonTesting, setAmazonTesting]     = useState(false);
   const [amazonTestResult, setAmazonTestResult] = useState('');
@@ -1159,9 +1160,11 @@ export function Settings() {
                   const body = {};
                   if (amazonEmail.trim()) body.amazon_email = amazonEmail.trim();
                   if (amazonPassword.trim()) body.amazon_password = amazonPassword.trim();
+                  if (amazonOtp.trim()) body.amazon_otp_secret = amazonOtp.trim();
                   await putAmazonSettings(body);
                   setMessage('Amazon Business settings saved.');
                   setAmazonPassword('');
+                  setAmazonOtp('');
                   const fresh = await getAmazonSettings();
                   setAmazonSettings(fresh);
                   setAmazonEmail(fresh.amazon_email || '');
@@ -1192,9 +1195,24 @@ export function Settings() {
               {amazonSettings?.amazon_configured && (
                 <p className="test-result success" style={{ marginBottom: 0 }}>✓ Password is configured</p>
               )}
+              <label>
+                Authenticator (2FA) secret
+                <input
+                  type="password"
+                  placeholder={amazonSettings?.amazon_otp_configured ? 'Leave blank to keep current' : 'e.g. JBSWY3DPEHPK3PXP'}
+                  value={amazonOtp}
+                  onChange={(e) => setAmazonOtp(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              {amazonSettings?.amazon_otp_configured && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ Authenticator secret is configured</p>
+              )}
               <p style={{ margin: '0.5rem 0 0', color: '#888', fontSize: '0.85em' }}>
-                Note: if your account has two-factor authentication enabled, you'll need to complete a
-                manual login first to establish a browser session, then the automated sync can reuse it.
+                If your Amazon account uses two-factor authentication, add an authenticator app in Amazon
+                (Login &amp; Security → Two-Step Verification → add Authenticator App), and where it says
+                <em> “Can’t scan the barcode?”</em> copy the secret key here. The sync then logs in fully
+                automatically — no more manual session capture. Leave blank if 2FA isn’t enabled.
               </p>
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
                 <button
