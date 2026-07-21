@@ -35,6 +35,7 @@ function EventsTab() {
   const [selected, setSelected] = useState(null);
   const [users, setUsers] = useState([]);
   const [view, setView] = useState('list');
+  const [filter, setFilter] = useState({ location_id: '', musician_id: '', status: '', from: '', to: '' });
   const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
 
   const onPhoto = async (file) => {
@@ -80,7 +81,18 @@ function EventsTab() {
 
   if (selected) return <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={() => { setSelected(null); load(); }} />;
 
-  const upcoming = [...events].filter((e) => new Date(e.start_at) >= Date.now() - 864e5).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  const applyF = (list) => list.filter((e) => {
+    if (filter.location_id && e.location_id !== filter.location_id) return false;
+    if (filter.musician_id && e.musician_id !== filter.musician_id) return false;
+    if (filter.status && e.status !== filter.status) return false;
+    if (filter.from && new Date(e.start_at) < new Date(filter.from + 'T00:00:00')) return false;
+    if (filter.to && new Date(e.start_at) > new Date(filter.to + 'T23:59:59')) return false;
+    return true;
+  });
+  const filtered = applyF(events);
+  const upcoming = [...filtered].filter((e) => new Date(e.start_at) >= Date.now() - 864e5).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  const anyFilter = filter.location_id || filter.musician_id || filter.status || filter.from || filter.to;
+  const fsel = { padding: '5px 7px', borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 13, background: 'transparent', color: 'inherit' };
 
   return (
     <div>
@@ -102,7 +114,7 @@ function EventsTab() {
             </select>
           </div>
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Title</label><input style={inp} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="Event title" /></div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Description</label><textarea rows={2} style={inp} value={form.description} onChange={(e) => set('description', e.target.value)} /></div>
+          <div style={{ gridColumn: '1 / -1' }}><HtmlDesc value={form.description} onChange={(v) => set('description', v)} /></div>
           <div><label style={lbl}>Category</label><input style={inp} value={form.category} onChange={(e) => set('category', e.target.value)} /></div>
           <div><label style={lbl}>Cost</label><input type="number" step="1" style={inp} value={form.cost} onChange={(e) => set('cost', e.target.value)} placeholder="0 = free" /></div>
           <div><label style={lbl}>Status</label>
@@ -134,8 +146,28 @@ function EventsTab() {
         ))}
       </div>
 
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+        <select style={fsel} value={filter.location_id} onChange={(e) => setFilter({ ...filter, location_id: e.target.value })}>
+          <option value="">All locations</option>
+          {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>
+        <select style={fsel} value={filter.musician_id} onChange={(e) => setFilter({ ...filter, musician_id: e.target.value })}>
+          <option value="">All musicians</option>
+          {musicians.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <select style={fsel} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
+          <option value="">Any status</option>
+          <option value="published">Published</option>
+          <option value="draft">Draft</option>
+        </select>
+        <label style={{ fontSize: 12, opacity: 0.6 }}>from <input type="date" style={fsel} value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} /></label>
+        <label style={{ fontSize: 12, opacity: 0.6 }}>to <input type="date" style={fsel} value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} /></label>
+        {anyFilter && <button style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }} onClick={() => setFilter({ location_id: '', musician_id: '', status: '', from: '', to: '' })}>Clear</button>}
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{filtered.length} event{filtered.length === 1 ? '' : 's'}</span>
+      </div>
+
       {view === 'list' && <>
-        <h3 style={{ marginTop: 0 }}>Upcoming ({upcoming.length})</h3>
+        <h3 style={{ marginTop: 0 }}>{anyFilter ? 'Filtered' : 'Upcoming'} ({upcoming.length})</h3>
         {upcoming.length === 0 && <p style={{ opacity: 0.6 }}>No upcoming events.</p>}
         {upcoming.map((e) => (
           <div key={e.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -147,8 +179,8 @@ function EventsTab() {
           </div>
         ))}
       </>}
-      {view === 'grid' && <SpreadsheetView events={events} musicians={musicians} locations={locations} onOpen={setSelected} onChanged={load} />}
-      {view === 'calendar' && <CalendarView events={events} onOpen={setSelected} />}
+      {view === 'grid' && <SpreadsheetView events={filtered} musicians={musicians} locations={locations} onOpen={setSelected} onChanged={load} />}
+      {view === 'calendar' && <CalendarView events={filtered} onOpen={setSelected} />}
     </div>
   );
 }
@@ -324,7 +356,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               <option value="published">Published (to website)</option>
             </select>
           </div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Description</label><textarea rows={2} style={inp} value={f.description} onChange={(e) => setField('description', e.target.value)} /></div>
+          <div style={{ gridColumn: '1 / -1' }}><HtmlDesc value={f.description} onChange={(v) => setField('description', v)} /></div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={lbl}>Photo</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -449,6 +481,21 @@ function CalendarView({ events, onOpen }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function HtmlDesc({ value, onChange, onBlur }) {
+  const [preview, setPreview] = useState(false);
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <label style={lbl}>Description <span style={{ opacity: 0.5, fontWeight: 400 }}>(HTML allowed — renders on the website)</span></label>
+        <button type="button" style={{ ...btn(false), padding: '2px 10px', fontSize: 11 }} onClick={() => setPreview((p) => !p)}>{preview ? '‹ Edit HTML' : 'Preview ›'}</button>
+      </div>
+      {preview
+        ? <div style={{ ...inp, minHeight: 60, whiteSpace: 'normal', background: 'var(--card-bg,#fafafa)' }} dangerouslySetInnerHTML={{ __html: value || '<em style="opacity:.5">nothing yet</em>' }} />
+        : <textarea rows={5} style={{ ...inp, fontFamily: 'monospace', fontSize: 13 }} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} placeholder="<p>Join us for an evening of live music…</p>" />}
     </div>
   );
 }
