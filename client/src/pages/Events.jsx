@@ -192,7 +192,7 @@ function MusiciansTab() {
   const load = useCallback(async () => { try { setList(await getMusicians()); } catch (x) { setErr(x.message); } }, []);
   useEffect(() => { load(); }, [load]);
 
-  const blank = { name: '', type: 'musician', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', notes: '' };
+  const blank = { name: '', type: 'musician', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', main_contact: '', write_check_to: '', address: '', notes: '' };
   const save = async () => {
     try {
       const body = { ...form }; Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
@@ -229,6 +229,9 @@ function MusiciansTab() {
               </select>
             </div>
             <div><label style={lbl}>Email</label><input style={inp} value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div><label style={lbl}>Main contact</label><input style={inp} value={form.main_contact || ''} onChange={(e) => setForm({ ...form, main_contact: e.target.value, write_check_to: (!form.write_check_to || form.write_check_to === form.main_contact) ? e.target.value : form.write_check_to })} /></div>
+            <div><label style={lbl}>Write check to <span style={{ opacity: 0.5, fontWeight: 400 }}>(defaults to main contact)</span></label><input style={inp} value={form.write_check_to || ''} onChange={(e) => setForm({ ...form, write_check_to: e.target.value })} placeholder={form.main_contact || ''} /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Address</label><textarea rows={2} style={inp} value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Notes</label><textarea rows={2} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
           </div>
           {err && <p style={{ color: 'crimson' }}>{err}</p>}
