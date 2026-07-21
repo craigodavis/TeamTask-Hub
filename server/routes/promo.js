@@ -4,6 +4,30 @@ import { query } from '../db.js';
 const cId = (req) => req.companyId;
 export const promoRouter = express.Router();
 
+// ── Overview: all scheduled sends + open promo tasks across upcoming events ────
+promoRouter.get('/overview', async (req, res) => {
+  try {
+    const emails = (await query(
+      `SELECT pe.id, pe.send_at, pe.status, pe.sent_at, c.name AS contact_name, c.org, t.name AS template_name,
+              e.id AS event_id, e.title AS event_title, e.start_at
+         FROM promo_emails pe
+         JOIN events e ON e.id = pe.event_id
+         LEFT JOIN promo_contacts c ON c.id = pe.contact_id
+         LEFT JOIN promo_templates t ON t.id = pe.template_id
+        WHERE pe.company_id = $1 AND e.start_at >= NOW() - INTERVAL '1 day'
+        ORDER BY pe.send_at`, [cId(req)])).rows;
+    const tasks = (await query(
+      `SELECT pt.id, pt.title, pt.reminders_sent, u.display_name AS assignee_name,
+              e.id AS event_id, e.title AS event_title, e.start_at
+         FROM promo_tasks pt
+         JOIN events e ON e.id = pt.event_id
+         LEFT JOIN users u ON u.id = pt.assignee_user_id
+        WHERE pt.company_id = $1 AND pt.done = false AND e.start_at >= NOW() - INTERVAL '1 day'
+        ORDER BY e.start_at`, [cId(req)])).rows;
+    res.json({ emails, tasks });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Contacts (orgs/people we email) ──────────────────────────────────────────
 const C_FIELDS = ['name', 'org', 'email', 'phone', 'website', 'role', 'notes', 'active'];
 

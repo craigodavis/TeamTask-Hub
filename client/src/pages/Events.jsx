@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview } from '../api';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -620,15 +620,48 @@ function HtmlDesc({ value, onChange, label = 'Description', hint = 'shows on the
 }
 
 function PromoTab() {
-  const [sub, setSub] = useState('contacts');
+  const [sub, setSub] = useState('overview');
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['contacts', 'Contacts'], ['templates', 'Email templates']].map(([k, l]) => (
+        {[['overview', 'Overview'], ['contacts', 'Contacts'], ['templates', 'Email templates']].map(([k, l]) => (
           <button key={k} onClick={() => setSub(k)} style={{ ...btn(sub === k), borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>{l}</button>
         ))}
       </div>
-      {sub === 'contacts' ? <ContactsSub /> : <TemplatesSub />}
+      {sub === 'overview' ? <OverviewSub /> : sub === 'contacts' ? <ContactsSub /> : <TemplatesSub />}
+    </div>
+  );
+}
+
+function OverviewSub() {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { getPromoOverview().then(setData).catch((e) => setErr(e.message)); }, []);
+  if (err) return <p style={{ color: 'crimson' }}>{err}</p>;
+  if (!data) return <p>Loading…</p>;
+  const evName = { month: 'numeric', day: 'numeric' };
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16 }}>
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Scheduled emails <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>({data.emails.length})</span></h3>
+        {data.emails.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>None scheduled across upcoming events.</p>}
+        {data.emails.map((m) => (
+          <div key={m.id} style={{ padding: '6px 0', borderTop: '1px solid var(--border,#eee)', fontSize: 13 }}>
+            <div><b>{new Date(m.send_at).toLocaleDateString(undefined, evName)}</b> → {m.contact_name}{m.org ? ` (${m.org})` : ''} <span style={{ color: m.status === 'sent' ? '#137a2f' : m.status === 'failed' ? '#c0392b' : '#999', fontSize: 11 }}>[{m.status}]</span></div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>{m.event_title} · {new Date(m.start_at).toLocaleDateString(undefined, evName)}{m.template_name ? ` · ${m.template_name}` : ''}</div>
+          </div>
+        ))}
+      </div>
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Open promotion tasks <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>({data.tasks.length})</span></h3>
+        {data.tasks.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>Nothing outstanding.</p>}
+        {data.tasks.map((t) => (
+          <div key={t.id} style={{ padding: '6px 0', borderTop: '1px solid var(--border,#eee)', fontSize: 13 }}>
+            <div><b>{t.title}</b>{t.assignee_name ? ` → ${t.assignee_name}` : ' (unassigned)'}{(t.reminders_sent || []).length ? <span style={{ opacity: 0.6, fontSize: 11 }}> · {(t.reminders_sent || []).length} reminder(s) sent</span> : ''}</div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>{t.event_title} · {new Date(t.start_at).toLocaleDateString(undefined, evName)}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

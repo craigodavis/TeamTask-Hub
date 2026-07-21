@@ -1988,3 +1988,4 @@ export async function getEventEmails(eventId) { return pj(await fetch(`${API}/ev
 export async function createEventEmail(eventId, b) { return pj(await fetch(`${API}/events/${eventId}/emails`, { method: 'POST', headers: headers(), body: JSON.stringify(b) })); }
 export async function deleteEventEmail(id) { return pj(await fetch(`${API}/events/emails/${id}`, { method: 'DELETE', headers: headers() })); }
 export async function sendEventEmailNow(id) { return pj(await fetch(`${API}/events/emails/${id}/send-now`, { method: 'POST', headers: headers() })); }
+export async function getPromoOverview() { return pj(await fetch(`${API}/promo/overview`, { headers: headers() })); }
