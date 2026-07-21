@@ -190,6 +190,39 @@ async function login(page, email, password, otpSecret) {
     throw new Error('Amazon is showing a CAPTCHA — manual login required. Visit Amazon Business and complete the CAPTCHA, then retry.');
   }
 
+  // ax/claim — secondary password confirmation page.
+  if (url.includes('ax/claim')) {
+    console.log('[amazon-sync] ax/claim re-auth page — entering password again…');
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    const claimPassword = page.locator('input[type="password"]').first();
+    if (await claimPassword.isVisible({ timeout: 8000 }).catch(() => false)) {
+      await claimPassword.fill(password);
+      await page.locator('button:has-text("Sign in"), input[type="submit"], button[type="submit"]').first().click().catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: LOGIN_TIMEOUT }).catch(() => {});
+    }
+  }
+
+  // CVF ("Verify it's you" device check) — click "This was me" / Continue to
+  // proceed. Afterward Amazon usually shows the authenticator OTP field, which
+  // the MFA handler below then fills. (If CVF instead insists on an email/SMS
+  // code we can't read, the login will fail clearly — that's Amazon's headless
+  // bot check; the real harvester runs a non-headless browser and rarely hits it.)
+  if (page.url().includes('ap/cvf')) {
+    console.log('[amazon-sync] CVF verification page — attempting to continue…');
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: path.join(debugDir, 'cvf-page.png') }).catch(() => {});
+    const confirmBtn = page.locator(
+      'input[value*="This was me" i], button:has-text("This was me"), a:has-text("This was me"), ' +
+      'input[value*="Continue" i], button:has-text("Continue"), input[type="submit"]'
+    ).first();
+    if (await confirmBtn.isVisible({ timeout: 8000 }).catch(() => false)) {
+      await confirmBtn.click().catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: LOGIN_TIMEOUT }).catch(() => {});
+      await page.waitForTimeout(1500);
+    }
+  }
+
   // MFA / OTP — enter the authenticator code automatically instead of bailing.
   const otpField = page.locator('#auth-mfa-otpcode, input[name="otpCode"], #cvf-input-code').first();
   if (await otpField.isVisible({ timeout: 5000 }).catch(() => false)) {
