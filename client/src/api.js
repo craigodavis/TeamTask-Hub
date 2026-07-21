@@ -1935,3 +1935,24 @@ export async function uploadEventImage(file) {
   if (!res.ok) throw new Error(d.error || 'Failed to upload image');
   return d;
 }
+
+export async function getAssignableUsers() {
+  const res = await fetch(`${API}/events/assignable-users`, { headers: headers() });
+  const d = await res.json().catch(() => ([])); return res.ok ? d : [];
+}
+export async function getEventTasks(eventId) {
+  const res = await fetch(`${API}/events/${eventId}/tasks`, { headers: headers() });
+  const d = await res.json().catch(() => ([])); return res.ok ? d : [];
+}
+export async function createEventTask(eventId, body) {
+  const res = await fetch(`${API}/events/${eventId}/tasks`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
+}
+export async function updateEventTask(taskId, body) {
+  const res = await fetch(`${API}/events/tasks/${taskId}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
+}
+export async function deleteEventTask(taskId) {
+  const res = await fetch(`${API}/events/tasks/${taskId}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || 'Failed'); return d;
+}
