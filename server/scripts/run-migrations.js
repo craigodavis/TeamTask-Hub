@@ -2694,6 +2694,8 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_promo_emails_due ON promo_emails(status, send_at)`,
   `CREATE INDEX IF NOT EXISTS idx_promo_emails_event ON promo_emails(event_id)`,
+  // 103: optional landscape "social" image for Google/FB posts (featured image is often square/portrait)
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS social_image_url TEXT`,
 ];
 
 export async function runMigrations() {
