@@ -489,4 +489,18 @@ router.post('/builder/fill-from-last', async (req, res) => {
   } catch (e) { console.error('fill-from-last', e); res.status(500).json({ error: e.message }); }
 });
 
+// POST /builder/clear — empty both locations' drafts for the period (reset to blank).
+router.post('/builder/clear', async (req, res) => {
+  try {
+    const companyId = cId(req);
+    const { period_start } = req.body || {};
+    const r = await query(
+      `DELETE FROM schedule_draft_shifts WHERE draft_id IN
+         (SELECT id FROM schedule_drafts WHERE company_id = $1 AND week_start = $2)`,
+      [companyId, period_start]);
+    await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE company_id = $1 AND week_start = $2`, [companyId, period_start]);
+    res.json({ ok: true, cleared: r.rowCount });
+  } catch (e) { console.error('clear', e); res.status(500).json({ error: e.message }); }
+});
+
 export { router as schedulingRouter };
