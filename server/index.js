@@ -28,6 +28,7 @@ import { startGatewayAutoApproveScheduler } from './lib/gatewayRules.js';
 import { startC7SyncScheduler } from './lib/commerce7Sync.js';
 import { startFactorSyncScheduler } from './lib/factorSync.js';
 import { startFeedbackScheduler } from './lib/feedbackSender.js';
+import { startTalentReminderScheduler } from './lib/talentReminders.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -144,6 +145,7 @@ runMigrations()
     startRachioScheduler();
     startFactorSyncScheduler();
     startFeedbackScheduler();
+    startTalentReminderScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -157,4 +159,5 @@ runMigrations()
     startRachioScheduler();
     startFactorSyncScheduler();
     startFeedbackScheduler();
+    startTalentReminderScheduler();
   });
