@@ -1053,7 +1053,7 @@ export function Quickbooks({ user }) {
                         const orderUrl = r.order_number && (
                           r.vendor === 'Amazon'
                             ? `https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(r.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`
-                          : r.vendor === 'Instacart'
+                          : r.source === 'instacart'
                             ? `https://www.instacart.com/store/orders/${encodeURIComponent(r.order_number)}`
                           : null
                         );
@@ -1064,7 +1064,7 @@ export function Quickbooks({ user }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            title={`View this order on ${r.vendor}`}
+                            title={`View this order on ${r.vendor === 'Amazon' ? 'Amazon' : 'Instacart'}`}
                           >
                             {r.order_number}
                           </a>

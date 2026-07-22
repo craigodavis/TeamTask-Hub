@@ -124,6 +124,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
   const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
           model_extraction, model_categorization } = ctx;
   const { contentType = 'application/pdf', qboPurchaseId = null, source = 'upload', externalId = null } = opts;
+  let receiptSource = source;  // may be refined below (e.g. Instacart auto-detected)
   const isImage = contentType.startsWith('image/');
 
   try {
@@ -170,13 +171,17 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
     // in the rating URL (…/ratings/<orderNumber>), with the short link
     // (inst.cr/t/<token>) as a fallback.
     if (pdfText && /instacart/i.test(pdfText)) {
+      // Tag as Instacart (drives the order-link in the UI) but KEEP the store
+      // the AI extracted as the vendor (Costco, Sysco, etc.).
+      receiptSource = 'instacart';
       const m = pdfText.match(/\/ratings\/(\d+)/) || pdfText.match(/inst\.cr\/t\/([A-Za-z0-9]+)/);
-      orders.forEach((order, i) => {
-        order.vendor = 'Instacart';  // payment vendor (you pay Instacart); store is per-item
-        if (!order.order_number && m) {
-          order.order_number = orders.length > 1 ? `${m[1]}-${i + 1}` : m[1];
-        }
-      });
+      if (m) {
+        orders.forEach((order, i) => {
+          if (!order.order_number) {
+            order.order_number = orders.length > 1 ? `${m[1]}-${i + 1}` : m[1];
+          }
+        });
+      }
     }
 
     // Photographed store receipts (WinCo, ChefStore, etc.) have no order number.
@@ -256,7 +261,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
         [companyId, order_number, order_date || null, vendor || 'Unknown',
          subtotal || null, tax || null, total || null,
          filename, card_last4 || null, payment_instrument || null, buffer,
-         deliveryAddress || null, source]
+         deliveryAddress || null, receiptSource]
       );
       const receiptId = receiptRes.rows[0].id;
 
