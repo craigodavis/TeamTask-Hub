@@ -215,12 +215,17 @@ router.post('/upload', requireAuth, requireManager, upload.array('pdfs', 100), a
   // Load QBO reference data, product memory, and rules once for all files
   const ctx = await loadReceiptContext(cId);
 
-  const source = req.body?.source === 'email_amazon' ? 'email_amazon' : 'upload';
+  const ALLOWED_SOURCES = ['email_amazon', 'email_invoice'];
+  const source = ALLOWED_SOURCES.includes(req.body?.source) ? req.body.source : 'upload';
+
+  // Stable dedup key for order-number-less receipts (photographed store receipts).
+  // Only meaningful for single-file uploads (the Harvester one-image-per-request flow).
+  const externalId = req.files.length === 1 && req.body?.external_id ? String(req.body.external_id) : null;
 
   // Process up to 5 files concurrently to stay within Claude API rate limits
   // processReceiptPDF returns an array (one entry per order found in the PDF)
   const perFileResults = await withConcurrency(req.files, 5, async (file) => {
-    return processReceiptPDF(cId, file.buffer, file.originalname, ctx, { contentType: file.mimetype, source });
+    return processReceiptPDF(cId, file.buffer, file.originalname, ctx, { contentType: file.mimetype, source, externalId });
   });
   const results = perFileResults.flat();
 
