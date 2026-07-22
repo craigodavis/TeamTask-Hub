@@ -166,15 +166,15 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
       }
     }
 
-    // Instacart receipts have no printed "Order #". Derive a stable id from the
-    // rating URL (…/ratings/<id>) or the short receipt link (inst.cr/t/<token>),
-    // namespaced with IC- so it can't collide with other sources.
+    // Instacart receipts have no printed "Order #" — the order number is the id
+    // in the rating URL (…/ratings/<orderNumber>), with the short link
+    // (inst.cr/t/<token>) as a fallback.
     if (pdfText && /instacart/i.test(pdfText)) {
       const m = pdfText.match(/\/ratings\/(\d+)/) || pdfText.match(/inst\.cr\/t\/([A-Za-z0-9]+)/);
       if (m) {
         orders.forEach((order, i) => {
           if (!order.order_number) {
-            order.order_number = orders.length > 1 ? `IC-${m[1]}-${i + 1}` : `IC-${m[1]}`;
+            order.order_number = orders.length > 1 ? `${m[1]}-${i + 1}` : m[1];
           }
         });
       }
