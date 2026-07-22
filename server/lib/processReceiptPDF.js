@@ -171,13 +171,12 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
     // (inst.cr/t/<token>) as a fallback.
     if (pdfText && /instacart/i.test(pdfText)) {
       const m = pdfText.match(/\/ratings\/(\d+)/) || pdfText.match(/inst\.cr\/t\/([A-Za-z0-9]+)/);
-      if (m) {
-        orders.forEach((order, i) => {
-          if (!order.order_number) {
-            order.order_number = orders.length > 1 ? `${m[1]}-${i + 1}` : m[1];
-          }
-        });
-      }
+      orders.forEach((order, i) => {
+        order.vendor = 'Instacart';  // payment vendor (you pay Instacart); store is per-item
+        if (!order.order_number && m) {
+          order.order_number = orders.length > 1 ? `${m[1]}-${i + 1}` : m[1];
+        }
+      });
     }
 
     // Photographed store receipts (WinCo, ChefStore, etc.) have no order number.
