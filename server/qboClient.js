@@ -3,6 +3,7 @@
  * Reads/writes tokens from the company_integrations table per company.
  */
 import { query } from './db.js';
+import { buildPurchaseUpdateLines } from './lib/qboPurchaseLines.js';
 
 const QBO_TOKEN_ENDPOINT = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 const QBO_BASE_PRODUCTION = 'https://quickbooks.api.intuit.com';
@@ -188,22 +189,10 @@ export async function qboGetPurchase(companyId, purchaseId) {
  * Update an existing Purchase with new split line items.
  * items: [{ description, total, qbo_account_id, qbo_class_id }]
  */
-export async function qboUpdatePurchase(companyId, existing, items) {
-  const lines = items.map((item) => {
-    const line = {
-      Amount: parseFloat(item.total) || 0,
-      DetailType: 'AccountBasedExpenseLineDetail',
-      Description: item.description,
-      AccountBasedExpenseLineDetail: {
-        AccountRef: { value: item.qbo_account_id },
-        BillableStatus: 'NotBillable',
-      },
-    };
-    if (item.qbo_class_id) {
-      line.AccountBasedExpenseLineDetail.ClassRef = { value: item.qbo_class_id };
-    }
-    return line;
-  });
+export async function qboUpdatePurchase(companyId, existing, items, expectedTotal = null) {
+  // Validates and refuses to write bad lines (missing amounts, $0 wipes, or a
+  // total that shrinks below the transaction's real amount). See qboPurchaseLines.js.
+  const lines = buildPurchaseUpdateLines(existing, items, expectedTotal);
 
   const updated = {
     ...existing,

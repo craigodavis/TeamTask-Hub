@@ -1627,7 +1627,19 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
         return { receipt_id, qbo_transaction_id, ok: false, error: 'No categorized items to export.' };
       }
 
+      // Guard: never export a receipt whose categorized lines are missing amounts —
+      // writing them would zero/understate the QBO transaction (the export-corruption bug).
+      const missingAmt = items.filter((it) => !Number.isFinite(parseFloat(it.total)));
+      if (missingAmt.length) {
+        return {
+          receipt_id, qbo_transaction_id, ok: false,
+          error: `${missingAmt.length} line item(s) have no amount — not exported to avoid corrupting the QBO transaction. Fix the line amounts and re-try.`,
+        };
+      }
+
       const existing = await retryOn429(() => qboGetPurchase(cId, qbo_transaction_id));
+      // Preserve the transaction's real total: qboUpdatePurchase refuses to write if the
+      // itemized lines fall short of `existing.TotalAmt` (its own current amount) beyond tolerance.
       await retryOn429(() => qboUpdatePurchase(cId, existing, items));
 
       if (attachPdf) {
