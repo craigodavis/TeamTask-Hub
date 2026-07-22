@@ -1324,6 +1324,21 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
     const qboResultMap = new Map();
     let _debugInfo = { tasks: fetchTasks.length, range: null, purchases: 0, fetchError: null };
 
+    // Normalize any date/timestamp to UTC-midnight of its calendar day. A QBO
+    // TxnDate string ("2026-06-18") parses to UTC midnight, but a Postgres `date`
+    // column (e.g. amazon_payments.payment_date) parses at LOCAL midnight — i.e.
+    // 06:00Z in Mountain time. Comparing the two raw would reject a QBO charge
+    // dated the SAME calendar day as the payment (00:00Z >= 06:00Z is false),
+    // which was silently killing most Amazon matches. Collapse both to the same
+    // calendar-day instant, TZ-independent.
+    const DAY = 86400000;
+    const toDay = (d) => {
+      const s = typeof d === 'string'
+        ? d.slice(0, 10)
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return new Date(`${s}T00:00:00Z`);
+    };
+
     // Collect all anchor dates so we can span a single query window
     const allDates = fetchTasks.flatMap((t) => {
       const d = t.amazon_data ? t.shipment?.payment_date : t.receipt.order_date;
@@ -1370,26 +1385,26 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
               qboResultMap.set(task.key, { error: 'Shipment has no payment date' });
               continue;
             }
-            const anchor    = new Date(task.shipment.payment_date);
-            const windowEnd = new Date(anchor); windowEnd.setDate(windowEnd.getDate() + AMAZON_WINDOW);
+            const anchor    = toDay(task.shipment.payment_date);
+            const windowEnd = new Date(anchor.getTime() + AMAZON_WINDOW * DAY);
             const target    = task.shipment.payment_amount;
             const matches   = allPurchases.filter((p) => {
-              const txnDate = new Date(p.TxnDate);
+              const txnDate = toDay(p.TxnDate);
               return txnDate >= anchor && txnDate <= windowEnd
                 && (target == null || Math.abs(parseFloat(p.TotalAmt) - target) < 0.01);
-            }).sort((a, b) => new Date(a.TxnDate) - new Date(b.TxnDate));
+            }).sort((a, b) => toDay(a.TxnDate) - toDay(b.TxnDate));
             qboResultMap.set(task.key, { matches });
           } else {
             if (!task.receipt.total || !task.receipt.order_date) {
               qboResultMap.set(task.key, { skip: true });
               continue;
             }
-            const anchor = new Date(task.receipt.order_date);
-            const start  = new Date(anchor); start.setDate(start.getDate() - RECEIPT_WINDOW);
-            const end    = new Date(anchor); end.setDate(end.getDate() + RECEIPT_WINDOW);
+            const anchor = toDay(task.receipt.order_date);
+            const start  = new Date(anchor.getTime() - RECEIPT_WINDOW * DAY);
+            const end    = new Date(anchor.getTime() + RECEIPT_WINDOW * DAY);
             const target = parseFloat(task.receipt.total);
             const matches = allPurchases.filter((p) => {
-              const txnDate = new Date(p.TxnDate);
+              const txnDate = toDay(p.TxnDate);
               return txnDate >= start && txnDate <= end
                 && Math.abs(parseFloat(p.TotalAmt) - target) < 1.00;
             }).sort((a, b) => {
@@ -1400,7 +1415,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
               const aAmtDiff = Math.abs(parseFloat(a.TotalAmt) - target);
               const bAmtDiff = Math.abs(parseFloat(b.TotalAmt) - target);
               if (Math.abs(aAmtDiff - bAmtDiff) > 0.01) return aAmtDiff - bAmtDiff;
-              return Math.abs(new Date(a.TxnDate) - anchor) - Math.abs(new Date(b.TxnDate) - anchor);
+              return Math.abs(toDay(a.TxnDate) - anchor) - Math.abs(toDay(b.TxnDate) - anchor);
             });
             qboResultMap.set(task.key, { matches });
           }
@@ -1410,7 +1425,7 @@ router.post('/export/preview', requireAuth, requireOwner, async (req, res) => {
 
     // Phase 3: assign best matches sequentially so usedQboIds dedup is preserved
     function buildMatch(best, anchorDate, accountId) {
-      const daysDiff = Math.abs((new Date(best.TxnDate) - new Date(anchorDate)) / 86400000);
+      const daysDiff = Math.abs((toDay(best.TxnDate) - toDay(anchorDate)) / DAY);
       const currentLines = (best.Line || []).filter(
         (l) => l.DetailType === 'AccountBasedExpenseLineDetail'
       );
