@@ -1073,6 +1073,15 @@ export function Quickbooks({ user }) {
                         );
                       })()}
                       <span className="qb-receipt-vendor">{r.vendor}</span>
+                      {r.source === 'instacart' && (
+                        <span
+                          className="qb-receipt-channel"
+                          title="Purchased through Instacart"
+                          style={{ background: '#FF7009', color: '#fff', borderRadius: '4px', padding: '1px 6px', fontSize: '0.72em', fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          via Instacart
+                        </span>
+                      )}
                       {r.order_date && <span className="qb-receipt-date">{new Date(String(r.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
                       {r.card_last4 && activeTab !== 'excluded' && (
                         <span className="qb-receipt-card">····{r.card_last4}</span>
