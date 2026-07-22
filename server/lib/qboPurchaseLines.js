@@ -77,3 +77,39 @@ export function buildPurchaseUpdateLines(existing, items, expectedTotal = null) 
 
   return lines;
 }
+
+/** QBO entities whose writes carry monetary Line[] amounts and must never post as $0. */
+const MONETARY_TXN_ENTITIES = new Set([
+  'purchase', 'bill', 'invoice', 'journalentry', 'salesreceipt',
+  'creditmemo', 'refundreceipt', 'vendorcredit', 'deposit', 'estimate', 'purchaseorder',
+]);
+
+/**
+ * Safety net for the generic gateway write path (gatewayExecutor). The receipt
+ * export isn't the only thing that can POST a purchase — the agent gateway can
+ * write any entity. This rejects a create/update whose Line array would post a
+ * non-numeric amount or sum to $0 (the same corruption signature), from that door.
+ * Only inspects amount-bearing transaction entities; leaves Account/Vendor/etc. alone.
+ *
+ * @param {string} entityLower  lowercased QBO entity name (e.g. 'purchase')
+ * @param {object} body         the request body about to be POSTed
+ */
+export function assertSafeQboLineWrite(entityLower, body) {
+  if (!MONETARY_TXN_ENTITIES.has(entityLower)) return;
+  if (!body || typeof body !== 'object' || !Array.isArray(body.Line)) return; // nothing to validate
+  for (const l of body.Line) {
+    if (l && l.Amount !== undefined && !Number.isFinite(parseFloat(l.Amount))) {
+      throw new Error(
+        `Gateway refused ${entityLower} write: a line has a non-numeric Amount ` +
+        `(${JSON.stringify(l.Amount)}) — would corrupt the transaction.`
+      );
+    }
+  }
+  const sum = body.Line.reduce((s, l) => s + (parseFloat(l?.Amount) || 0), 0);
+  if (!(sum > 0)) {
+    throw new Error(
+      `Gateway refused ${entityLower} write: line amounts sum to $${sum.toFixed(2)} — ` +
+      `would create/wipe a $0 transaction.`
+    );
+  }
+}

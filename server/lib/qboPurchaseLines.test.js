@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPurchaseUpdateLines } from './qboPurchaseLines.js';
+import { buildPurchaseUpdateLines, assertSafeQboLineWrite } from './qboPurchaseLines.js';
 
 const existing = { Id: '999', TotalAmt: '16.36' };
 const good = [
@@ -91,4 +91,30 @@ test('class ref is passed through when present', () => {
   const items = [{ description: 'A', total: 16.36, qbo_account_id: '1', qbo_class_id: '55' }];
   const lines = buildPurchaseUpdateLines(existing, items);
   assert.equal(lines[0].AccountBasedExpenseLineDetail.ClassRef.value, '55');
+});
+
+// ── gateway guard (assertSafeQboLineWrite) ──────────────────────────────────
+test('gateway: valid purchase write passes', () => {
+  assert.doesNotThrow(() => assertSafeQboLineWrite('purchase', { Line: [{ Amount: 10 }, { Amount: 5 }] }));
+});
+
+test('gateway: purchase with a $0-summing Line[] is refused', () => {
+  assert.throws(() => assertSafeQboLineWrite('purchase', { Line: [{ Amount: 0 }] }), /wipe a \$0/);
+});
+
+test('gateway: purchase with a non-numeric line amount is refused', () => {
+  assert.throws(() => assertSafeQboLineWrite('purchase', { Line: [{ Amount: null }, { Amount: 5 }] }), /non-numeric/);
+});
+
+test('gateway: invoice is also guarded', () => {
+  assert.throws(() => assertSafeQboLineWrite('invoice', { Line: [{ Amount: 0 }] }), /wipe a \$0/);
+});
+
+test('gateway: non-transaction entities (vendor/account) are not restricted', () => {
+  assert.doesNotThrow(() => assertSafeQboLineWrite('vendor', { DisplayName: 'X' }));
+  assert.doesNotThrow(() => assertSafeQboLineWrite('account', { Name: 'Y' }));
+});
+
+test('gateway: metadata-only update with no Line[] is allowed', () => {
+  assert.doesNotThrow(() => assertSafeQboLineWrite('purchase', { Id: '5', PrivateNote: 'memo' }));
 });

@@ -14,6 +14,7 @@
 
 import { query } from '../db.js';
 import { qboRequest, qboQueryAll } from '../qboClient.js';
+import { assertSafeQboLineWrite } from './qboPurchaseLines.js';
 import { makeC7Client } from './commerce7Client.js';
 
 // ── QBO adapter ──────────────────────────────────────────────────────────────
@@ -26,9 +27,9 @@ async function execQbo(companyId, operation, payload) {
 
   switch (verb) {
     case 'create':
-      return qboRequest(companyId, 'POST', entityLower, { body: payload.body });
-
     case 'update':
+      // Safety net: never let an agent write a $0/non-numeric-line transaction.
+      assertSafeQboLineWrite(entityLower, payload.body);
       return qboRequest(companyId, 'POST', entityLower, { body: payload.body });
 
     case 'delete': {
