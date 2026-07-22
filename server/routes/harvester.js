@@ -35,13 +35,11 @@ const CONNECTOR_TYPES = [
   },
   {
     key: 'email_invoice',
-    label: 'Shared invoice@ inbox',
-    status: 'planned',
+    label: 'Shared invoice@ inbox (photo receipts)',
+    status: 'live',
     description:
-      'Reads the shared invoice@ inbox and routes each message by sender — known vendors (Alsco, Sysco, liquor) to structured parsers, employee-forwarded photos to vision extraction, payment confirmations flagged.',
-    config_fields: [
-      { key: 'gmail_label', label: 'Gmail label', type: 'text', default: 'invoices' },
-    ],
+      'Reads staff-forwarded photo receipts (WinCo, ChefStore, scanned invoices) from the shared invoice@ inbox and runs each image through vision extraction. Structured vendor PDFs (Alsco) will be added as a separate lane.',
+    config_fields: [],
   },
   {
     key: 'amazon_report',

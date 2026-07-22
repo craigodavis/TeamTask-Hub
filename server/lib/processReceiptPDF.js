@@ -123,7 +123,7 @@ export async function loadReceiptContext(companyId) {
 export async function processReceiptPDF(companyId, buffer, filename, ctx, opts = {}) {
   const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
           model_extraction, model_categorization } = ctx;
-  const { contentType = 'application/pdf', qboPurchaseId = null, source = 'upload' } = opts;
+  const { contentType = 'application/pdf', qboPurchaseId = null, source = 'upload', externalId = null } = opts;
   const isImage = contentType.startsWith('image/');
 
   try {
@@ -164,6 +164,18 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
       for (const order of orders) {
         if (!order.order_number) order.order_number = `QBO-${qboPurchaseId}`;
       }
+    }
+
+    // Photographed store receipts (WinCo, ChefStore, etc.) have no order number.
+    // Fall back to the caller-supplied stable externalId so duplicate detection
+    // still works on re-runs and the receipt isn't rejected below. When multiple
+    // orders come out of one image, suffix by index to keep each key unique.
+    if (externalId) {
+      orders.forEach((order, i) => {
+        if (!order.order_number) {
+          order.order_number = orders.length > 1 ? `${externalId}-${i + 1}` : externalId;
+        }
+      });
     }
 
     if (!orders.length) {
