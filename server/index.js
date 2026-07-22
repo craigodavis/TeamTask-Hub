@@ -30,6 +30,7 @@ import { startFactorSyncScheduler } from './lib/factorSync.js';
 import { startFeedbackScheduler } from './lib/feedbackSender.js';
 import { startTalentReminderScheduler } from './lib/talentReminders.js';
 import { startPromoReminderScheduler } from './lib/promoReminders.js';
+import { startZeroCanaryScheduler } from './lib/qboZeroCanary.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -152,6 +153,7 @@ runMigrations()
     startTalentReminderScheduler();
     startPromoReminderScheduler();
     startPromoEmailScheduler();
+    startZeroCanaryScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -168,4 +170,5 @@ runMigrations()
     startTalentReminderScheduler();
     startPromoReminderScheduler();
     startPromoEmailScheduler();
+    startZeroCanaryScheduler();
   });
