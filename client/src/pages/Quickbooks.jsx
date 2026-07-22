@@ -1054,7 +1054,7 @@ export function Quickbooks({ user }) {
                           r.vendor === 'Amazon'
                             ? `https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(r.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`
                           : r.source === 'instacart'
-                            ? `https://www.instacart.com/store/orders/${encodeURIComponent(r.order_number)}`
+                            ? `https://www.instacart.com/store/orders/9999${encodeURIComponent(r.order_number)}`
                           : null
                         );
                         return orderUrl ? (
@@ -1432,7 +1432,7 @@ export function Quickbooks({ user }) {
                                       p.receipt.vendor === 'Amazon'
                                         ? `https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(p.receipt.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`
                                       : p.receipt.source === 'instacart'
-                                        ? `https://www.instacart.com/store/orders/${encodeURIComponent(p.receipt.order_number)}`
+                                        ? `https://www.instacart.com/store/orders/9999${encodeURIComponent(p.receipt.order_number)}`
                                       : null
                                     );
                                     return u
@@ -1583,7 +1583,7 @@ export function Quickbooks({ user }) {
                             reviewing.vendor === 'Amazon'
                               ? `https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(reviewing.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`
                             : reviewing.source === 'instacart'
-                              ? `https://www.instacart.com/store/orders/${encodeURIComponent(reviewing.order_number)}`
+                              ? `https://www.instacart.com/store/orders/9999${encodeURIComponent(reviewing.order_number)}`
                             : null
                           );
                           return u
