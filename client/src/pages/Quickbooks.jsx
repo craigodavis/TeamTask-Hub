@@ -1424,7 +1424,21 @@ export function Quickbooks({ user }) {
                               {p.is_first_shipment !== false && (
                                 <div className="qb-export-receipt-header">
                                   <span className="qb-export-receipt-vendor">{p.receipt.vendor}</span>
-                                  <span className="qb-export-order-num">{p.receipt.order_number}</span>
+                                  {p.receipt.source === 'instacart' && (
+                                    <span style={{ background: '#FF7009', color: '#fff', borderRadius: '4px', padding: '0 5px', fontSize: '0.7em', fontWeight: 600 }}>Instacart</span>
+                                  )}
+                                  {(() => {
+                                    const u = p.receipt.order_number && (
+                                      p.receipt.vendor === 'Amazon'
+                                        ? `https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(p.receipt.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`
+                                      : p.receipt.source === 'instacart'
+                                        ? `https://www.instacart.com/store/orders/${encodeURIComponent(p.receipt.order_number)}`
+                                      : null
+                                    );
+                                    return u
+                                      ? <a className="qb-export-order-num" href={u} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>{p.receipt.order_number}</a>
+                                      : <span className="qb-export-order-num">{p.receipt.order_number}</span>;
+                                  })()}
                                 </div>
                               )}
                               {p.shipment && p.total_shipments > 1 && (
@@ -1564,7 +1578,18 @@ export function Quickbooks({ user }) {
                   <>
                     <div className="qb-modal-header">
                       <div>
-                        <h3>{reviewing.vendor} — {reviewing.order_number}</h3>
+                        <h3>{reviewing.vendor} — {(() => {
+                          const u = reviewing.order_number && (
+                            reviewing.vendor === 'Amazon'
+                              ? `https://www.amazon.com/your-orders/order-details?orderID=${encodeURIComponent(reviewing.order_number)}&ref=ab_ppx_yo_dt_b_fed_order_details`
+                            : reviewing.source === 'instacart'
+                              ? `https://www.instacart.com/store/orders/${encodeURIComponent(reviewing.order_number)}`
+                            : null
+                          );
+                          return u
+                            ? <a href={u} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>{reviewing.order_number}</a>
+                            : reviewing.order_number;
+                        })()}{reviewing.source === 'instacart' && <span style={{ background: '#FF7009', color: '#fff', borderRadius: '4px', padding: '1px 6px', fontSize: '0.6em', fontWeight: 600, marginLeft: '8px', verticalAlign: 'middle' }}>via Instacart</span>}</h3>
                         <p className="qb-modal-sub">
                           {reviewing.order_date && new Date(String(reviewing.order_date).slice(0,10) + 'T12:00:00').toLocaleDateString()} &nbsp;·&nbsp;
                           Total: ${parseFloat(reviewing.total || 0).toFixed(2)}
