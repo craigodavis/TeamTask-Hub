@@ -166,6 +166,20 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
       }
     }
 
+    // Instacart receipts have no printed "Order #". Derive a stable id from the
+    // rating URL (…/ratings/<id>) or the short receipt link (inst.cr/t/<token>),
+    // namespaced with IC- so it can't collide with other sources.
+    if (pdfText && /instacart/i.test(pdfText)) {
+      const m = pdfText.match(/\/ratings\/(\d+)/) || pdfText.match(/inst\.cr\/t\/([A-Za-z0-9]+)/);
+      if (m) {
+        orders.forEach((order, i) => {
+          if (!order.order_number) {
+            order.order_number = orders.length > 1 ? `IC-${m[1]}-${i + 1}` : `IC-${m[1]}`;
+          }
+        });
+      }
+    }
+
     // Photographed store receipts (WinCo, ChefStore, etc.) have no order number.
     // Fall back to the caller-supplied stable externalId so duplicate detection
     // still works on re-runs and the receipt isn't rejected below. When multiple
