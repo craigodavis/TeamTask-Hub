@@ -430,12 +430,31 @@ router.get('/builder', async (req, res) => {
     const memberHours = {};
     for (const r of wk) { (memberHours[r.tmid] ??= { w1: 0, w2: 0 })[r.wk1 ? 'w1' : 'w2'] += Number(r.h); }
 
+    // Weather per day, aggregated across the company's locations (both sites are ~40mi
+    // apart with near-identical weather): hottest high, highest rain chance, worst-looking
+    // condition (max weather_code) as the representative icon/label. Drives the day headers.
+    const weather = {};
+    for (const r of (await query(
+      `SELECT wx_date::text AS d,
+              MAX(temp_max) AS temp_max, MAX(precip_prob) AS precip_prob,
+              (ARRAY_AGG(condition ORDER BY weather_code DESC))[1] AS condition,
+              MAX(weather_code) AS weather_code, BOOL_OR(is_forecast) AS is_forecast
+         FROM weather_daily
+        WHERE company_id = $1 AND wx_date BETWEEN $2 AND $3
+        GROUP BY wx_date`, [companyId, periodStart, periodEnd])).rows) {
+      weather[r.d] = {
+        temp_max: r.temp_max == null ? null : Math.round(Number(r.temp_max)),
+        precip_prob: r.precip_prob == null ? null : Number(r.precip_prob),
+        condition: r.condition, weather_code: r.weather_code, is_forecast: r.is_forecast,
+      };
+    }
+
     res.json({
       period_start: periodStart, period_end: periodEnd, days,
       locations: locs.map((l) => ({ id: l.id, name: l.name })),
       drafts,
       forecast, is_actual: isActual, model_forecast: modelForecast, actual_sales: actualSales, actual_labor: actualLabor,
-      today, shifts, roster: staff, member_hours: memberHours,
+      today, shifts, roster: staff, member_hours: memberHours, weather,
       settings: { target_labor_pct: Number(settings.target_labor_pct) },
     });
   } catch (e) { console.error('builder', e); res.status(500).json({ error: e.message }); }
