@@ -298,6 +298,17 @@ function Builder() {
   const nameBy = Object.fromEntries(data.roster.map((r) => [r.tmid, r]));
   const shiftMap = {};
   for (const s of data.shifts) (shiftMap[s.tmid + '|' + s.date] ??= []).push(s);
+  // Flag double-booked shifts: same person, same day, times that intersect. These
+  // usually come from Square having two active published records for one shift (a
+  // shift re-created instead of edited) — surface them so they can be fixed in Square.
+  const overlapIds = new Set();
+  for (const list of Object.values(shiftMap)) {
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      if (new Date(list[i].start_at) < new Date(list[j].end_at) && new Date(list[j].start_at) < new Date(list[i].end_at)) {
+        overlapIds.add(list[i].id); overlapIds.add(list[j].id);
+      }
+    }
+  }
   const draftByCode = {};
   for (const dr of data.drafts) draftByCode[dr.location_name[0].toUpperCase()] = dr;
   const locColor = (name) => (/creek/i.test(name) ? ['#dff5ec', '#0f6e56'] : ['#eeedfe', '#3c3489']);
@@ -431,6 +442,11 @@ function Builder() {
         })}
       </div>
       {err && <p style={{ color: 'crimson', marginTop: 0 }}>{err}</p>}
+      {overlapIds.size > 0 && (
+        <div style={{ background: '#fde2e2', border: '1px solid #e88', color: '#a11', borderRadius: 6, padding: '6px 10px', marginBottom: 8, fontSize: 12 }}>
+          ⚠ {overlapIds.size / 2} double-booked shift{overlapIds.size / 2 > 1 ? 's' : ''} this period — someone is scheduled to two overlapping times (shown in red below). This usually means a shift was re-created in Square instead of edited. Fix it in Square, then <b>Pull from Square</b>.
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820, fontSize: 12 }}>
@@ -459,11 +475,11 @@ function Builder() {
                       return (
                         <td key={d} onClick={() => addShift(m.tmid, d, m.role)}
                           style={{ border: '1px solid var(--border,#eee)', textAlign: 'center', cursor: 'pointer', padding: 3, minWidth: 76 }}>
-                          {ss.map((s) => { const [bg, fg] = locColor(s.location_name); return (
-                            <span key={s.id} onClick={(e) => { e.stopPropagation(); if (window.confirm('Remove this shift?')) delShift(s.id); }}
-                              title={s.location_name + ' · click to remove'}
-                              style={{ display: 'inline-block', background: bg, color: fg, borderRadius: 5, padding: '2px 5px', fontWeight: 600, cursor: 'pointer', margin: 1, fontSize: 11 }}>
-                              {fmtTime(s.start_at)}–{fmtTime(s.end_at)}<sup style={{ fontSize: 8, marginLeft: 2 }}>{s.location_name[0]}</sup>
+                          {ss.map((s) => { const [bg, fg] = locColor(s.location_name); const dup = overlapIds.has(s.id); return (
+                            <span key={s.id} onClick={(e) => { e.stopPropagation(); if (window.confirm(dup ? 'This shift overlaps another for this person — remove it?' : 'Remove this shift?')) delShift(s.id); }}
+                              title={dup ? '⚠ Double-booked — overlaps another shift this day. Fix in Square (likely a shift re-created instead of edited), then Pull from Square.' : s.location_name + ' · click to remove'}
+                              style={{ display: 'inline-block', background: dup ? '#fde2e2' : bg, color: dup ? '#a11' : fg, border: dup ? '1px solid #e88' : 'none', borderRadius: 5, padding: '2px 5px', fontWeight: 600, cursor: 'pointer', margin: 1, fontSize: 11 }}>
+                              {dup && '⚠ '}{fmtTime(s.start_at)}–{fmtTime(s.end_at)}<sup style={{ fontSize: 8, marginLeft: 2 }}>{s.location_name[0]}</sup>
                             </span>
                           ); })}
                           {!ss.length && <span style={{ opacity: 0.3 }}>+</span>}
