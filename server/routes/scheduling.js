@@ -435,12 +435,29 @@ router.get('/builder', async (req, res) => {
       drafts.push({ id: dr.id, location_id: l.id, location_name: l.name });
     }
     if (toSeed.length) await seedDraftsFromPublished(toSeed, periodStart, periodEnd);
+    // Wage per shift is priced at the ROLE the shift is scheduled as, not the member's
+    // blended/default wage — e.g. Jack is $20/h Winemaking but $12/h as Wine Steward.
+    //   1. configured rate for that exact job (team_member_job_assignment by job_id)
+    //   2. if none, what they actually earned most recently in that role (timecard by
+    //      title) — covers roles Square never set a per-person rate for (e.g. Lead Kitchen)
+    //   3. else null → client falls back to the roster blended wage.
     const shifts = (await query(
       `SELECT s.id, s.square_team_member_id AS tmid, s.square_job_id, s.job_title, s.start_at, s.end_at, s.source,
-              d.location_id, l.name AS location_name, (s.start_at AT TIME ZONE $2)::date::text AS date
+              d.location_id, l.name AS location_name, (s.start_at AT TIME ZONE $2)::date::text AS date,
+              COALESCE(ja.hourly_rate_amount, act.rate) AS wage_cents
          FROM schedule_draft_shifts s JOIN schedule_drafts d ON d.id = s.draft_id JOIN locations l ON l.id = d.location_id
+         LEFT JOIN team_square.team_member_job_assignment ja
+                ON ja.team_member_id = s.square_team_member_id AND ja.job_id = s.square_job_id
+         LEFT JOIN LATERAL (
+           SELECT sh.wage_hourly_rate_amount AS rate
+             FROM team_square.shift sh
+            WHERE sh.team_member_id = s.square_team_member_id AND sh.wage_title = s.job_title
+              AND sh.wage_hourly_rate_amount IS NOT NULL
+            ORDER BY sh.start_at DESC LIMIT 1
+         ) act ON (ja.hourly_rate_amount IS NULL)
         WHERE s.draft_id = ANY($1) ORDER BY s.start_at`, [drafts.map((x) => x.id), TZ])).rows
-      .map((s) => ({ ...s, hours: Math.round(hrs(s) * 10) / 10 }));
+      .map((s) => ({ ...s, hours: Math.round(hrs(s) * 10) / 10,
+                     wage: s.wage_cents != null ? Number(s.wage_cents) / 100 : null }));
 
     const staff = await roster(companyId);
 
