@@ -315,7 +315,11 @@ function Builder() {
   const byRole = {};
   for (const r of data.roster) (byRole[r.role] ??= []).push(r);
   const weekDays = data.days.slice(week * 7, week * 7 + 7);
-  const dayLabor = (d) => (data.shifts.filter((s) => s.date === d).reduce((a, s) => a + s.hours * (wageBy[s.tmid] || 12), 0));
+  // Cost each shift at the wage for the ROLE it's scheduled as (falls back to the
+  // member's blended wage if the job has no rate) — e.g. Jack costs the Wine Steward
+  // rate on days he's scheduled as one, not his higher Winemaking default.
+  const shiftWage = (s) => (s.wage != null ? s.wage : (wageBy[s.tmid] || 12));
+  const dayLabor = (d) => (data.shifts.filter((s) => s.date === d).reduce((a, s) => a + s.hours * shiftWage(s), 0));
   const shiftHrsOn = (d) => data.shifts.filter((s) => s.date === d).reduce((x, s) => x + s.hours, 0);
   const target = data.settings.target_labor_pct;
   const pForecast = data.days.reduce((a, d) => a + (data.forecast[d] || 0), 0);
@@ -475,11 +479,12 @@ function Builder() {
                       return (
                         <td key={d} onClick={() => addShift(m.tmid, d, m.role)}
                           style={{ border: '1px solid var(--border,#eee)', textAlign: 'center', cursor: 'pointer', padding: 3, minWidth: 76 }}>
-                          {ss.map((s) => { const [bg, fg] = locColor(s.location_name); const dup = overlapIds.has(s.id); return (
+                          {ss.map((s) => { const [bg, fg] = locColor(s.location_name); const dup = overlapIds.has(s.id); const altRole = s.job_title && s.job_title !== m.role; return (
                             <span key={s.id} onClick={(e) => { e.stopPropagation(); if (window.confirm(dup ? 'This shift overlaps another for this person — remove it?' : 'Remove this shift?')) delShift(s.id); }}
-                              title={dup ? '⚠ Double-booked — overlaps another shift this day. Fix in Square (likely a shift re-created instead of edited), then Pull from Square.' : s.location_name + ' · click to remove'}
+                              title={(dup ? '⚠ Double-booked — overlaps another shift this day. Fix in Square (likely a shift re-created instead of edited), then Pull from Square.\n' : '') + s.location_name + (s.job_title ? ' · ' + s.job_title : '') + (s.wage != null ? ' · $' + s.wage.toFixed(2) + '/h' : '') + ' · click to remove'}
                               style={{ display: 'inline-block', background: dup ? '#fde2e2' : bg, color: dup ? '#a11' : fg, border: dup ? '1px solid #e88' : 'none', borderRadius: 5, padding: '2px 5px', fontWeight: 600, cursor: 'pointer', margin: 1, fontSize: 11 }}>
                               {dup && '⚠ '}{fmtTime(s.start_at)}–{fmtTime(s.end_at)}<sup style={{ fontSize: 8, marginLeft: 2 }}>{s.location_name[0]}</sup>
+                              {altRole && <div style={{ fontSize: 8, fontWeight: 500, opacity: 0.8, lineHeight: 1.1 }}>{s.job_title}</div>}
                             </span>
                           ); })}
                           {!ss.length && <span style={{ opacity: 0.3 }}>+</span>}
