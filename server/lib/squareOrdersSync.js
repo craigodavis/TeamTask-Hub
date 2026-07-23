@@ -36,8 +36,14 @@ async function searchOrders(token, base, locationIds, updatedAfter) {
   const orders = [];
   let cursor = null;
 
+  // Re-pull a trailing 3-day window on every incremental. Orders often settle/close
+  // AFTER our nightly run (late tabs, batch close-outs, auto-gratuity) so their
+  // updated_at lands past the last sync time; a 1hr buffer left yesterday's actuals
+  // understated until the following night. Upserts are idempotent, so re-fetching a
+  // few days is free and lets recent-day sales self-heal each run.
+  const INCREMENTAL_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
   const startAt = updatedAfter
-    ? new Date(new Date(updatedAfter).getTime() - 60 * 60 * 1000).toISOString() // 1hr buffer
+    ? new Date(new Date(updatedAfter).getTime() - INCREMENTAL_LOOKBACK_MS).toISOString()
     : new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString();       // 2yr initial
 
   do {
