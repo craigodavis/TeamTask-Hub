@@ -422,11 +422,11 @@ router.get('/builder', async (req, res) => {
     // per-member hours per week (across both locations — overtime is cross-location)
     const wk = (await query(
       `SELECT s.square_team_member_id AS tmid,
-              (s.start_at AT TIME ZONE $2)::date < $4 AS wk1,
+              (s.start_at AT TIME ZONE $2)::date < $3 AS wk1,
               SUM(EXTRACT(EPOCH FROM (s.end_at - s.start_at))/3600.0) AS h
-         FROM schedule_draft_shifts s JOIN schedule_drafts d ON d.id = s.draft_id
-        WHERE d.company_id = $1 AND (s.start_at AT TIME ZONE $2)::date BETWEEN $3 AND $5
-        GROUP BY 1,2`, [companyId, TZ, periodStart, addDays(periodStart, 7), periodEnd])).rows;
+         FROM schedule_draft_shifts s
+        WHERE s.draft_id = ANY($1)
+        GROUP BY 1,2`, [drafts.map((x) => x.id), TZ, addDays(periodStart, 7)])).rows;
     const memberHours = {};
     for (const r of wk) { (memberHours[r.tmid] ??= { w1: 0, w2: 0 })[r.wk1 ? 'w1' : 'w2'] += Number(r.h); }
 
