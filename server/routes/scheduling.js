@@ -4,6 +4,11 @@ import { query } from '../db.js';
 const router = express.Router();
 const cId = (req) => req.companyId;
 
+// Everything in this router operates on Mountain time (America/Denver) — that's
+// where the business is. Square gives us UTC timestamps; we always convert to TZ
+// for dates/times so "today" and day-buckets match the wall clock in Idaho.
+const TZ = 'America/Denver';
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const dnum = (ds) => new Date(ds + 'T12:00:00').getDay();
@@ -16,7 +21,8 @@ function weekStartOf(ds, dow = 3) {
   const diff = (dnum(ds) - dow + 7) % 7;
   return addDays(ds, -diff);
 }
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+// Mountain-time "today" (NOT UTC — toISOString would roll to tomorrow after 6pm MT).
+function todayISO() { return new Date().toLocaleDateString('en-CA', { timeZone: TZ }); }
 // Bi-weekly pay-period grid anchored to a real pay-period-start Wednesday.
 // Adjust BIWEEKLY_ANCHOR if payroll starts on a different Wednesday.
 const BIWEEKLY_ANCHOR = '2026-07-08';
@@ -300,7 +306,6 @@ router.get('/correlation', async (req, res) => {
 });
 
 // ════════════════ Schedule builder ════════════════
-const TZ = 'America/Denver';
 function computeGrowth(nn) {
   const anchor = todayISO(); let rSum = 0, yaSum = 0;
   for (let i = 1; i <= 28; i++) { const rv = nn[addDays(anchor, -i)], yv = nn[addDays(anchor, -i - 364)]; if (Number.isFinite(rv) && Number.isFinite(yv)) { rSum += rv; yaSum += yv; } }
@@ -344,18 +349,32 @@ async function getOrCreateDraft(companyId, locationId, weekStart, userId) {
 // Seed a new draft from the ACTUAL published Square schedule for the SAME period (not a template).
 async function seedDraftFromPublished(sid, draftId, periodStart, periodEnd) {
   const pub = (await query(
-    `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at
+    `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at, version, updated_at
        FROM team_square.scheduled_shift
       WHERE pub_location_id = $1 AND pub_is_deleted = false AND pub_start_at IS NOT NULL
-        AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4`,
+        AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4
+      ORDER BY COALESCE(updated_at, pub_start_at) DESC, version DESC NULLS LAST`,
     [sid, TZ, periodStart, periodEnd])).rows;
+  // Drop stale overlaps: Square leaves orphan published records around when a shift
+  // is re-created instead of edited (e.g. Macy 1-6pm from Jul 15 lingering next to her
+  // live 1-8pm). Sorted newest-first, so for each member we keep the most-recently
+  // updated shift and skip any older one whose time overlaps a shift we already kept.
+  const keptByMember = {};
+  const kept = [];
   for (const p of pub) {
+    const list = (keptByMember[p.tmid] ??= []);
+    const s = new Date(p.pub_start_at), e = new Date(p.pub_end_at);
+    if (list.some((k) => s < k.e && k.s < e)) continue; // overlaps a newer kept shift → drop
+    list.push({ s, e });
+    kept.push(p);
+  }
+  for (const p of kept) {
     const jt = (await query(`SELECT job_title FROM team_square.team_member_job_assignment WHERE job_id = $1 LIMIT 1`, [p.pub_job_id])).rows[0]?.job_title || null;
     await query(
       `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
        VALUES ($1,$2,$3,$4,$5,$6,'published')`, [draftId, p.tmid, p.pub_job_id, jt, p.pub_start_at, p.pub_end_at]);
   }
-  return pub.length;
+  return kept.length;
 }
 const hrs = (s) => (new Date(s.end_at) - new Date(s.start_at)) / 3600000;
 
