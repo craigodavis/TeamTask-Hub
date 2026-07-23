@@ -346,35 +346,38 @@ async function getOrCreateDraft(companyId, locationId, weekStart, userId) {
      RETURNING *, (xmax = 0) AS just_created`, [companyId, locationId, weekStart, userId || null]);
   return r.rows[0];
 }
-// Seed a new draft from the ACTUAL published Square schedule for the SAME period (not a template).
-async function seedDraftFromPublished(sid, draftId, periodStart, periodEnd) {
+// Seed one or more location drafts from the ACTUAL published Square schedule for the
+// SAME period (not a template). Dedups stale overlaps GLOBALLY per member across all
+// the given locations: someone can't be two places at once, and Square leaves orphan
+// published records around when a shift is re-created instead of edited (e.g. Macy's
+// Jul-15 1-6pm Creek record lingering next to her live 1-8pm Winery shift). Sorted
+// newest-first, we keep each member's most-recently-updated shift and skip any older
+// one whose time overlaps a shift already kept — regardless of location.
+// locDrafts: [{ sid: square_location_id, draftId }]
+async function seedDraftsFromPublished(locDrafts, periodStart, periodEnd) {
+  if (!locDrafts.length) return 0;
+  const draftBySid = Object.fromEntries(locDrafts.map((x) => [x.sid, x.draftId]));
   const pub = (await query(
-    `SELECT pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at, version, updated_at
+    `SELECT pub_location_id AS sid, pub_team_member_id AS tmid, pub_job_id, pub_start_at, pub_end_at, version, updated_at
        FROM team_square.scheduled_shift
-      WHERE pub_location_id = $1 AND pub_is_deleted = false AND pub_start_at IS NOT NULL
+      WHERE pub_location_id = ANY($1) AND pub_is_deleted = false AND pub_start_at IS NOT NULL
         AND (pub_start_at AT TIME ZONE $2)::date BETWEEN $3 AND $4
       ORDER BY COALESCE(updated_at, pub_start_at) DESC, version DESC NULLS LAST`,
-    [sid, TZ, periodStart, periodEnd])).rows;
-  // Drop stale overlaps: Square leaves orphan published records around when a shift
-  // is re-created instead of edited (e.g. Macy 1-6pm from Jul 15 lingering next to her
-  // live 1-8pm). Sorted newest-first, so for each member we keep the most-recently
-  // updated shift and skip any older one whose time overlaps a shift we already kept.
+    [locDrafts.map((x) => x.sid), TZ, periodStart, periodEnd])).rows;
   const keptByMember = {};
-  const kept = [];
+  let count = 0;
   for (const p of pub) {
     const list = (keptByMember[p.tmid] ??= []);
     const s = new Date(p.pub_start_at), e = new Date(p.pub_end_at);
     if (list.some((k) => s < k.e && k.s < e)) continue; // overlaps a newer kept shift → drop
     list.push({ s, e });
-    kept.push(p);
-  }
-  for (const p of kept) {
     const jt = (await query(`SELECT job_title FROM team_square.team_member_job_assignment WHERE job_id = $1 LIMIT 1`, [p.pub_job_id])).rows[0]?.job_title || null;
     await query(
       `INSERT INTO schedule_draft_shifts (draft_id, square_team_member_id, square_job_id, job_title, start_at, end_at, source)
-       VALUES ($1,$2,$3,$4,$5,$6,'published')`, [draftId, p.tmid, p.pub_job_id, jt, p.pub_start_at, p.pub_end_at]);
+       VALUES ($1,$2,$3,$4,$5,$6,'published')`, [draftBySid[p.sid], p.tmid, p.pub_job_id, jt, p.pub_start_at, p.pub_end_at]);
+    count++;
   }
-  return kept.length;
+  return count;
 }
 const hrs = (s) => (new Date(s.end_at) - new Date(s.start_at)) / 3600000;
 
@@ -423,12 +426,15 @@ router.get('/builder', async (req, res) => {
     }
 
     // A draft per location; shifts from both, each tagged with its location.
+    // Newly-created drafts are seeded together so overlap dedup spans both locations.
     const drafts = [];
+    const toSeed = [];
     for (const l of locs) {
       const dr = await getOrCreateDraft(companyId, l.id, periodStart, req.userId);
-      if (dr.just_created) await seedDraftFromPublished(l.square_location_id, dr.id, periodStart, periodEnd);
+      if (dr.just_created) toSeed.push({ sid: l.square_location_id, draftId: dr.id });
       drafts.push({ id: dr.id, location_id: l.id, location_name: l.name });
     }
+    if (toSeed.length) await seedDraftsFromPublished(toSeed, periodStart, periodEnd);
     const shifts = (await query(
       `SELECT s.id, s.square_team_member_id AS tmid, s.square_job_id, s.job_title, s.start_at, s.end_at, s.source,
               d.location_id, l.name AS location_name, (s.start_at AT TIME ZONE $2)::date::text AS date
@@ -542,13 +548,15 @@ router.post('/builder/pull-from-square', async (req, res) => {
     const { period_start } = req.body || {};
     const periodEnd = addDays(period_start, 13);
     const locs = await getLocations(companyId);
-    let copied = 0;
+    const toSeed = [];
     for (const l of locs) {
       const draft = await getOrCreateDraft(companyId, l.id, period_start, req.userId);
       await query(`DELETE FROM schedule_draft_shifts WHERE draft_id = $1`, [draft.id]);
-      copied += await seedDraftFromPublished(l.square_location_id, draft.id, period_start, periodEnd);
+      toSeed.push({ sid: l.square_location_id, draftId: draft.id });
       await query(`UPDATE schedule_drafts SET updated_at = NOW() WHERE id = $1`, [draft.id]);
     }
+    // Seed all locations together so overlap dedup (keep most recent) spans both.
+    const copied = await seedDraftsFromPublished(toSeed, period_start, periodEnd);
     res.json({ ok: true, copied });
   } catch (e) { console.error('pull-from-square', e); res.status(500).json({ error: e.message }); }
 });
