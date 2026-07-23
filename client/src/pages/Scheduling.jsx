@@ -43,6 +43,9 @@ async function apiPost(p, b) { const r = await fetch('/api/scheduling' + p, { me
 async function apiDel(p) { const r = await fetch('/api/scheduling' + p, { method: 'DELETE', headers: authHeaders() }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Failed'); return d; }
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', '').toLowerCase();
 const DOWNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// WMO weather code → emoji (Open-Meteo codes stored in weather_daily).
+const wxEmoji = (c) => c == null ? '' : c === 0 ? '☀️' : c <= 2 ? '🌤️' : c === 3 ? '☁️' : c <= 48 ? '🌫️'
+  : c <= 67 ? '🌧️' : c <= 77 ? '🌨️' : c <= 82 ? '🌦️' : c <= 86 ? '🌨️' : '⛈️';
 
 export default function Scheduling() {
   const [tab, setTab] = useState('build');
@@ -433,11 +436,16 @@ function Builder() {
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820, fontSize: 12 }}>
           <thead><tr>
             <th style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border,#ddd)' }}>Staff · wk hrs</th>
-            {weekDays.map((d) => (
+            {weekDays.map((d) => { const w = data.weather && data.weather[d]; return (
               <th key={d} style={{ padding: '4px 2px', borderBottom: '1px solid var(--border,#ddd)', fontWeight: 600 }}>
                 {DOWNAMES[new Date(d + 'T12:00:00').getDay()]}<div style={{ opacity: 0.5, fontWeight: 400 }}>{d.slice(5)}</div>
+                {w && <div title={`${w.condition || ''}${w.temp_max != null ? ` · high ${w.temp_max}°` : ''}${w.precip_prob != null ? ` · ${w.precip_prob}% rain` : ''}${w.is_forecast ? '' : ' · actual'}`}
+                  style={{ fontWeight: 400, fontSize: 10, opacity: 0.75, marginTop: 1, lineHeight: 1.2 }}>
+                  {wxEmoji(w.weather_code)} {w.temp_max != null && <span>{w.temp_max}°</span>}
+                  {w.precip_prob >= 25 && <span style={{ color: '#2a6', marginLeft: 2 }}>💧{w.precip_prob}%</span>}
+                </div>}
               </th>
-            ))}
+            ); })}
           </tr></thead>
           <tbody>
             {Object.entries(byRole).map(([role, members]) => (
