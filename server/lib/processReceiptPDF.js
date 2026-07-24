@@ -204,7 +204,14 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
     const orderResults = [];
     for (const receiptData of orders) {
       const { order_number, order_date, subtotal, tax, total, items,
-              card_last4, payment_instrument } = receiptData;
+              payment_instrument } = receiptData;
+      // Normalize the card to a clean last-4 (strip Excel `="1234"` escaping,
+      // "ending in", spaces, etc.) so it matches card_account_mappings for
+      // personal-card exclusion + card→account mapping, regardless of source.
+      const card_last4 = (() => {
+        const d = String(receiptData.card_last4 ?? '').replace(/\D/g, '');
+        return d ? d.slice(-4) : null;
+      })();
       const vendor = normalizeVendor(receiptData.vendor);
 
       if (!order_number) {
