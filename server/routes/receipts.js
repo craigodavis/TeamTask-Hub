@@ -1638,9 +1638,13 @@ router.post('/export/confirm', requireAuth, requireOwner, async (req, res) => {
       }
 
       const existing = await retryOn429(() => qboGetPurchase(cId, qbo_transaction_id));
-      // Preserve the transaction's real total: qboUpdatePurchase refuses to write if the
-      // itemized lines fall short of `existing.TotalAmt` (its own current amount) beyond tolerance.
-      await retryOn429(() => qboUpdatePurchase(cId, existing, items));
+      // The written amount MUST equal the receipt/invoice total (which equals the bank
+      // charge). Pass it explicitly so qboUpdatePurchase validates to the penny and
+      // REFUSES rather than posting a short amount (that silent shortfall is exactly how
+      // Sysco invoices were understated by their tax / fuel surcharge / dropped lines).
+      const totRes = await query(`SELECT total FROM receipts WHERE id = $1`, [receipt_id]);
+      const invoiceTotal = totRes.rows[0]?.total != null ? parseFloat(totRes.rows[0].total) : null;
+      await retryOn429(() => qboUpdatePurchase(cId, existing, items, invoiceTotal));
 
       if (attachPdf) {
         try {

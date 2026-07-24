@@ -65,7 +65,11 @@ export function buildPurchaseUpdateLines(existing, items, expectedTotal = null) 
 
   const target = parseFloat(expectedTotal != null ? expectedTotal : existing?.TotalAmt);
   if (Number.isFinite(target) && target > 0) {
-    const tolerance = Math.max(0.05, target * 0.01);
+    // PENNIES ONLY — never a percentage. A 1% tolerance previously let real
+    // shortfalls through (e.g. $4.99 of un-itemized Sysco tax on a $613 invoice
+    // is 0.8%), silently understating the books. The written amount must equal
+    // the invoice/bank total exactly; anything else is refused, not adjusted.
+    const tolerance = 0.02;
     if (Math.abs(newTotal - target) > tolerance) {
       throw new Error(
         `qboUpdatePurchase: itemized lines sum to $${newTotal.toFixed(2)} but purchase ` +
