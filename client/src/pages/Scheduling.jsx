@@ -333,8 +333,9 @@ function Builder() {
   const over = pPct != null && pPct > target;
   const wkStats = (w) => { const ds = data.days.slice(w * 7, w * 7 + 7); const f = ds.reduce((a, d) => a + (data.forecast[d] || 0), 0); const h = ds.reduce((a, d) => a + shiftHrsOn(d), 0); const l = ds.reduce((a, d) => a + dayLabor(d), 0); return { f, h, pct: f > 0 ? (l / f) * 100 : null }; };
   const wk = [wkStats(0), wkStats(1)];
-  // Forecast vs actual over the days that have completed (retrospective).
-  const doneDays = data.days.filter((d) => data.actual_sales && data.actual_sales[d] != null);
+  // Forecast vs actual over the days that have COMPLETED (retrospective) — exclude
+  // today, whose actual is still partial and would skew the comparison.
+  const doneDays = data.days.filter((d) => d < data.today && data.actual_sales && data.actual_sales[d] != null);
   const fcSales = doneDays.reduce((a, d) => a + (data.model_forecast?.[d] || 0), 0);
   const acSales = doneDays.reduce((a, d) => a + (data.actual_sales?.[d] || 0), 0);
   const planLabor = doneDays.reduce((a, d) => a + dayLabor(d), 0);
@@ -498,10 +499,17 @@ function Builder() {
           </tbody>
           <tfoot>
             <tr><td style={{ padding: '5px 6px', fontWeight: 600, borderTop: '1px solid var(--border,#ddd)' }}>Sales</td>
-              {weekDays.map((d) => { const act = data.is_actual && data.is_actual[d]; return (
+              {weekDays.map((d) => {
+                const act = data.is_actual && data.is_actual[d];
+                const isToday = d === data.today;
+                // Today shows live actual-so-far; past days show final actual; future shows forecast.
+                const live = isToday && data.actual_sales && data.actual_sales[d] != null;
+                const val = live ? data.actual_sales[d] : data.forecast[d];
+                const green = act || live;
+                return (
                 <td key={d} style={{ textAlign: 'center', borderTop: '1px solid var(--border,#ddd)' }}>
-                  <div style={{ color: act ? '#137a2f' : 'inherit', opacity: act ? 1 : 0.7, fontWeight: act ? 600 : 400 }}>{data.forecast[d] == null ? '—' : money(Math.round(data.forecast[d]))}</div>
-                  {data.forecast[d] != null && <div style={{ fontSize: 9, opacity: 0.5 }}>{act ? 'actual' : 'fcst'}</div>}
+                  <div style={{ color: green ? '#137a2f' : 'inherit', opacity: green ? 1 : 0.7, fontWeight: green ? 600 : 400 }}>{val == null ? '—' : money(Math.round(val))}</div>
+                  {val != null && <div style={{ fontSize: 9, opacity: 0.5 }}>{act ? 'actual' : live ? 'so far' : 'fcst'}</div>}
                 </td>); })}</tr>
             <tr><td style={{ padding: '5px 6px' }}>Labor % <span style={{ opacity: 0.5 }}>(day)</span></td>
               {weekDays.map((d) => { const f = data.forecast[d], l = dayLabor(d); const p = f > 0 ? (l / f) * 100 : null; return <td key={d} style={{ textAlign: 'center', fontWeight: 600, color: p == null ? '#999' : p > target ? '#d33' : '#137a2f' }}>{p == null ? '—' : Math.round(p) + '%'}</td>; })}</tr>

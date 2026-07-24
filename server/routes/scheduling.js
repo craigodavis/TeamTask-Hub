@@ -405,15 +405,20 @@ router.get('/builder', async (req, res) => {
         const nn = net[l.square_location_id] || {};
         const m = dayForecast(nn, d, wLast, wYear, growthBy[l.square_location_id]);
         if (Number.isFinite(m)) { model += m; anyModel = true; }
-        const a = (d < today && Number.isFinite(nn[d])) ? nn[d] : null;
-        if (a != null) { act += a; anyAct = true; }
+        const nd = Number.isFinite(nn[d]) ? nn[d] : null;  // sales rung so far this day
+        // Running actual INCLUDING today (so the grid shows live end-of-day totals).
+        if (nd != null && d <= today) { act += nd; anyAct = true; }
+        // Budget basis uses actual only for COMPLETED days; today+future stay on the
+        // full-day model so the period total and today's labor % aren't skewed by a
+        // partially-elapsed day.
+        const a = (d < today && nd != null) ? nd : null;
         const b = a != null ? a : m;
         if (Number.isFinite(b)) { basis += b; anyBasis = true; }
       }
-      forecast[d] = anyBasis ? basis : null;         // budget basis: actual where available
+      forecast[d] = anyBasis ? basis : null;         // budget basis: actual for past days, model for today/future
       modelForecast[d] = anyModel ? model : null;    // pure model forecast (for accuracy)
-      actualSales[d] = anyAct ? act : null;
-      isActual[d] = anyAct && d < today;
+      actualSales[d] = anyAct ? act : null;          // running actual, includes today
+      isActual[d] = anyAct && d < today;             // fully-complete days (today handled via `today` on client)
     }
     // Actual labor SPENT per day (both locations, from timecards)
     const actualLabor = {};
