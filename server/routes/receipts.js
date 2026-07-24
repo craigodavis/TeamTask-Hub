@@ -548,7 +548,7 @@ router.post('/categorize-all', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
   try {
     const [receiptsRes, accountsRes, classesRes, memoryRes, rulesRes, integRes] = await Promise.all([
-      query(`SELECT r.id, r.vendor FROM receipts r WHERE r.company_id = $1 AND r.status = 'pending'
+      query(`SELECT r.id, r.vendor FROM receipts r WHERE r.company_id = $1 AND r.status IN ('pending', 'imported')
              AND EXISTS (SELECT 1 FROM receipt_items ri WHERE ri.receipt_id = r.id AND ri.qbo_account_id IS NULL)`, [cId]),
       query(`SELECT qbo_id, name, fully_qualified_name, account_type, account_sub_type, classification, active FROM qbo_accounts WHERE company_id = $1`, [cId]),
       query(`SELECT qbo_id, name, fully_qualified_name, active FROM qbo_classes WHERE company_id = $1`, [cId]),
