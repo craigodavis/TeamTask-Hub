@@ -48,12 +48,29 @@ test('partial shortfall beyond tolerance → throws', () => {
   assert.throws(() => buildPurchaseUpdateLines(existing, items), /off by/);
 });
 
-test('Sysco within tax tolerance (1%) → passes', () => {
-  // total $668.48, lines sum $663.51 → off $4.97 < 1% ($6.68)
+test('Sysco un-itemized tax shortfall → REFUSED (penny-exact, no % slack)', () => {
+  // The real incident: invoice $668.48, lines sum $663.51 — short by the $4.97 tax.
+  // That is 0.74%, which the old max($0.05, 1%) tolerance let through, silently
+  // understating the books. Penny-exact must now refuse it.
   const sysco = { Id: '2', TotalAmt: '668.48' };
   const items = [{ description: 'X', total: 663.51, qbo_account_id: '1' }];
+  assert.throws(() => buildPurchaseUpdateLines(sysco, items), /off by/);
+});
+
+test('exact match to the penny → passes', () => {
+  const sysco = { Id: '2', TotalAmt: '668.48' };
+  const items = [
+    { description: 'goods', total: 663.51, qbo_account_id: '1' },
+    { description: 'Sales Tax', total: 4.97, qbo_account_id: '2' },
+  ];
   const lines = buildPurchaseUpdateLines(sysco, items);
-  assert.equal(lines.length, 1);
+  assert.equal(lines.length, 2);
+});
+
+test('one cent of rounding still allowed', () => {
+  const sysco = { Id: '2', TotalAmt: '100.00' };
+  const items = [{ description: 'X', total: 100.01, qbo_account_id: '1' }];
+  assert.doesNotThrow(() => buildPurchaseUpdateLines(sysco, items));
 });
 
 test('Sysco shortfall just over tolerance → throws (the real damage case)', () => {

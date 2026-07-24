@@ -80,6 +80,26 @@ SYSCO LAST PAGE TOTALS — the last page ends with a footer block. There are two
     706.21       ← invoice total (use this as total)
 Always use the LAST number in this footer block as the "total" field.
 
+SYSCO MISC CHARGES — capture EVERY charge line as its own item, not just fuel:
+  MISC CHARGES  CHGS FOR FUEL SURCHARGE           .06    8.95  *   → "Fuel Surcharge"
+  MISC CHARGES  CHARGE FOR CREDIT CARD SRCHRG            16.88 *   → "Credit Card Surcharge"
+Both are real charges and belong in "items".
+
+SYSCO QUANTITY+UNIT IS SOMETIMES RUN TOGETHER — item lines may concatenate quantity and unit
+with no space, e.g. "D 1SCS 123LB SYS CLS SALT KOSHER FLAKE COARSE" or
+"C 1SCS 6.5 GALDARIGLD CREAM HEAVY 40% UHT". These ARE real line items and are the ones most
+often missed. Treat "1SCS" / "2CS" / "1BG" as quantity + unit and include the item.
+
+*** MANDATORY BALANCE CHECK — perform this before returning ***
+For each order verify BOTH:
+    sum(items[].total)  ==  invoice subtotal
+    subtotal + tax      ==  total
+If they do NOT match, you have MISSED one or more line items — most often a catch-weight
+product on a continuation page, or a MISC CHARGES line. Re-scan every page and add the
+missing item(s) until it balances.
+NEVER invent, pad, or adjust a line to force the balance, and never silently return
+unbalanced data. Every line must be a real line that appears on the invoice.
+
 PDF text:
 ${pdfText}`,
       },
