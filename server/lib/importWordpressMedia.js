@@ -18,6 +18,7 @@ import fs from 'fs';
 import https from 'node:https';
 import { query } from '../db.js';
 import { MEDIA_DIR, generateVariants, safeBase, isLikelyAI } from './mediaVariants.js';
+import { loadFileBirdFolders } from './wpFolders.js';
 
 const DEFAULT_WP_BASE = 'https://kindredvineyards.com';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 KindredMediaImporter/1.0';
@@ -133,7 +134,16 @@ export async function importWordpressMedia(opts = {}) {
   const ip = await ensureConnectIp(wpBase);
   const media = await fetchAllMedia(wpBase);
 
-  const report = { total: media.length, imported: 0, skippedAI: 0, needsReview: 0, alreadyHave: 0, failed: 0, firstError: null, dryRun };
+  // Read the FileBird folder tree from WP's DB (optional; import proceeds without it).
+  const fb = await loadFileBirdFolders();
+  const folderMap = fb.map || null;
+
+  const report = {
+    total: media.length, imported: 0, skippedAI: 0, needsReview: 0, foldered: 0,
+    alreadyHave: 0, failed: 0,
+    folderNote: fb.error || (fb.folderCount != null ? `FileBird: ${fb.folderCount} folders read` : null),
+    firstError: null, dryRun,
+  };
 
   for (const m of media) {
     const src = m.source_url;
@@ -143,13 +153,23 @@ export async function importWordpressMedia(opts = {}) {
     const exists = await query(`SELECT id FROM kindred_web.media WHERE source_url = $1`, [src]);
     if (exists.rows.length) { report.alreadyHave++; onProgress?.(report); continue; }
 
-    const verdict = classify(origName);
-    if (verdict === 'skip-ai') { report.skippedAI++; onProgress?.(report); continue; }
-    const folder = verdict === 'needs-review' ? 'needs-review' : 'library';
+    // AI files are always excluded, even if filed in a folder.
+    if (isLikelyAI(origName)) { report.skippedAI++; onProgress?.(report); continue; }
+
+    // Prefer the real FileBird folder; otherwise fall back to library/needs-review.
+    const fbPath = folderMap ? folderMap.get(Number(m.id)) : null;
+    let folder;
+    if (fbPath) {
+      folder = fbPath;
+    } else {
+      const verdict = classify(origName);
+      folder = verdict === 'needs-review' ? 'needs-review' : 'library';
+    }
 
     if (dryRun) {
       report.imported++;
       if (folder === 'needs-review') report.needsReview++;
+      if (fbPath) report.foldered++;
       onProgress?.(report);
       continue;
     }
@@ -176,6 +196,7 @@ export async function importWordpressMedia(opts = {}) {
       );
       report.imported++;
       if (folder === 'needs-review') report.needsReview++;
+      if (fbPath) report.foldered++;
     } catch (e) {
       report.failed++;
       if (!report.firstError) report.firstError = `${origName}: ${e.message}`;
