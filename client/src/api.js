@@ -2029,6 +2029,36 @@ export async function deleteMedia(id) {
   return res.json();
 }
 
+// ---- Store hours (Marketing → Hours) ----
+export async function getHours() {
+  const res = await fetch(`${API}/hours`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load hours');
+  return res.json(); // { locations: [{ id, name, venue, regular, specials }] }
+}
+export async function saveHours(locationId, intervals) {
+  const res = await fetch(`${API}/hours/${locationId}`, {
+    method: 'PUT',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ intervals }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
+  return res.json();
+}
+export async function addSpecialHours(locationId, body) {
+  const res = await fetch(`${API}/hours/${locationId}/special`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Add failed');
+  return res.json();
+}
+export async function deleteSpecialHours(id) {
+  const res = await fetch(`${API}/hours/special/${id}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) throw new Error('Delete failed');
+  return res.json();
+}
+
 export async function listMediaFolders() {
   const res = await fetch(`${API}/media/folders`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to load folders');

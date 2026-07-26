@@ -44,6 +44,38 @@ const STATEMENTS = [
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_by  UUID
   )`,
+  // Regular weekly hours — one row per open interval. A (location, department, day)
+  // with no rows = closed that day. Multiple rows/day support split hours.
+  `CREATE TABLE IF NOT EXISTS kindred_web.hours (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID,
+    location_id  UUID NOT NULL,                         -- locations.id (teamtask_hub)
+    department   VARCHAR(40) NOT NULL DEFAULT 'main',   -- main | kitchen | ...
+    day_of_week  SMALLINT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),  -- 0=Sunday
+    opens        TIME NOT NULL,
+    closes       TIME NOT NULL,
+    sort         SMALLINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_hours_loc ON kindred_web.hours(location_id, department, day_of_week)`,
+
+  // Special / holiday hours + temporary closures for specific dates (override regular).
+  `CREATE TABLE IF NOT EXISTS kindred_web.hours_special (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   UUID,
+    location_id  UUID NOT NULL,
+    department   VARCHAR(40) NOT NULL DEFAULT 'main',
+    on_date      DATE NOT NULL,
+    is_closed    BOOLEAN NOT NULL DEFAULT false,
+    opens        TIME,
+    closes       TIME,
+    note         VARCHAR(120),                          -- e.g. "Thanksgiving"
+    sort         SMALLINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_hours_special ON kindred_web.hours_special(location_id, department, on_date)`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (

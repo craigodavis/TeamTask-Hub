@@ -51,6 +51,7 @@ import { startPromoEmailScheduler } from './lib/promoEmailSender.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { mediaRouter } from './routes/media.js';
+import { hoursRouter } from './routes/hours.js';
 import { websiteRouter } from './routes/website.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 import { ensureKindredWebTables } from './ensureKindredWebTables.js';
@@ -105,6 +106,7 @@ app.use('/api/promo', requireAuth, requireScheduleAccess, promoRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/media', requireAuth, mediaRouter);
+app.use('/api/hours', requireAuth, hoursRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
