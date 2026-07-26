@@ -20,11 +20,23 @@ const FETCH_HEADERS = {
   Accept: 'application/json',
 };
 
+// Node's fetch throws a terse "fetch failed"; the real reason is in err.cause.
+function describeFetchError(e) {
+  const c = e?.cause;
+  const bits = c ? [c.code, c.syscall, c.hostname, c.message].filter(Boolean).join(' ') : '';
+  return `${e.message}${bits ? ` — cause: ${bits}` : ''}`;
+}
+
 async function fetchAllMedia(wpBase) {
   const items = [];
   for (let page = 1; page <= 100; page++) {
     const url = `${wpBase}/wp-json/wp/v2/media?per_page=100&page=${page}&media_type=image`;
-    const res = await fetch(url, { headers: FETCH_HEADERS });
+    let res;
+    try {
+      res = await fetch(url, { headers: FETCH_HEADERS });
+    } catch (e) {
+      throw new Error(`Could not connect to ${wpBase} — ${describeFetchError(e)}`);
+    }
     if (res.status === 400 && page > 1) break; // WP returns 400 for pages past the end
     if (!res.ok) {
       const snippet = (await res.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ');
@@ -113,7 +125,7 @@ export async function importWordpressMedia(opts = {}) {
       if (folder === 'needs-review') report.needsReview++;
     } catch (e) {
       report.failed++;
-      if (!report.firstError) report.firstError = `${origName}: ${e.message}`;
+      if (!report.firstError) report.firstError = `${origName}: ${describeFetchError(e)}`;
     }
     onProgress?.(report);
   }
