@@ -2044,6 +2044,16 @@ export async function saveHours(locationId, intervals) {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
   return res.json();
 }
+export async function saveVenueDetails(locationId, details) {
+  const res = await fetch(`${API}/hours/${locationId}/details`, {
+    method: 'PUT',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(details),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
+  return res.json();
+}
+
 export async function addSpecialHours(locationId, body) {
   const res = await fetch(`${API}/hours/${locationId}/special`, {
     method: 'POST',

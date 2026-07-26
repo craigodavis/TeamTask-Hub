@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getHours, saveHours, addSpecialHours, deleteSpecialHours } from '../api';
+import { getHours, saveHours, saveVenueDetails, addSpecialHours, deleteSpecialHours } from '../api';
 import './HoursEditor.css';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -102,6 +102,8 @@ export function HoursEditor() {
             </button>
           </div>
 
+          <VenueDetails locId={loc.id} initial={loc.details} onError={setError} />
+
           <div className="week">
             {DAYS.map((label, dow) => {
               const list = sched[loc.id]?.[dow] || [];
@@ -148,6 +150,44 @@ export function HoursEditor() {
         </div>
       ))}
     </div>
+  );
+}
+
+function VenueDetails({ locId, initial, onError }) {
+  const init = initial || {};
+  const [d, setD] = useState({
+    street: init.street || '', city: init.city || '', region: init.region || '',
+    postal: init.postal || '', country: init.country || 'US', phone: init.phone || '',
+    lat: init.lat ?? '', lng: init.lng ?? '', price_range: init.price_range || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const set = (k) => (e) => setD((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await saveVenueDetails(locId, d);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) { onError(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <details className="venue-details">
+      <summary>Location details <span className="hint">(address, phone, map — used by search engines &amp; the hours push)</span></summary>
+      <div className="det-grid">
+        <label className="wide">Street<input value={d.street} onChange={set('street')} placeholder="123 Vineyard Ln" /></label>
+        <label>City<input value={d.city} onChange={set('city')} placeholder="Caldwell" /></label>
+        <label>State<input value={d.region} onChange={set('region')} placeholder="ID" /></label>
+        <label>ZIP<input value={d.postal} onChange={set('postal')} placeholder="83607" /></label>
+        <label>Phone<input value={d.phone} onChange={set('phone')} placeholder="(208) 555-1234" /></label>
+        <label>Price<input value={d.price_range} onChange={set('price_range')} placeholder="$$" /></label>
+        <label>Latitude<input value={d.lat} onChange={set('lat')} placeholder="43.598" /></label>
+        <label>Longitude<input value={d.lng} onChange={set('lng')} placeholder="-116.752" /></label>
+      </div>
+      <button className="btn btn-ghost" onClick={save} disabled={busy}>{busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save details'}</button>
+    </details>
   );
 }
 

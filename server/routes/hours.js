@@ -39,9 +39,41 @@ router.get('/', async (req, res) => {
           ORDER BY on_date`,
         [loc.id, DEPT]
       );
-      locations.push({ id: loc.id, name: loc.name, venue: loc.web_slug, regular: reg.rows, specials: spec.rows });
+      const det = await query(
+        `SELECT street, city, region, postal, country, phone, lat, lng, price_range, gbp_location, apple_location
+           FROM kindred_web.venue_details WHERE location_id = $1`,
+        [loc.id]
+      );
+      locations.push({
+        id: loc.id, name: loc.name, venue: loc.web_slug,
+        regular: reg.rows, specials: spec.rows, details: det.rows[0] || {},
+      });
     }
     res.json({ locations });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/hours/:locationId/details — upsert a venue's address/phone/geo/push targets.
+router.put('/:locationId/details', requireManager, async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    const chk = await query(`SELECT id FROM locations WHERE id = $1 AND company_id = $2`, [locationId, cId(req)]);
+    if (!chk.rows.length) return res.status(404).json({ error: 'Location not found' });
+
+    const d = req.body || {};
+    const num = (v) => (v === '' || v == null ? null : Number(v));
+    await query(
+      `INSERT INTO kindred_web.venue_details
+         (location_id, street, city, region, postal, country, phone, lat, lng, price_range, gbp_location, apple_location, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (location_id) DO UPDATE SET
+         street=$2, city=$3, region=$4, postal=$5, country=$6, phone=$7, lat=$8, lng=$9,
+         price_range=$10, gbp_location=$11, apple_location=$12, updated_by=$13, updated_at=NOW()`,
+      [locationId, d.street || null, d.city || null, d.region || null, d.postal || null,
+       d.country || 'US', d.phone || null, num(d.lat), num(d.lng),
+       d.price_range || null, d.gbp_location || null, d.apple_location || null, req.userId]
+    );
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
