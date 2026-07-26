@@ -22,7 +22,7 @@ const STATEMENTS = [
     alt_text       TEXT,
     caption        TEXT,
     credit         VARCHAR(255),
-    folder         VARCHAR(120) NOT NULL DEFAULT 'library',
+    folder         VARCHAR(300) NOT NULL DEFAULT 'library',
     tags           TEXT[],
     variants       JSONB,
     source         VARCHAR(30) NOT NULL DEFAULT 'upload',
@@ -37,6 +37,17 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_kw_media_created ON kindred_web.media(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_kw_media_tags    ON kindred_web.media USING GIN(tags)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_kw_media_source_url ON kindred_web.media(source_url) WHERE source_url IS NOT NULL`,
+  // Widen folder for nested FileBird paths (only if an older, narrower table exists).
+  `DO $$ BEGIN
+     IF EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'kindred_web' AND table_name = 'media'
+         AND column_name = 'folder'
+         AND character_maximum_length IS NOT NULL AND character_maximum_length < 300
+     ) THEN
+       ALTER TABLE kindred_web.media ALTER COLUMN folder TYPE VARCHAR(300);
+     END IF;
+   END $$`,
 ];
 
 export async function ensureKindredWebTables() {

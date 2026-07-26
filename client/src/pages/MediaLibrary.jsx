@@ -181,10 +181,11 @@ export function MediaLibrary() {
           {importing ? 'Importing from WordPress…' : 'Last import: '}
           {importReport && (
             <span>
-              {' '}found {importReport.total} · imported {importReport.imported} · needs review {importReport.needsReview} · skipped AI {importReport.skippedAI} · already had {importReport.alreadyHave}
+              {' '}found {importReport.total} · imported {importReport.imported} · foldered {importReport.foldered ?? 0} · needs review {importReport.needsReview} · skipped AI {importReport.skippedAI} · already had {importReport.alreadyHave}
               {importReport.failed ? ` · failed ${importReport.failed}` : ''}{importReport.dryRun ? ' (dry run)' : ''}
             </span>
           )}
+          {importReport?.folderNote && <div className="import-detail">Folders — {importReport.folderNote}</div>}
           {importReport?.firstError && <div className="import-detail">First failure — {importReport.firstError}</div>}
           {importError && <div className="import-detail">Error: {importError}</div>}
         </div>
