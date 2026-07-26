@@ -9,6 +9,28 @@ import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
 
 const cId = (req) => req.companyId;
 
+// Readable event slug for website detail URLs, e.g. "august-nights-2026-08-01".
+function makeSlug(title, startAt) {
+  const base = String(title || '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 180) || 'event';
+  const d = startAt ? new Date(startAt) : null;
+  const datePart = d && !isNaN(d.valueOf()) ? d.toISOString().slice(0, 10) : '';
+  return datePart ? `${base}-${datePart}` : base;
+}
+async function uniqueSlug(companyId, base, excludeId) {
+  let slug = base;
+  for (let n = 2; n <= 50; n++) {
+    const params = excludeId ? [companyId, slug, excludeId] : [companyId, slug];
+    const r = await query(
+      `SELECT 1 FROM events WHERE company_id = $1 AND slug = $2 ${excludeId ? 'AND id <> $3' : ''} LIMIT 1`,
+      params
+    );
+    if (!r.rows.length) return slug;
+    slug = `${base}-${n}`;
+  }
+  return `${base}-${Date.now()}`;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const eventUploadsDir = path.join(__dirname, '..', 'uploads', 'events');
 fs.mkdirSync(eventUploadsDir, { recursive: true });
@@ -238,6 +260,8 @@ eventsRouter.post('/', async (req, res) => {
     for (const f of EV_FIELDS) if (f in req.body && req.body[f] !== '') {
       cols.push(f); vals.push(req.body[f]); ph.push('$' + vals.length);
     }
+    const slug = await uniqueSlug(cId(req), makeSlug(req.body.title, req.body.start_at));
+    cols.push('slug'); vals.push(slug); ph.push('$' + vals.length);
     const r = await query(`INSERT INTO events (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING id`, vals);
     const id = r.rows[0].id;
     if (req.body.status === 'published') syncEventToWp(cId(req), id).catch((e) => console.error('wp push (create)', e.message));
@@ -249,6 +273,15 @@ eventsRouter.patch('/:id', async (req, res) => {
   try {
     const sets = [], vals = [];
     for (const f of EV_FIELDS) if (f in req.body) { vals.push(req.body[f] === '' ? null : req.body[f]); sets.push(`${f} = $${vals.length}`); }
+    // Regenerate the slug if the title or start date changed.
+    if ('title' in req.body || 'start_at' in req.body) {
+      const cur = (await query(`SELECT title, start_at FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+      if (cur) {
+        const base = makeSlug(req.body.title ?? cur.title, req.body.start_at ?? cur.start_at);
+        const s = await uniqueSlug(cId(req), base, req.params.id);
+        vals.push(s); sets.push(`slug = $${vals.length}`);
+      }
+    }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id, cId(req));
     await query(`UPDATE events SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length - 1} AND company_id = $${vals.length}`, vals);

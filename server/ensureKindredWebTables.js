@@ -37,6 +37,13 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_kw_media_created ON kindred_web.media(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_kw_media_tags    ON kindred_web.media USING GIN(tags)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_kw_media_source_url ON kindred_web.media(source_url) WHERE source_url IS NOT NULL`,
+  // Website settings (key/value), edited in Team → Marketing → Website, read by the site.
+  `CREATE TABLE IF NOT EXISTS kindred_web.settings (
+    key         VARCHAR(80) PRIMARY KEY,
+    value       JSONB,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by  UUID
+  )`,
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (

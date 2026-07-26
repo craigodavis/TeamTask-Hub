@@ -1,0 +1,142 @@
+/**
+ * Public, read-only API for the Astro website (kindredvineyards.com).
+ * Mounted WITHOUT auth. Returns only published, public-safe fields.
+ *
+ * Everything is company-scoped to Kindred; since there's no auth/company on these
+ * requests, we resolve the company once (KINDRED_COMPANY_ID env, else the single
+ * company, else the one matching "kindred").
+ */
+import express from 'express';
+import { query } from '../db.js';
+
+export const websiteRouter = express.Router();
+
+// Short CDN cache — content changes rarely; edits show within a minute.
+websiteRouter.use((_req, res, next) => {
+  res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+  next();
+});
+
+let _companyId = null;
+async function kindredCompanyId() {
+  if (_companyId) return _companyId;
+  if (process.env.KINDRED_COMPANY_ID) return (_companyId = process.env.KINDRED_COMPANY_ID);
+  const one = await query(`SELECT id FROM companies ORDER BY created_at LIMIT 2`);
+  if (one.rows.length === 1) return (_companyId = one.rows[0].id);
+  const k = await query(
+    `SELECT id FROM companies WHERE slug ILIKE 'kindred%' OR name ILIKE '%kindred%' ORDER BY created_at LIMIT 1`
+  );
+  if (k.rows.length) return (_companyId = k.rows[0].id);
+  throw new Error('Cannot resolve company; set KINDRED_COMPANY_ID');
+}
+
+async function getSetting(key, fallback) {
+  try {
+    const r = await query(`SELECT value FROM kindred_web.settings WHERE key = $1`, [key]);
+    return r.rows.length ? r.rows[0].value : fallback;
+  } catch { return fallback; }
+}
+
+const LIST_FIELDS = `
+  e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
+  e.event_url, e.image_url, e.social_image_url, e.category,
+  l.web_slug AS venue, l.name AS venue_name,
+  m.name AS musician_name, m.stage_name AS musician_stage_name,
+  m.photo_url AS musician_photo, m.website_url AS musician_url`;
+
+// GET /api/website/venues — venues with a short key for per-location pages.
+websiteRouter.get('/venues', async (_req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const r = await query(
+      `SELECT web_slug AS venue, name FROM locations WHERE company_id = $1 AND web_slug IS NOT NULL ORDER BY name`,
+      [companyId]
+    );
+    res.json({ venues: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/settings — public whitelist only.
+websiteRouter.get('/settings', async (_req, res) => {
+  try {
+    const events_list_count = Number(await getSetting('events_list_count', 10)) || 10;
+    res.json({ events_list_count });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/events/calendar?venue=&month=YYYY-MM — published events in a month.
+// (Defined before /events/:slug so "calendar" isn't treated as a slug.)
+websiteRouter.get('/events/calendar', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : null;
+    const params = [companyId];
+    let range = '';
+    if (month) {
+      params.push(`${month}-01`);
+      range = `AND e.start_at >= $${params.length}::date AND e.start_at < ($${params.length}::date + INTERVAL '1 month')`;
+    } else {
+      range = `AND e.start_at >= date_trunc('day', now())`;
+    }
+    let venueClause = '';
+    if (req.query.venue) { params.push(req.query.venue); venueClause = `AND l.web_slug = $${params.length}`; }
+    const r = await query(
+      `SELECT ${LIST_FIELDS}
+         FROM events e
+         LEFT JOIN locations l ON l.id = e.location_id
+         LEFT JOIN musicians m ON m.id = e.musician_id
+        WHERE e.company_id = $1 AND e.status = 'published' ${range} ${venueClause}
+        ORDER BY e.start_at ASC`,
+      params
+    );
+    res.json({ events: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/events?venue=&limit=&q=&category= — upcoming published events.
+websiteRouter.get('/events', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const defaultLimit = Number(await getSetting('events_list_count', 10)) || 10;
+    const limit = Math.min(Math.max(Number(req.query.limit) || defaultLimit, 1), 100);
+
+    const params = [companyId];
+    let where = `e.company_id = $1 AND e.status = 'published' AND e.start_at >= date_trunc('day', now())`;
+    if (req.query.venue) { params.push(req.query.venue); where += ` AND l.web_slug = $${params.length}`; }
+    if (req.query.category) { params.push(req.query.category); where += ` AND e.category = $${params.length}`; }
+    if (req.query.q && req.query.q.trim()) {
+      params.push(`%${req.query.q.trim()}%`);
+      where += ` AND (e.title ILIKE $${params.length} OR e.description ILIKE $${params.length} OR e.category ILIKE $${params.length})`;
+    }
+    params.push(limit);
+    const r = await query(
+      `SELECT ${LIST_FIELDS}
+         FROM events e
+         LEFT JOIN locations l ON l.id = e.location_id
+         LEFT JOIN musicians m ON m.id = e.musician_id
+        WHERE ${where}
+        ORDER BY e.start_at ASC
+        LIMIT $${params.length}`,
+      params
+    );
+    res.json({ events: r.rows, limit });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/events/:slug — one published event (with fuller musician info).
+websiteRouter.get('/events/:slug', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const r = await query(
+      `SELECT ${LIST_FIELDS}, e.end_at, m.bio AS musician_bio, m.links AS musician_links
+         FROM events e
+         LEFT JOIN locations l ON l.id = e.location_id
+         LEFT JOIN musicians m ON m.id = e.musician_id
+        WHERE e.company_id = $1 AND e.status = 'published' AND e.slug = $2
+        LIMIT 1`,
+      [companyId, req.params.slug]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Event not found' });
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
