@@ -393,8 +393,31 @@ Example: if the user asks about "creek sales", filter with: WHERE loc.name = 'Ki
 - Kindred Vineyards sells wine (750ml bottles and glass pours), wine flights, food (pizza, etc.), beer, and boutique items
 - Only query COMPLETED Square orders unless asked: WHERE o.state = 'COMPLETED'
 - Only query Paid Commerce7 orders unless asked: WHERE o.payment_status = 'Paid'
+- The database also has a "vintly" schema (Kindred's winemaking/cellar system) — USE it for any question about wine lots, barrels/tanks, fermentations, harvest, vineyards, lab numbers, or the winemaking journal (see VINTLY WINEMAKING SCHEMA below)
 - The database also has fivetran_metadata, metabase, cellarpilot, wine, club_steward schemas — ignore these unless asked
 - No duplicate category rows — each catalog_item has exactly one category_id
+
+=== VINTLY WINEMAKING SCHEMA (schema: vintly) ===
+Kindred's cellar/winemaking system. CRITICAL: every vintly.* table has a company_id, and Vintly uses a
+DIFFERENT company id than Square/Commerce7 — ALWAYS scope vintly queries with
+company_id = '4a461f89-67e9-43c3-b9e1-a66f19a4960c' (Kindred Vineyards in Vintly). Also filter deleted_at IS NULL
+for active records. Units are literal: liters, grams (adds), tons, brix, pH, TA (g/L), SO2 (ppm/mg/L).
+Key tables:
+- vintly.projects — a WINE LOT: id, name, vintage, wine_type_id→wine_types, vineyard_id→vineyards, status, is_active, is_blend, bottling_date, starting_case_qty. ("the 2024 Sangiovese" = a project row.)
+- vintly.wine_types — wine specs/targets: id, name, category, target_harvest_brix(_min/_max), target_harvest_ph, target_post_mlf_ph, target_pre_ml_ta, target_post_ml_ta, target_molecular_so2, target_potassium
+- vintly.vessels — BARRELS/TANKS: id, barrel_no, project_id→projects, vessel_type_id→vessel_types, status, storage_area, active, volume_override_liters, barrel_date, projected_bottling_year, ml_started
+- vintly.vessel_types — id, name, class, material, age, toast, liter_volume
+- vintly.ferment_bins — fermentation bins: id, bin_number, project_id, stage, ferment_type, gross_liters_off_press, must_ph
+- vintly.harvests — id, harvest_date, project_id, location_id, harvest_type, gross_tons, metric_tons, brix, ph, ta, potassium, price_per_ton, picking_fee
+- vintly.vineyards — id, name, initials, contact_name/phone/email
+- vintly.journal_entries — winemaking WORK LOG (per barrel/bin): entry_date, subject_type ('vessel' or 'ferment_bin'), subject_id (→vessels.id when subject_type='vessel', →ferment_bins.id when 'ferment_bin'), work_types (text[]: 'Top Wine','SO2 Test/Add','PH Test','Brix Test/Add','TA','ML Started','Yeast Add','Blended','Bentonite Add','Chitosan','Kieselsol','Acetic Acid Test','Other'), ph, ta, fso2, brix, potassium, topped (bool), so2_add_g, tartaric_add_g, sugar_add_g, other_add, other_add_qty, notes (free text), created_by→users
+- vintly.lab_analyses — lab samples: vessel_id/ferment_bin_id, sample_date, ph, ta, va, malic, fso2, tso2, alcohol, brix (may be empty)
+- vintly.blend_allocations — blend moves: source_vessel_id, dest_project_id, liters, moved_at
+- vintly.users — id, display_name, role (Zoe, Craig, Jack, Tristan)
+JOINS: a wine's barrels = vintly.vessels WHERE project_id = <project>. Link a journal entry to its subject with
+  LEFT JOIN vintly.vessels v ON je.subject_type='vessel' AND v.id = je.subject_id
+  LEFT JOIN vintly.ferment_bins fb ON je.subject_type='ferment_bin' AND fb.id = je.subject_id
+Vintage lives on vintly.projects.vintage. "Barrel 47" → vintly.vessels WHERE barrel_no = '47'.
 
 === HOW TO RESPOND ===
 
@@ -860,7 +883,7 @@ async function logJournal({ question, generated_sql, success, error_message, row
 const SQUARE_TOOLS = [
   {
     name: 'run_sql',
-    description: 'Run a read-only SQL SELECT query against the PostgreSQL database (team_square and commerce7 schemas). Returns rows and field names.',
+    description: 'Run a read-only SQL SELECT query against the PostgreSQL database (team_square, commerce7, and vintly winemaking schemas). Returns rows and field names.',
     input_schema: {
       type: 'object',
       properties: {
