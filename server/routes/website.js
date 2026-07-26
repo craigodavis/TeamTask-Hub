@@ -12,8 +12,10 @@ import { query } from '../db.js';
 export const websiteRouter = express.Router();
 
 // Short CDN cache — content changes rarely; edits show within a minute.
+// Public read API → allow cross-origin fetches from the website (browser).
 websiteRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+  res.set('Access-Control-Allow-Origin', '*');
   next();
 });
 
@@ -61,6 +63,40 @@ websiteRouter.get('/settings', async (_req, res) => {
   try {
     const events_list_count = Number(await getSetting('events_list_count', 10)) || 10;
     res.json({ events_list_count });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/hours — weekly hours + upcoming specials per venue, for the site.
+websiteRouter.get('/hours', async (_req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const locs = await query(
+      `SELECT id, name, web_slug FROM locations
+        WHERE company_id = $1 AND web_slug IS NOT NULL ORDER BY name`,
+      [companyId]
+    );
+    const venues = [];
+    for (const loc of locs.rows) {
+      const reg = await query(
+        `SELECT day_of_week, to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes
+           FROM kindred_web.hours WHERE location_id = $1 AND department = 'main'
+          ORDER BY day_of_week, sort, opens`,
+        [loc.id]
+      );
+      const days = Array.from({ length: 7 }, (_, d) => ({ day: d, intervals: [] }));
+      for (const row of reg.rows) days[row.day_of_week].intervals.push({ opens: row.opens, closes: row.closes });
+
+      const spec = await query(
+        `SELECT to_char(on_date,'YYYY-MM-DD') AS date, is_closed,
+                to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes, note
+           FROM kindred_web.hours_special WHERE location_id = $1 AND department = 'main'
+            AND on_date >= (now() AT TIME ZONE 'America/Boise')::date
+          ORDER BY on_date LIMIT 30`,
+        [loc.id]
+      );
+      venues.push({ venue: loc.web_slug, name: loc.name, days, specials: spec.rows });
+    }
+    res.json({ timezone: 'America/Boise', venues });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
