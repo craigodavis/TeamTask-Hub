@@ -13,13 +13,28 @@ import { MEDIA_DIR, generateVariants, safeBase, isLikelyAI } from './mediaVarian
 
 const DEFAULT_WP_BASE = 'https://kindredvineyards.com';
 
+// A browser-like UA + Accept so Cloudflare doesn't serve a bot challenge to the
+// datacenter IP (which would otherwise come back as HTML, not JSON).
+const FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 KindredMediaImporter/1.0',
+  Accept: 'application/json',
+};
+
 async function fetchAllMedia(wpBase) {
   const items = [];
   for (let page = 1; page <= 100; page++) {
     const url = `${wpBase}/wp-json/wp/v2/media?per_page=100&page=${page}&media_type=image`;
-    const res = await fetch(url);
-    if (res.status === 400) break; // WP returns 400 for pages past the end
-    if (!res.ok) break;
+    const res = await fetch(url, { headers: FETCH_HEADERS });
+    if (res.status === 400 && page > 1) break; // WP returns 400 for pages past the end
+    if (!res.ok) {
+      const snippet = (await res.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ');
+      throw new Error(`WP media list page ${page} returned HTTP ${res.status}. Body: ${snippet}`);
+    }
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('json')) {
+      const snippet = (await res.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ');
+      throw new Error(`WP media list page ${page} returned non-JSON (${ct}). Body: ${snippet}`);
+    }
     const batch = await res.json();
     if (!Array.isArray(batch) || !batch.length) break;
     items.push(...batch);
@@ -53,7 +68,7 @@ export async function importWordpressMedia(opts = {}) {
   fs.mkdirSync(MEDIA_DIR, { recursive: true });
   const media = await fetchAllMedia(wpBase);
 
-  const report = { total: media.length, imported: 0, skippedAI: 0, needsReview: 0, alreadyHave: 0, failed: 0, dryRun };
+  const report = { total: media.length, imported: 0, skippedAI: 0, needsReview: 0, alreadyHave: 0, failed: 0, firstError: null, dryRun };
 
   for (const m of media) {
     const src = m.source_url;
@@ -75,7 +90,7 @@ export async function importWordpressMedia(opts = {}) {
     }
 
     try {
-      const dl = await fetch(src);
+      const dl = await fetch(src, { headers: FETCH_HEADERS });
       if (!dl.ok) throw new Error(`download HTTP ${dl.status}`);
       const buf = Buffer.from(await dl.arrayBuffer());
 
@@ -96,8 +111,9 @@ export async function importWordpressMedia(opts = {}) {
       );
       report.imported++;
       if (folder === 'needs-review') report.needsReview++;
-    } catch {
+    } catch (e) {
       report.failed++;
+      if (!report.firstError) report.firstError = `${origName}: ${e.message}`;
     }
     onProgress?.(report);
   }
