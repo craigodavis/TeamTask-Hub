@@ -37,6 +37,7 @@ import { RecipeDetail } from './pages/RecipeDetail';
 import { KitchenInventory } from './pages/KitchenInventory';
 import { KitchenSources } from './pages/KitchenSources';
 import { ScanReceipt } from './pages/ScanReceipt';
+import { MediaLibrary } from './pages/MediaLibrary';
 
 function LegacyWasteEntryRedirect() {
   const { entryId } = useParams();
@@ -151,6 +152,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Settings />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/marketing/media"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <MediaLibrary />
               ) : (
                 <Navigate to="/" replace />
               )

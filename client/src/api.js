@@ -1989,3 +1989,54 @@ export async function createEventEmail(eventId, b) { return pj(await fetch(`${AP
 export async function deleteEventEmail(id) { return pj(await fetch(`${API}/events/emails/${id}`, { method: 'DELETE', headers: headers() })); }
 export async function sendEventEmailNow(id) { return pj(await fetch(`${API}/events/emails/${id}/send-now`, { method: 'POST', headers: headers() })); }
 export async function getPromoOverview() { return pj(await fetch(`${API}/promo/overview`, { headers: headers() })); }
+
+// ---- Website media library (Marketing → Website → Media) ----
+export async function listMedia(params = {}) {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  ).toString();
+  const res = await fetch(`${API}/media${qs ? `?${qs}` : ''}`, { headers: headers() });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load media');
+  return res.json(); // { media, total }
+}
+
+export async function uploadMedia(file, fields = {}) {
+  const form = new FormData();
+  form.append('file', file);
+  for (const [k, v] of Object.entries(fields)) if (v != null && v !== '') form.append(k, v);
+  const res = await fetch(`${API}/media/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
+  return res.json();
+}
+
+export async function updateMedia(id, fields) {
+  const res = await fetch(`${API}/media/${id}`, {
+    method: 'PATCH',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Update failed');
+  return res.json();
+}
+
+export async function deleteMedia(id) {
+  const res = await fetch(`${API}/media/${id}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Delete failed');
+  return res.json();
+}
+
+export async function startWordpressImport() {
+  const res = await fetch(`${API}/media/import/wordpress`, { method: 'POST', headers: headers() });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Import failed to start');
+  return res.json();
+}
+
+export async function getImportStatus() {
+  const res = await fetch(`${API}/media/import/status`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to get import status');
+  return res.json();
+}
