@@ -26,6 +26,11 @@ function isWinePath(pathname) {
   return pathname.startsWith('/products');
 }
 
+// Any route that lives under the Marketing parent menu.
+function isMarketingPath(pathname) {
+  return pathname.startsWith('/marketing');
+}
+
 export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
@@ -33,6 +38,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [kitchenExpanded, setKitchenExpanded] = useState(() => isKitchenPath(location.pathname));
   const [wineExpanded, setWineExpanded] = useState(() => isWinePath(location.pathname));
+  const [marketingExpanded, setMarketingExpanded] = useState(() => isMarketingPath(location.pathname));
 
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -188,6 +194,44 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           {/* Kitchen — collapsible parent grouping Receipts, Item Catalog,
               Ingredients, Recipes and Shopping. Shopping is available to all
               roles; the manager-only items are gated individually below. */}
+          {isManager && (
+            <>
+              <div className="nav-item-row">
+                <button
+                  type="button"
+                  className={`app-shell-nav-item${isMarketingPath(location.pathname) ? ' active' : ''}`}
+                  data-icon="📣"
+                  title="Marketing"
+                  onClick={() => setMarketingExpanded((v) => !v)}
+                  aria-expanded={marketingExpanded}
+                >
+                  <span>Marketing</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-sub-chevron"
+                  onClick={() => setMarketingExpanded((v) => !v)}
+                  aria-expanded={marketingExpanded}
+                  aria-label={marketingExpanded ? 'Collapse Marketing menu' : 'Expand Marketing menu'}
+                >
+                  {marketingExpanded ? '−' : '+'}
+                </button>
+              </div>
+              {marketingExpanded && (
+                <div className="nav-sub-group">
+                  <Link
+                    to="/marketing/media"
+                    className={`nav-sub-item${location.pathname.startsWith('/marketing/media') ? ' active' : ''}`}
+                    onClick={() => { if (isMobile()) setCollapsed(true); }}
+                  >
+                    <span className="nav-sub-icon">🖼️</span>
+                    <span>Website Media</span>
+                  </Link>
+                </div>
+              )}
+            </>
+          )}
+
           <div className="nav-item-row">
             <button
               type="button"

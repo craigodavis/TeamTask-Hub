@@ -50,7 +50,9 @@ import { promoRouter } from './routes/promo.js';
 import { startPromoEmailScheduler } from './lib/promoEmailSender.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
+import { mediaRouter } from './routes/media.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
+import { ensureKindredWebTables } from './ensureKindredWebTables.js';
 import { runMigrations } from './scripts/run-migrations.js';
 
 const app = express();
@@ -101,6 +103,7 @@ app.use('/api/musicians', requireAuth, requireScheduleAccess, musiciansRouter);
 app.use('/api/promo', requireAuth, requireScheduleAccess, promoRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
+app.use('/api/media', requireAuth, mediaRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
@@ -136,10 +139,10 @@ runMigrations()
       .catch((e) => console.warn('Could not reset stuck Square sync statuses:', e.message));
     query(`UPDATE teamtask_hub.commerce7_sync_objects SET last_sync_status = NULL WHERE last_sync_status = 'running'`)
       .catch((e) => console.warn('Could not reset stuck C7 sync statuses:', e.message));
-    return ensureLocationsTables();
+    return ensureLocationsTables().then(() => ensureKindredWebTables());
   })
   .then(() => {
-    console.log('Schema checks (locations / migration 008) finished.');
+    console.log('Schema checks (locations / migration 008 / kindred_web) finished.');
     startDailySquareAutoSync();
     startSquareSyncScheduler();
     startReportScheduler();
