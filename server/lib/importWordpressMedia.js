@@ -61,7 +61,9 @@ function httpsGet(urlStr, connectIp, extraHeaders = {}, timeoutMs = 20000, redir
   });
 }
 
-// Probe the candidate IPs once and remember the first that answers.
+// Probe the candidate IPs once and remember the first that actually serves the
+// WordPress REST API. A cPanel box answers on 127.0.0.1 with a *default* vhost
+// (404 HTML), so we must require a real WP JSON response, not just any 2xx/4xx.
 let chosenIp = null;
 async function ensureConnectIp(wpBase) {
   if (chosenIp) return chosenIp;
@@ -70,13 +72,16 @@ async function ensureConnectIp(wpBase) {
   for (const ip of CONNECT_IPS) {
     try {
       const r = await httpsGet(`${wpBase}/wp-json/`, ip, { Accept: 'application/json' }, 8000);
-      if (r.status && r.status < 500) { chosenIp = ip; return ip; }
-      errors.push(`${ip}→HTTP ${r.status}`);
+      const ct = r.headers['content-type'] || '';
+      const snippet = r.body.toString('utf8').slice(0, 400);
+      const looksWp = r.status === 200 && ct.includes('json') && /"namespaces?"|"routes"|wp\/v2/.test(snippet);
+      if (looksWp) { chosenIp = ip; return ip; }
+      errors.push(`${ip}→HTTP ${r.status} ${ct.split(';')[0] || 'no content-type'}`);
     } catch (e) {
       errors.push(`${ip}→${e.message}`);
     }
   }
-  throw new Error(`Could not reach ${host} from the server on any local IP (${errors.join('; ')}). Set WP_IMPORT_CONNECT_IP to the correct origin IP.`);
+  throw new Error(`No local IP served the WordPress REST API. Tried ${errors.join('; ')}. If WP is on a different origin IP, set WP_IMPORT_CONNECT_IP in Team's env.`);
 }
 
 async function fetchAllMedia(wpBase) {
