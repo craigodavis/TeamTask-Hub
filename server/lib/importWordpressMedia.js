@@ -5,52 +5,99 @@
  * Uses the WP REST API so alt text + captions are preserved. AI-generated files
  * are excluded; ambiguous filenames land in the "needs-review" folder. Safe to
  * re-run — rows are de-duped by source_url.
+ *
+ * NETWORK NOTE: kindredvineyards.com is Cloudflare-proxied, and WP runs on THIS
+ * same server. Connecting out to Cloudflare's edge from the origin hairpins and
+ * times out (UND_ERR_CONNECT_TIMEOUT). So we connect straight to a local origin
+ * IP (127.0.0.1 / the server IP), while keeping SNI + Host = the real domain so
+ * TLS and the Apache vhost still resolve correctly. Override the connect IP with
+ * WP_IMPORT_CONNECT_IP if needed.
  */
 import path from 'path';
 import fs from 'fs';
+import https from 'node:https';
 import { query } from '../db.js';
 import { MEDIA_DIR, generateVariants, safeBase, isLikelyAI } from './mediaVariants.js';
 
 const DEFAULT_WP_BASE = 'https://kindredvineyards.com';
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 KindredMediaImporter/1.0';
 
-// A browser-like UA + Accept so Cloudflare doesn't serve a bot challenge to the
-// datacenter IP (which would otherwise come back as HTML, not JSON).
-const FETCH_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 KindredMediaImporter/1.0',
-  Accept: 'application/json',
-};
+// Candidate local origin IPs, tried in order (skips Cloudflare entirely).
+const CONNECT_IPS = process.env.WP_IMPORT_CONNECT_IP
+  ? [process.env.WP_IMPORT_CONNECT_IP]
+  : ['127.0.0.1', '65.181.116.57'];
 
-// Node's fetch throws a terse "fetch failed"; the real reason is in err.cause.
-function describeFetchError(e) {
-  const c = e?.cause;
-  const bits = c ? [c.code, c.syscall, c.hostname, c.message].filter(Boolean).join(' ') : '';
-  return `${e.message}${bits ? ` — cause: ${bits}` : ''}`;
+/** GET over HTTPS, connecting to `connectIp` but presenting SNI/Host = url host. */
+function httpsGet(urlStr, connectIp, extraHeaders = {}, timeoutMs = 20000, redirectsLeft = 2) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(urlStr); } catch (e) { return reject(e); }
+    const req = https.request(
+      {
+        host: connectIp, // actual TCP target (local origin, not Cloudflare)
+        servername: u.hostname, // SNI → correct cert + vhost
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers: { Host: u.hostname, 'User-Agent': UA, ...extraHeaders },
+        rejectUnauthorized: false, // controlled, local connection to our own origin
+        timeout: timeoutMs,
+      },
+      (res) => {
+        // Follow same-site redirects (WP canonical http→https etc.).
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          const next = new URL(res.headers.location, urlStr).toString();
+          return resolve(httpsGet(next, connectIp, extraHeaders, timeoutMs, redirectsLeft - 1));
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error(`connect timeout to ${connectIp}:443`)));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+// Probe the candidate IPs once and remember the first that answers.
+let chosenIp = null;
+async function ensureConnectIp(wpBase) {
+  if (chosenIp) return chosenIp;
+  const host = new URL(wpBase).hostname;
+  const errors = [];
+  for (const ip of CONNECT_IPS) {
+    try {
+      const r = await httpsGet(`${wpBase}/wp-json/`, ip, { Accept: 'application/json' }, 8000);
+      if (r.status && r.status < 500) { chosenIp = ip; return ip; }
+      errors.push(`${ip}→HTTP ${r.status}`);
+    } catch (e) {
+      errors.push(`${ip}→${e.message}`);
+    }
+  }
+  throw new Error(`Could not reach ${host} from the server on any local IP (${errors.join('; ')}). Set WP_IMPORT_CONNECT_IP to the correct origin IP.`);
 }
 
 async function fetchAllMedia(wpBase) {
+  const ip = await ensureConnectIp(wpBase);
   const items = [];
   for (let page = 1; page <= 100; page++) {
     const url = `${wpBase}/wp-json/wp/v2/media?per_page=100&page=${page}&media_type=image`;
-    let res;
-    try {
-      res = await fetch(url, { headers: FETCH_HEADERS });
-    } catch (e) {
-      throw new Error(`Could not connect to ${wpBase} — ${describeFetchError(e)}`);
+    const res = await httpsGet(url, ip, { Accept: 'application/json' });
+    if (res.status === 400 && page > 1) break; // past the last page
+    if (res.status >= 400) {
+      throw new Error(`WP media list page ${page} → HTTP ${res.status}: ${res.body.toString('utf8').slice(0, 160).replace(/\s+/g, ' ')}`);
     }
-    if (res.status === 400 && page > 1) break; // WP returns 400 for pages past the end
-    if (!res.ok) {
-      const snippet = (await res.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ');
-      throw new Error(`WP media list page ${page} returned HTTP ${res.status}. Body: ${snippet}`);
-    }
-    const ct = res.headers.get('content-type') || '';
+    const ct = res.headers['content-type'] || '';
     if (!ct.includes('json')) {
-      const snippet = (await res.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ');
-      throw new Error(`WP media list page ${page} returned non-JSON (${ct}). Body: ${snippet}`);
+      throw new Error(`WP media list page ${page} → non-JSON (${ct}): ${res.body.toString('utf8').slice(0, 160).replace(/\s+/g, ' ')}`);
     }
-    const batch = await res.json();
+    let batch;
+    try { batch = JSON.parse(res.body.toString('utf8')); } catch { break; }
     if (!Array.isArray(batch) || !batch.length) break;
     items.push(...batch);
-    const totalPages = Number(res.headers.get('x-wp-totalpages') || 0);
+    const totalPages = Number(res.headers['x-wp-totalpages'] || 0);
     if (totalPages && page >= totalPages) break;
   }
   return items;
@@ -72,12 +119,13 @@ const stripHtml = (s) => (s || '').replace(/<[^>]+>/g, '').trim() || null;
  * @param {string}  [opts.wpBase]      WordPress base URL
  * @param {string}  [opts.companyId]   tag imported rows with a company id
  * @param {function}[opts.onProgress]  called with the running report after each item
- * @returns {Promise<object>} report { total, imported, skippedAI, needsReview, alreadyHave, failed, dryRun }
+ * @returns {Promise<object>} report
  */
 export async function importWordpressMedia(opts = {}) {
   const { dryRun = false, wpBase = process.env.WP_IMPORT_BASE || DEFAULT_WP_BASE, companyId = null, onProgress } = opts;
 
   fs.mkdirSync(MEDIA_DIR, { recursive: true });
+  const ip = await ensureConnectIp(wpBase);
   const media = await fetchAllMedia(wpBase);
 
   const report = { total: media.length, imported: 0, skippedAI: 0, needsReview: 0, alreadyHave: 0, failed: 0, firstError: null, dryRun };
@@ -102,9 +150,9 @@ export async function importWordpressMedia(opts = {}) {
     }
 
     try {
-      const dl = await fetch(src, { headers: FETCH_HEADERS });
-      if (!dl.ok) throw new Error(`download HTTP ${dl.status}`);
-      const buf = Buffer.from(await dl.arrayBuffer());
+      const dl = await httpsGet(src, ip);
+      if (dl.status >= 400) throw new Error(`download HTTP ${dl.status}`);
+      const buf = dl.body;
 
       const ext = path.extname(origName).toLowerCase() || '.jpg';
       const filename = `${safeBase(origName)}-${Date.now()}${ext}`;
@@ -125,7 +173,7 @@ export async function importWordpressMedia(opts = {}) {
       if (folder === 'needs-review') report.needsReview++;
     } catch (e) {
       report.failed++;
-      if (!report.firstError) report.firstError = `${origName}: ${describeFetchError(e)}`;
+      if (!report.firstError) report.firstError = `${origName}: ${e.message}`;
     }
     onProgress?.(report);
   }
