@@ -94,7 +94,12 @@ websiteRouter.get('/hours', async (_req, res) => {
           ORDER BY on_date LIMIT 30`,
         [loc.id]
       );
-      venues.push({ venue: loc.web_slug, name: loc.name, days, specials: spec.rows });
+      const det = await query(
+        `SELECT street, city, region, postal, country, phone, lat, lng, price_range
+           FROM kindred_web.venue_details WHERE location_id = $1`,
+        [loc.id]
+      );
+      venues.push({ venue: loc.web_slug, name: loc.name, days, specials: spec.rows, details: det.rows[0] || {} });
     }
     res.json({ timezone: 'America/Boise', venues });
   } catch (e) { res.status(500).json({ error: e.message }); }

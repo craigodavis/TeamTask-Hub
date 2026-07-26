@@ -76,6 +76,25 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_kw_hours_special ON kindred_web.hours_special(location_id, department, on_date)`,
 
+  // Per-venue public details: address, phone, geo — for website structured data
+  // and the Google/Apple hours pushes. Keyed to a location (teamtask_hub.locations).
+  `CREATE TABLE IF NOT EXISTS kindred_web.venue_details (
+    location_id   UUID PRIMARY KEY,
+    street        VARCHAR(200),
+    city          VARCHAR(120),
+    region        VARCHAR(60),          -- state/province
+    postal        VARCHAR(20),
+    country       VARCHAR(4) NOT NULL DEFAULT 'US',
+    phone         VARCHAR(40),
+    lat           NUMERIC(9,6),
+    lng           NUMERIC(9,6),
+    price_range   VARCHAR(10),          -- e.g. "$$"
+    gbp_location  VARCHAR(200),         -- Google Business Profile location resource name (push target)
+    apple_location VARCHAR(200),        -- Apple Business Connect location id (push target)
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by    UUID
+  )`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (
