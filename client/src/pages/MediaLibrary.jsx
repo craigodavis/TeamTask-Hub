@@ -20,6 +20,7 @@ export function MediaLibrary() {
   const [selected, setSelected] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importReport, setImportReport] = useState(null);
+  const [importError, setImportError] = useState(null);
   const fileInput = useRef(null);
   const pollingRef = useRef(false);
 
@@ -88,7 +89,7 @@ export function MediaLibrary() {
     pollingRef.current = true;
     const tick = async () => {
       const s = await getImportStatus().catch(() => null);
-      if (s) { setImportReport(s.report); setImporting(s.running); }
+      if (s) { setImportReport(s.report); setImporting(s.running); setImportError(s.error || null); }
       if (s && s.running) {
         setTimeout(tick, 2000);
       } else {
@@ -106,6 +107,7 @@ export function MediaLibrary() {
       .then((s) => {
         if (s?.running) { setImporting(true); startPolling(); }
         else if (s?.report) setImportReport(s.report);
+        if (s?.error) setImportError(s.error);
       })
       .catch(() => {});
   }, [startPolling]);
@@ -113,6 +115,8 @@ export function MediaLibrary() {
   const runImport = async () => {
     if (!window.confirm('Import images from the current WordPress site?\n\nAI-generated images are skipped; anything uncertain goes to “needs-review” for you to check. Safe to run more than once.')) return;
     setError('');
+    setImportError(null);
+    setImportReport(null);
     try {
       setImporting(true);
       await startWordpressImport();
@@ -172,15 +176,17 @@ export function MediaLibrary() {
         </button>
       </div>
 
-      {(importing || importReport) && (
-        <div className="import-status">
+      {(importing || importReport || importError) && (
+        <div className={`import-status${importError ? ' import-status-error' : ''}`}>
           {importing ? 'Importing from WordPress…' : 'Last import: '}
           {importReport && (
             <span>
-              {' '}imported {importReport.imported} · needs review {importReport.needsReview} · skipped AI {importReport.skippedAI} · already had {importReport.alreadyHave}
+              {' '}found {importReport.total} · imported {importReport.imported} · needs review {importReport.needsReview} · skipped AI {importReport.skippedAI} · already had {importReport.alreadyHave}
               {importReport.failed ? ` · failed ${importReport.failed}` : ''}{importReport.dryRun ? ' (dry run)' : ''}
             </span>
           )}
+          {importReport?.firstError && <div className="import-detail">First failure — {importReport.firstError}</div>}
+          {importError && <div className="import-detail">Error: {importError}</div>}
         </div>
       )}
 
