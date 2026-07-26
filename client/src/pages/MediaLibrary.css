@@ -72,3 +72,17 @@
 .btn-danger { background: #fff; color: #b91c1c; border-color: #fecaca; }
 .btn:disabled { opacity: .5; cursor: default; }
 .copy-url { font-size: 0.72rem; color: #2563eb; cursor: pointer; word-break: break-all; }
+
+/* folder manager */
+.folder-mgr { background: #fff; border-radius: 12px; width: min(460px, 100%); max-height: 85vh; overflow: auto; padding: 22px; }
+.folder-mgr h2 { margin: 0 0 14px; font-size: 1.1rem; }
+.add-folder { display: flex; gap: 8px; margin-bottom: 16px; }
+.add-folder input { flex: 1; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.88rem; }
+.folder-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid #eee; }
+.folder-list li { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid #f1f1f1; }
+.folder-list .fname { flex: 1; font-size: 0.88rem; color: #111827; word-break: break-word; }
+.folder-list .fcount { font-size: 0.75rem; color: #9ca3af; font-variant-numeric: tabular-nums; min-width: 1.5em; text-align: right; }
+.folder-list .fprotected { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; }
+.folder-list .fremove { background: transparent; border: 0; color: #b91c1c; cursor: pointer; font-size: 0.9rem; padding: 2px 6px; border-radius: 6px; }
+.folder-list .fremove:hover { background: #fee2e2; }
+.folder-mgr .actions { margin-top: 18px; text-align: right; }
