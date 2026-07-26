@@ -154,16 +154,6 @@ export function MediaLibrary() {
       )}
 
       <div className="media-toolbar">
-        <div className="media-folders">
-          <button className={folder === 'all' ? 'on' : ''} onClick={() => setFolder('all')}>
-            all<span className="count">{total}</span>
-          </button>
-          {folders.map((f) => (
-            <button key={f.folder} className={folder === f.folder ? 'on' : ''} onClick={() => setFolder(f.folder)} title={f.folder}>
-              {prettyFolder(f.folder)}<span className="count">{f.n}</span>
-            </button>
-          ))}
-        </div>
         <div className="media-search">
           <input
             type="search"
@@ -193,6 +183,20 @@ export function MediaLibrary() {
         </div>
       )}
 
+      <div className="media-body">
+      <aside className="media-sidebar">
+        <div className="media-folders">
+          <button className={folder === 'all' ? 'on' : ''} onClick={() => setFolder('all')}>
+            <span>all</span><span className="count">{total}</span>
+          </button>
+          {folders.map((f) => (
+            <button key={f.folder} className={folder === f.folder ? 'on' : ''} onClick={() => setFolder(f.folder)} title={f.folder}>
+              <span className="fname">{prettyFolder(f.folder)}</span><span className="count">{f.n}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+      <div className="media-main">
       <div
         className={`dropzone${drag ? ' drag' : ''}`}
         onClick={() => fileInput.current?.click()}
@@ -231,6 +235,9 @@ export function MediaLibrary() {
           ))}
         </div>
       )}
+
+      </div>
+      </div>
 
       {selected && <MediaDetail item={selected} folders={knownFolders} onClose={() => setSelected(null)} onSaved={onSaved} onDeleted={onDeleted} />}
 
