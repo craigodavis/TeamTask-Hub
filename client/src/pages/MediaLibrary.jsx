@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { listMedia, uploadMedia, updateMedia, deleteMedia, startWordpressImport, getImportStatus, listMediaFolders } from '../api';
+import { listMedia, uploadMedia, updateMedia, deleteMedia, startWordpressImport, getImportStatus, listMediaFolders, addMediaFolder, removeMediaFolder } from '../api';
 import './MediaLibrary.css';
 
 // Suggested folders when none exist yet (e.g. before the WordPress import).
@@ -20,6 +20,7 @@ export function MediaLibrary() {
   const [uploading, setUploading] = useState(false);
   const [drag, setDrag] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [managingFolders, setManagingFolders] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importReport, setImportReport] = useState(null);
   const [importError, setImportError] = useState(null);
@@ -171,6 +172,7 @@ export function MediaLibrary() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        <button className="btn btn-ghost" onClick={() => setManagingFolders(true)}>Manage folders</button>
         <button className="btn btn-ghost" onClick={runImport} disabled={importing}>
           {importing ? 'Importing…' : 'Import from WordPress'}
         </button>
@@ -231,6 +233,74 @@ export function MediaLibrary() {
       )}
 
       {selected && <MediaDetail item={selected} folders={knownFolders} onClose={() => setSelected(null)} onSaved={onSaved} onDeleted={onDeleted} />}
+
+      {managingFolders && (
+        <FolderManager
+          folders={folders}
+          onClose={() => setManagingFolders(false)}
+          onChanged={() => { loadFolders(); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function FolderManager({ folders, onClose, onChanged }) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const add = async () => {
+    const n = name.trim();
+    if (!n) return;
+    setBusy(true); setErr('');
+    try {
+      await addMediaFolder(n);
+      setName('');
+      onChanged();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const remove = async (f) => {
+    if (!window.confirm(`Remove folder “${f.folder}”?${f.n ? `\n\nIts ${f.n} image${f.n === 1 ? '' : 's'} will move to “library”.` : ''}`)) return;
+    setBusy(true); setErr('');
+    try {
+      await removeMediaFolder(f.folder, 'library');
+      onChanged();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="media-modal-backdrop" onClick={onClose}>
+      <div className="folder-mgr" onClick={(e) => e.stopPropagation()}>
+        <h2>Manage folders</h2>
+        {err && <div className="media-error">{err}</div>}
+        <div className="add-folder">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
+            placeholder="New folder — e.g. Wines/Estate Reds"
+          />
+          <button className="btn btn-primary" onClick={add} disabled={busy || !name.trim()}>Add</button>
+        </div>
+        <ul className="folder-list">
+          {folders.map((f) => (
+            <li key={f.folder}>
+              <span className="fname">{f.folder}</span>
+              <span className="fcount">{f.n}</span>
+              {f.protected ? (
+                <span className="fprotected">default</span>
+              ) : (
+                <button className="fremove" onClick={() => remove(f)} disabled={busy} title="Remove folder">✕</button>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="actions">
+          <button className="btn btn-ghost" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -300,15 +370,11 @@ function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
             </div>
             <div>
               <label>Folder</label>
-              <input
-                value={folder}
-                onChange={(e) => setFolder(e.target.value)}
-                list="media-folder-options"
-                placeholder="e.g. Wines/Estate Reds"
-              />
-              <datalist id="media-folder-options">
-                {[...new Set([...folders, ...DEFAULT_FOLDERS])].map((f) => <option key={f} value={f} />)}
-              </datalist>
+              <select value={folder} onChange={(e) => setFolder(e.target.value)}>
+                {[...new Set([...DEFAULT_FOLDERS, ...folders, folder])].filter(Boolean).sort((a, b) => a.localeCompare(b)).map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
             </div>
           </div>
 

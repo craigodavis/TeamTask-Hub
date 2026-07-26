@@ -63,12 +63,60 @@ router.get('/', async (req, res) => {
   res.json({ media: rows.rows, total: countRes.rows[0].n });
 });
 
-// GET /api/media/folders — distinct folders with counts (drives the folder tree).
-router.get('/folders', async (_req, res) => {
-  const r = await query(
-    `SELECT folder, COUNT(*)::int AS n FROM kindred_web.media GROUP BY folder ORDER BY folder`
+// Special folders that always exist and can't be removed.
+const PROTECTED_FOLDERS = ['library', 'needs-review'];
+
+async function declaredFolders() {
+  const r = await query(`SELECT value FROM kindred_web.settings WHERE key = 'media_folders'`);
+  return Array.isArray(r.rows[0]?.value) ? r.rows[0].value : [];
+}
+async function saveDeclaredFolders(list, userId) {
+  await query(
+    `INSERT INTO kindred_web.settings (key, value, updated_by)
+     VALUES ('media_folders', $1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW(), updated_by = $2`,
+    [JSON.stringify(list), userId || null]
   );
-  res.json({ folders: r.rows });
+}
+
+// GET /api/media/folders — every folder (declared + in-use + protected) with counts.
+router.get('/folders', async (_req, res) => {
+  const counts = await query(`SELECT folder, COUNT(*)::int AS n FROM kindred_web.media GROUP BY folder`);
+  const countMap = new Map(counts.rows.map((r) => [r.folder, r.n]));
+  const declared = await declaredFolders();
+  const names = new Set([...PROTECTED_FOLDERS, ...declared, ...counts.rows.map((r) => r.folder)]);
+  const folders = [...names].sort((a, b) => a.localeCompare(b)).map((folder) => ({
+    folder,
+    n: countMap.get(folder) || 0,
+    protected: PROTECTED_FOLDERS.includes(folder),
+  }));
+  res.json({ folders });
+});
+
+// POST /api/media/folders {name} — create a (possibly empty) folder. Manager only.
+router.post('/folders', requireManager, async (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Folder name is required' });
+  if (name.length > 280) return res.status(400).json({ error: 'Folder name is too long' });
+  const list = await declaredFolders();
+  if (!list.includes(name)) list.push(name);
+  await saveDeclaredFolders(list, req.userId);
+  res.status(201).json({ ok: true, name });
+});
+
+// DELETE /api/media/folders — remove a folder; its images move to reassignTo. Manager only.
+router.delete('/folders', requireManager, async (req, res) => {
+  const name = (req.body?.name || req.query.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Folder name is required' });
+  if (PROTECTED_FOLDERS.includes(name)) return res.status(400).json({ error: `"${name}" can't be removed` });
+  const reassignTo = (req.body?.reassignTo || 'library').trim() || 'library';
+  const moved = await query(
+    `UPDATE kindred_web.media SET folder = $1, updated_at = NOW() WHERE folder = $2`,
+    [reassignTo, name]
+  );
+  const list = (await declaredFolders()).filter((f) => f !== name);
+  await saveDeclaredFolders(list, req.userId);
+  res.json({ ok: true, reassignedTo: reassignTo, moved: moved.rowCount });
 });
 
 // GET /api/media/import/status — poll the background import.

@@ -2032,7 +2032,27 @@ export async function deleteMedia(id) {
 export async function listMediaFolders() {
   const res = await fetch(`${API}/media/folders`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to load folders');
-  return res.json(); // { folders: [{folder, n}] }
+  return res.json(); // { folders: [{folder, n, protected}] }
+}
+
+export async function addMediaFolder(name) {
+  const res = await fetch(`${API}/media/folders`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not add folder');
+  return res.json();
+}
+
+export async function removeMediaFolder(name, reassignTo = 'library') {
+  const res = await fetch(`${API}/media/folders`, {
+    method: 'DELETE',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, reassignTo }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not remove folder');
+  return res.json();
 }
 
 export async function startWordpressImport() {
