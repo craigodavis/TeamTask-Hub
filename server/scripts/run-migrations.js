@@ -2701,6 +2701,17 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS main_contact   VARCHAR(160),
      ADD COLUMN IF NOT EXISTS write_check_to VARCHAR(160),
      ADD COLUMN IF NOT EXISTS address        TEXT`,
+  // 105: website — event slugs (readable detail URLs on the new site)
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS slug VARCHAR(220)`,
+  `UPDATE events SET slug =
+     regexp_replace(regexp_replace(lower(title), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g')
+     || '-' || to_char(start_at, 'YYYY-MM-DD')
+   WHERE slug IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_events_slug ON events(slug)`,
+  // 106: website — short venue keys for per-location event pages (/estate, /creek)
+  `ALTER TABLE locations ADD COLUMN IF NOT EXISTS web_slug VARCHAR(40)`,
+  `UPDATE locations SET web_slug = CASE WHEN name ILIKE '%creek%' THEN 'creek' ELSE 'estate' END
+   WHERE web_slug IS NULL`,
 ];
 
 export async function runMigrations() {
