@@ -2029,6 +2029,12 @@ export async function deleteMedia(id) {
   return res.json();
 }
 
+export async function listMediaFolders() {
+  const res = await fetch(`${API}/media/folders`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load folders');
+  return res.json(); // { folders: [{folder, n}] }
+}
+
 export async function startWordpressImport() {
   const res = await fetch(`${API}/media/import/wordpress`, { method: 'POST', headers: headers() });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Import failed to start');

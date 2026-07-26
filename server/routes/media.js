@@ -63,6 +63,14 @@ router.get('/', async (req, res) => {
   res.json({ media: rows.rows, total: countRes.rows[0].n });
 });
 
+// GET /api/media/folders — distinct folders with counts (drives the folder tree).
+router.get('/folders', async (_req, res) => {
+  const r = await query(
+    `SELECT folder, COUNT(*)::int AS n FROM kindred_web.media GROUP BY folder ORDER BY folder`
+  );
+  res.json({ folders: r.rows });
+});
+
 // GET /api/media/import/status — poll the background import.
 router.get('/import/status', (_req, res) => res.json(importState));
 
