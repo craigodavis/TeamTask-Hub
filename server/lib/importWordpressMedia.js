@@ -139,7 +139,7 @@ export async function importWordpressMedia(opts = {}) {
   const folderMap = fb.map || null;
 
   const report = {
-    total: media.length, imported: 0, skippedAI: 0, needsReview: 0, foldered: 0,
+    total: media.length, imported: 0, skippedAI: 0, needsReview: 0, foldered: 0, refiled: 0,
     alreadyHave: 0, failed: 0,
     folderNote: fb.error || (fb.folderCount != null ? `FileBird: ${fb.folderCount} folders read` : null),
     firstError: null, dryRun,
@@ -150,14 +150,24 @@ export async function importWordpressMedia(opts = {}) {
     if (!src) continue;
     const origName = path.basename(new URL(src).pathname);
 
-    const exists = await query(`SELECT id FROM kindred_web.media WHERE source_url = $1`, [src]);
-    if (exists.rows.length) { report.alreadyHave++; onProgress?.(report); continue; }
-
     // AI files are always excluded, even if filed in a folder.
     if (isLikelyAI(origName)) { report.skippedAI++; onProgress?.(report); continue; }
 
-    // Prefer the real FileBird folder; otherwise fall back to library/needs-review.
     const fbPath = folderMap ? folderMap.get(Number(m.id)) : null;
+
+    // Already imported? Re-file it into its FileBird folder if that changed, then skip.
+    const exists = await query(`SELECT id, folder FROM kindred_web.media WHERE source_url = $1`, [src]);
+    if (exists.rows.length) {
+      report.alreadyHave++;
+      if (fbPath && exists.rows[0].folder !== fbPath && !dryRun) {
+        await query(`UPDATE kindred_web.media SET folder = $1, updated_at = NOW() WHERE id = $2`, [fbPath, exists.rows[0].id]);
+        report.refiled++;
+      }
+      onProgress?.(report);
+      continue;
+    }
+
+    // Prefer the real FileBird folder; otherwise fall back to library/needs-review.
     let folder;
     if (fbPath) {
       folder = fbPath;
