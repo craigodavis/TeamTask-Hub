@@ -181,7 +181,7 @@ export function MediaLibrary() {
           {importing ? 'Importing from WordPress…' : 'Last import: '}
           {importReport && (
             <span>
-              {' '}found {importReport.total} · imported {importReport.imported} · foldered {importReport.foldered ?? 0} · needs review {importReport.needsReview} · skipped AI {importReport.skippedAI} · already had {importReport.alreadyHave}
+              {' '}found {importReport.total} · imported {importReport.imported} · foldered {importReport.foldered ?? 0} · refiled {importReport.refiled ?? 0} · needs review {importReport.needsReview} · skipped AI {importReport.skippedAI} · already had {importReport.alreadyHave}
               {importReport.failed ? ` · failed ${importReport.failed}` : ''}{importReport.dryRun ? ' (dry run)' : ''}
             </span>
           )}
