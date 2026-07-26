@@ -2069,6 +2069,22 @@ export async function deleteSpecialHours(id) {
   return res.json();
 }
 
+export async function getWebsiteSettings() {
+  const res = await fetch(`${API}/marketing/settings`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load website settings');
+  return res.json();
+}
+
+export async function saveWebsiteSettings(patch) {
+  const res = await fetch(`${API}/marketing/settings`, {
+    method: 'PUT',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to save');
+  return res.json();
+}
+
 export async function listMediaFolders() {
   const res = await fetch(`${API}/media/folders`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to load folders');
