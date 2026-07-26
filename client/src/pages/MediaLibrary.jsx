@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { listMedia, uploadMedia, updateMedia, deleteMedia, startWordpressImport, getImportStatus } from '../api';
+import { listMedia, uploadMedia, updateMedia, deleteMedia, startWordpressImport, getImportStatus, listMediaFolders } from '../api';
 import './MediaLibrary.css';
 
-const FOLDERS = ['all', 'library', 'needs-review', 'hero', 'wines'];
-const EDITABLE_FOLDERS = ['library', 'needs-review', 'hero', 'wines'];
+// Suggested folders when none exist yet (e.g. before the WordPress import).
+const DEFAULT_FOLDERS = ['library', 'needs-review', 'hero', 'wines'];
+const prettyFolder = (f) => (f === 'all' ? 'all' : f.replace(/-/g, ' '));
 
 // Smallest webp variant for a fast thumbnail; fall back to the original.
 const thumbOf = (m) => m?.variants?.webp?.[0]?.url || m?.url;
 
 export function MediaLibrary() {
   const [items, setItems] = useState([]);
-  const [counts, setCounts] = useState({});
+  const [folders, setFolders] = useState([]); // [{ folder, n }] mirrored from the library
+  const [total, setTotal] = useState(0);
   const [folder, setFolder] = useState('all');
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
@@ -40,22 +42,17 @@ export function MediaLibrary() {
     }
   }, [folder, q]);
 
-  // Folder counts (independent of the active filter), refreshed on demand.
-  const loadCounts = useCallback(async () => {
+  // Folder tree + counts, mirrored from the actual library. Refreshed on demand.
+  const loadFolders = useCallback(async () => {
     try {
-      const next = {};
-      const all = await listMedia({ limit: 1 });
-      next.all = all.total;
-      for (const f of EDITABLE_FOLDERS) {
-        const r = await listMedia({ folder: f, limit: 1 });
-        next[f] = r.total;
-      }
-      setCounts(next);
-    } catch { /* counts are best-effort */ }
+      const { folders } = await listMediaFolders();
+      setFolders(folders);
+      setTotal(folders.reduce((s, f) => s + f.n, 0));
+    } catch { /* best-effort */ }
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadCounts(); }, [loadCounts]);
+  useEffect(() => { loadFolders(); }, [loadFolders]);
 
   const doUpload = async (files) => {
     if (!files || !files.length) return;
@@ -68,7 +65,7 @@ export function MediaLibrary() {
         await uploadMedia(file, { folder: folder === 'all' || folder === 'needs-review' ? 'library' : folder });
       }
       await load();
-      await loadCounts();
+      await loadFolders();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -95,11 +92,11 @@ export function MediaLibrary() {
       } else {
         pollingRef.current = false;
         await load();
-        await loadCounts();
+        await loadFolders();
       }
     };
     tick();
-  }, [load, loadCounts]);
+  }, [load, loadFolders]);
 
   // Resume progress display if an import is already running (e.g. after a refresh).
   useEffect(() => {
@@ -130,15 +127,16 @@ export function MediaLibrary() {
   const onSaved = (updated) => {
     setItems((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
     setSelected(null);
-    loadCounts();
+    loadFolders();
   };
   const onDeleted = (id) => {
     setItems((prev) => prev.filter((m) => m.id !== id));
     setSelected(null);
-    loadCounts();
+    loadFolders();
   };
 
-  const reviewCount = counts['needs-review'] || 0;
+  const reviewCount = folders.find((f) => f.folder === 'needs-review')?.n || 0;
+  const knownFolders = folders.map((f) => f.folder);
 
   return (
     <div className="media-lib">
@@ -156,10 +154,12 @@ export function MediaLibrary() {
 
       <div className="media-toolbar">
         <div className="media-folders">
-          {FOLDERS.map((f) => (
-            <button key={f} className={folder === f ? 'on' : ''} onClick={() => setFolder(f)}>
-              {f.replace('-', ' ')}
-              {counts[f] != null && <span className="count">{counts[f]}</span>}
+          <button className={folder === 'all' ? 'on' : ''} onClick={() => setFolder('all')}>
+            all<span className="count">{total}</span>
+          </button>
+          {folders.map((f) => (
+            <button key={f.folder} className={folder === f.folder ? 'on' : ''} onClick={() => setFolder(f.folder)} title={f.folder}>
+              {prettyFolder(f.folder)}<span className="count">{f.n}</span>
             </button>
           ))}
         </div>
@@ -229,12 +229,12 @@ export function MediaLibrary() {
         </div>
       )}
 
-      {selected && <MediaDetail item={selected} onClose={() => setSelected(null)} onSaved={onSaved} onDeleted={onDeleted} />}
+      {selected && <MediaDetail item={selected} folders={knownFolders} onClose={() => setSelected(null)} onSaved={onSaved} onDeleted={onDeleted} />}
     </div>
   );
 }
 
-function MediaDetail({ item, onClose, onSaved, onDeleted }) {
+function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
   const [alt, setAlt] = useState(item.alt_text || '');
   const [caption, setCaption] = useState(item.caption || '');
   const [credit, setCredit] = useState(item.credit || '');
@@ -299,9 +299,15 @@ function MediaDetail({ item, onClose, onSaved, onDeleted }) {
             </div>
             <div>
               <label>Folder</label>
-              <select value={folder} onChange={(e) => setFolder(e.target.value)}>
-                {EDITABLE_FOLDERS.map((f) => <option key={f} value={f}>{f.replace('-', ' ')}</option>)}
-              </select>
+              <input
+                value={folder}
+                onChange={(e) => setFolder(e.target.value)}
+                list="media-folder-options"
+                placeholder="e.g. Wines/Estate Reds"
+              />
+              <datalist id="media-folder-options">
+                {[...new Set([...folders, ...DEFAULT_FOLDERS])].map((f) => <option key={f} value={f} />)}
+              </datalist>
             </div>
           </div>
 
