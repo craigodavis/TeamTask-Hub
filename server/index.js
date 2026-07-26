@@ -31,6 +31,7 @@ import { startFeedbackScheduler } from './lib/feedbackSender.js';
 import { startTalentReminderScheduler } from './lib/talentReminders.js';
 import { startPromoReminderScheduler } from './lib/promoReminders.js';
 import { startZeroCanaryScheduler } from './lib/qboZeroCanary.js';
+import { startWineGallonsReportScheduler } from './lib/wineGallonsReport.js';
 import { settingsRouter } from './routes/settings.js';
 import { locationsRouter } from './routes/locations.js';
 import { debtRouter } from './routes/debt.js';
@@ -161,6 +162,7 @@ runMigrations()
     startPromoReminderScheduler();
     startPromoEmailScheduler();
     startZeroCanaryScheduler();
+    startWineGallonsReportScheduler();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
@@ -178,4 +180,5 @@ runMigrations()
     startPromoReminderScheduler();
     startPromoEmailScheduler();
     startZeroCanaryScheduler();
+    startWineGallonsReportScheduler();
   });
