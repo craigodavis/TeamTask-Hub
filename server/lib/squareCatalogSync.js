@@ -70,10 +70,11 @@ export async function runCatalogSync(companyId) {
 
   try {
     // Fetch all types in parallel
-    const [rawItems, rawCats, rawTaxes] = await Promise.all([
+    const [rawItems, rawCats, rawTaxes, rawVariations] = await Promise.all([
       fetchCatalogObjects(token, base, ['ITEM']),
       fetchCatalogObjects(token, base, ['CATEGORY']),
       fetchCatalogObjects(token, base, ['TAX']),
+      fetchCatalogObjects(token, base, ['ITEM_VARIATION']),
     ]);
 
     const client = await pool.connect();
@@ -219,65 +220,75 @@ export async function runCatalogSync(companyId) {
         );
         counts.items++;
 
-        // Nested variations
-        for (const v of (d.variations || [])) {
-          const vd = v.item_variation_data || {};
-          await client.query(
-            `INSERT INTO team_square.catalog_item_variation
-               (id, item_id, name, sku, upc, ordinal, pricing_type,
-                price_money_amount, price_money_currency, track_inventory,
-                inventory_alert_type, inventory_alert_threshold, user_data,
-                service_duration, available_for_booking, sellable, stockable,
-                measurement_unit_id, version, is_deleted, updated_at, synced_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())
-             ON CONFLICT (id) DO UPDATE SET
-               item_id                   = EXCLUDED.item_id,
-               name                      = EXCLUDED.name,
-               sku                       = EXCLUDED.sku,
-               upc                       = EXCLUDED.upc,
-               ordinal                   = EXCLUDED.ordinal,
-               pricing_type              = EXCLUDED.pricing_type,
-               price_money_amount        = EXCLUDED.price_money_amount,
-               price_money_currency      = EXCLUDED.price_money_currency,
-               track_inventory           = EXCLUDED.track_inventory,
-               inventory_alert_type      = EXCLUDED.inventory_alert_type,
-               inventory_alert_threshold = EXCLUDED.inventory_alert_threshold,
-               user_data                 = EXCLUDED.user_data,
-               service_duration          = EXCLUDED.service_duration,
-               available_for_booking     = EXCLUDED.available_for_booking,
-               sellable                  = EXCLUDED.sellable,
-               stockable                 = EXCLUDED.stockable,
-               measurement_unit_id       = EXCLUDED.measurement_unit_id,
-               version                   = EXCLUDED.version,
-               is_deleted                = EXCLUDED.is_deleted,
-               updated_at                = EXCLUDED.updated_at,
-               synced_at                 = NOW()`,
-            [
-              v.id,
-              obj.id,
-              vd.name                      || null,
-              vd.sku                       || null,
-              vd.upc                       || null,
-              vd.ordinal                   ?? null,
-              vd.pricing_type              || null,
-              vd.price_money?.amount       ?? null,
-              vd.price_money?.currency     || null,
-              vd.track_inventory           ?? null,
-              vd.inventory_alert_type      || null,
-              vd.inventory_alert_threshold ?? null,
-              vd.user_data                 || null,
-              vd.service_duration          ?? null,
-              vd.available_for_booking     ?? null,
-              vd.sellable                  ?? null,
-              vd.stockable                 ?? null,
-              vd.measurement_unit_id       || null,
-              v.version                    || null,
-              v.is_deleted                 || false,
-              v.updated_at                 || null,
-            ]
-          );
-          counts.variations++;
-        }
+      }
+
+      // ── Variations ────────────────────────────────────────────────────────
+      // Nested variations (from ITEM) + top-level ITEM_VARIATION objects.
+      // Square OMITS the nested variations array for ARCHIVED items, so without
+      // the top-level pass every sold-out SKU's historical orders fail to resolve
+      // to their item/category — 2,055 line items (4.4% of 2025-26 sales) were
+      // orphaned that way, making correctly-categorized wine look "uncategorized".
+      const allVariations = [
+        ...rawItems.flatMap((it) => (it.item_data?.variations || []).map((v) => ({ v, itemId: it.id }))),
+        ...rawVariations.map((v) => ({ v, itemId: v.item_variation_data?.item_id || null })),
+      ];
+      for (const { v, itemId } of allVariations) {
+        const vd = v.item_variation_data || {};
+        await client.query(
+          `INSERT INTO team_square.catalog_item_variation
+             (id, item_id, name, sku, upc, ordinal, pricing_type,
+              price_money_amount, price_money_currency, track_inventory,
+              inventory_alert_type, inventory_alert_threshold, user_data,
+              service_duration, available_for_booking, sellable, stockable,
+              measurement_unit_id, version, is_deleted, updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             item_id                   = EXCLUDED.item_id,
+             name                      = EXCLUDED.name,
+             sku                       = EXCLUDED.sku,
+             upc                       = EXCLUDED.upc,
+             ordinal                   = EXCLUDED.ordinal,
+             pricing_type              = EXCLUDED.pricing_type,
+             price_money_amount        = EXCLUDED.price_money_amount,
+             price_money_currency      = EXCLUDED.price_money_currency,
+             track_inventory           = EXCLUDED.track_inventory,
+             inventory_alert_type      = EXCLUDED.inventory_alert_type,
+             inventory_alert_threshold = EXCLUDED.inventory_alert_threshold,
+             user_data                 = EXCLUDED.user_data,
+             service_duration          = EXCLUDED.service_duration,
+             available_for_booking     = EXCLUDED.available_for_booking,
+             sellable                  = EXCLUDED.sellable,
+             stockable                 = EXCLUDED.stockable,
+             measurement_unit_id       = EXCLUDED.measurement_unit_id,
+             version                   = EXCLUDED.version,
+             is_deleted                = EXCLUDED.is_deleted,
+             updated_at                = EXCLUDED.updated_at,
+             synced_at                 = NOW()`,
+          [
+            v.id,
+            itemId,
+            vd.name                      || null,
+            vd.sku                       || null,
+            vd.upc                       || null,
+            vd.ordinal                   ?? null,
+            vd.pricing_type              || null,
+            vd.price_money?.amount       ?? null,
+            vd.price_money?.currency     || null,
+            vd.track_inventory           ?? null,
+            vd.inventory_alert_type      || null,
+            vd.inventory_alert_threshold ?? null,
+            vd.user_data                 || null,
+            vd.service_duration          ?? null,
+            vd.available_for_booking     ?? null,
+            vd.sellable                  ?? null,
+            vd.stockable                 ?? null,
+            vd.measurement_unit_id       || null,
+            v.version                    || null,
+            v.is_deleted                 || false,
+            v.updated_at                 || null,
+          ]
+        );
+        counts.variations++;
       }
 
       await client.query('COMMIT');
