@@ -39,6 +39,7 @@ import { KitchenSources } from './pages/KitchenSources';
 import { ScanReceipt } from './pages/ScanReceipt';
 import { MediaLibrary } from './pages/MediaLibrary';
 import { HoursEditor } from './pages/HoursEditor';
+import { WebsiteSettings } from './pages/WebsiteSettings';
 
 function LegacyWasteEntryRedirect() {
   const { entryId } = useParams();
@@ -173,6 +174,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <HoursEditor />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/marketing/settings"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <WebsiteSettings />
               ) : (
                 <Navigate to="/" replace />
               )

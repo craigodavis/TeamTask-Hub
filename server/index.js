@@ -54,6 +54,7 @@ import { recipesRouter } from './routes/recipes.js';
 import { mediaRouter } from './routes/media.js';
 import { hoursRouter } from './routes/hours.js';
 import { websiteRouter } from './routes/website.js';
+import { marketingRouter } from './routes/marketing.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 import { ensureKindredWebTables } from './ensureKindredWebTables.js';
 import { runMigrations } from './scripts/run-migrations.js';
@@ -109,6 +110,7 @@ app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/media', requireAuth, mediaRouter);
 app.use('/api/hours', requireAuth, hoursRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
+app.use('/api/marketing', requireAuth, requireManager, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
