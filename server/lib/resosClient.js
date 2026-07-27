@@ -6,8 +6,12 @@
 
 const authHeader = (apiKey) => `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
 
+// ResOS endpoints live under /v1. Normalize whatever base is stored so we always
+// hit https://api.resos.com/v1 (a bare base returns ResOS's HTML landing page).
+const apiRoot = (base) => `${base.replace(/\/+$/, '').replace(/\/v1$/i, '')}/v1`;
+
 async function resosFetch(base, apiKey, pathWithQuery, { method = 'GET', body } = {}) {
-  const res = await fetch(`${base.replace(/\/$/, '')}${pathWithQuery}`, {
+  const res = await fetch(`${apiRoot(base)}${pathWithQuery}`, {
     method,
     headers: {
       Authorization: authHeader(apiKey),
