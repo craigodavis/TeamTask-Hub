@@ -225,11 +225,47 @@ router.get('/scoreboard', async (req, res) => {
       `SELECT wx_date::text AS date, location_id, temp_max, temp_min, precip_prob, condition, is_forecast
          FROM weather_daily WHERE company_id = $1 AND wx_date BETWEEN $2 AND $3`, [companyId, weekStart, weekEnd])).rows;
 
+    // ── Company-wide YTD labor % vs last year ────────────────────────────────
+    // Reads the canonical v_labor_pct_daily directly rather than the nn/ll maps
+    // above, which only span 400 days and so can't reach Jan of last year.
+    // The DOLLAR figure is what the PERCENTAGE gap is worth at THIS year's sales
+    // — i.e. actual labor vs. what we'd have spent at last year's rate — NOT a
+    // raw year-over-year labor spend difference (sales volume differs between
+    // years, so a straight labor $ diff would conflate rate with volume).
+    const today = todayISO();
+    const lyToday = `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`; // same M-D, prior year
+    const lyYear = lyToday.slice(0, 4);
+    const period = async (from, to) => {
+      const r = (await query(
+        `SELECT COALESCE(SUM(net_sales), 0) AS sales, COALESCE(SUM(labor_cost), 0) AS labor
+           FROM team_square.v_labor_pct_daily WHERE the_date >= $1 AND the_date <= $2`,
+        [from, to]
+      )).rows[0];
+      const sales = Number(r.sales), labor = Number(r.labor);
+      return { sales: Math.round(sales), labor: Math.round(labor),
+               pct: sales > 0 ? Math.round((labor / sales) * 1000) / 10 : null };
+    };
+    const [ytdCur, ytdLy, fullLy] = await Promise.all([
+      period(`${today.slice(0, 4)}-01-01`, today),
+      period(`${lyYear}-01-01`, lyToday),
+      period(`${lyYear}-01-01`, `${lyYear}-12-31`),
+    ]);
+    const gap = (base) => (base.pct == null || ytdCur.pct == null) ? null : {
+      pct_delta: Math.round((ytdCur.pct - base.pct) * 10) / 10,
+      // (this year's % − comparison %) applied to this year's sales
+      dollars: Math.round(ytdCur.sales * (ytdCur.pct - base.pct) / 100),
+    };
+    const ytd = {
+      as_of: today,
+      current: ytdCur, last_year_ytd: ytdLy, last_year_full: fullLy,
+      vs_last_year_ytd: gap(ytdLy), vs_last_year_full: gap(fullLy),
+    };
+
     res.json({
       week_start: weekStart, week_end: weekEnd, week_label: `${weekStart} → ${weekEnd} (Wed–Tue)`,
       settings: { target_labor_pct: target, avoid_overtime: settings.avoid_overtime, labor_warn_threshold: warn,
         forecast_w_lastweek: wLast, forecast_w_lastyear: wYear },
-      locations: locationCards, events, weather,
+      locations: locationCards, events, weather, ytd,
     });
   } catch (e) { console.error('scheduling scoreboard', e); res.status(500).json({ error: e.message }); }
 });

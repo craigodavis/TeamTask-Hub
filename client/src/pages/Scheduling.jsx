@@ -101,6 +101,8 @@ function Scoreboard() {
         {loading && <span style={{ opacity: 0.5 }}>…</span>}
       </div>
 
+      {data.ytd && <YtdLaborCard ytd={data.ytd} />}
+
       {data.locations.map((loc) => {
         const overTarget = loc.ytd_labor_pct != null && loc.ytd_labor_pct > loc.target_labor_pct;
         return (
@@ -163,6 +165,57 @@ function Scoreboard() {
         );
       })}
       <p style={{ opacity: 0.6, fontSize: 13 }}>Draft builder + owner-approval publish to Square are the next phase. Events & weather here are advisory.</p>
+    </div>
+  );
+}
+
+// Company-wide labor % YTD vs last year. The dollar figure is what the PERCENTAGE
+// gap is worth at this year's sales (actual labor vs. labor at last year's rate) —
+// deliberately NOT a raw year-over-year labor spend difference, which would mix
+// rate changes together with sales-volume changes.
+function YtdLaborCard({ ytd }) {
+  const asOf = new Date(ytd.as_of + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const lyYear = ytd.as_of.slice(0, 4) - 1;
+
+  const Gap = ({ g, label }) => {
+    if (!g) return <div><div style={{ fontSize: 12, opacity: 0.65 }}>{label}</div><div style={{ fontSize: 20, fontWeight: 700 }}>—</div></div>;
+    const worse = g.pct_delta > 0;                       // higher labor % = worse
+    const col = g.pct_delta === 0 ? 'inherit' : worse ? '#a11' : '#137a2f';
+    const sign = g.pct_delta > 0 ? '+' : '';
+    return (
+      <div>
+        <div style={{ fontSize: 12, opacity: 0.65 }}>{label}</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: col }}>
+          {sign}{g.pct_delta.toFixed(1)} pts
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: col }}>
+          {money(Math.abs(g.dollars))}{worse ? ' over' : ' under'}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...card, marginBottom: 18 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Labor % — year to date</h3>
+        <span style={{ fontSize: 12, opacity: 0.6 }}>through {asOf}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, margin: '14px 0 4px' }}>
+        <Stat label="This year YTD" val={pct(ytd.current.pct)}
+          info={`${money(ytd.current.labor)} labor ÷ ${money(ytd.current.sales)} POS sales, Jan 1 → ${asOf}.`} />
+        <Stat label={`${lyYear} same period`} val={pct(ytd.last_year_ytd.pct)}
+          info={`${money(ytd.last_year_ytd.labor)} labor ÷ ${money(ytd.last_year_ytd.sales)} sales, Jan 1 → ${asOf} ${lyYear}.`} />
+        <Stat label={`${lyYear} full year`} val={pct(ytd.last_year_full.pct)}
+          info={`${money(ytd.last_year_full.labor)} labor ÷ ${money(ytd.last_year_full.sales)} sales for all of ${lyYear}.`} />
+        <Gap g={ytd.vs_last_year_ytd} label={`vs ${lyYear} same period`} />
+        <Gap g={ytd.vs_last_year_full} label={`vs ${lyYear} full year`} />
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.6 }}>
+        Dollars = what the percentage gap is worth at this year's sales — i.e. actual labor vs. what
+        the same sales would have cost at that period's labor rate. Not a straight year-over-year
+        labor comparison, which would blend in the change in sales volume.
+      </div>
     </div>
   );
 }
