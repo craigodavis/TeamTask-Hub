@@ -20,6 +20,14 @@ export const IMAGE_SLOTS = [
       { key: 'card.reservations', label: 'Reservations', hint: 'Card image', ratio: '3 / 2' },
     ],
   },
+  {
+    group: 'Page heroes',
+    slots: [
+      { key: 'shop.hero', label: 'Wine Shoppe hero', hint: 'Background behind the shop heading', ratio: '21 / 9' },
+      { key: 'about.hero', label: 'About / Story hero', hint: 'Background behind the About heading', ratio: '21 / 9' },
+      { key: 'club.hero', label: 'Wine Club hero', hint: 'Background behind the Wine Club heading', ratio: '21 / 9' },
+    ],
+  },
 ];
 
 export const ALL_SLOT_KEYS = new Set(IMAGE_SLOTS.flatMap((g) => g.slots.map((s) => s.key)));
