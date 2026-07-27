@@ -66,6 +66,22 @@ websiteRouter.get('/settings', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/website/images — assigned page-image slots (url + variants + alt) for the site.
+websiteRouter.get('/images', async (_req, res) => {
+  try {
+    const r = await query(
+      `SELECT p.slot_key, m.url, m.variants, m.alt_text, m.width, m.height
+         FROM kindred_web.page_images p
+         JOIN kindred_web.media m ON m.id = p.media_id`
+    );
+    const slots = {};
+    for (const row of r.rows) {
+      slots[row.slot_key] = { url: row.url, variants: row.variants, alt: row.alt_text || '', width: row.width, height: row.height };
+    }
+    res.json({ slots });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/website/hours — weekly hours + upcoming specials per venue, for the site.
 websiteRouter.get('/hours', async (_req, res) => {
   try {

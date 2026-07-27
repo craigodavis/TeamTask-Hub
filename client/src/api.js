@@ -2029,6 +2029,27 @@ export async function deleteMedia(id) {
   return res.json();
 }
 
+// ---- Website page images (Marketing → Website Images) ----
+export async function getPageImages() {
+  const res = await fetch(`${API}/page-images`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load page images');
+  return res.json(); // { catalog, assignments }
+}
+export async function setPageImage(slot, mediaId) {
+  const res = await fetch(`${API}/page-images/${encodeURIComponent(slot)}`, {
+    method: 'PUT',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ media_id: mediaId }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
+  return res.json();
+}
+export async function clearPageImage(slot) {
+  const res = await fetch(`${API}/page-images/${encodeURIComponent(slot)}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) throw new Error('Clear failed');
+  return res.json();
+}
+
 // ---- Store hours (Marketing → Hours) ----
 export async function getHours() {
   const res = await fetch(`${API}/hours`, { headers: headers() });

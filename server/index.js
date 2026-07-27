@@ -53,6 +53,7 @@ import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { mediaRouter } from './routes/media.js';
 import { hoursRouter } from './routes/hours.js';
+import { pageImagesRouter } from './routes/pageImages.js';
 import { websiteRouter } from './routes/website.js';
 import { marketingRouter } from './routes/marketing.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -109,6 +110,7 @@ app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/media', requireAuth, mediaRouter);
 app.use('/api/hours', requireAuth, hoursRouter);
+app.use('/api/page-images', requireAuth, pageImagesRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
 app.use('/api/marketing', requireAuth, requireManager, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);

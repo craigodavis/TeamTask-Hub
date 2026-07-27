@@ -95,6 +95,14 @@ const STATEMENTS = [
     updated_by    UUID
   )`,
 
+  // Page image slots: which library image fills each named spot on the website.
+  `CREATE TABLE IF NOT EXISTS kindred_web.page_images (
+    slot_key    VARCHAR(80) PRIMARY KEY,
+    media_id    UUID REFERENCES kindred_web.media(id) ON DELETE SET NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by  UUID
+  )`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (
