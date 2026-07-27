@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 import twilio from 'twilio';
 import { executeSqlReadOnly, resolveParamsSnapshot } from './scheduledReportsHelper.js';
+import { sendMail } from '../mail.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -268,7 +269,7 @@ function isReportDue(report, now, timezone = 'UTC') {
 
 async function runScheduledReport(report, { updateLastRanAt = true } = {}) {
   console.log(`[scheduler] Running report "${report.name}" (${report.id})`);
-  let runId, smsSent = 0, sqlError = null;
+  let runId, smsSent = 0, emailSent = 0, sqlError = null;
 
   try {
     const timezone = await getCompanyTimezone(report.company_id);
@@ -286,17 +287,25 @@ async function runScheduledReport(report, { updateLastRanAt = true } = {}) {
     runId = runResult.rows[0].id;
     const viewToken = runResult.rows[0].view_token;
 
-    // Get recipients
-    const recipients = await query(
-      `SELECT u.phone, u.display_name FROM scheduled_report_recipients srr
+    // Get recipients. Fetch phone AND email, then filter per channel — a report
+    // delivered by email shouldn't be skipped just because someone has no phone.
+    const allRecipients = await query(
+      `SELECT u.phone, u.email, u.display_name FROM scheduled_report_recipients srr
        JOIN users u ON u.id = srr.user_id
-       WHERE srr.report_id = $1 AND u.phone IS NOT NULL AND u.phone != ''`,
+       WHERE srr.report_id = $1`,
       [report.id]
     );
+    const delivery = report.delivery_method || 'sms';
+    const wantsSms   = delivery === 'sms'   || delivery === 'both';
+    const wantsEmail = delivery === 'email' || delivery === 'both';
 
-    if (!recipients.rows.length) {
+    const recipients = { rows: wantsSms
+      ? allRecipients.rows.filter((r) => r.phone && r.phone !== '')
+      : [] };
+
+    if (wantsSms && !recipients.rows.length) {
       console.warn(`[scheduler] "${report.name}" — no recipients with phone numbers`);
-    } else {
+    } else if (wantsSms) {
       const integrations = await getCompanyIntegrations(report.company_id);
       const accountSid = integrations?.twilio_account_sid?.trim() || process.env.TWILIO_ACCOUNT_SID;
       const authToken  = integrations?.twilio_auth_token?.trim()  || process.env.TWILIO_AUTH_TOKEN;
@@ -324,7 +333,43 @@ async function runScheduledReport(report, { updateLastRanAt = true } = {}) {
       }
     }
 
-    await query(`UPDATE scheduled_report_runs SET sms_sent_count = $1 WHERE id = $2`, [smsSent, runId]);
+    // ── Email delivery ────────────────────────────────────────────────────────
+    // Renders the same rows the view link shows, as an HTML table, so the report
+    // lands in the inbox rather than requiring a click-through.
+    if (wantsEmail) {
+      const emailTo = allRecipients.rows.filter((r) => r.email && r.email.trim());
+      if (!emailTo.length) {
+        console.warn(`[scheduler] "${report.name}" — no recipients with email addresses`);
+      } else {
+        const esc = (v) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+        const cols = fields.map((f) => f.name || f);
+        const th = cols.map((c) => `<th style="border:1px solid #ddd;padding:6px 10px;text-align:left;background:#f5f5f5">${esc(c)}</th>`).join('');
+        const tr = rows.map((row) =>
+          `<tr>${cols.map((c) => `<td style="border:1px solid #ddd;padding:6px 10px">${esc(row[c])}</td>`).join('')}</tr>`
+        ).join('');
+        const appUrl = process.env.APP_URL || 'https://team.kindredvineyards.com';
+        const html = `<div style="font-family:Arial,sans-serif">
+            <h2 style="margin-bottom:2px">${esc(report.name)}</h2>
+            ${report.description ? `<p style="color:#555;margin-top:0">${esc(report.description)}</p>` : ''}
+            <table style="border-collapse:collapse;margin-top:10px"><tr>${th}</tr>${tr}</table>
+            <p style="color:#888;font-size:12px;margin-top:14px">
+              ${rows.length} result${rows.length !== 1 ? 's' : ''} ·
+              <a href="${appUrl}/r/${viewToken}">view online</a>
+            </p></div>`;
+        for (const r of emailTo) {
+          const res = await sendMail(
+            { to: r.email, subject: report.name, html }, report.company_id
+          );
+          if (res.sent) { emailSent++; console.log(`[scheduler] email sent to ${r.display_name} (${r.email})`); }
+          else console.error(`[scheduler] email failed to ${r.email}: ${res.error}`);
+        }
+      }
+    }
+
+    await query(
+      `UPDATE scheduled_report_runs SET sms_sent_count = $1, email_sent_count = $2 WHERE id = $3`,
+      [smsSent, emailSent, runId]
+    );
 
   } catch (err) {
     sqlError = err.message;

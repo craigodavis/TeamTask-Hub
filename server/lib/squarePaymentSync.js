@@ -22,23 +22,38 @@ export async function runPaymentSync(companyId, lastSyncedAt = null) {
     ? new Date(new Date(lastSyncedAt).getTime() - 60 * 60 * 1000).toISOString()
     : new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString();
 
-  const payments = [];
-  let cursor = null;
-  do {
-    const url = new URL(`${base}/v2/payments`);
-    url.searchParams.set('begin_time', beginTime);
-    url.searchParams.set('sort_order', 'ASC');
-    url.searchParams.set('limit', '200');
-    if (cursor) url.searchParams.set('cursor', cursor);
+  // Square's ListPayments defaults to the MAIN location only when location_id is
+  // omitted — so a multi-location seller silently syncs just one location's
+  // payments. That's what happened here: every Creek payment was missing (0 rows)
+  // while the Winery synced fine, leaving ~50% of orders with no payment and no
+  // team_member attribution. Query each location explicitly.
+  const locs = (await query(
+    `SELECT square_location_id FROM locations
+      WHERE company_id = $1 AND square_location_id IS NOT NULL`, [companyId]
+  )).rows.map((r) => r.square_location_id);
+  // Fall back to the implicit default if no locations are mapped yet.
+  const locationIds = locs.length ? locs : [null];
 
-    const res = await fetch(url.toString(), {
-      headers: { 'Authorization': `Bearer ${token}`, 'Square-Version': '2025-05-21' },
-    });
-    if (!res.ok) throw new Error(`Square payments ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    if (data.payments) payments.push(...data.payments);
-    cursor = data.cursor || null;
-  } while (cursor);
+  const payments = [];
+  for (const locationId of locationIds) {
+    let cursor = null;
+    do {
+      const url = new URL(`${base}/v2/payments`);
+      url.searchParams.set('begin_time', beginTime);
+      url.searchParams.set('sort_order', 'ASC');
+      url.searchParams.set('limit', '200');
+      if (locationId) url.searchParams.set('location_id', locationId);
+      if (cursor) url.searchParams.set('cursor', cursor);
+
+      const res = await fetch(url.toString(), {
+        headers: { 'Authorization': `Bearer ${token}`, 'Square-Version': '2025-05-21' },
+      });
+      if (!res.ok) throw new Error(`Square payments ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      if (data.payments) payments.push(...data.payments);
+      cursor = data.cursor || null;
+    } while (cursor);
+  }
 
   if (!payments.length) return { paymentsUpserted: 0 };
 

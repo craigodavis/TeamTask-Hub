@@ -2732,6 +2732,12 @@ const MIGRATIONS = [
   `ALTER TABLE locations ADD COLUMN IF NOT EXISTS web_slug VARCHAR(40)`,
   `UPDATE locations SET web_slug = CASE WHEN name ILIKE '%creek%' THEN 'creek' ELSE 'estate' END
    WHERE web_slug IS NULL`,
+  // 107: scheduled reports — email delivery. Reports were SMS-only (a Twilio text
+  // with a view link), which is why the monthly wine-volume report had to live
+  // outside this system as its own scheduler. DEFAULT 'sms' so every existing
+  // report keeps behaving exactly as before.
+  `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS delivery_method VARCHAR(10) NOT NULL DEFAULT 'sms'`,
+  `ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS email_sent_count INTEGER NOT NULL DEFAULT 0`,
 ];
 
 export async function runMigrations() {
