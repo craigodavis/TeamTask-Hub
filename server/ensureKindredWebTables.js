@@ -116,6 +116,20 @@ const STATEMENTS = [
     updated_by    UUID
   )`,
 
+  // Cached Instagram media (fetched from the IG Graph API on a schedule; the
+  // website reads this cache so tokens stay server-side and the site stays fast).
+  `CREATE TABLE IF NOT EXISTS kindred_web.instagram_media (
+    id             VARCHAR(64) PRIMARY KEY,
+    media_type     VARCHAR(20),
+    media_url      TEXT,
+    thumbnail_url  TEXT,
+    permalink      TEXT,
+    caption        TEXT,
+    posted_at      TIMESTAMPTZ,
+    fetched_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_ig_posted ON kindred_web.instagram_media(posted_at DESC)`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (
