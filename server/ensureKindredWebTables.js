@@ -103,6 +103,19 @@ const STATEMENTS = [
     updated_by  UUID
   )`,
 
+  // Per-venue ResOS reservation config (API key per location). Manager-only;
+  // NEVER exposed by the public /api/website endpoints — used server-side to
+  // proxy availability + bookings to ResOS.
+  `CREATE TABLE IF NOT EXISTS kindred_web.resos_config (
+    location_id   UUID PRIMARY KEY,
+    api_key       TEXT,
+    api_base      VARCHAR(120) NOT NULL DEFAULT 'https://api.resos.com',
+    slot_minutes  SMALLINT NOT NULL DEFAULT 90,   -- booking duration used for availability windows
+    active        BOOLEAN NOT NULL DEFAULT true,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by    UUID
+  )`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (
