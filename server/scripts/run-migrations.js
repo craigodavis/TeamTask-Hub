@@ -2357,6 +2357,16 @@ const MIGRATIONS = [
   // company timezone (America/Denver).
 
   // Square Net Sales per day/location, in dollars, excl tax — Square only.
+  // EXCLUDES non-POS revenue: security deposits (and by extension their refunds,
+  // which Square never nets out of sales anyway), event/dinner tickets, venue
+  // rental and gift-card sales. None of it reflects tasting-room activity that
+  // needs staffing, but all of it used to land on a single day and distort both
+  // the scheduling forecast and labor %. Some days were 100% deposit — e.g.
+  // 2025-07-07 and 2025-07-28 each read $500 of "sales" with nothing sold, which
+  // the forecast would then staff for a year later.
+  // KEPT deliberately: 'Cover' (door charge = real same-day attendance) and
+  // 'Pie Pairing' (a wine/food pairing that merely sits in Square's Tickets
+  // category). Gift-card REDEMPTIONS still count — they ring as normal sales.
   `CREATE OR REPLACE VIEW team_square.v_square_net_sales_daily AS
    SELECT
      (o.created_at AT TIME ZONE 'America/Denver')::date AS sales_date,
@@ -2365,7 +2375,17 @@ const MIGRATIONS = [
      COUNT(DISTINCT o.id) AS order_count
    FROM team_square."order" o
    JOIN team_square.order_line_item li ON li.order_id = o.id
+   LEFT JOIN team_square.catalog_item_variation civ ON civ.id = li.catalog_object_id
+   LEFT JOIN team_square.catalog_item ci             ON ci.id  = civ.item_id
+   LEFT JOIN team_square.catalog_category cc         ON cc.id  = ci.reporting_category_id
    WHERE o.state = 'COMPLETED'
+     -- COALESCE(...,false) so uncategorized lines (cc.name NULL) are KEPT, not dropped.
+     AND NOT COALESCE(
+             ( cc.name IN ('Event', 'Tickets', 'Gift Card')
+               AND COALESCE(li.name, '') NOT IN ('Cover', 'Pie Pairing') )
+          OR li.item_type = 'GIFT_CARD'
+          OR COALESCE(li.name, '') ~* 'ticket|gift card|deposit|reembursement|reimbursement'
+         , false)
    GROUP BY 1, 2`,
 
   // Labor cost + hours per shift, in dollars — closed shifts only.
