@@ -10,6 +10,35 @@ import { IMAGE_SLOTS, ALL_SLOT_KEYS } from '../lib/imageSlots.js';
 
 const router = express.Router();
 
+// Trigger the website's deploy workflow so slot changes go fully live.
+const GH_REPO = process.env.WEBSITE_REPO || 'craigodavis/kindred-website';
+const GH_WORKFLOW = process.env.WEBSITE_WORKFLOW || 'deploy.yml';
+const GH_REF = process.env.WEBSITE_REF || 'main';
+
+// POST /api/page-images/publish — rebuild + redeploy the website (workflow_dispatch).
+router.post('/publish', requireManager, async (_req, res) => {
+  const token = process.env.GITHUB_DEPLOY_TOKEN;
+  if (!token) {
+    return res.status(400).json({ error: 'Publishing is not configured. Add GITHUB_DEPLOY_TOKEN (a token with Actions write on the website repo) to Team\'s env.' });
+  }
+  try {
+    const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+        'User-Agent': 'kindred-team',
+      },
+      body: JSON.stringify({ ref: GH_REF }),
+    });
+    if (r.status === 204) return res.json({ ok: true });
+    const body = await r.text().catch(() => '');
+    return res.status(502).json({ error: `Deploy trigger failed (HTTP ${r.status}). ${body.slice(0, 180)}` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/page-images — the slot catalog + current assignments (with media info).
 router.get('/', async (_req, res) => {
   try {
