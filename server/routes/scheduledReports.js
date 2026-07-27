@@ -57,7 +57,7 @@ router.post('/', async (req, res) => {
     name, description, sql_query, frequency,
     day_of_week, day_of_month, send_month,
     send_time, start_date, end_date, active = true,
-    recipient_ids = [], params = [],
+    recipient_ids = [], params = [], delivery_method = 'sms',
   } = req.body;
 
   if (!name?.trim())      return res.status(400).json({ error: 'name is required' });
@@ -71,13 +71,13 @@ router.post('/', async (req, res) => {
     const r = await dbClient.query(
       `INSERT INTO scheduled_reports
          (company_id, name, description, sql_query, frequency, day_of_week, day_of_month,
-          send_month, send_time, start_date, end_date, active, created_by, params)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          send_month, send_time, start_date, end_date, active, created_by, params, delivery_method)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [cid(req), name.trim(), description || null, sql_query.trim(), frequency,
        day_of_week ?? null, day_of_month ?? null, send_month ?? null,
        send_time || '08:00', start_date || null, end_date || null, active,
-       req.user?.id || null, JSON.stringify(params)]
+       req.user?.id || null, JSON.stringify(params), delivery_method]
     );
     const report = r.rows[0];
     if (recipient_ids.length) {
@@ -104,7 +104,7 @@ router.patch('/:id', async (req, res) => {
     name, description, sql_query, frequency,
     day_of_week, day_of_month, send_month,
     send_time, start_date, end_date, active,
-    recipient_ids, params,
+    recipient_ids, params, delivery_method,
   } = req.body;
 
   const dbClient = await pool.connect();
@@ -128,6 +128,7 @@ router.patch('/:id', async (req, res) => {
     if (end_date    !== undefined) set('end_date', end_date || null);
     if (active      !== undefined) set('active', active);
     if (params      !== undefined) set('params', JSON.stringify(params));
+    if (delivery_method !== undefined) set('delivery_method', delivery_method);
 
     if (fields.length) {
       vals.push(req.params.id, cid(req));

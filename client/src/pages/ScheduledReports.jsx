@@ -138,7 +138,7 @@ function ParamRow({ param, onChange }) {
 const BLANK = {
   name: '', description: '', sql_query: '', frequency: 'daily',
   day_of_week: 1, day_of_month: 1, send_month: 1,
-  send_time: '08:00', start_date: '', end_date: '', active: true,
+  send_time: '08:00', start_date: '', end_date: '', active: true, delivery_method: 'sms',
   recipient_ids: [], params: [],
 };
 
@@ -476,6 +476,14 @@ GROUP BY 1 ORDER BY 2 DESC`}</pre>
               <label>Send Time</label>
               <input type="time" value={form.send_time} onChange={(e) => set('send_time', e.target.value)} />
             </div>
+            <div className="sr-field sr-field-sm">
+              <label>Deliver By</label>
+              <select value={form.delivery_method || 'sms'} onChange={(e) => set('delivery_method', e.target.value)}>
+                <option value="sms">Text (link)</option>
+                <option value="email">Email (table)</option>
+                <option value="both">Text + Email</option>
+              </select>
+            </div>
           </div>
 
           {/* Date range */}
@@ -651,10 +659,20 @@ export function ScheduledReports() {
       if (!r.ok) {
         alert(`Run failed:\n\n${d.error}`);
       } else {
-        const msg = d.smsSent > 0
-          ? `✓ "${report.name}" ran successfully — ${d.smsSent} SMS sent.`
-          : `✓ "${report.name}" ran successfully but 0 SMS sent.\n\nCheck that Twilio is configured in Settings → Integrations.`;
-        alert(msg);
+        // Report what actually went out on the channels this report uses — an
+        // email-delivery report legitimately sends 0 SMS, so don't blame Twilio.
+        const sent = [];
+        if (d.smsSent > 0) sent.push(`${d.smsSent} SMS`);
+        if (d.emailSent > 0) sent.push(`${d.emailSent} email${d.emailSent === 1 ? '' : 's'}`);
+        const method = report.delivery_method || 'sms';
+        const hint = method === 'email'
+          ? 'Check that Mail is configured in Settings → Integrations, and that recipients have email addresses.'
+          : method === 'both'
+            ? 'Check Twilio and Mail in Settings → Integrations.'
+            : 'Check that Twilio is configured in Settings → Integrations.';
+        alert(sent.length
+          ? `✓ "${report.name}" ran successfully — ${sent.join(' and ')} sent.`
+          : `✓ "${report.name}" ran successfully but nothing was sent.\n\n${hint}`);
         load();
       }
     } catch (e) {
