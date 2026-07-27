@@ -54,6 +54,7 @@ import { recipesRouter } from './routes/recipes.js';
 import { mediaRouter } from './routes/media.js';
 import { hoursRouter } from './routes/hours.js';
 import { pageImagesRouter } from './routes/pageImages.js';
+import { startInstagramScheduler } from './lib/instagramSync.js';
 import { websiteRouter } from './routes/website.js';
 import { marketingRouter } from './routes/marketing.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -164,6 +165,7 @@ runMigrations()
     startFeedbackScheduler();
     startTalentReminderScheduler();
     startPromoReminderScheduler();
+    startInstagramScheduler();
     startPromoEmailScheduler();
     startZeroCanaryScheduler();
     startWineGallonsReportScheduler();
@@ -182,6 +184,7 @@ runMigrations()
     startFeedbackScheduler();
     startTalentReminderScheduler();
     startPromoReminderScheduler();
+    startInstagramScheduler();
     startPromoEmailScheduler();
     startZeroCanaryScheduler();
     startWineGallonsReportScheduler();

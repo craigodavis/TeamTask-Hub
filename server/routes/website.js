@@ -68,6 +68,17 @@ websiteRouter.get('/settings', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/website/instagram — cached recent Instagram posts for the site feed.
+websiteRouter.get('/instagram', async (_req, res) => {
+  try {
+    const r = await query(
+      `SELECT id, media_type, media_url, thumbnail_url, permalink, caption, posted_at
+         FROM kindred_web.instagram_media ORDER BY posted_at DESC LIMIT 12`
+    );
+    res.json({ media: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/website/images — assigned page-image slots (url + variants + alt) for the site.
 websiteRouter.get('/images', async (_req, res) => {
   try {
