@@ -9,6 +9,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { availableTables } from '../lib/resosClient.js';
+import { makeC7Client } from '../lib/commerce7Client.js';
 
 export const websiteRouter = express.Router();
 
@@ -80,6 +81,27 @@ websiteRouter.get('/images', async (_req, res) => {
       slots[row.slot_key] = { url: row.url, variants: row.variants, alt: row.alt_text || '', width: row.width, height: row.height };
     }
     res.json({ slots });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/collections — published Commerce7 collections (slug + title)
+// for the website shop nav. Uses Team's stored C7 credentials (server-side).
+websiteRouter.get('/collections', async (_req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const ir = await query(
+      `SELECT company_id, c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+         FROM company_integrations WHERE company_id = $1`,
+      [companyId]
+    );
+    const integration = ir.rows[0];
+    if (!integration?.c7_api_key) return res.json({ collections: [] });
+    const c7 = makeC7Client(integration);
+    const data = await c7.get('/collection?limit=50');
+    const collections = (data.collections || [])
+      .filter((c) => c.adminStatus === 'Available' && c.webStatus !== 'Not Available')
+      .map((c) => ({ slug: c.slug, title: c.title }));
+    res.json({ collections });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
