@@ -26,6 +26,7 @@ export const IMAGE_SLOTS = [
       { key: 'shop.hero', label: 'Wine Shoppe hero', hint: 'Background behind the shop heading', ratio: '21 / 9' },
       { key: 'about.hero', label: 'About / Story hero', hint: 'Background behind the About heading', ratio: '21 / 9' },
       { key: 'club.hero', label: 'Wine Club hero', hint: 'Background behind the Wine Club heading', ratio: '21 / 9' },
+      { key: 'contact.hero', label: 'Contact hero', hint: 'Background behind the Contact heading', ratio: '21 / 9' },
     ],
   },
 ];
