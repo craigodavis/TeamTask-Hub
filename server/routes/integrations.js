@@ -388,7 +388,7 @@ async function runScheduledReport(report, { updateLastRanAt = true } = {}) {
 
   // Return result so callers (run-now endpoint) can surface errors to the UI
   if (sqlError) throw new Error(sqlError);
-  return { smsSent };
+  return { smsSent, emailSent };
 }
 
 export function startReportScheduler() {
@@ -685,10 +685,15 @@ router.get('/users', async (req, res) => {
 router.post('/run-report/:id', async (req, res) => {
   try {
     const r = await query(
+      // Count recipients reachable on the channel this report actually uses —
+      // an email report shouldn't be blocked for lacking phone numbers.
       `SELECT sr.*, c.timezone,
          (SELECT COUNT(*) FROM scheduled_report_recipients srr
           JOIN users u ON u.id = srr.user_id
-          WHERE srr.report_id = sr.id AND u.phone IS NOT NULL AND u.phone != '') AS recipient_count
+          WHERE srr.report_id = sr.id
+            AND ( (sr.delivery_method IN ('sms','both')   AND u.phone IS NOT NULL AND u.phone <> '')
+               OR (sr.delivery_method IN ('email','both') AND u.email IS NOT NULL AND u.email <> '') )
+         ) AS recipient_count
        FROM scheduled_reports sr
        JOIN companies c ON c.id = sr.company_id
        WHERE sr.id = $1 AND sr.company_id = $2`,
@@ -703,11 +708,12 @@ router.post('/run-report/:id', async (req, res) => {
       return res.status(400).json({ error: 'Report has no SQL query.' });
     }
     if (parseInt(report.recipient_count) === 0) {
-      return res.status(400).json({ error: 'No recipients with phone numbers. Edit the report and add at least one recipient.' });
+      const chan = (report.delivery_method || 'sms') === 'email' ? 'email addresses' : 'phone numbers';
+      return res.status(400).json({ error: `No recipients with ${chan}. Edit the report and add at least one recipient.` });
     }
 
-    const { smsSent } = await runScheduledReport(report, { updateLastRanAt: false });
-    res.json({ ok: true, smsSent });
+    const { smsSent, emailSent } = await runScheduledReport(report, { updateLastRanAt: false });
+    res.json({ ok: true, smsSent, emailSent });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
