@@ -236,6 +236,14 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                     <span>Store Hours</span>
                   </Link>
                   <Link
+                    to="/marketing/images"
+                    className={`nav-sub-item${location.pathname.startsWith('/marketing/images') ? ' active' : ''}`}
+                    onClick={() => { if (isMobile()) setCollapsed(true); }}
+                  >
+                    <span className="nav-sub-icon">🎞️</span>
+                    <span>Website Images</span>
+                  </Link>
+                  <Link
                     to="/marketing/settings"
                     className={`nav-sub-item${location.pathname.startsWith('/marketing/settings') ? ' active' : ''}`}
                     onClick={() => { if (isMobile()) setCollapsed(true); }}
