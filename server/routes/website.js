@@ -8,6 +8,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
+import { availableTables } from '../lib/resosClient.js';
 
 export const websiteRouter = express.Router();
 
@@ -118,6 +119,74 @@ websiteRouter.get('/hours', async (_req, res) => {
       venues.push({ venue: loc.web_slug, name: loc.name, days, specials: spec.rows, details: det.rows[0] || {} });
     }
     res.json({ timezone: 'America/Boise', venues });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/reservations/availability?venue=&date=YYYY-MM-DD&party=N
+// Combines the venue's hours with live ResOS table availability → bookable times.
+websiteRouter.get('/reservations/availability', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const venue = req.query.venue;
+    const date = req.query.date;
+    const party = Math.min(Math.max(parseInt(req.query.party, 10) || 2, 1), 40);
+    if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
+      return res.status(400).json({ error: 'venue and date=YYYY-MM-DD are required' });
+    }
+    const loc = (await query(
+      `SELECT id, name FROM locations WHERE company_id = $1 AND web_slug = $2 LIMIT 1`, [companyId, venue]
+    )).rows[0];
+    if (!loc) return res.status(404).json({ error: 'Unknown venue' });
+    const cfg = (await query(
+      `SELECT api_key, api_base, slot_minutes, active FROM kindred_web.resos_config WHERE location_id = $1`, [loc.id]
+    )).rows[0];
+    if (!cfg?.api_key || cfg.active === false) return res.json({ venue, date, party, bookingEnabled: false, slots: [] });
+
+    // Open intervals for this date: special-day override wins over the weekday hours.
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const special = (await query(
+      `SELECT is_closed, to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes
+         FROM kindred_web.hours_special WHERE location_id = $1 AND department = 'main' AND on_date = $2`,
+      [loc.id, date]
+    )).rows;
+    let intervals;
+    if (special.length) {
+      intervals = special.some((s) => s.is_closed) ? [] : special.filter((s) => s.opens && s.closes);
+    } else {
+      intervals = (await query(
+        `SELECT to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes
+           FROM kindred_web.hours WHERE location_id = $1 AND department = 'main' AND day_of_week = $2 ORDER BY opens`,
+        [loc.id, dow]
+      )).rows;
+    }
+    if (!intervals.length) return res.json({ venue, date, party, bookingEnabled: true, closed: true, slots: [] });
+
+    const dur = cfg.slot_minutes || 90;
+    const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const cands = [];
+    for (const iv of intervals) {
+      for (let t = toMin(iv.opens); t + dur <= toMin(iv.closes); t += 30) cands.push(fmt(t));
+    }
+    const capped = [...new Set(cands)].slice(0, 24);
+
+    const base = cfg.api_base || 'https://api.resos.com';
+    const slots = [];
+    const CONC = 5;
+    for (let i = 0; i < capped.length; i += CONC) {
+      const batch = capped.slice(i, i + CONC);
+      const r = await Promise.all(batch.map(async (time) => {
+        const from = `${date}T${time}:00`;
+        const to = `${date}T${fmt(toMin(time) + dur)}:00`;
+        try {
+          const tables = await availableTables(base, cfg.api_key, { people: party, fromDateTime: from, toDateTime: to });
+          return tables.length > 0 ? time : null;
+        } catch { return null; }
+      }));
+      slots.push(...r.filter(Boolean));
+    }
+    res.set('Cache-Control', 'public, max-age=30');
+    res.json({ venue, date, party, bookingEnabled: true, slots });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
