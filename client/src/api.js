@@ -2106,6 +2106,27 @@ export async function saveWebsiteSettings(patch) {
   return res.json();
 }
 
+export async function getReservationConfig() {
+  const res = await fetch(`${API}/marketing/reservations`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load reservation config');
+  return res.json(); // { venues: [{venue,name,configured,key_last4,api_base,slot_minutes,active}] }
+}
+export async function saveReservationConfig(venue, body) {
+  const res = await fetch(`${API}/marketing/reservations/${encodeURIComponent(venue)}`, {
+    method: 'PUT',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to save');
+  return res.json();
+}
+export async function testReservationConfig(venue) {
+  const res = await fetch(`${API}/marketing/reservations/${encodeURIComponent(venue)}/test`, {
+    method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: '{}',
+  });
+  return res.json(); // { ok, message? }
+}
+
 export async function listMediaFolders() {
   const res = await fetch(`${API}/media/folders`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to load folders');

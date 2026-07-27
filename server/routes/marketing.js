@@ -5,8 +5,19 @@
  */
 import express from 'express';
 import { query } from '../db.js';
+import { ping as resosPing } from '../lib/resosClient.js';
 
 export const marketingRouter = express.Router();
+
+// Resolve a venue web_slug → { location_id, name } for this company.
+async function resolveVenue(companyId, venue) {
+  const r = await query(
+    `SELECT id, name FROM locations WHERE company_id = $1 AND web_slug = $2 LIMIT 1`,
+    [companyId, venue]
+  );
+  return r.rows[0] ? { locationId: r.rows[0].id, name: r.rows[0].name } : null;
+}
+const last4 = (s) => (s && s.length > 4 ? s.slice(-4) : (s ? '••••' : null));
 
 // Whitelisted settings: key → { parse, default }.
 const SETTINGS = {
@@ -47,4 +58,63 @@ marketingRouter.put('/settings', async (req, res) => {
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── ResOS reservation config (per venue) ─────────────────────────────────────
+
+// GET /api/marketing/reservations — per-venue config (API key masked).
+marketingRouter.get('/reservations', async (req, res) => {
+  try {
+    const locs = await query(
+      `SELECT id, name, web_slug FROM locations WHERE company_id = $1 AND web_slug IS NOT NULL ORDER BY name`,
+      [req.companyId]
+    );
+    const venues = [];
+    for (const l of locs.rows) {
+      const c = (await query(
+        `SELECT api_key, api_base, slot_minutes, active FROM kindred_web.resos_config WHERE location_id = $1`,
+        [l.id]
+      )).rows[0] || {};
+      venues.push({
+        venue: l.web_slug, name: l.name,
+        configured: !!c.api_key, key_last4: last4(c.api_key),
+        api_base: c.api_base || 'https://api.resos.com',
+        slot_minutes: c.slot_minutes || 90,
+        active: c.active !== false,
+      });
+    }
+    res.json({ venues });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/marketing/reservations/:venue — set key/base/slot. Empty api_key keeps existing.
+marketingRouter.put('/reservations/:venue', async (req, res) => {
+  try {
+    const v = await resolveVenue(req.companyId, req.params.venue);
+    if (!v) return res.status(404).json({ error: 'Unknown venue' });
+    const { api_key, api_base, slot_minutes, active } = req.body || {};
+    const existing = (await query(`SELECT api_key FROM kindred_web.resos_config WHERE location_id = $1`, [v.locationId])).rows[0];
+    const keyToStore = (api_key && api_key.trim()) ? api_key.trim() : (existing?.api_key || null);
+    await query(
+      `INSERT INTO kindred_web.resos_config (location_id, api_key, api_base, slot_minutes, active, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (location_id) DO UPDATE SET api_key=$2, api_base=$3, slot_minutes=$4, active=$5, updated_at=NOW(), updated_by=$6`,
+      [v.locationId, keyToStore, (api_base || 'https://api.resos.com').trim(),
+       Math.min(Math.max(parseInt(slot_minutes, 10) || 90, 15), 240), active !== false, req.userId || null]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/marketing/reservations/:venue/test — validate the key against ResOS.
+marketingRouter.post('/reservations/:venue/test', async (req, res) => {
+  try {
+    const v = await resolveVenue(req.companyId, req.params.venue);
+    if (!v) return res.status(404).json({ error: 'Unknown venue' });
+    const row = (await query(`SELECT api_key, api_base FROM kindred_web.resos_config WHERE location_id = $1`, [v.locationId])).rows[0];
+    const key = (req.body?.api_key && req.body.api_key.trim()) || row?.api_key;
+    const base = (req.body?.api_base && req.body.api_base.trim()) || row?.api_base || 'https://api.resos.com';
+    if (!key) return res.status(400).json({ ok: false, message: 'No API key set for this venue yet.' });
+    res.json(await resosPing(base, key));
+  } catch (e) { res.status(500).json({ ok: false, message: e.message }); }
 });
