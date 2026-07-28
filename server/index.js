@@ -18,6 +18,9 @@ import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager, requireScheduleAccess } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
+import { abcRouter } from './routes/abc.js';
+import { clubNotificationsRouter } from './routes/clubNotifications.js';
+import { startClubPushScheduler } from './lib/clubPush.js';
 import { teamRouter } from './routes/team.js';
 import { skynetRouter } from './routes/skynet.js';
 import { startSkynetScheduler } from './lib/skynetScheduler.js';
@@ -116,6 +119,10 @@ app.use('/api/marketing', requireAuth, requireManager, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
+app.use('/api/abc', requireAuth, abcRouter);      // Idaho ABC wine report — prepares only, never submits
+// Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,
+// and the /me/* routes authenticate as a club member, not a TeamHub user.
+app.use('/api/club-notifications', clubNotificationsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/skynet', requireAuth, requireManager, skynetRouter);
 app.use('/api/gateway', requireAuth, gatewayRouter);
@@ -162,6 +169,7 @@ runMigrations()
     startRachioScheduler();
     startFactorSyncScheduler();
     startFeedbackScheduler();
+    startClubPushScheduler();
     startTalentReminderScheduler();
     startPromoReminderScheduler();
     startInstagramScheduler();
@@ -180,6 +188,7 @@ runMigrations()
     startRachioScheduler();
     startFactorSyncScheduler();
     startFeedbackScheduler();
+    startClubPushScheduler();
     startTalentReminderScheduler();
     startPromoReminderScheduler();
     startInstagramScheduler();

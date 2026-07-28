@@ -1248,6 +1248,31 @@ export async function getWineInventoryReport({ asOf, locationId, allItems }) {
   return data;
 }
 
+// ── Idaho ABC wine report ────────────────────────────────────────────────────
+
+export async function getAbcFiling(month) {
+  const res = await fetch(`${API}/abc/filing/${month}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load ABC filing');
+  return data;
+}
+
+export async function getAbcFilings() {
+  const res = await fetch(`${API}/abc/filings`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load ABC filing history');
+  return data;
+}
+
+export async function markAbcFiled(month, notes) {
+  const res = await fetch(`${API}/abc/filing/${month}/filed`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ notes: notes || null }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to record filing');
+  return data;
+}
+
 // ── Commerce7 Settings ────────────────────────────────────────────────────────
 
 export async function getC7Settings() {
@@ -1841,6 +1866,56 @@ export async function putRecipeComponents(id, components) {
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(d.error || 'Failed to save sub-recipes');
   return d;
+}
+
+export async function getSquareSkus() {
+  const res = await fetch(`${API}/recipes/square-skus`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Square SKUs');
+  return data;
+}
+
+export async function generateRecipeMenuDescription(id) {
+  const res = await fetch(`${API}/recipes/${id}/menu-description`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to generate description');
+  return data;
+}
+
+export async function uploadRecipeImages(id, files) {
+  const fd = new FormData();
+  for (const f of files) fd.append('images', f);
+  const h = headers();
+  delete h['Content-Type'];   // let the browser set the multipart boundary
+  const res = await fetch(`${API}/recipes/${id}/images`, { method: 'POST', headers: h, body: fd });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to upload images');
+  return data;
+}
+
+export async function updateRecipeImage(id, imageId, caption) {
+  const res = await fetch(`${API}/recipes/${id}/images/${imageId}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify({ caption }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save caption');
+  return data;
+}
+
+export async function reorderRecipeImages(id, imageIds) {
+  const res = await fetch(`${API}/recipes/${id}/images/order`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ imageIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to reorder');
+  return data;
+}
+
+export async function deleteRecipeImage(id, imageId) {
+  const res = await fetch(`${API}/recipes/${id}/images/${imageId}`, { method: 'DELETE', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete image');
+  return data;
 }
 
 export async function getRecipesCategories() {

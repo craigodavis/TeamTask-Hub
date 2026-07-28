@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   getRecipe, updateRecipe, deleteRecipe, uploadRecipePhoto,
   putRecipeIngredients, getRecipesIngredients, getLocations, getRecipesCategories,
-  putRecipeComponents, getRecipes,
+  putRecipeComponents, getRecipes, getSquareSkus, generateRecipeMenuDescription,
+  uploadRecipeImages, updateRecipeImage, reorderRecipeImages, deleteRecipeImage,
 } from '../api';
 
 const UNITS = ['g', 'oz', 'ml', 'each', 'lb', 'kg'];
@@ -62,6 +63,7 @@ export function RecipeDetail() {
   const { id }     = useParams();
   const navigate   = useNavigate();
   const photoInput = useRef(null);
+  const imagesInput = useRef(null);
 
   const [recipe, setRecipe]           = useState(null);
   const [allIngredients, setAllIngr]  = useState([]);
@@ -84,6 +86,13 @@ export function RecipeDetail() {
   const [locationIds, setLocIds]    = useState([]);
   const [ingredients, setIngr]      = useState([]);
   const [addIngId, setAddIngId]     = useState('');
+  const [menuTitle, setMenuTitle]   = useState('');
+  const [menuDesc, setMenuDesc]     = useState('');
+  const [sku, setSku]               = useState('');
+  const [skus, setSkus]             = useState([]);
+  const [generating, setGenerating] = useState(false);
+  const [images, setImages]         = useState([]);
+  const [imgUploading, setImgUp]    = useState(false);
   const [components, setComponents]       = useState([]);
   const [addComponentId, setAddCompId]    = useState('');
   const [allRecipes, setAllRecipes]       = useState([]);
@@ -107,6 +116,10 @@ export function RecipeDetail() {
       setPrepTime(r.prep_time_minutes ?? '');
       setStatus(r.status || 'active');
       setMenuPrice(r.menu_price ?? '');
+      setMenuTitle(r.menu_title || '');
+      setMenuDesc(r.menu_description || '');
+      setSku(r.square_sku || '');
+      setImages(r.images || []);
       setLocIds(r.location_ids || []);
       setIngr(r.ingredients || []);
       setComponents(r.components || []);
@@ -114,6 +127,7 @@ export function RecipeDetail() {
       setAllLocs(locsRes.locations || []);
       setCategories(catsRes.categories || []);
       setAllRecipes((recipesRes.recipes || []).filter((x) => x.id !== id));
+      getSquareSkus().then((d) => setSkus(d.skus || [])).catch(() => {});
     } catch (e) {
       setError(e.message);
     } finally {
@@ -138,6 +152,9 @@ export function RecipeDetail() {
         status,
         menu_price: menuPrice !== '' ? parseFloat(menuPrice) : null,
         location_ids: locationIds,
+        ...(menuTitle.trim() ? { menu_title: menuTitle.trim() } : {}),
+        ...(menuDesc.trim()  ? { menu_description: menuDesc.trim() } : {}),
+        ...(sku.trim()       ? { square_sku: sku.trim() } : {}),
       });
       await putRecipeIngredients(id, ingredients.map((i, idx) => ({
         ingredient_id: i.ingredient_id,
@@ -185,6 +202,54 @@ export function RecipeDetail() {
       setPhotoUp(false);
       if (photoInput.current) photoInput.current.value = '';
     }
+  };
+
+  // Generates from the ingredient list and drops the text in for review — it is
+  // not saved until the recipe is saved, so a bad draft costs nothing.
+  const handleGenerate = async () => {
+    setGenerating(true); setError('');
+    try {
+      const d = await generateRecipeMenuDescription(id);
+      setMenuDesc(d.menu_description || '');
+      flash('Generated — review it, then Save');
+    } catch (e) { setError(e.message); }
+    finally { setGenerating(false); }
+  };
+
+  const handleImagesChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setImgUp(true); setError('');
+    try {
+      const d = await uploadRecipeImages(id, files);
+      setImages((prev) => [...prev, ...(d.images || [])]);
+    } catch (err) { setError(err.message); }
+    finally {
+      setImgUp(false);
+      if (imagesInput.current) imagesInput.current.value = '';
+    }
+  };
+
+  const handleCaption = async (imageId, caption) => {
+    setImages((prev) => prev.map((im) => im.id === imageId ? { ...im, caption } : im));
+    try { await updateRecipeImage(id, imageId, caption); } catch (e) { setError(e.message); }
+  };
+
+  const moveImage = async (idx, dir) => {
+    const next = [...images];
+    const j = idx + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setImages(next);
+    try { await reorderRecipeImages(id, next.map((im) => im.id)); } catch (e) { setError(e.message); }
+  };
+
+  const removeImage = async (imageId) => {
+    if (!window.confirm('Remove this prep photo?')) return;
+    try {
+      await deleteRecipeImage(id, imageId);
+      setImages((prev) => prev.filter((im) => im.id !== imageId));
+    } catch (e) { setError(e.message); }
   };
 
   const toggleLoc = (lid) => setLocIds((prev) => prev.includes(lid) ? prev.filter((x) => x !== lid) : [...prev, lid]);
@@ -276,12 +341,66 @@ export function RecipeDetail() {
           <input type="number" min="0" step="0.01" value={menuPrice} onChange={(e) => setMenuPrice(e.target.value)} placeholder="e.g. 18.00" />
         </div>
         <div className="form-group recipe-form-full">
-          <label>Description</label>
-          <input type="text" value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Short description for menu display" />
+          <label>Menu title *</label>
+          <input type="text" value={menuTitle} onChange={(e) => setMenuTitle(e.target.value)}
+                 placeholder="What guests see on the menu" />
+        </div>
+        <div className="form-group recipe-form-full">
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+            <span>Menu description *</span>
+            <button type="button" className="btn-sm" onClick={handleGenerate}
+                    disabled={generating || ingredients.length + components.length === 0}
+                    title={ingredients.length + components.length === 0
+                      ? 'Add ingredients first — the description is written from them'
+                      : 'Write this from the ingredient list'}>
+              {generating ? 'Generating…' : '✨ Generate from ingredients'}
+            </button>
+          </label>
+          <textarea value={menuDesc} onChange={(e) => setMenuDesc(e.target.value)}
+                    placeholder="1–3 short sentences" style={{ minHeight: 80 }} />
+        </div>
+        <div className="form-group">
+          <label>Square SKU *</label>
+          <input type="text" list="recipe-sku-options" value={sku} onChange={(e) => setSku(e.target.value)}
+                 placeholder="Pick or type a SKU" />
+          <datalist id="recipe-sku-options">
+            {skus.filter((x) => !x.claimedByRecipe || x.sku === sku).map((x) => (
+              <option key={x.sku} value={x.sku}>{x.label}</option>
+            ))}
+          </datalist>
+        </div>
+        <div className="form-group recipe-form-full">
+          <label>Internal description</label>
+          <input type="text" value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Kitchen-facing note — not shown to guests" />
         </div>
         <div className="form-group recipe-form-full">
           <label>Cooking instructions</label>
           <textarea value={instructions} onChange={(e) => setInstr(e.target.value)} placeholder="Step-by-step instructions…" style={{ minHeight: 160 }} />
+        </div>
+        <div className="form-group recipe-form-full">
+          <label>Prep photos</label>
+          <div className="photo-upload-area" onClick={() => imagesInput.current?.click()}>
+            {imgUploading ? 'Uploading…' : '📷 Add prep photos (you can pick several at once)'}
+          </div>
+          <input ref={imagesInput} type="file" accept="image/*" multiple style={{ display: 'none' }}
+                 onChange={handleImagesChange} />
+          {images.length > 0 && (
+            <div className="recipe-prep-images">
+              {images.map((im, idx) => (
+                <div key={im.id} className="recipe-prep-image">
+                  <img src={im.url} alt={im.caption || `Step ${idx + 1}`} />
+                  <input type="text" value={im.caption || ''} placeholder={`Step ${idx + 1}`}
+                         onChange={(e) => setImages((prev) => prev.map((x) => x.id === im.id ? { ...x, caption: e.target.value } : x))}
+                         onBlur={(e) => handleCaption(im.id, e.target.value)} />
+                  <div className="recipe-prep-image-actions">
+                    <button type="button" className="btn-sm" onClick={() => moveImage(idx, -1)} disabled={idx === 0}>←</button>
+                    <button type="button" className="btn-sm" onClick={() => moveImage(idx, 1)} disabled={idx === images.length - 1}>→</button>
+                    <button type="button" className="btn-sm" onClick={() => removeImage(im.id)}>Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
