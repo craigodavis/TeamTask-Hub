@@ -2992,6 +2992,15 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual'`,
   `UPDATE club_notification_groups SET source = 'event'        WHERE key = 'events_music'`,
   `UPDATE club_notification_groups SET source = 'club_release' WHERE key = 'wine_releases'`,
+  // 116: where a notification lands when tapped, when the send doesn't carry its
+  // own URL. Wine releases go to the Commerce7 customer portal, where the member
+  // can add/remove wines, change quantities, skip, or ship early before the card
+  // is charged. /profile is what the marketing site links as "Club Login", and the
+  // PWA's isC7Route regex already routes it to Commerce7's frontend.
+  `ALTER TABLE club_notification_groups ADD COLUMN IF NOT EXISTS default_url TEXT`,
+  `UPDATE club_notification_groups
+      SET default_url = 'https://club77.kindredvineyards.com/profile'
+    WHERE key = 'wine_releases' AND default_url IS NULL`,
 ];
 
 export async function runMigrations() {
