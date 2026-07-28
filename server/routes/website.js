@@ -10,6 +10,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { availableTables } from '../lib/resosClient.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
+import { sendMail } from '../mail.js';
 
 export const websiteRouter = express.Router();
 
@@ -40,6 +41,47 @@ async function getSetting(key, fallback) {
     return r.rows.length ? r.rows[0].value : fallback;
   } catch { return fallback; }
 }
+
+const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s || '');
+const CONTACT_NOTIFY = process.env.CONTACT_NOTIFY_EMAIL || 'craig@kindredvineyards.com';
+
+// POST /api/website/newsletter { email } — website newsletter signup.
+websiteRouter.post('/newsletter', async (req, res) => {
+  try {
+    const { email, website } = req.body || {};
+    if (website) return res.json({ ok: true }); // honeypot: silently accept bots
+    if (!isEmail(email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
+    await query(
+      `INSERT INTO kindred_web.form_submissions (kind, email, meta) VALUES ('newsletter', $1, $2)`,
+      [email.trim().toLowerCase().slice(0, 255), JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null })]
+    );
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Could not sign you up right now.' }); }
+});
+
+// POST /api/website/contact { name, email, message } — website contact form.
+websiteRouter.post('/contact', async (req, res) => {
+  try {
+    const { name, email, message, website } = req.body || {};
+    if (website) return res.json({ ok: true }); // honeypot
+    if (!name?.trim() || !isEmail(email) || !message?.trim()) {
+      return res.status(400).json({ error: 'Name, a valid email, and a message are required.' });
+    }
+    const clean = { name: name.trim().slice(0, 200), email: email.trim().toLowerCase().slice(0, 255), message: message.trim().slice(0, 5000) };
+    await query(
+      `INSERT INTO kindred_web.form_submissions (kind, name, email, message, meta) VALUES ('contact', $1, $2, $3, $4)`,
+      [clean.name, clean.email, clean.message, JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null })]
+    );
+    // Best-effort email notification — never let a mail failure break the submit.
+    sendMail({
+      to: CONTACT_NOTIFY,
+      subject: `Website contact — ${clean.name}`,
+      text: `From: ${clean.name} <${clean.email}>\n\n${clean.message}`,
+      html: `<p><strong>${clean.name}</strong> &lt;${clean.email}&gt;</p><p style="white-space:pre-wrap">${clean.message.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</p>`,
+    }).catch(() => {});
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Could not send your message right now.' }); }
+});
 
 const LIST_FIELDS = `
   e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,

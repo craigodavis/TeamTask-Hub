@@ -130,6 +130,18 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_kw_ig_posted ON kindred_web.instagram_media(posted_at DESC)`,
 
+  // Website form submissions (newsletter signups + contact messages).
+  `CREATE TABLE IF NOT EXISTS kindred_web.form_submissions (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    kind        VARCHAR(20) NOT NULL,          -- newsletter | contact
+    name        VARCHAR(200),
+    email       VARCHAR(255),
+    message     TEXT,
+    meta        JSONB,                         -- ip, user-agent, referer
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_form_submissions ON kindred_web.form_submissions(kind, created_at DESC)`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (
