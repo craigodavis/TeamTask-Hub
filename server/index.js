@@ -147,6 +147,36 @@ app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
 });
 
+// Every scheduler in one place — the list was duplicated across the success and
+// failure paths below, so one could drift from the other.
+//
+// DISABLE_SCHEDULERS=1 starts the API without them. A local dev server points at
+// the production database, so without this a second instance double-fires the
+// SMS senders, promo emails, syncs and gateway auto-approve alongside the real
+// one. Set it whenever you run this app to look at the UI.
+function startSchedulers() {
+  if (process.env.DISABLE_SCHEDULERS === '1') {
+    console.log('Schedulers DISABLED (DISABLE_SCHEDULERS=1) — API only, no timers.');
+    return;
+  }
+  startDailySquareAutoSync();
+  startSquareSyncScheduler();
+  startReportScheduler();
+  startGatewayAutoApproveScheduler();
+  startC7SyncScheduler();
+  startSkynetScheduler();
+  startDailyArchiveScheduler();
+  startRachioScheduler();
+  startFactorSyncScheduler();
+  startFeedbackScheduler();
+  startClubPushScheduler();
+  startTalentReminderScheduler();
+  startPromoReminderScheduler();
+  startInstagramScheduler();
+  startPromoEmailScheduler();
+  startZeroCanaryScheduler();
+}
+
 runMigrations()
   .catch((err) => console.error('Migration error (non-fatal):', err.message))
   .finally(() => {
@@ -159,39 +189,9 @@ runMigrations()
   })
   .then(() => {
     console.log('Schema checks (locations / migration 008 / kindred_web) finished.');
-    startDailySquareAutoSync();
-    startSquareSyncScheduler();
-    startReportScheduler();
-    startGatewayAutoApproveScheduler();
-    startC7SyncScheduler();
-    startSkynetScheduler();
-    startDailyArchiveScheduler();
-    startRachioScheduler();
-    startFactorSyncScheduler();
-    startFeedbackScheduler();
-    startClubPushScheduler();
-    startTalentReminderScheduler();
-    startPromoReminderScheduler();
-    startInstagramScheduler();
-    startPromoEmailScheduler();
-    startZeroCanaryScheduler();
+    startSchedulers();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
-    startDailySquareAutoSync();
-    startSquareSyncScheduler();
-    startReportScheduler();
-    startGatewayAutoApproveScheduler();
-    startC7SyncScheduler();
-    startSkynetScheduler();
-    startDailyArchiveScheduler();
-    startRachioScheduler();
-    startFactorSyncScheduler();
-    startFeedbackScheduler();
-    startClubPushScheduler();
-    startTalentReminderScheduler();
-    startPromoReminderScheduler();
-    startInstagramScheduler();
-    startPromoEmailScheduler();
-    startZeroCanaryScheduler();
+    startSchedulers();
   });
