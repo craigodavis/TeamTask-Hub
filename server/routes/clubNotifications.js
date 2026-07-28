@@ -206,7 +206,10 @@ router.post('/sends', ...admin, async (req, res) => {
     // itself from the slug so nobody pastes the wrong URL.
     if (eventId) {
       const ev = await query(
-        `SELECT title, slug, start_at, status FROM events WHERE id = $1 AND company_id = $2`,
+        `SELECT e.title, e.slug, e.start_at, e.status, l.web_slug AS venue
+           FROM events e
+           LEFT JOIN locations l ON l.id = e.location_id
+          WHERE e.id = $1 AND e.company_id = $2`,
         [eventId, cid(req)]);
       if (!ev.rows.length) return res.status(400).json({ error: 'Unknown event' });
       const event = ev.rows[0];
@@ -218,7 +221,24 @@ router.post('/sends', ...admin, async (req, res) => {
           error: 'The notification must go out on the day of the event at the latest. Pick a time at or before the event starts.',
         });
       }
-      if (!linkUrl && event.slug) linkUrl = `https://club77.kindredvineyards.com/events/${event.slug}`;
+      // The PWA understands /reserve?event=…&venue=…&date=…&time=… and opens the
+      // reservation screen with everything pre-filled — that is the whole point of
+      // the tap-through. A bare /events/<slug> link matches its /events route and
+      // dumps the member on the full list instead, losing the reservation context.
+      //
+      // Times are stored as wall-clock labeled UTC (same convention the PWA's
+      // Events screen formats against), so read the parts in UTC, not local.
+      if (!linkUrl && event.slug) {
+        const p = new URLSearchParams({ event: event.slug });
+        if (event.title) p.set('eventLabel', event.title);
+        if (event.venue) p.set('venue', event.venue);
+        if (event.start_at) {
+          const d = new Date(event.start_at);
+          p.set('date', d.toISOString().slice(0, 10));
+          p.set('time', d.toISOString().slice(11, 16));
+        }
+        linkUrl = `https://club77.kindredvineyards.com/reserve?${p.toString()}`;
+      }
 
       const dupe = await query(
         `SELECT count(*)::int n FROM club_notification_sends
