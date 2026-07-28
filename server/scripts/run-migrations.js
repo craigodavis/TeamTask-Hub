@@ -2920,6 +2920,78 @@ const MIGRATIONS = [
      created_by UUID
    )`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_images_recipe ON recipe_images(recipe_id, position)`,
+  // ── 114: Commerce7 club packages — the wine-release notification trigger ────
+  // A "club package" is one club tier's release. C7 sends members two automatic
+  // emails per package and exposes both dates on the object:
+  //   email.twoWeekSendDate  — the heads-up
+  //   email.twoDaySendDate   — last call before the card is charged
+  // Verified live 2026-07-28: 115/131 packages carry a two-week date, 126/131 a
+  // two-day date, sent at 14:00Z (8am Mountain).
+  //
+  // IMPORTANT: one release is ~9 packages, one per club tier, all sharing the
+  // same dates. Notifying per package would fire nine pushes the same morning —
+  // sends must be grouped by (process_date, send date) and targeted to the
+  // members of that club_id, never broadcast.
+  `CREATE TABLE IF NOT EXISTS commerce7.club_package (
+     id                              UUID PRIMARY KEY,
+     company_id                      UUID NOT NULL,
+     club_id                         UUID,
+     title                           TEXT,
+     status                          TEXT,          -- Active | Archive
+     process_date                    TIMESTAMPTZ,
+     auto_process_status             TEXT,
+     requested_ship_date             TIMESTAMPTZ,
+     two_week_send_date              TIMESTAMPTZ,
+     two_week_send_status            TEXT,          -- Sent | Pending
+     two_day_send_date               TIMESTAMPTZ,
+     two_day_send_status             TEXT,
+     is_send_credit_card_decline     BOOLEAN,
+     pre_shipment_email_instructions TEXT,
+     item_choice                     TEXT,
+     min_quantity_in_shipment        INTEGER,
+     min_order_value_of_shipment     INTEGER,
+     club_member_shipment_count      INTEGER,
+     allow_customers_to_ship_early   BOOLEAN,
+     stats                           JSONB,
+     c7_created_at                   TIMESTAMPTZ,
+     c7_updated_at                   TIMESTAMPTZ,
+     synced_at                       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_two_week
+     ON commerce7.club_package(company_id, two_week_send_date) WHERE status = 'Active'`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_two_day
+     ON commerce7.club_package(company_id, two_day_send_date) WHERE status = 'Active'`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_club ON commerce7.club_package(club_id, process_date DESC)`,
+  // The wines in each release — lets a notification name what's coming.
+  `CREATE TABLE IF NOT EXISTS commerce7.club_package_item (
+     id                   UUID PRIMARY KEY,
+     package_id           UUID NOT NULL REFERENCES commerce7.club_package(id) ON DELETE CASCADE,
+     company_id           UUID NOT NULL,
+     product_id           UUID,
+     product_title        TEXT,
+     product_variant_id   UUID,
+     product_variant_title TEXT,
+     sku                  TEXT,
+     product_type         TEXT,
+     item_type            TEXT,
+     default_quantity     INTEGER,
+     price                INTEGER,
+     sort_order           INTEGER,
+     synced_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_item_pkg ON commerce7.club_package_item(package_id, sort_order)`,
+  // Register it so it appears in Settings → Commerce7 alongside the others.
+  `INSERT INTO teamtask_hub.commerce7_sync_objects (company_id, object_type, label)
+   SELECT company_id, 'club_packages', 'Club Packages'
+     FROM teamtask_hub.commerce7_sync_objects WHERE object_type = 'clubs'
+   ON CONFLICT DO NOTHING`,
+  // 115: notification groups behave differently enough that one generic compose
+  // form serves none of them well. `source` tells the admin UI which composer to
+  // render: manual broadcast, event-driven, or automatic from a C7 club release.
+  `ALTER TABLE club_notification_groups
+     ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual'`,
+  `UPDATE club_notification_groups SET source = 'event'        WHERE key = 'events_music'`,
+  `UPDATE club_notification_groups SET source = 'club_release' WHERE key = 'wine_releases'`,
 ];
 
 export async function runMigrations() {

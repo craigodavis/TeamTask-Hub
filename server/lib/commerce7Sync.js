@@ -714,6 +714,117 @@ export async function syncClubs(companyId, integration) {
   }
 }
 
+// ── Club Packages (wine releases) ─────────────────────────────────────────────
+
+// One package = one club tier's release. The two email dates C7 exposes here are
+// what drives wine-release push; see docs and migration 114. Full sync every time:
+// there are only ~131 of them and the email dates get edited in place, so an
+// incremental watermark on updatedAt would miss a date change on an old row.
+export async function syncClubPackages(companyId, integration) {
+  const logId = await logStart(companyId, 'club_packages', 'full', null);
+  const c7 = makeC7Client(integration);
+
+  let page = 1, total = Infinity, synced = 0;
+  const failed = [];
+
+  try {
+    while ((page - 1) * PAGE_SIZE < total) {
+      const data = await c7.get(`/club-package?page=${page}&limit=${PAGE_SIZE}`);
+      total = data.total ?? 0;
+
+      for (const pkg of data.clubPackages ?? []) {
+        await safely(async () => {
+          const em = pkg.email || {};
+          await query(
+            `INSERT INTO commerce7.club_package
+               (id, company_id, club_id, title, status, process_date, auto_process_status,
+                requested_ship_date, two_week_send_date, two_week_send_status,
+                two_day_send_date, two_day_send_status, is_send_credit_card_decline,
+                pre_shipment_email_instructions, item_choice, min_quantity_in_shipment,
+                min_order_value_of_shipment, club_member_shipment_count,
+                allow_customers_to_ship_early, stats, c7_created_at, c7_updated_at, synced_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               club_id                         = EXCLUDED.club_id,
+               title                           = EXCLUDED.title,
+               status                          = EXCLUDED.status,
+               process_date                    = EXCLUDED.process_date,
+               auto_process_status             = EXCLUDED.auto_process_status,
+               requested_ship_date             = EXCLUDED.requested_ship_date,
+               two_week_send_date              = EXCLUDED.two_week_send_date,
+               two_week_send_status            = EXCLUDED.two_week_send_status,
+               two_day_send_date               = EXCLUDED.two_day_send_date,
+               two_day_send_status             = EXCLUDED.two_day_send_status,
+               is_send_credit_card_decline     = EXCLUDED.is_send_credit_card_decline,
+               pre_shipment_email_instructions = EXCLUDED.pre_shipment_email_instructions,
+               item_choice                     = EXCLUDED.item_choice,
+               min_quantity_in_shipment        = EXCLUDED.min_quantity_in_shipment,
+               min_order_value_of_shipment     = EXCLUDED.min_order_value_of_shipment,
+               club_member_shipment_count      = EXCLUDED.club_member_shipment_count,
+               allow_customers_to_ship_early   = EXCLUDED.allow_customers_to_ship_early,
+               stats                           = EXCLUDED.stats,
+               c7_updated_at                   = EXCLUDED.c7_updated_at,
+               synced_at                       = NOW()`,
+            [
+              pkg.id, companyId,
+              pkg.clubId ?? null,
+              pkg.title ?? null,
+              pkg.status ?? null,
+              pkg.processDate ?? null,
+              pkg.autoProcessStatus ?? null,
+              pkg.requestedShipDate ?? null,
+              em.twoWeekSendDate ?? null,
+              em.twoWeekSendStatus ?? null,
+              em.twoDaySendDate ?? null,
+              em.twoDaySendStatus ?? null,
+              em.isSendCreditCardDecline ?? null,
+              pkg.preShipmentEmailInstructions ?? null,
+              pkg.itemChoice ?? null,
+              pkg.minQuantityInShipment ?? null,
+              pkg.minOrderValueOfShipment ?? null,
+              pkg.clubMemberShipmentCount ?? null,
+              pkg.allowCustomersToShipEarly ?? null,
+              pkg.stats ? JSON.stringify(pkg.stats) : null,
+              pkg.createdAt ?? null,
+              pkg.updatedAt ?? null,
+            ]
+          );
+
+          // Items are replaced wholesale — a package's wine list is edited as a
+          // set, so upserting would strand rows for wines that were removed.
+          await query(`DELETE FROM commerce7.club_package_item WHERE package_id = $1`, [pkg.id]);
+          for (const it of pkg.items ?? []) {
+            await query(
+              `INSERT INTO commerce7.club_package_item
+                 (id, package_id, company_id, product_id, product_title, product_variant_id,
+                  product_variant_title, sku, product_type, item_type, default_quantity,
+                  price, sort_order, synced_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                it.id, pkg.id, companyId,
+                it.productId ?? null, it.productTitle ?? null,
+                it.productVariantId ?? null, it.productVariantTitle ?? null,
+                it.sku ?? null, it.productType ?? null, it.itemType ?? null,
+                it.defaultQuantity ?? null, it.price ?? null, it.sortOrder ?? null,
+              ]
+            );
+          }
+        }, pkg.title || pkg.id, failed);
+      }
+
+      synced += (data.clubPackages ?? []).length;
+      page++;
+    }
+
+    await logFinish(logId, synced, failureNote(failed));
+    return { synced, entity: 'club_packages', failed };
+  } catch (err) {
+    await logFinish(logId, synced, err.message);
+    throw err;
+  }
+}
+
 // ── Club Memberships ──────────────────────────────────────────────────────────
 
 export async function syncClubMemberships(companyId, integration, { mode = 'incremental' } = {}) {
@@ -985,12 +1096,36 @@ export async function syncCompany(companyId, integration, opts = {}) {
   console.log(`[c7-sync] starting sync for company ${companyId} (mode=${opts.mode ?? 'incremental'})`);
   const results = {};
 
+  // Settings → Commerce7 reads teamtask_hub.commerce7_sync_objects, but only the
+  // manual "Sync now" button used to write it — so the screen showed the last time
+  // someone clicked a button (May) while the scheduler had in fact been running
+  // every 4 hours the whole time. Stamp it here too, or the dashboard lies.
+  const stamp = async (objectType, ok, count, errMsg) => {
+    try {
+      await query(
+        `UPDATE teamtask_hub.commerce7_sync_objects
+            SET last_synced_at   = NOW(),
+                last_sync_status = $3,
+                last_sync_count  = $4,
+                last_sync_error  = $5
+          WHERE company_id = $1 AND object_type = $2`,
+        [companyId, objectType, ok ? 'ok' : 'error', count, errMsg]
+      );
+    } catch (e) {
+      console.warn(`[c7-sync] could not stamp ${objectType}:`, e.message);
+    }
+  };
+
   const run = async (name, fn) => {
     try {
       results[name] = await fn();
+      const r = results[name];
+      await stamp(name, true, r?.synced ?? 0,
+        r?.failed?.length ? `${r.failed.length} item(s) failed: ${r.failed.map((f) => f.label).join(', ')}` : null);
     } catch (err) {
       console.error(`[c7-sync] ${name} sync failed for ${companyId}:`, err.message);
       results[name] = { error: err.message };
+      await stamp(name, false, 0, err.message);
     }
   };
 
@@ -1002,6 +1137,7 @@ export async function syncCompany(companyId, integration, opts = {}) {
   await run('wine_varietals',   () => syncWineVarietals(companyId, integration));
   await run('wine_appellations',() => syncWineAppellations(companyId, integration));
   await run('clubs',            () => syncClubs(companyId, integration));
+  await run('club_packages',    () => syncClubPackages(companyId, integration));
   await run('club_memberships', () => syncClubMemberships(companyId, integration, opts));
   await run('reservations',     () => syncReservations(companyId, integration, opts));
   await run('gift_cards',       () => syncGiftCards(companyId, integration));
