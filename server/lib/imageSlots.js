@@ -10,6 +10,7 @@ export const IMAGE_SLOTS = [
     slots: [
       { key: 'home.hero', label: 'Hero background', hint: 'Full-width image behind the headline', ratio: '16 / 9' },
       { key: 'home.welcome', label: 'Welcome photo', hint: 'The family at a full table', ratio: '4 / 5' },
+      { key: 'home.oak', label: 'French oak feature', hint: 'Barrel room / cooperage photo', ratio: '4 / 5' },
     ],
   },
   {
