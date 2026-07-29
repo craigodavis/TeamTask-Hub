@@ -32,10 +32,19 @@ const BASE_CTE = `
   ),
   membership AS (
     -- customer_id is varchar here but uuid on commerce7.customers; the join casts.
-    SELECT DISTINCT ON (cm.customer_id) cm.customer_id, cm.status, cm.club_id, cm.signup_date
+    -- ever_joined / last_cancel carry the LAPSED signal: 370 customers held a
+    -- membership and hold none now, which is the warmest audience that isn't
+    -- currently paying. Aggregated per customer so someone who joined, left and
+    -- rejoined reads as active rather than lapsed.
+    SELECT cm.customer_id,
+           (array_agg(cm.status ORDER BY (cm.status = 'Active') DESC, cm.signup_date DESC))[1] AS status,
+           (array_agg(cm.club_id ORDER BY (cm.status = 'Active') DESC, cm.signup_date DESC))[1] AS club_id,
+           min(cm.signup_date)                                          AS signup_date,
+           bool_or(cm.status = 'Active')                                AS still_in,
+           max(cm.cancel_date) FILTER (WHERE cm.status <> 'Active')     AS last_cancel
       FROM commerce7.club_membership cm
      WHERE cm.company_id = $1
-     ORDER BY cm.customer_id, (cm.status = 'Active') DESC, cm.signup_date DESC
+     GROUP BY cm.customer_id
   ),
   act AS (
     SELECT a.account_id,
@@ -59,6 +68,9 @@ const BASE_CTE = `
            a.created_at    AS joined_app_at,
            m.status        AS club_status,
            m.signup_date   AS club_signup_date,
+           COALESCE(m.still_in, false)                       AS club_active,
+           (m.customer_id IS NOT NULL AND m.still_in = false) AS club_lapsed,
+           m.last_cancel   AS club_left_at,
            COALESCE(act.installed, false)   AS installed,
            act.last_seen,
            COALESCE(act.taps, 0)            AS taps,
@@ -84,9 +96,14 @@ router.get('/members', ...admin, async (req, res) => {
     installed:      'installed = true',
     not_installed:  'account_id IS NOT NULL AND installed = false',
     notifications:  'devices > 0',
-    club:           "club_status = 'Active'",
-    club_no_app:    "club_status = 'Active' AND account_id IS NULL",
-    non_club:       "COALESCE(club_status,'') <> 'Active'",
+    club:           'club_active',
+    club_no_app:    'club_active AND account_id IS NULL',
+    non_club:       'NOT club_active',
+    // Held a membership, holds none now — 370 people who liked the wine enough
+    // to join once. Warmer than any cold list.
+    lapsed:         'club_lapsed',
+    lapsed_no_app:  'club_lapsed AND account_id IS NULL',
+    never_club:     'club_signup_date IS NULL',
     // Joined the club after installing the app — the conversion we care about.
     app_converted:  "account_id IS NOT NULL AND club_signup_date IS NOT NULL AND club_signup_date > joined_app_at",
   };
@@ -103,7 +120,8 @@ router.get('/members', ...admin, async (req, res) => {
 
     const funnel = await query(`${BASE_CTE}
       SELECT count(*)::int                                                              AS customers,
-             count(*) FILTER (WHERE club_status = 'Active')::int                        AS club_members,
+             count(*) FILTER (WHERE club_active)::int                                   AS club_members,
+             count(*) FILTER (WHERE club_lapsed)::int                                   AS lapsed_members,
              count(*) FILTER (WHERE account_id IS NOT NULL)::int                        AS app_accounts,
              count(*) FILTER (WHERE installed)::int                                     AS installed,
              count(*) FILTER (WHERE devices > 0)::int                                   AS notifications_on,

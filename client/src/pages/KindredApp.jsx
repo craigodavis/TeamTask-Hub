@@ -19,6 +19,9 @@ const FILTERS = [
   { key: 'no_app',        label: 'No app yet' },
   { key: 'club_no_app',   label: 'Club members without the app' },
   { key: 'non_club',      label: 'Not in a club' },
+  { key: 'lapsed',        label: 'Former club members' },
+  { key: 'lapsed_no_app', label: 'Former members without the app' },
+  { key: 'never_club',    label: 'Never joined a club' },
   { key: 'has_app',       label: 'Has the app' },
   { key: 'installed',     label: 'Opened it installed' },
   { key: 'notifications', label: 'Notifications on' },
@@ -38,6 +41,7 @@ function Funnel({ f }) {
   const steps = [
     ['Customers',        f.customers],
     ['Club members',     f.club_members],
+    ['Former members',   f.lapsed_members],
     ['Have the app',     f.app_accounts],
     ['Opened installed', f.installed],
     ['Notifications on', f.notifications_on],
@@ -102,9 +106,13 @@ function Members() {
                 <tr key={m.id}>
                   <td>{[m.first_name, m.last_name].filter(Boolean).join(' ') || '—'}</td>
                   <td className="ka-dim">{m.emails?.[0]?.email || '—'}</td>
-                  <td>{m.club_status === 'Active'
+                  <td>{m.club_active
                     ? <span className="ka-pill ka-pill-club">Member</span>
-                    : <span className="ka-dim">—</span>}</td>
+                    : m.club_lapsed
+                      ? <span className="ka-pill ka-pill-lapsed" title={m.club_left_at ? `Left ${d(m.club_left_at)}` : ''}>
+                          Left {m.club_left_at ? new Date(m.club_left_at).getFullYear() : ''}
+                        </span>
+                      : <span className="ka-dim">—</span>}</td>
                   <td>{m.account_id
                     ? (m.installed ? <span className="ka-pill ka-pill-on">Installed</span>
                                    : <span className="ka-pill">Browser</span>)
