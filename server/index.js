@@ -22,6 +22,7 @@ import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
 import { clubNotificationsRouter } from './routes/clubNotifications.js';
 import { kindredAppRouter } from './routes/kindredApp.js';
+import { kindredSignupRouter } from './routes/kindredSignup.js';
 import { startClubPushScheduler } from './lib/clubPush.js';
 import { teamRouter } from './routes/team.js';
 import { skynetRouter } from './routes/skynet.js';
@@ -129,7 +130,8 @@ app.use('/api/abc', requireAuth, abcRouter);      // Idaho ABC wine report — p
 // Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,
 // and the /me/* routes authenticate as a club member, not a TeamHub user.
 app.use('/api/club-notifications', clubNotificationsRouter);
-app.use('/api/kindred-app', kindredAppRouter);   // members report, settings, activity beacon
+app.use('/api/kindred-app', kindredSignupRouter);  // POST /signup — public, creates the account
+app.use('/api/kindred-app', kindredAppRouter);     // members report, settings, activity beacon
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/skynet', requireAuth, requireManager, skynetRouter);
 app.use('/api/gateway', requireAuth, gatewayRouter);

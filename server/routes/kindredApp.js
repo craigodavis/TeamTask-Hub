@@ -189,7 +189,8 @@ router.put('/settings', ...admin, async (req, res) => {
 // Written BY the app. Accepts an anonymous beacon (no session) so the top of the
 // funnel — someone who scanned the counter board and hasn't signed up — is still
 // visible. With a session, the row is attributed to that account.
-const KNOWN = new Set(['app_open', 'standalone_open', 'notification_click',
+const KNOWN = new Set(['app_open', 'standalone_open', 'account_created',
+                       'club_declined', 'notification_click',
                        'notification_dismissed', 'reservation_started',
                        'reservation_completed', 'club_portal_open', 'prefs_changed']);
 
