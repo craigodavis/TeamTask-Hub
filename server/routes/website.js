@@ -179,6 +179,37 @@ websiteRouter.get('/products', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/website/clubs — published Commerce7 wine clubs, so the website can
+// build its own club page instead of handing the whole area to the C7 widget.
+// `content` is Commerce7's rich-text blurb (HTML) and `type` distinguishes the
+// flexible Subscription clubs from the fixed Traditional tiers — the site groups
+// on both, so they're passed through rather than flattened here.
+websiteRouter.get('/clubs', async (_req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const ir = await query(
+      `SELECT company_id, c7_tenant_slug, c7_tenant_id, c7_api_base_url, c7_api_key
+         FROM company_integrations WHERE company_id = $1`,
+      [companyId]
+    );
+    const integration = ir.rows[0];
+    if (!integration?.c7_api_key) return res.json({ clubs: [] });
+    const c7 = makeC7Client(integration);
+    const all = await c7.fetchAll('/club', 'clubs', 50);
+    const clubs = (all || [])
+      .filter((c) => c.adminStatus === 'Available' && c.webStatus !== 'Not Available' && c.slug)
+      .map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        title: c.title,
+        type: c.type,
+        content: c.content || '',
+        image: c.image || null,
+      }));
+    res.json({ clubs });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/website/hours — weekly hours + upcoming specials per venue, for the site.
 websiteRouter.get('/hours', async (_req, res) => {
   try {
