@@ -3048,6 +3048,27 @@ const MIGRATIONS = [
   // OFF: most events arrive via wordpress_import, and default-on plus a bulk sync
   // would queue a notification for every one of them at once.
   `ALTER TABLE events ADD COLUMN IF NOT EXISTS app_notify BOOLEAN`,
+  // ── 118: app perks — the free first tasting, and whatever follows ───────────
+  // Tastings ring up in Square, but Square knows the customer on only 65 of the
+  // last 3,065 orders — so it cannot tell staff who is owed one or record that
+  // one was used. Identity lives here; redemption has to live here too.
+  //
+  // UNIQUE (account_id, perk) is the safeguard that matters: one free tasting per
+  // account, permanently, no matter how many times the screen is opened.
+  `CREATE TABLE IF NOT EXISTS kindred_app_perks (
+     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id        UUID NOT NULL,
+     account_id        UUID NOT NULL,
+     perk              VARCHAR(40) NOT NULL,
+     earned_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     redeemed_at       TIMESTAMPTZ,
+     redeemed_by       UUID,
+     redeemed_location UUID,
+     notes             TEXT,
+     UNIQUE (account_id, perk)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_app_perks_outstanding
+     ON kindred_app_perks(company_id, perk) WHERE redeemed_at IS NULL`,
 ];
 
 export async function runMigrations() {

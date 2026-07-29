@@ -118,6 +118,15 @@ router.post('/signup', async (req, res) => {
       isClubMember = m.rows.length > 0;
     }
 
+    // The reason they signed up. UNIQUE (account_id, perk) means someone who
+    // signs up twice with the same email doesn't earn a second one.
+    await query(
+      `INSERT INTO kindred_app_perks (company_id, account_id, perk)
+       VALUES ($1, $2, 'free_tasting')
+       ON CONFLICT (account_id, perk) DO NOTHING`,
+      [companyId, account.id]
+    ).catch((e) => console.warn('[kindred-signup] perk grant failed:', e.message));
+
     await query(
       `INSERT INTO app_activity (company_id, account_id, event_type, metadata)
        VALUES ($1, $2, 'account_created', $3)`,
