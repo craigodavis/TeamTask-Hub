@@ -1,8 +1,8 @@
 /**
- * Club 77 push notifications — group management, sends, and the member-facing
+ * Kindred app push notifications — group management, sends, and the member-facing
  * preference surface the PWA talks to.
  *
- * Admin (TeamHub staff)                     Member (Club 77 PWA)
+ * Admin (TeamHub staff)                     Member (Kindred PWA)
  *   GET    /groups                            GET  /me/groups
  *   POST   /groups                            PUT  /me/prefs
  *   PATCH  /groups/:id                        POST /me/subscribe
@@ -237,7 +237,7 @@ router.post('/sends', ...admin, async (req, res) => {
           p.set('date', d.toISOString().slice(0, 10));
           p.set('time', d.toISOString().slice(11, 16));
         }
-        linkUrl = `https://club77.kindredvineyards.com/reserve?${p.toString()}`;
+        linkUrl = `https://friend.kindredvineyards.com/reserve?${p.toString()}`;
       }
 
       const dupe = await query(
@@ -334,7 +334,7 @@ router.post('/sends/:id/test', ...admin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ═══ Member (Club 77 PWA) ════════════════════════════════════════════════════
+// ═══ Member (Kindred PWA) ════════════════════════════════════════════════════
 
 /**
  * Validates the ClubSteward member session. Accepts the cross-subdomain cookie

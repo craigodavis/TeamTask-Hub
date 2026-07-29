@@ -2999,7 +2999,7 @@ const MIGRATIONS = [
   // PWA's isC7Route regex already routes it to Commerce7's frontend.
   `ALTER TABLE club_notification_groups ADD COLUMN IF NOT EXISTS default_url TEXT`,
   `UPDATE club_notification_groups
-      SET default_url = 'https://club77.kindredvineyards.com/profile'
+      SET default_url = 'https://friend.kindredvineyards.com/profile'
     WHERE key = 'wine_releases' AND default_url IS NULL`,
 ];
 
