@@ -190,8 +190,8 @@ router.put('/settings', ...admin, async (req, res) => {
 // funnel — someone who scanned the counter board and hasn't signed up — is still
 // visible. With a session, the row is attributed to that account.
 const KNOWN = new Set(['app_open', 'standalone_open', 'notification_click',
-                       'reservation_started', 'reservation_completed',
-                       'club_portal_open', 'prefs_changed']);
+                       'notification_dismissed', 'reservation_started',
+                       'reservation_completed', 'club_portal_open', 'prefs_changed']);
 
 router.post('/activity', async (req, res) => {
   const { eventType, sendId, metadata } = req.body || {};

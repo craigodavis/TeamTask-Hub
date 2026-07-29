@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { query } from './db.js';
 import { authRouter } from './routes/auth.js';
 import { companiesRouter } from './routes/companies.js';
@@ -69,6 +70,10 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+// The Kindred app's member session is an httpOnly cookie issued by ClubSteward on
+// domain .kindredvineyards.com, so it reaches this host too. The app cannot read
+// it (that is the point) — the server has to.
+app.use(cookieParser());
 
 // Serve uploaded files (announcement images, etc.)
 // /api/uploads is used for production (nginx proxies /api/* to Express)
