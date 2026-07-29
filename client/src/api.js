@@ -1273,6 +1273,55 @@ export async function markAbcFiled(month, notes) {
   return data;
 }
 
+// ── Kindred app (friend.kindredvineyards.com) ────────────────────────────────
+
+export async function getKindredMembers({ filter = 'all', search = '', limit = 100, offset = 0 } = {}) {
+  const qs = new URLSearchParams({ filter, search, limit: String(limit), offset: String(offset) });
+  const res = await fetch(`${API}/kindred-app/members?${qs}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load members');
+  return data;
+}
+
+export async function getKindredSettings() {
+  const res = await fetch(`${API}/kindred-app/settings`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load settings');
+  return data;
+}
+
+export async function saveKindredSettings(body) {
+  const res = await fetch(`${API}/kindred-app/settings`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+  return data;
+}
+
+export async function getNotificationGroups() {
+  const res = await fetch(`${API}/club-notifications/groups`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load groups');
+  return data;
+}
+
+export async function saveNotificationGroup(id, body) {
+  const res = await fetch(`${API}/club-notifications/groups/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save group');
+  return data;
+}
+
+export async function getNotificationSends() {
+  const res = await fetch(`${API}/club-notifications/sends`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load sends');
+  return data;
+}
+
 // ── Commerce7 Settings ────────────────────────────────────────────────────────
 
 export async function getC7Settings() {
