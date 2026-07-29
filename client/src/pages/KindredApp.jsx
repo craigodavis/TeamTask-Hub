@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getKindredMembers, getKindredSettings, saveKindredSettings,
   getNotificationGroups, saveNotificationGroup, getNotificationSends,
+  createNotificationGroup, deleteNotificationGroup, cancelNotificationSend, getLocations,
 } from '../api';
+import KindredCompose from './KindredCompose';
 import './KindredApp.css';
 
 const TABS = [
@@ -122,18 +124,51 @@ function Members() {
   );
 }
 
+const BLANK_GROUP = {
+  key: '', name: '', description: '', icon: '', source: 'manual',
+  locationId: '', defaultEnabled: true, memberToggleable: true, defaultUrl: '',
+};
+
 function Notifications() {
   const [groups, setGroups] = useState([]);
   const [warning, setWarning] = useState(null);
   const [sends, setSends] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [composing, setComposing] = useState(false);
+  const [newGroup, setNewGroup] = useState(null);   // null = form closed
 
   const load = useCallback(() => {
     getNotificationGroups().then((r) => { setGroups(r.groups || []); setWarning(r.warning); }).catch((e) => setError(e.message));
     getNotificationSends().then((r) => setSends(r.sends || [])).catch(() => {});
+    getLocations().then((d) => setLocations(d.locations || [])).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // The key is what senders reference, so it's derived once from the name and
+  // then left alone — renaming a lane must not silently orphan its sends.
+  const setName = (name) => setNewGroup((g) => ({
+    ...g, name,
+    key: g.keyTouched ? g.key : name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+  }));
+
+  async function createGroup() {
+    setBusy('new');
+    try {
+      const r = await createNotificationGroup(newGroup);
+      setNewGroup(null); setWarning(r.warning); load();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(null); }
+  }
+
+  async function removeGroup(g) {
+    if (!window.confirm(`Delete "${g.name}"? Members who chose it lose that choice.`)) return;
+    setBusy(g.id);
+    try { await deleteNotificationGroup(g.id); load(); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(null); }
+  }
 
   const toggle = async (g, field) => {
     setBusy(g.id);
@@ -150,6 +185,83 @@ function Notifications() {
       {warning && <div className="ka-warn">{warning}</div>}
       {error && <p className="ka-error">{error}</p>}
 
+      {composing ? (
+        <KindredCompose groups={groups} onClose={() => { setComposing(false); load(); }} onSent={load} />
+      ) : (
+        <div className="ka-bar">
+          <button className="ka-save" onClick={() => setComposing(true)}>Send a notification</button>
+          <button className="ka-tab" onClick={() => setNewGroup({ ...BLANK_GROUP })}>+ New lane</button>
+        </div>
+      )}
+
+      {newGroup && (
+        <div className="kc">
+          <div className="kc-head">
+            <h3>New lane</h3>
+            <button className="ka-tab" onClick={() => setNewGroup(null)}>Cancel</button>
+          </div>
+          <label className="kc-fld">
+            <span>Name</span>
+            <input type="text" value={newGroup.name} onChange={(e) => setName(e.target.value)}
+                   placeholder="Creek events" />
+          </label>
+          <label className="kc-fld">
+            <span>What it is</span>
+            <input type="text" value={newGroup.description}
+                   onChange={(e) => setNewGroup({ ...newGroup, description: e.target.value })}
+                   placeholder="Live music and dinners downtown" />
+          </label>
+          <div className="kc-row">
+            <label className="kc-fld">
+              <span>Icon</span>
+              <input type="text" value={newGroup.icon} maxLength={2}
+                     onChange={(e) => setNewGroup({ ...newGroup, icon: e.target.value })} placeholder="♪" />
+            </label>
+            <label className="kc-fld">
+              <span>Kind</span>
+              <select value={newGroup.source}
+                      onChange={(e) => setNewGroup({ ...newGroup, source: e.target.value })}>
+                <option value="manual">Broadcast — you write each one</option>
+                <option value="event">From events — built from an event</option>
+              </select>
+            </label>
+          </div>
+          {newGroup.source === 'event' && (
+            <label className="kc-fld">
+              <span>Venue <em>(optional)</em></span>
+              <select value={newGroup.locationId}
+                      onChange={(e) => setNewGroup({ ...newGroup, locationId: e.target.value })}>
+                <option value="">Any venue</option>
+                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <small>
+                Scope it and events at that venue route here automatically — so someone can
+                follow the Creek without hearing about the Winery.
+              </small>
+            </label>
+          )}
+          <div className="ka-switches">
+            <label>
+              <input type="checkbox" checked={newGroup.defaultEnabled}
+                     onChange={(e) => setNewGroup({ ...newGroup, defaultEnabled: e.target.checked })} />
+              On by default for new members
+            </label>
+            <label>
+              <input type="checkbox" checked={newGroup.memberToggleable}
+                     onChange={(e) => setNewGroup({ ...newGroup, memberToggleable: e.target.checked })} />
+              Members can turn it off
+            </label>
+          </div>
+          <p className="ka-note">Reference key: <code>{newGroup.key || '—'}</code> — fixed once created.</p>
+          <div className="ka-actions">
+            <button className="ka-save" onClick={createGroup}
+                    disabled={busy === 'new' || !newGroup.name.trim()}>
+              {busy === 'new' ? 'Creating…' : 'Create lane'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="ka-groups">
         {groups.map((g) => {
           const s = SOURCE_LABEL[g.source] || SOURCE_LABEL.manual;
@@ -161,6 +273,7 @@ function Notifications() {
                   <div className="ka-group-name">
                     {g.name}
                     <span className="ka-tag">{s.tag}</span>
+                    {g.location_name && <span className="ka-tag">{g.location_name}</span>}
                     {g.is_system && <span className="ka-tag ka-tag-sys">Built in</span>}
                   </div>
                   <div className="ka-group-desc">{g.description}</div>
@@ -182,6 +295,11 @@ function Notifications() {
                   Members can turn it off
                 </label>
               </div>
+              {!g.is_system && (
+                <button className="ka-del" onClick={() => removeGroup(g)} disabled={busy === g.id}>
+                  Delete lane
+                </button>
+              )}
               {!g.member_toggleable && (
                 <p className="ka-note">
                   Mandatory — enforced on the server, not just hidden in the app. It still can't

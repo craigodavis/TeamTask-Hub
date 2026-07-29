@@ -35,8 +35,13 @@ const admin = [requireAuth, requireManager];
 
 function cid(req) { return req.companyId || req.user?.company_id; }
 
-/** Craig's cap: warn when going over four active lanes. Soft — more are allowed. */
-const RECOMMENDED_MAX_GROUPS = 4;
+/**
+ * Soft guidance, never a limit. Splitting Creek from Winery, or specials from
+ * volunteering, are all legitimate — the person running it knows their audience
+ * better than a constant does. But every extra lane is another choice on the
+ * member's screen, and past some point people stop choosing and switch the lot off.
+ */
+const RECOMMENDED_MAX_GROUPS = 6;
 
 async function activeGroupCount(companyId) {
   const r = await query(
@@ -48,8 +53,9 @@ async function activeGroupCount(companyId) {
 async function groupWarning(companyId) {
   const n = await activeGroupCount(companyId);
   return n > RECOMMENDED_MAX_GROUPS
-    ? `${n} active groups — we recommend no more than ${RECOMMENDED_MAX_GROUPS}. `
-      + `Every extra lane is another choice on the member's screen, and the more lanes there are the more likely they turn all of them off.`
+    ? `${n} active lanes — more than the ${RECOMMENDED_MAX_GROUPS} we'd suggest. `
+      + `That's your call, but every extra lane is another choice on the member's screen, `
+      + `and past a point people stop choosing and turn the lot off.`
     : null;
 }
 
@@ -70,10 +76,11 @@ function lengthWarnings(title, body) {
 router.get('/groups', ...admin, async (req, res) => {
   try {
     const r = await query(
-      `SELECT g.*,
+      `SELECT g.*, l.name AS location_name,
               (SELECT count(*)::int FROM club_notification_prefs p
                 WHERE p.group_id = g.id AND p.enabled = true) AS opted_in
          FROM club_notification_groups g
+         LEFT JOIN locations l ON l.id = g.location_id
         WHERE g.company_id = $1
         ORDER BY g.sort_order, g.name`, [cid(req)]);
     res.json({ groups: r.rows, recommendedMax: RECOMMENDED_MAX_GROUPS, warning: await groupWarning(cid(req)) });
@@ -81,7 +88,8 @@ router.get('/groups', ...admin, async (req, res) => {
 });
 
 router.post('/groups', ...admin, async (req, res) => {
-  const { key, name, description, icon, defaultEnabled, memberToggleable, sortOrder } = req.body;
+  const { key, name, description, icon, defaultEnabled, memberToggleable, sortOrder,
+          source, locationId, defaultUrl } = req.body;
   if (!key?.trim())  return res.status(400).json({ error: 'key is required' });
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
   if (!/^[a-z0-9_]+$/.test(key.trim())) {
@@ -90,10 +98,13 @@ router.post('/groups', ...admin, async (req, res) => {
   try {
     const r = await query(
       `INSERT INTO club_notification_groups
-         (company_id, key, name, description, icon, default_enabled, member_toggleable, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+         (company_id, key, name, description, icon, default_enabled, member_toggleable,
+          sort_order, source, location_id, default_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [cid(req), key.trim(), name.trim(), description || null, icon || null,
-       defaultEnabled === true, memberToggleable !== false, Number(sortOrder) || 0]);
+       defaultEnabled === true, memberToggleable !== false, Number(sortOrder) || 0,
+       ['manual', 'event', 'club_release'].includes(source) ? source : 'manual',
+       locationId || null, defaultUrl || null]);
     res.status(201).json({ group: r.rows[0], warning: await groupWarning(cid(req)) });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: `A group with key "${key}" already exists.` });
@@ -102,7 +113,8 @@ router.post('/groups', ...admin, async (req, res) => {
 });
 
 router.patch('/groups/:id', ...admin, async (req, res) => {
-  const { name, description, icon, defaultEnabled, memberToggleable, sortOrder, active } = req.body;
+  const { name, description, icon, defaultEnabled, memberToggleable, sortOrder, active,
+          source, locationId, defaultUrl } = req.body;
   const fields = [], vals = [];
   let i = 1;
   const set = (col, val) => { fields.push(`${col} = $${i++}`); vals.push(val); };
@@ -114,6 +126,11 @@ router.patch('/groups/:id', ...admin, async (req, res) => {
   if (memberToggleable !== undefined) set('member_toggleable', !!memberToggleable);
   if (sortOrder        !== undefined) set('sort_order', Number(sortOrder) || 0);
   if (active           !== undefined) set('active', !!active);
+  if (locationId       !== undefined) set('location_id', locationId || null);
+  if (defaultUrl       !== undefined) set('default_url', defaultUrl || null);
+  // A system group's source is what the schedulers key off — renaming it would
+  // orphan the events scheduler or the Commerce7 release webhook.
+  if (source !== undefined && ['manual', 'event', 'club_release'].includes(source)) set('source', source);
   if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
   fields.push('updated_at = NOW()');
 
@@ -121,11 +138,16 @@ router.patch('/groups/:id', ...admin, async (req, res) => {
     // A system group may be reconfigured but never deactivated — the events
     // scheduler and the Commerce7 release webhook both post into one.
     const current = await query(
-      `SELECT is_system FROM club_notification_groups WHERE id = $1 AND company_id = $2`,
+      `SELECT is_system, source FROM club_notification_groups WHERE id = $1 AND company_id = $2`,
       [req.params.id, cid(req)]);
     if (!current.rows.length) return res.status(404).json({ error: 'Not found' });
     if (current.rows[0].is_system && active === false) {
       return res.status(409).json({ error: 'This group is part of the system and cannot be deactivated.' });
+    }
+    if (current.rows[0].is_system && source !== undefined && source !== current.rows[0].source) {
+      return res.status(409).json({
+        error: 'This group\'s type is fixed — the events scheduler and the Commerce7 release webhook post into it by type.',
+      });
     }
 
     const r = await query(
@@ -191,10 +213,24 @@ router.post('/sends', ...admin, async (req, res) => {
   if (body.length  > 200) return res.status(400).json({ error: 'body must be 200 characters or fewer' });
 
   try {
-    const g = await query(
-      `SELECT id, active FROM club_notification_groups
-        WHERE company_id = $1 AND (id = $2::uuid OR key = $3)`,
-      [cid(req), /^[0-9a-f-]{36}$/i.test(groupId || '') ? groupId : null, groupKey || null]);
+    // With no group named, an event routes to the event-source lane for its
+    // venue — Creek events to the Creek lane, Winery to the Winery lane — and
+    // falls back to the unscoped event lane. Ordering puts the venue match first.
+    let g;
+    if (!groupId && !groupKey && eventId) {
+      g = await query(
+        `SELECT g.id, g.active FROM club_notification_groups g
+           JOIN events e ON e.id = $2
+          WHERE g.company_id = $1 AND g.source = 'event' AND g.active = true
+            AND (g.location_id IS NULL OR g.location_id = e.location_id)
+          ORDER BY (g.location_id = e.location_id) DESC NULLS LAST
+          LIMIT 1`, [cid(req), eventId]);
+    } else {
+      g = await query(
+        `SELECT id, active FROM club_notification_groups
+          WHERE company_id = $1 AND (id = $2::uuid OR key = $3)`,
+        [cid(req), /^[0-9a-f-]{36}$/i.test(groupId || '') ? groupId : null, groupKey || null]);
+    }
     if (!g.rows.length)   return res.status(400).json({ error: 'Unknown notification group' });
     if (!g.rows[0].active) return res.status(400).json({ error: 'That group is inactive — nothing would be delivered' });
     const resolvedGroupId = g.rows[0].id;
