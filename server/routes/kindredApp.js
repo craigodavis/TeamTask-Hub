@@ -26,12 +26,9 @@ function cid(req) { return req.companyId || req.user?.company_id; }
  */
 const BASE_CTE = `
   WITH acct AS (
-    -- No company filter: club_steward uses a DIFFERENT company id for Kindred
-    -- than teamtask_hub does (a444cbca... vs 8d2df498...). Filtering on TeamHub's
-    -- id here returns zero rows and the report silently shows no app users at all.
-    -- The Commerce7 customer id is the shared key, and the join below scopes it.
     SELECT ma.id, ma.commerce7_customer_id, ma.email, ma.created_at, ma.last_seen_at
       FROM club_steward.member_accounts ma
+     WHERE ma.company_id = $1
   ),
   membership AS (
     -- customer_id is varchar here but uuid on commerce7.customers; the join casts.
