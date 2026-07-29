@@ -3048,6 +3048,38 @@ const MIGRATIONS = [
   // OFF: most events arrive via wordpress_import, and default-on plus a bulk sync
   // would queue a notification for every one of them at once.
   `ALTER TABLE events ADD COLUMN IF NOT EXISTS app_notify BOOLEAN`,
+  // ── 118: app perks — the free first tasting, and whatever follows ───────────
+  // Tastings ring up in Square, but Square knew the customer on only 65 of the
+  // last 3,065 orders — it cannot tell staff who is owed one or record that one
+  // was used. Identity lives here, so redemption has to as well.
+  //
+  // UNIQUE (account_id, perk): one free tasting per account, permanently, however
+  // many times the screen is opened.
+  //
+  // NOTE: these two entries ran as versions 487/488 and were then lost from this
+  // file (a scripted edit that silently no-op'd), leaving the array SHORTER than
+  // the highest applied version — which meant every later migration was assigned
+  // an already-applied number and never ran. Restored in their original positions
+  // so the numbering realigns. Do not reorder.
+  `CREATE TABLE IF NOT EXISTS kindred_app_perks (
+     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id        UUID NOT NULL,
+     account_id        UUID NOT NULL,
+     perk              VARCHAR(40) NOT NULL,
+     earned_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     redeemed_at       TIMESTAMPTZ,
+     redeemed_by       UUID,
+     redeemed_location UUID,
+     notes             TEXT,
+     UNIQUE (account_id, perk)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_app_perks_outstanding
+     ON kindred_app_perks(company_id, perk) WHERE redeemed_at IS NULL`,
+  // 119: a lane can be scoped to one venue. Creek events and Winery events are
+  // different audiences — someone downtown may not want the drive to Sunnyslope.
+  // An event notification routes to the event-source lane matching its location,
+  // falling back to the unscoped one.
+  `ALTER TABLE club_notification_groups ADD COLUMN IF NOT EXISTS location_id UUID`,
 ];
 
 export async function runMigrations() {
