@@ -1315,6 +1315,49 @@ export async function saveNotificationGroup(id, body) {
   return data;
 }
 
+export async function createNotificationGroup(body) {
+  const res = await fetch(`${API}/club-notifications/groups`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create group');
+  return data;
+}
+
+export async function deleteNotificationGroup(id) {
+  const res = await fetch(`${API}/club-notifications/groups/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to delete group');
+  return data;
+}
+
+export async function getGroupAudience(id) {
+  const res = await fetch(`${API}/club-notifications/groups/${id}/audience`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load audience');
+  return data;
+}
+
+export async function sendNotification(body) {
+  const res = await fetch(`${API}/club-notifications/sends`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to send');
+  return data;
+}
+
+export async function cancelNotificationSend(id) {
+  const res = await fetch(`${API}/club-notifications/sends/${id}/cancel`, {
+    method: 'POST', headers: headers(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to cancel');
+  return data;
+}
+
 export async function getNotificationSends() {
   const res = await fetch(`${API}/club-notifications/sends`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
