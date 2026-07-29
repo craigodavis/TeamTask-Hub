@@ -105,7 +105,7 @@ Text Craig with:
 1. The period
 2. The headline: total gallons sold, production, and the unexplained residual
 3. Whether anything looked off on the portal
-4. **The review link:** `https://teamhub.kindredvineyards.com/abc`
+4. **The review link:** `https://team.kindredvineyards.com/abc`
 
 Keep it short. The link shows him counted inventory vs. what the books expect, the
 residual, the full line sheet, and where every number came from. He reviews there,
@@ -116,7 +116,7 @@ Example:
 > July ABC wine report is saved on the portal, ready for your review.
 > Sold 123.51 gal, produced 266.29 gal (Sangiovese WS KV), unexplained loss 3.2 gal —
 > within tolerance. Nothing looked off. Review and submit:
-> https://teamhub.kindredvineyards.com/abc
+> https://team.kindredvineyards.com/abc
 
 ---
 
