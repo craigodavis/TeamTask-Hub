@@ -183,6 +183,16 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           )}
           {isManager && (
             <NavLink
+              to="/kindred-app"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="🍷"
+              title="Kindred App"
+            >
+              <span>Kindred App</span>
+            </NavLink>
+          )}
+          {isManager && (
+            <NavLink
               to="/skynet"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
               data-icon="🤖"

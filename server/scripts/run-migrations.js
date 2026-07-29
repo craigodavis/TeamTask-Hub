@@ -2738,6 +2738,316 @@ const MIGRATIONS = [
   // report keeps behaving exactly as before.
   `ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS delivery_method VARCHAR(10) NOT NULL DEFAULT 'sms'`,
   `ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS email_sent_count INTEGER NOT NULL DEFAULT 0`,
+  // 108: Idaho ABC monthly wine report. Each filing is stored so that the next
+  // month's Beginning Inventory chains from what was actually FILED rather than
+  // being recomputed — the state's copy is the authority, and a recomputed
+  // beginning would silently drift away from it.
+  // free_tastings and residual are tracked separately even though ABC combines
+  // them on one line: the residual is an error check, not an input. See
+  // docs/ABC_FILING.md §4.
+  `CREATE TABLE IF NOT EXISTS abc_filings (
+     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id          UUID NOT NULL,
+     period_month        DATE NOT NULL,
+     beginning_inventory NUMERIC(12,2) NOT NULL DEFAULT 0,
+     purchases           NUMERIC(12,2) NOT NULL DEFAULT 0,
+     production          NUMERIC(12,2) NOT NULL DEFAULT 0,
+     spoilage_samples    NUMERIC(12,2) NOT NULL DEFAULT 0,
+     free_tastings       NUMERIC(12,2) NOT NULL DEFAULT 0,
+     residual            NUMERIC(12,2) NOT NULL DEFAULT 0,
+     sales_wholesale     NUMERIC(12,2) NOT NULL DEFAULT 0,
+     sales_retail        NUMERIC(12,2) NOT NULL DEFAULT 0,
+     sales_other         NUMERIC(12,2) NOT NULL DEFAULT 0,
+     sales_consumers     NUMERIC(12,2) NOT NULL DEFAULT 0,
+     returned_product    NUMERIC(12,2) NOT NULL DEFAULT 0,
+     ending_inventory    NUMERIC(12,2) NOT NULL DEFAULT 0,
+     counted_bottles     INTEGER,
+     counted_at          TIMESTAMPTZ,
+     status              VARCHAR(20) NOT NULL DEFAULT 'draft',
+     notes               TEXT,
+     prepared_at         TIMESTAMPTZ,
+     filed_at            TIMESTAMPTZ,
+     filed_by            UUID,
+     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (company_id, period_month)
+   )`,
+  // Seed the reconciled Apr–Jun 2026 filings. April's production of 940.55 is a
+  // reconciling entry bridging the estimated March-end inventory (1,778.00) to the
+  // first real physical count (1,984.86 gal on Jul 3-4) — Craig's decision, recorded
+  // in docs/ABC_FILING.md §5. It is NOT measured production, and it does not recur.
+  `INSERT INTO abc_filings
+     (company_id, period_month, beginning_inventory, production, spoilage_samples,
+      free_tastings, sales_consumers, returned_product, ending_inventory, status, notes, filed_at)
+   VALUES
+     ('8d2df498-b5c0-4f73-94cd-323956036113','2026-04-01',1778.00,940.55,10.88,10.88,103.83, 6.34,2610.19,'filed',
+      'Production is a reconciling entry bridging the estimated March-end inventory to the Jul 3-4 physical count. Not measured production.', NOW()),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','2026-05-01',2610.19,  0.00,18.00,18.00,216.75, 9.31,2384.75,'filed',
+      'Real bottling run this month (25 Viognier WS, 144 cs, 342.37 gal, bottled 2026-05-28) is absorbed into the April reconciling entry rather than reported here.', NOW()),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','2026-06-01',2384.75,  0.00,14.44,14.44,401.54,35.86,2004.63,'filed', NULL, NOW())
+   ON CONFLICT (company_id, period_month) DO NOTHING`,
+  `CREATE INDEX IF NOT EXISTS idx_abc_filings_company_month ON abc_filings(company_id, period_month DESC)`,
+  // 109: feedback_always is a DAILY subscription, not "exempt from clocking out".
+  // Migration 094 set it for both Craig and Elisha. Elisha works a normal schedule,
+  // so she was texted the post-shift survey on her days off too — 14 spurious texts
+  // in 30 days. Craig never clocks in and wants the daily prompt, so he keeps it;
+  // Elisha falls back to the normal clock-out branch and is prompted only on days
+  // she actually worked.
+  `UPDATE users SET feedback_always = false
+     WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113'
+       AND display_name = 'Elisha Brooks'`,
+  // ── 110: Club 77 PWA push notifications ────────────────────────────────────
+  // Groups are DATA, not an enum, so a new lane is a row rather than a deploy.
+  // Two per-group switches Craig asked for:
+  //   default_enabled   — is a brand-new member (or an existing one when this
+  //                       group is added later) opted in to start?
+  //   member_toggleable — false means the member cannot switch it off. That is
+  //                       how Wine Releases stays mandatory. Enforced server-side,
+  //                       not just greyed out in the PWA.
+  // is_system marks groups the system itself depends on (Events auto-files every
+  // event notification here; Wine Releases is driven by the Commerce7 Club Package
+  // webhook). Those cannot be deleted.
+  `CREATE TABLE IF NOT EXISTS club_notification_groups (
+     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id        UUID NOT NULL,
+     key               VARCHAR(40) NOT NULL,
+     name              VARCHAR(60) NOT NULL,
+     description       VARCHAR(120),
+     icon              VARCHAR(8),
+     default_enabled   BOOLEAN NOT NULL DEFAULT false,
+     member_toggleable BOOLEAN NOT NULL DEFAULT true,
+     is_system         BOOLEAN NOT NULL DEFAULT false,
+     sort_order        INTEGER NOT NULL DEFAULT 0,
+     active            BOOLEAN NOT NULL DEFAULT true,
+     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (company_id, key)
+   )`,
+  // No FK to club_steward.member_accounts on purpose: ClubSteward and TeamHub run
+  // separate migration runners against the same database, so a cross-schema FK
+  // would make ordering matter. account_id is the member_accounts id.
+  `CREATE TABLE IF NOT EXISTS club_notification_prefs (
+     account_id  UUID NOT NULL,
+     group_id    UUID NOT NULL REFERENCES club_notification_groups(id) ON DELETE CASCADE,
+     enabled     BOOLEAN NOT NULL,
+     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     PRIMARY KEY (account_id, group_id)
+   )`,
+  // One row per browser/device. endpoint is the push service URL and is the
+  // natural key — re-subscribing the same device returns the same endpoint.
+  `CREATE TABLE IF NOT EXISTS club_push_subscriptions (
+     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id      UUID NOT NULL,
+     account_id      UUID NOT NULL,
+     endpoint        TEXT NOT NULL UNIQUE,
+     p256dh          TEXT NOT NULL,
+     auth            TEXT NOT NULL,
+     user_agent      TEXT,
+     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     last_success_at TIMESTAMPTZ,
+     failure_count   INTEGER NOT NULL DEFAULT 0,
+     disabled_at     TIMESTAMPTZ
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_club_push_subs_account ON club_push_subscriptions(account_id) WHERE disabled_at IS NULL`,
+  // A send row IS the scheduled notification — for events it carries event_id, so
+  // the Events screen creates/edits/cancels one of these rather than storing
+  // notification fields on the event itself.
+  `CREATE TABLE IF NOT EXISTS club_notification_sends (
+     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id    UUID NOT NULL,
+     group_id      UUID NOT NULL REFERENCES club_notification_groups(id),
+     event_id      UUID,
+     title         VARCHAR(80)  NOT NULL,
+     body          VARCHAR(200) NOT NULL,
+     url           TEXT,
+     scheduled_for TIMESTAMPTZ,
+     status        VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+     sent_at       TIMESTAMPTZ,
+     recipients    INTEGER NOT NULL DEFAULT 0,
+     delivered     INTEGER NOT NULL DEFAULT 0,
+     failed        INTEGER NOT NULL DEFAULT 0,
+     pruned        INTEGER NOT NULL DEFAULT 0,
+     error         TEXT,
+     created_by    UUID,
+     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_club_sends_due
+     ON club_notification_sends(scheduled_for) WHERE status = 'scheduled'`,
+  `CREATE INDEX IF NOT EXISTS idx_club_sends_event ON club_notification_sends(event_id)`,
+  // VAPID keypair for Web Push. Generated once per company; the public key is
+  // handed to the PWA at subscribe time.
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS vapid_public_key  TEXT`,
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS vapid_private_key TEXT`,
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS vapid_subject     TEXT`,
+  // 111: seed the four lanes from the Club 77 mockup. Wine Releases is mandatory
+  // (member_toggleable=false) and Events is required by the events scheduler —
+  // both are is_system and cannot be deleted.
+  `INSERT INTO club_notification_groups
+     (company_id, key, name, description, icon, default_enabled, member_toggleable, is_system, sort_order)
+   VALUES
+     ('8d2df498-b5c0-4f73-94cd-323956036113','wine_releases','Wine releases',
+      'New vintages & club pickups','◆', true,  false, true,  10),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','events_music','Events & music',
+      'Live at the Creek & the winery','♪', true,  true,  true,  20),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','member_specials','Member specials',
+      'Quiet deals, members only','✶', true,  true,  false, 30),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','volunteer_harvest','Volunteer & harvest',
+      'Lend a hand at crush','♥', false, true,  false, 40)
+   ON CONFLICT (company_id, key) DO NOTHING`,
+  // 112: recipes — menu-facing title and description, distinct from the internal
+  // name/description the kitchen uses. Nullable in the schema because the 20
+  // existing recipes predate them; required on CREATE, enforced in the route.
+  `ALTER TABLE recipes ADD COLUMN IF NOT EXISTS menu_title       VARCHAR(120)`,
+  `ALTER TABLE recipes ADD COLUMN IF NOT EXISTS menu_description TEXT`,
+  // Square SKU ties the recipe to what actually rings up, which is what makes
+  // plate cost comparable to sales. Also required on create.
+  `ALTER TABLE recipes ADD COLUMN IF NOT EXISTS square_sku VARCHAR(60)`,
+  // One recipe per SKU — two recipes claiming the same SKU would double-count
+  // cost against the same sales line. Partial so the existing rows stay valid.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_recipes_square_sku
+     ON recipes(company_id, square_sku) WHERE square_sku IS NOT NULL`,
+  // 113: 1..n prep photos per recipe. recipes.photo_path stays as the single hero
+  // shot; these are the step-by-step images, ordered and individually captioned.
+  `CREATE TABLE IF NOT EXISTS recipe_images (
+     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     recipe_id  UUID NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+     company_id UUID NOT NULL,
+     url        TEXT NOT NULL,
+     caption    VARCHAR(200),
+     position   INTEGER NOT NULL DEFAULT 0,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by UUID
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_recipe_images_recipe ON recipe_images(recipe_id, position)`,
+  // ── 114: Commerce7 club packages — the wine-release notification trigger ────
+  // A "club package" is one club tier's release. C7 sends members two automatic
+  // emails per package and exposes both dates on the object:
+  //   email.twoWeekSendDate  — the heads-up
+  //   email.twoDaySendDate   — last call before the card is charged
+  // Verified live 2026-07-28: 115/131 packages carry a two-week date, 126/131 a
+  // two-day date, sent at 14:00Z (8am Mountain).
+  //
+  // IMPORTANT: one release is ~9 packages, one per club tier, all sharing the
+  // same dates. Notifying per package would fire nine pushes the same morning —
+  // sends must be grouped by (process_date, send date) and targeted to the
+  // members of that club_id, never broadcast.
+  `CREATE TABLE IF NOT EXISTS commerce7.club_package (
+     id                              UUID PRIMARY KEY,
+     company_id                      UUID NOT NULL,
+     club_id                         UUID,
+     title                           TEXT,
+     status                          TEXT,          -- Active | Archive
+     process_date                    TIMESTAMPTZ,
+     auto_process_status             TEXT,
+     requested_ship_date             TIMESTAMPTZ,
+     two_week_send_date              TIMESTAMPTZ,
+     two_week_send_status            TEXT,          -- Sent | Pending
+     two_day_send_date               TIMESTAMPTZ,
+     two_day_send_status             TEXT,
+     is_send_credit_card_decline     BOOLEAN,
+     pre_shipment_email_instructions TEXT,
+     item_choice                     TEXT,
+     min_quantity_in_shipment        INTEGER,
+     min_order_value_of_shipment     INTEGER,
+     club_member_shipment_count      INTEGER,
+     allow_customers_to_ship_early   BOOLEAN,
+     stats                           JSONB,
+     c7_created_at                   TIMESTAMPTZ,
+     c7_updated_at                   TIMESTAMPTZ,
+     synced_at                       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_two_week
+     ON commerce7.club_package(company_id, two_week_send_date) WHERE status = 'Active'`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_two_day
+     ON commerce7.club_package(company_id, two_day_send_date) WHERE status = 'Active'`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_club ON commerce7.club_package(club_id, process_date DESC)`,
+  // The wines in each release — lets a notification name what's coming.
+  `CREATE TABLE IF NOT EXISTS commerce7.club_package_item (
+     id                   UUID PRIMARY KEY,
+     package_id           UUID NOT NULL REFERENCES commerce7.club_package(id) ON DELETE CASCADE,
+     company_id           UUID NOT NULL,
+     product_id           UUID,
+     product_title        TEXT,
+     product_variant_id   UUID,
+     product_variant_title TEXT,
+     sku                  TEXT,
+     product_type         TEXT,
+     item_type            TEXT,
+     default_quantity     INTEGER,
+     price                INTEGER,
+     sort_order           INTEGER,
+     synced_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_c7_club_package_item_pkg ON commerce7.club_package_item(package_id, sort_order)`,
+  // Register it so it appears in Settings → Commerce7 alongside the others.
+  `INSERT INTO teamtask_hub.commerce7_sync_objects (company_id, object_type, label)
+   SELECT company_id, 'club_packages', 'Club Packages'
+     FROM teamtask_hub.commerce7_sync_objects WHERE object_type = 'clubs'
+   ON CONFLICT DO NOTHING`,
+  // 115: notification groups behave differently enough that one generic compose
+  // form serves none of them well. `source` tells the admin UI which composer to
+  // render: manual broadcast, event-driven, or automatic from a C7 club release.
+  `ALTER TABLE club_notification_groups
+     ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual'`,
+  `UPDATE club_notification_groups SET source = 'event'        WHERE key = 'events_music'`,
+  `UPDATE club_notification_groups SET source = 'club_release' WHERE key = 'wine_releases'`,
+  // 116: where a notification lands when tapped, when the send doesn't carry its
+  // own URL. Wine releases go to the Commerce7 customer portal, where the member
+  // can add/remove wines, change quantities, skip, or ship early before the card
+  // is charged. /profile is what the marketing site links as "Club Login", and the
+  // PWA's isC7Route regex already routes it to Commerce7's frontend.
+  `ALTER TABLE club_notification_groups ADD COLUMN IF NOT EXISTS default_url TEXT`,
+  `UPDATE club_notification_groups
+      SET default_url = 'https://friend.kindredvineyards.com/profile'
+    WHERE key = 'wine_releases' AND default_url IS NULL`,
+  // ── 117: Kindred app settings ───────────────────────────────────────────────
+  // Send window: Commerce7 mails at 14:00Z = 8am Mountain, before the 9am floor,
+  // so push always clamps forward to 9am. That is deliberate — the email lands at
+  // breakfast, the push an hour later as a second touch. Window is WINERY-local.
+  `CREATE TABLE IF NOT EXISTS kindred_app_settings (
+     company_id              UUID PRIMARY KEY,
+     send_window_start_hour  INTEGER NOT NULL DEFAULT 9,
+     send_window_end_hour    INTEGER NOT NULL DEFAULT 18,
+     send_timezone           TEXT    NOT NULL DEFAULT 'America/Denver',
+     frequency_cap_count     INTEGER NOT NULL DEFAULT 2,
+     frequency_cap_days      INTEGER NOT NULL DEFAULT 7,
+     event_lead_days         INTEGER NOT NULL DEFAULT 7,
+     event_notify_default    BOOLEAN NOT NULL DEFAULT true,
+     imported_notify_default BOOLEAN NOT NULL DEFAULT false,
+     release_2wk_title       VARCHAR(80),
+     release_2wk_body        VARCHAR(200),
+     release_2day_title      VARCHAR(80),
+     release_2day_body       VARCHAR(200),
+     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `INSERT INTO kindred_app_settings
+     (company_id, release_2wk_title, release_2wk_body, release_2day_title, release_2day_body)
+   VALUES ('8d2df498-b5c0-4f73-94cd-323956036113',
+     'Your {{club}} release is coming',
+     'Ships {{processDate}}. Change your wines or skip this one until {{cutoff}}.',
+     'Last call on your {{club}} release',
+     'Your card is charged {{processDate}}. Tap to change your wines or skip.')
+   ON CONFLICT (company_id) DO NOTHING`,
+  // Append-only. "Last interaction" is max(occurred_at); every filter is a query.
+  // Deliberately NOT last_opened_at / installed_at columns that five code paths
+  // would have to remember to stamp. account_id is nullable — a guest opening the
+  // app from the counter board before signing up is the top of the funnel.
+  `CREATE TABLE IF NOT EXISTS app_activity (
+     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id  UUID NOT NULL,
+     account_id  UUID,
+     event_type  VARCHAR(40) NOT NULL,
+     occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     send_id     UUID,
+     metadata    JSONB
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_app_activity_account ON app_activity(account_id, occurred_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_app_activity_type ON app_activity(company_id, event_type, occurred_at DESC)`,
+  // NULL = fall back to the per-source default in settings. Imported events default
+  // OFF: most events arrive via wordpress_import, and default-on plus a bulk sync
+  // would queue a notification for every one of them at once.
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS app_notify BOOLEAN`,
 ];
 
 export async function runMigrations() {

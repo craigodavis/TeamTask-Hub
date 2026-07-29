@@ -6,6 +6,7 @@ import fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db.js';
 import { requireManager, requireInventoryAccess } from '../middleware/auth.js';
+import { generateMenuDescription } from '../aiClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PHOTO_DIR = path.join(__dirname, '..', 'uploads', 'recipes');
@@ -1159,7 +1160,9 @@ router.get('/', requireManager, async (req, res) => {
 
   const r = await query(
     `SELECT r.id, r.name, r.category, r.description, r.photo_path,
+            r.menu_title, r.menu_description, r.square_sku,
             r.prep_time_minutes, r.status, r.menu_price, r.created_at, r.updated_at,
+            (SELECT COUNT(*)::int FROM recipe_images ri2 WHERE ri2.recipe_id = r.id) AS image_count,
             (SELECT COUNT(*)::int FROM recipe_ingredients ri WHERE ri.recipe_id = r.id) AS ingredient_count,
             COALESCE(
               (SELECT json_agg(l.name ORDER BY l.name)
@@ -1182,17 +1185,59 @@ router.get('/', requireManager, async (req, res) => {
 
 // POST /api/recipes
 router.post('/', requireManager, async (req, res) => {
-  const { name, category, description, instructions, prep_time_minutes, status, menu_price, location_ids } = req.body;
+  const { name, category, description, instructions, prep_time_minutes, status, menu_price,
+          location_ids, menu_title, menu_description, square_sku } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+  // Required on CREATE only — the recipes that predate these fields stay valid.
+  if (!menu_title?.trim())       return res.status(400).json({ error: 'menu_title is required' });
+  if (!menu_description?.trim()) return res.status(400).json({ error: 'menu_description is required' });
+  if (!square_sku?.trim())       return res.status(400).json({ error: 'square_sku is required' });
+
   const r = await query(
-    `INSERT INTO recipes (company_id, name, category, description, instructions, prep_time_minutes, status, menu_price)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    `INSERT INTO recipes (company_id, name, category, description, instructions, prep_time_minutes,
+                          status, menu_price, menu_title, menu_description, square_sku)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [cId(req), name.trim(), category || null, description || null, instructions || null,
-     prep_time_minutes ?? null, status || 'active', menu_price ?? null]
-  );
+     prep_time_minutes ?? null, status || 'active', menu_price ?? null,
+     menu_title.trim(), menu_description.trim(), square_sku.trim()]
+  ).catch((err) => {
+    if (err.code === '23505') throw Object.assign(new Error(`Square SKU "${square_sku.trim()}" is already on another recipe.`), { status: 409 });
+    throw err;
+  });
   const recipe = r.rows[0];
   if (location_ids?.length) await setRecipeLocations(recipe.id, location_ids);
   res.status(201).json({ recipe });
+});
+
+// GET /api/recipes/square-skus
+// Every sellable SKU in the Square catalog, so the recipe form offers a pick list
+// instead of a free-text box someone can typo. Declared before GET /:id on
+// purpose — otherwise "/square-skus" is matched as an :id.
+router.get('/square-skus', requireManager, async (req, res) => {
+  const taken = await query(
+    `SELECT square_sku, name FROM recipes WHERE company_id = $1 AND square_sku IS NOT NULL`,
+    [cId(req)]
+  );
+  const claimedBy = Object.fromEntries(taken.rows.map((r) => [r.square_sku, r.name]));
+
+  const r = await query(
+    `SELECT civ.sku, civ.name AS variation_name, ci.name AS item_name,
+            civ.price_money_amount
+       FROM team_square.catalog_item_variation civ
+       JOIN team_square.catalog_item ci ON ci.id = civ.item_id
+      WHERE civ.sku IS NOT NULL AND civ.sku <> ''
+        AND COALESCE(civ.is_deleted, false) = false
+      ORDER BY ci.name, civ.ordinal`
+  );
+  res.json({
+    skus: r.rows.map((x) => ({
+      sku: x.sku,
+      label: x.variation_name && x.variation_name !== x.item_name
+        ? `${x.item_name} — ${x.variation_name}` : x.item_name,
+      price: x.price_money_amount == null ? null : Number(x.price_money_amount) / 100,
+      claimedByRecipe: claimedBy[x.sku] || null,
+    })),
+  });
 });
 
 // GET /api/recipes/:id
@@ -1203,18 +1248,28 @@ router.get('/:id', requireManager, async (req, res) => {
   );
   if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
   const recipe = r.rows[0];
-  const [ingredients, locationIds, components] = await Promise.all([
+  const [ingredients, locationIds, components, images] = await Promise.all([
     getRecipeIngredients(recipe.id),
     getRecipeLocations(recipe.id),
     getRecipeComponents(recipe.id),
+    query(`SELECT id, url, caption, position FROM recipe_images
+            WHERE recipe_id = $1 ORDER BY position, created_at`, [recipe.id]).then((x) => x.rows),
   ]);
   const totalCogs = ingredients.reduce((sum, i) => sum + (parseFloat(i.cogs_contribution) || 0), 0);
-  res.json({ recipe: { ...recipe, ingredients, components, location_ids: locationIds, total_cogs: totalCogs || null } });
+  res.json({ recipe: { ...recipe, ingredients, components, images, location_ids: locationIds, total_cogs: totalCogs || null } });
 });
 
 // PATCH /api/recipes/:id
 router.patch('/:id', requireManager, async (req, res) => {
-  const { name, category, description, instructions, prep_time_minutes, status, menu_price, location_ids } = req.body;
+  const { name, category, description, instructions, prep_time_minutes, status, menu_price,
+          location_ids, menu_title, menu_description, square_sku } = req.body;
+  // Blanking a menu field on an existing recipe is almost always a UI slip, not
+  // an intent — reject it rather than quietly wiping menu copy.
+  for (const [field, val] of [['menu_title', menu_title], ['menu_description', menu_description], ['square_sku', square_sku]]) {
+    if (val !== undefined && !String(val ?? '').trim()) {
+      return res.status(400).json({ error: `${field} cannot be cleared` });
+    }
+  }
   const setClauses = [];
   const params = [];
   let p = 1;
@@ -1225,6 +1280,9 @@ router.patch('/:id', requireManager, async (req, res) => {
   if (prep_time_minutes !== undefined) { setClauses.push(`prep_time_minutes = $${p++}`); params.push(prep_time_minutes ?? null); }
   if (status !== undefined)            { setClauses.push(`status = $${p++}`);            params.push(status); }
   if (menu_price !== undefined)        { setClauses.push(`menu_price = $${p++}`);        params.push(menu_price ?? null); }
+  if (menu_title !== undefined)        { setClauses.push(`menu_title = $${p++}`);        params.push(menu_title.trim()); }
+  if (menu_description !== undefined)  { setClauses.push(`menu_description = $${p++}`);  params.push(menu_description.trim()); }
+  if (square_sku !== undefined)        { setClauses.push(`square_sku = $${p++}`);        params.push(square_sku.trim()); }
   if (!setClauses.length && location_ids === undefined) return res.status(400).json({ error: 'Nothing to update' });
 
   if (setClauses.length) {
@@ -1334,6 +1392,106 @@ router.put('/:id/locations', requireManager, async (req, res) => {
   const check = await query(`SELECT id FROM recipes WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Not found' });
   await setRecipeLocations(req.params.id, location_ids || []);
+  res.json({ ok: true });
+});
+
+// POST /api/recipes/:id/menu-description
+// Generates menu copy from the recipe's ingredients. Returns the text for review
+// rather than saving it — the person writing the menu decides what ships.
+router.post('/:id/menu-description', requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT name, menu_title, category FROM recipes WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cId(req)]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+
+    // Components count as ingredients here — a dish built on a house sauce should
+    // read as having that sauce in it.
+    const ing = await query(
+      `SELECT i.name FROM recipe_ingredients ri
+         JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = $1
+        ORDER BY ri.position`, [req.params.id]);
+    const comp = await query(
+      `SELECT c.name FROM recipe_components rc
+         JOIN recipes c ON c.id = rc.child_recipe_id
+        WHERE rc.parent_recipe_id = $1
+        ORDER BY rc.position`, [req.params.id]);
+    const names = [...ing.rows.map((x) => x.name), ...comp.rows.map((x) => x.name)];
+
+    const key = (await query(
+      `SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [cId(req)]
+    )).rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY;
+
+    const text = await generateMenuDescription(r.rows[0], names, key);
+    res.json({ menu_description: text, ingredientsUsed: names });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/recipes/:id/images — attach one or more prep photos
+router.post('/:id/images', requireManager, photoUpload.array('images', 10), async (req, res) => {
+  if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
+  const check = await query(`SELECT id FROM recipes WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
+  if (!check.rows.length) return res.status(404).json({ error: 'Not found' });
+
+  const start = (await query(
+    `SELECT COALESCE(MAX(position), -1) + 1 AS next FROM recipe_images WHERE recipe_id = $1`,
+    [req.params.id]
+  )).rows[0].next;
+
+  // Captions arrive positionally alongside the files; a bare upload has none.
+  const captions = Array.isArray(req.body?.captions) ? req.body.captions
+                 : req.body?.captions ? [req.body.captions] : [];
+
+  const added = [];
+  for (let i = 0; i < req.files.length; i++) {
+    const r = await query(
+      `INSERT INTO recipe_images (recipe_id, company_id, url, caption, position, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, url, caption, position`,
+      [req.params.id, cId(req), `/api/uploads/recipes/${req.files[i].filename}`,
+       captions[i]?.trim() || null, start + i, req.userId || null]
+    );
+    added.push(r.rows[0]);
+  }
+  res.status(201).json({ images: added });
+});
+
+// PATCH /api/recipes/:id/images/:imageId — caption only
+router.patch('/:id/images/:imageId', requireManager, async (req, res) => {
+  const r = await query(
+    `UPDATE recipe_images SET caption = $1
+      WHERE id = $2 AND recipe_id = $3 AND company_id = $4
+      RETURNING id, url, caption, position`,
+    [req.body?.caption?.trim() || null, req.params.imageId, req.params.id, cId(req)]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+  res.json({ image: r.rows[0] });
+});
+
+// PUT /api/recipes/:id/images/order — reorder the prep steps
+router.put('/:id/images/order', requireManager, async (req, res) => {
+  const { imageIds } = req.body;
+  if (!Array.isArray(imageIds)) return res.status(400).json({ error: 'imageIds array required' });
+  for (let i = 0; i < imageIds.length; i++) {
+    await query(
+      `UPDATE recipe_images SET position = $1 WHERE id = $2 AND recipe_id = $3 AND company_id = $4`,
+      [i, imageIds[i], req.params.id, cId(req)]
+    );
+  }
+  res.json({ ok: true });
+});
+
+// DELETE /api/recipes/:id/images/:imageId
+router.delete('/:id/images/:imageId', requireManager, async (req, res) => {
+  const r = await query(
+    `DELETE FROM recipe_images WHERE id = $1 AND recipe_id = $2 AND company_id = $3 RETURNING url`,
+    [req.params.imageId, req.params.id, cId(req)]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+  fs.unlink(path.join(PHOTO_DIR, path.basename(r.rows[0].url)), () => {});
   res.json({ ok: true });
 });
 

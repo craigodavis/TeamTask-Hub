@@ -2,9 +2,11 @@
  * Post-shift feedback sender — runs every ~15 min and texts the survey:
  *  - Clocked-in staff: once their shift is done (all today's Square shifts CLOSED,
  *    none OPEN), carrying that shift's location. Gated by feedback_prompt_enabled.
- *  - "Always-on" users (feedback_always, e.g. owners who don't clock out): once after
- *    feedback_send_hour on any day a location operated. Sent regardless of the toggle,
- *    with the location left blank so they pick Creek/Winery on the form.
+ *  - "Always-on" users (feedback_always): EVERY day a location operated, after
+ *    feedback_send_hour, whether or not they worked. Sent regardless of the toggle,
+ *    with the location left blank so they pick Creek/Winery on the form. This is a
+ *    daily subscription — see the warning at the branch before adding anyone to it.
+ *    Currently Craig only.
  * One survey per user per day (day_feedback UNIQUE + ON CONFLICT DO NOTHING).
  *
  * Manual test:  DB_HOST=localhost node lib/feedbackSender.js <companyId> [force]
@@ -71,7 +73,17 @@ export async function runFeedbackSend(companyId, { force = false } = {}) {
     }
   }
 
-  // ── Always-on users (owners/floaters) — regardless of toggle, after send hour ──
+  // ── Always-on users — every day a location operated, after the send hour ──
+  // DELIBERATELY unconditional: no check that the person actually worked. Craig
+  // never clocks in and has no scheduled shifts, so any presence test would send
+  // him nothing at all, and he wants the daily prompt.
+  //
+  // That makes feedback_always a DAILY SUBSCRIPTION, not "exempt from clocking
+  // out" as the name suggests. Setting it on someone who only works some days
+  // texts them on their days off — which is exactly what happened to Elisha
+  // (14 spurious texts in 30 days before migration 451 cleared her flag).
+  // Set this ONLY for someone who genuinely wants a prompt every single day;
+  // anyone who works a normal schedule belongs in the clock-out branch above.
   if ((force || hour >= sendHour) && (force || operated.size > 0)) {
     const always = (await query(
       `SELECT id, display_name FROM users WHERE company_id = $1 AND feedback_always = true AND phone IS NOT NULL`, [companyId])).rows;

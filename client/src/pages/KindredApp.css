@@ -1,0 +1,89 @@
+.ka-page { padding: 1rem 1.25rem 3rem; max-width: 1100px; }
+.ka-title { margin: 0 0 .2rem; font-size: 1.4rem; }
+.ka-sub { margin: 0 0 1.25rem; color: #777; font-size: .87rem; }
+
+.ka-tabs { display: flex; gap: .25rem; border-bottom: 1px solid #e3e3e3; margin-bottom: 1.25rem; }
+.ka-tab { border: 0; background: none; padding: .5rem .9rem; font-size: .88rem; color: #666;
+          cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.ka-tab.active { color: #1b1b1b; border-bottom-color: #7a1f2b; font-weight: 600; }
+
+.ka-h3 { margin: 1.75rem 0 .5rem; font-size: 1rem; }
+.ka-muted { color: #888; font-size: .85rem; }
+.ka-error { color: #b3261e; font-size: .87rem; }
+.ka-dim { color: #999; }
+.ka-caveat { color: #888; font-size: .78rem; font-style: italic; margin: .4rem 0 1rem; }
+.ka-warn { background: #fdf6e5; border: 1px solid #ecd9a6; color: #8a6100;
+           padding: .6rem .8rem; border-radius: 6px; font-size: .84rem; margin-bottom: 1rem; }
+.ka-note { font-size: .8rem; color: #777; background: #fafafa; border-left: 3px solid #ddd;
+           padding: .45rem .7rem; margin: .6rem 0 0; border-radius: 0 4px 4px 0; }
+.ka-note-warn { background: #fdecea; border-left-color: #f2b8b5; color: #b3261e; }
+
+/* Funnel */
+.ka-funnel { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+             gap: .6rem; margin-bottom: .5rem; }
+.ka-funnel-step { background: #fafafa; border: 1px solid #eee; border-radius: 7px; padding: .6rem .7rem; }
+.ka-funnel-n { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ka-funnel-bar { height: 4px; background: #eee; border-radius: 2px; margin: .35rem 0; overflow: hidden; }
+.ka-funnel-bar span { display: block; height: 100%; background: #7a1f2b; }
+.ka-funnel-label { font-size: .74rem; color: #777; text-transform: uppercase; letter-spacing: .03em; }
+
+/* Toolbar + table */
+.ka-toolbar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: 1rem 0 .6rem; }
+.ka-toolbar select, .ka-toolbar input { padding: .35rem .5rem; border: 1px solid #ccc; border-radius: 5px; font-size: .85rem; }
+.ka-toolbar input { min-width: 200px; }
+.ka-count { font-size: .8rem; color: #888; margin-left: auto; }
+
+.ka-table-wrap { overflow-x: auto; }
+.ka-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.ka-table th { text-align: left; font-weight: 600; color: #666; font-size: .75rem;
+               text-transform: uppercase; letter-spacing: .03em; padding: .4rem .5rem;
+               border-bottom: 1px solid #ddd; white-space: nowrap; }
+.ka-table td { padding: .42rem .5rem; border-bottom: 1px solid #f2f2f2; }
+
+.ka-pill { display: inline-block; font-size: .72rem; padding: .12rem .5rem; border-radius: 999px;
+           border: 1px solid #ddd; color: #666; background: #fafafa; }
+.ka-pill-club { border-color: #d8bfc4; background: #fbf2f4; color: #7a1f2b; }
+.ka-pill-on { border-color: #b7dfc2; background: #eef8f1; color: #1b6b32; }
+.ka-pill-sent { border-color: #b7dfc2; background: #eef8f1; color: #1b6b32; }
+.ka-pill-scheduled { border-color: #ecd9a6; background: #fdf6e5; color: #8a6100; }
+.ka-pill-cancelled, .ka-pill-failed { border-color: #f2b8b5; background: #fdecea; color: #b3261e; }
+
+/* Groups */
+.ka-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .9rem; }
+.ka-group { border: 1px solid #e5e5e5; border-radius: 8px; padding: .8rem .9rem; background: #fff; }
+.ka-group.inactive { opacity: .55; }
+.ka-group-head { display: flex; gap: .6rem; align-items: flex-start; }
+.ka-group-icon { font-size: 1.1rem; line-height: 1.4; }
+.ka-group-name { font-weight: 600; font-size: .92rem; display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.ka-group-desc { font-size: .8rem; color: #777; }
+.ka-group-count { margin-left: auto; font-size: .75rem; color: #888; white-space: nowrap; }
+.ka-group-hint { font-size: .78rem; color: #888; margin: .5rem 0 .3rem; }
+.ka-tag { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em;
+          border: 1px solid #ddd; border-radius: 3px; padding: 0 .3rem; color: #777; font-weight: 500; }
+.ka-tag-sys { border-color: #cdd8e6; background: #f2f6fb; color: #37618e; }
+.ka-switches { display: flex; flex-direction: column; gap: .25rem; margin-top: .4rem; }
+.ka-switches label { font-size: .82rem; display: flex; gap: .4rem; align-items: center; color: #444; }
+
+/* Settings */
+.ka-settings section { padding-bottom: .5rem; border-bottom: 1px solid #f0f0f0; }
+.ka-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: .5rem 0; }
+.ka-row label { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: #555; }
+.ka-row input { width: 5rem; padding: .3rem .45rem; border: 1px solid #ccc; border-radius: 5px; }
+.ka-check { display: flex; gap: .45rem; align-items: center; font-size: .85rem; color: #444; margin: .35rem 0; }
+.ka-template { margin: .7rem 0; }
+.ka-template h4 { margin: 0 0 .25rem; font-size: .82rem; color: #555; }
+.ka-template input, .ka-template textarea { width: 100%; padding: .35rem .5rem; border: 1px solid #ccc;
+                                            border-radius: 5px; font-size: .85rem; font-family: inherit; }
+.ka-template textarea { min-height: 58px; margin-top: .3rem; }
+.ka-len { display: block; text-align: right; font-size: .72rem; color: #999; font-variant-numeric: tabular-nums; }
+.ka-len.over { color: #b3261e; }
+.ka-actions { margin-top: 1.5rem; display: flex; gap: .8rem; align-items: center; }
+.ka-save { padding: .5rem 1.1rem; border-radius: 6px; border: 1px solid #7a1f2b;
+           background: #7a1f2b; color: #fff; font-size: .87rem; cursor: pointer; }
+.ka-save:disabled { opacity: .5; cursor: not-allowed; }
+.ka-saved { color: #1b6b32; font-size: .84rem; }
+
+@media (max-width: 640px) {
+  .ka-toolbar input { min-width: 0; flex: 1; }
+  .ka-count { margin-left: 0; width: 100%; }
+}

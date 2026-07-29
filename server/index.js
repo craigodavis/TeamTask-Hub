@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { query } from './db.js';
 import { authRouter } from './routes/auth.js';
 import { companiesRouter } from './routes/companies.js';
@@ -18,6 +19,10 @@ import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireManager, requireScheduleAccess } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
+import { abcRouter } from './routes/abc.js';
+import { clubNotificationsRouter } from './routes/clubNotifications.js';
+import { kindredAppRouter } from './routes/kindredApp.js';
+import { startClubPushScheduler } from './lib/clubPush.js';
 import { teamRouter } from './routes/team.js';
 import { skynetRouter } from './routes/skynet.js';
 import { startSkynetScheduler } from './lib/skynetScheduler.js';
@@ -65,6 +70,10 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+// The Kindred app's member session is an httpOnly cookie issued by ClubSteward on
+// domain .kindredvineyards.com, so it reaches this host too. The app cannot read
+// it (that is the point) — the server has to.
+app.use(cookieParser());
 
 // Serve uploaded files (announcement images, etc.)
 // /api/uploads is used for production (nginx proxies /api/* to Express)
@@ -116,6 +125,11 @@ app.use('/api/marketing', requireAuth, requireManager, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
+app.use('/api/abc', requireAuth, abcRouter);      // Idaho ABC wine report — prepares only, never submits
+// Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,
+// and the /me/* routes authenticate as a club member, not a TeamHub user.
+app.use('/api/club-notifications', clubNotificationsRouter);
+app.use('/api/kindred-app', kindredAppRouter);   // members report, settings, activity beacon
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/skynet', requireAuth, requireManager, skynetRouter);
 app.use('/api/gateway', requireAuth, gatewayRouter);
@@ -140,6 +154,36 @@ app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
 });
 
+// Every scheduler in one place — the list was duplicated across the success and
+// failure paths below, so one could drift from the other.
+//
+// DISABLE_SCHEDULERS=1 starts the API without them. A local dev server points at
+// the production database, so without this a second instance double-fires the
+// SMS senders, promo emails, syncs and gateway auto-approve alongside the real
+// one. Set it whenever you run this app to look at the UI.
+function startSchedulers() {
+  if (process.env.DISABLE_SCHEDULERS === '1') {
+    console.log('Schedulers DISABLED (DISABLE_SCHEDULERS=1) — API only, no timers.');
+    return;
+  }
+  startDailySquareAutoSync();
+  startSquareSyncScheduler();
+  startReportScheduler();
+  startGatewayAutoApproveScheduler();
+  startC7SyncScheduler();
+  startSkynetScheduler();
+  startDailyArchiveScheduler();
+  startRachioScheduler();
+  startFactorSyncScheduler();
+  startFeedbackScheduler();
+  startClubPushScheduler();
+  startTalentReminderScheduler();
+  startPromoReminderScheduler();
+  startInstagramScheduler();
+  startPromoEmailScheduler();
+  startZeroCanaryScheduler();
+}
+
 runMigrations()
   .catch((err) => console.error('Migration error (non-fatal):', err.message))
   .finally(() => {
@@ -152,37 +196,9 @@ runMigrations()
   })
   .then(() => {
     console.log('Schema checks (locations / migration 008 / kindred_web) finished.');
-    startDailySquareAutoSync();
-    startSquareSyncScheduler();
-    startReportScheduler();
-    startGatewayAutoApproveScheduler();
-    startC7SyncScheduler();
-    startSkynetScheduler();
-    startDailyArchiveScheduler();
-    startRachioScheduler();
-    startFactorSyncScheduler();
-    startFeedbackScheduler();
-    startTalentReminderScheduler();
-    startPromoReminderScheduler();
-    startInstagramScheduler();
-    startPromoEmailScheduler();
-    startZeroCanaryScheduler();
+    startSchedulers();
   })
   .catch((err) => {
     console.error('ensureLocationsTables failed:', err);
-    startDailySquareAutoSync();
-    startSquareSyncScheduler();
-    startReportScheduler();
-    startGatewayAutoApproveScheduler();
-    startC7SyncScheduler();
-    startSkynetScheduler();
-    startDailyArchiveScheduler();
-    startRachioScheduler();
-    startFactorSyncScheduler();
-    startFeedbackScheduler();
-    startTalentReminderScheduler();
-    startPromoReminderScheduler();
-    startInstagramScheduler();
-    startPromoEmailScheduler();
-    startZeroCanaryScheduler();
+    startSchedulers();
   });

@@ -14,6 +14,7 @@ import {
   syncWineVarietals, syncWineAppellations,
   syncClubs, syncClubMemberships,
   syncReservations, syncGiftCards, syncPromotions,
+  syncClubPackages,
 } from '../lib/commerce7Sync.js';
 
 const router = express.Router();
@@ -210,6 +211,7 @@ router.post('/objects/:id/run', async (req, res) => {
       case 'wine_varietals':    result = await syncWineVarietals(companyId, integration); break;
       case 'wine_appellations': result = await syncWineAppellations(companyId, integration); break;
       case 'clubs':             result = await syncClubs(companyId, integration); break;
+      case 'club_packages':     result = await syncClubPackages(companyId, integration); break;
       case 'club_memberships':  result = await syncClubMemberships(companyId, integration, opts); break;
       case 'reservations':      result = await syncReservations(companyId, integration, opts); break;
       case 'gift_cards':        result = await syncGiftCards(companyId, integration); break;

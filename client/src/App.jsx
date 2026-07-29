@@ -18,6 +18,8 @@ import ReportView from './pages/ReportView';
 import { Products } from './pages/Products';
 import { WineInventory } from './pages/WineInventory';
 import { WineInventoryReport } from './pages/WineInventoryReport';
+import { AbcFiling } from './pages/AbcFiling';
+import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
 import ShiftFeedback from './pages/ShiftFeedback';
 import Events from './pages/Events';
@@ -275,6 +277,26 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
                 <WineInventoryReport />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/kindred-app"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <KindredApp />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/abc"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <AbcFiling />
               ) : (
                 <Navigate to="/" replace />
               )

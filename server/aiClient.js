@@ -327,3 +327,44 @@ Return ONLY a JSON array (no markdown) with one object per line item in the same
     ...(suggestions[i] || { qbo_account_id: null, qbo_class_id: null, confidence: 0, reasoning: '' }),
   }));
 }
+
+/**
+ * Write a menu description for a recipe from its ingredient list.
+ *
+ * Runs on Opus deliberately — this is guest-facing copy that goes on the menu,
+ * and the cheaper models produce serviceable but flat food writing.
+ *
+ * @param {object}   recipe       { name, menu_title, category }
+ * @param {string[]} ingredients  ingredient names, in recipe order
+ * @returns {Promise<string>} 1–3 short sentences, no markdown, no quotes
+ */
+export async function generateMenuDescription(recipe, ingredients, apiKey, model = 'claude-opus-5') {
+  const client = getClient(apiKey);
+  const dish = recipe.menu_title?.trim() || recipe.name?.trim() || 'this dish';
+  const list = (ingredients || []).filter(Boolean).join(', ');
+  if (!list) throw new Error('Add ingredients to the recipe first — the description is generated from them.');
+
+  const message = await client.messages.create({
+    model,
+    max_tokens: 300,
+    messages: [{
+      role: 'user',
+      content: `Write a menu description for a dish at Kindred Vineyards, a winery restaurant in Sunnyslope, Idaho.
+
+Dish: ${dish}${recipe.category ? `\nMenu section: ${recipe.category}` : ''}
+Ingredients: ${list}
+
+Rules:
+- 1 to 3 SHORT sentences. Shorter is better — this prints on a menu.
+- Describe what the guest actually gets. Lead with the components that matter.
+- Plain, confident food writing. No exclamation marks, no "mouthwatering", "delectable",
+  "culinary journey", "symphony of flavors", or similar restaurant cliches.
+- Do not invent ingredients, cooking methods, sourcing claims, or origin stories that
+  aren't implied by the ingredient list.
+- Do not mention price, dietary labels, or allergens.
+- Return ONLY the description text. No quotes, no markdown, no preamble.`,
+    }],
+  });
+
+  return (message.content?.[0]?.text || '').trim().replace(/^["']|["']$/g, '');
+}
