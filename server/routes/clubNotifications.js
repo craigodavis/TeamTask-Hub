@@ -346,12 +346,25 @@ export async function requireMemberSession(req, res, next) {
   const token = bearer || req.cookies?.member_session;
   if (!token) return res.status(401).json({ error: 'Not signed in' });
   try {
+    // DO NOT use member_accounts.company_id here. Kindred exists under two
+    // different company ids in this database: teamtask_hub/commerce7/vintly use
+    // 8d2df498..., while club_steward (and therefore member_accounts) uses
+    // a444cbca.... Taking ClubSteward's id would file push subscriptions under a
+    // company that resolveAudience never looks at — every send would report
+    // success and reach nobody.
+    //
+    // The Commerce7 customer id is the shared key, so derive TeamHub's company
+    // from it; fall back to the configured app company for a guest with no
+    // Commerce7 record yet.
     const r = await query(
-      `SELECT ms.account_id, ma.company_id
+      `SELECT ms.account_id,
+              COALESCE(c.company_id, (SELECT company_id FROM kindred_app_settings LIMIT 1)) AS company_id
          FROM club_steward.member_sessions ms
          JOIN club_steward.member_accounts ma ON ma.id = ms.account_id
+         LEFT JOIN commerce7.customers c ON c.id::text = ma.commerce7_customer_id
         WHERE ms.token = $1 AND ms.expires_at > NOW()`, [token]);
     if (!r.rows.length) return res.status(401).json({ error: 'Session expired' });
+    if (!r.rows[0].company_id) return res.status(500).json({ error: 'No company configured for the app' });
     req.memberAccountId = r.rows[0].account_id;
     req.companyId = r.rows[0].company_id;
     next();

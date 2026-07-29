@@ -3001,6 +3001,53 @@ const MIGRATIONS = [
   `UPDATE club_notification_groups
       SET default_url = 'https://friend.kindredvineyards.com/profile'
     WHERE key = 'wine_releases' AND default_url IS NULL`,
+  // ── 117: Kindred app settings ───────────────────────────────────────────────
+  // Send window: Commerce7 mails at 14:00Z = 8am Mountain, before the 9am floor,
+  // so push always clamps forward to 9am. That is deliberate — the email lands at
+  // breakfast, the push an hour later as a second touch. Window is WINERY-local.
+  `CREATE TABLE IF NOT EXISTS kindred_app_settings (
+     company_id              UUID PRIMARY KEY,
+     send_window_start_hour  INTEGER NOT NULL DEFAULT 9,
+     send_window_end_hour    INTEGER NOT NULL DEFAULT 18,
+     send_timezone           TEXT    NOT NULL DEFAULT 'America/Denver',
+     frequency_cap_count     INTEGER NOT NULL DEFAULT 2,
+     frequency_cap_days      INTEGER NOT NULL DEFAULT 7,
+     event_lead_days         INTEGER NOT NULL DEFAULT 7,
+     event_notify_default    BOOLEAN NOT NULL DEFAULT true,
+     imported_notify_default BOOLEAN NOT NULL DEFAULT false,
+     release_2wk_title       VARCHAR(80),
+     release_2wk_body        VARCHAR(200),
+     release_2day_title      VARCHAR(80),
+     release_2day_body       VARCHAR(200),
+     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `INSERT INTO kindred_app_settings
+     (company_id, release_2wk_title, release_2wk_body, release_2day_title, release_2day_body)
+   VALUES ('8d2df498-b5c0-4f73-94cd-323956036113',
+     'Your {{club}} release is coming',
+     'Ships {{processDate}}. Change your wines or skip this one until {{cutoff}}.',
+     'Last call on your {{club}} release',
+     'Your card is charged {{processDate}}. Tap to change your wines or skip.')
+   ON CONFLICT (company_id) DO NOTHING`,
+  // Append-only. "Last interaction" is max(occurred_at); every filter is a query.
+  // Deliberately NOT last_opened_at / installed_at columns that five code paths
+  // would have to remember to stamp. account_id is nullable — a guest opening the
+  // app from the counter board before signing up is the top of the funnel.
+  `CREATE TABLE IF NOT EXISTS app_activity (
+     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id  UUID NOT NULL,
+     account_id  UUID,
+     event_type  VARCHAR(40) NOT NULL,
+     occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     send_id     UUID,
+     metadata    JSONB
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_app_activity_account ON app_activity(account_id, occurred_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_app_activity_type ON app_activity(company_id, event_type, occurred_at DESC)`,
+  // NULL = fall back to the per-source default in settings. Imported events default
+  // OFF: most events arrive via wordpress_import, and default-on plus a bulk sync
+  // would queue a notification for every one of them at once.
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS app_notify BOOLEAN`,
 ];
 
 export async function runMigrations() {
