@@ -295,7 +295,17 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     for (const iv of intervals) {
       for (let t = toMin(iv.opens); t + dur <= toMin(iv.closes); t += 30) cands.push(fmt(t));
     }
-    const capped = [...new Set(cands)].slice(0, 24);
+    // Safety bound on outbound ResOS calls. This used to be 24, which silently
+    // truncated the DAY rather than the request: a venue whose hours start early
+    // burned the whole budget before lunch and lost every evening slot (an
+    // 00:00–19:00 Saturday returned midnight → 11:30 and nothing after). A day
+    // can hold at most 48 half-hour starts, so bound it there and take an even
+    // spread rather than the head if anything ever exceeds it.
+    const uniq = [...new Set(cands)];
+    const MAX_PROBES = 48;
+    const capped = uniq.length <= MAX_PROBES
+      ? uniq
+      : uniq.filter((_, i) => i % Math.ceil(uniq.length / MAX_PROBES) === 0);
 
     const base = cfg.api_base || 'https://api.resos.com';
     const slots = [];
