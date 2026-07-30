@@ -36,23 +36,60 @@ export async function runZeroCanary(companyId, { force = false } = {}) {
 
   if (!flagged.length) return { ok: true, flagged: 0 };
 
+  // Every server restart re-runs this ~200s after boot regardless of the "daily"
+  // interval below — and a redeploy-heavy day (5 restarts in one hour, in
+  // practice) turned that into the same 12 already-known $0 records getting
+  // re-texted every time. An id is only worth alerting again if QBO's own
+  // LastUpdatedTime has actually advanced since we last recorded it — that is a
+  // real new event, not the process rebooting.
+  const seen = (await query(
+    `SELECT purchase_id, last_updated_time FROM qbo_zero_canary_seen WHERE company_id = $1`,
+    [companyId]
+  )).rows.reduce((m, r) => (m[r.purchase_id] = r.last_updated_time, m), {});
+
+  const newlyFlagged = force ? flagged : flagged.filter((p) => {
+    const ts = Date.parse(p.MetaData?.LastUpdatedTime || p.MetaData?.CreateTime || '');
+    const known = seen[p.Id];
+    return !known || (Number.isFinite(ts) && ts > new Date(known).getTime());
+  });
+
+  // Record every flagged id's current LastUpdatedTime regardless of whether it
+  // was newly alerted — this is what makes the next run's comparison correct.
+  for (const p of flagged) {
+    const ts = Date.parse(p.MetaData?.LastUpdatedTime || p.MetaData?.CreateTime || '');
+    if (!Number.isFinite(ts)) continue;
+    await query(
+      `INSERT INTO qbo_zero_canary_seen (company_id, purchase_id, last_updated_time, last_alerted_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (company_id, purchase_id) DO UPDATE SET
+         last_updated_time = EXCLUDED.last_updated_time,
+         last_alerted_at   = COALESCE(EXCLUDED.last_alerted_at, qbo_zero_canary_seen.last_alerted_at)`,
+      [companyId, p.Id, new Date(ts), newlyFlagged.includes(p) ? new Date() : null]
+    );
+  }
+
+  if (!newlyFlagged.length) {
+    console.warn(`[zeroCanary] ${companyId}: ${flagged.length} $0 expense(s) still outstanding, none new — not re-alerting.`);
+    return { ok: true, flagged: flagged.length, newlyFlagged: 0, notified: 0 };
+  }
+
   const owners = (await query(
     `SELECT id FROM users WHERE company_id = $1 AND role = 'owner'`,
     [companyId]
   )).rows.map((r) => r.id);
 
-  const detail = flagged.slice(0, 6)
+  const detail = newlyFlagged.slice(0, 6)
     .map((p) => `${p.TxnDate} ${p.EntityRef?.name || '?'} "${(p.Line?.[0]?.Description || '').slice(0, 22)}" (id ${p.Id})`)
     .join('; ');
-  const msg = `⚠️ QBO canary: ${flagged.length} expense(s) posted at $0 in the last ${LOOKBACK_HOURS}h — possible transaction corruption. ${detail}`;
+  const msg = `⚠️ QBO canary: ${newlyFlagged.length} new expense(s) posted at $0 in the last ${LOOKBACK_HOURS}h — possible transaction corruption. ${detail}`;
 
   let notified = 0;
   if (owners.length) {
     const res = await sendSmsToUsers(companyId, owners, msg, owners[0]);
     notified = res.sent;
   }
-  console.warn(`[zeroCanary] ${companyId}: flagged ${flagged.length} $0 expense(s), notified ${notified}`);
-  return { ok: true, flagged: flagged.length, notified, ids: flagged.map((p) => p.Id) };
+  console.warn(`[zeroCanary] ${companyId}: flagged ${flagged.length} $0 expense(s), ${newlyFlagged.length} new, notified ${notified}`);
+  return { ok: true, flagged: flagged.length, newlyFlagged: newlyFlagged.length, notified, ids: newlyFlagged.map((p) => p.Id) };
 }
 
 let started = false;
