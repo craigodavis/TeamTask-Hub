@@ -153,7 +153,26 @@
   transition: opacity 0.15s;
 }
 
-.skynet-card-disabled { opacity: 0.55; }
+/* A disabled SCHEDULE means "don't fire on the automatic cadence" — it does not
+   mean the card is inert. Run/Edit/Delete must stay fully usable; this used to be
+   plain opacity:0.55 on the whole card, which dimmed the buttons along with the
+   text and read as "nothing here is clickable." Now only the non-interactive
+   parts (name, prompt, footer) are muted; actions stay at full strength. */
+.skynet-card-disabled { background: var(--muted-bg, #fafafa); border-style: dashed; }
+.skynet-card-disabled .skynet-card-name,
+.skynet-card-disabled .skynet-card-prompt,
+.skynet-card-disabled .skynet-card-footer,
+.skynet-card-disabled .skynet-card-schedule { opacity: 0.6; }
+
+.skynet-card-paused-badge {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+  background: var(--badge-bg, #f3f4f6);
+  border: 1px solid var(--border-color, #e5e7eb);
+  padding: 0.05rem 0.5rem;
+  border-radius: 99px;
+  width: fit-content;
+}
 
 .skynet-card-top {
   display: flex;
@@ -246,13 +265,18 @@
 .btn-secondary:hover { background: var(--hover-bg, #f3f4f6); }
 
 .btn-run {
-  padding: 0.3rem 0.65rem;
+  padding: 0.3rem 0.7rem;
   background: #10b981;
   color: #fff;
   border: none;
   border-radius: 5px;
   font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
 }
 
 .btn-run:hover:not(:disabled) { filter: brightness(1.1); }

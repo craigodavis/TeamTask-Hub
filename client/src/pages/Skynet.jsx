@@ -525,6 +525,7 @@ export function Skynet() {
                 <div className="skynet-card-meta">
                   <span className="skynet-card-name">{s.name}</span>
                   <span className="skynet-card-agent">{s.agent_name}</span>
+                  {!s.enabled && <span className="skynet-card-paused-badge">Off the automatic schedule — Run still works</span>}
                 </div>
                 <div className="skynet-card-actions">
                   <button
@@ -533,7 +534,7 @@ export function Skynet() {
                     disabled={runningId === s.id}
                     title="Run now"
                   >
-                    {runningId === s.id ? '…' : '▶'}
+                    {runningId === s.id ? '… Running' : <>▶ Run</>}
                   </button>
                   <button
                     className="btn-edit"
