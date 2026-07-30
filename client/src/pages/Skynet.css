@@ -159,10 +159,18 @@
    text and read as "nothing here is clickable." Now only the non-interactive
    parts (name, prompt, footer) are muted; actions stay at full strength. */
 .skynet-card-disabled { background: #fafafa; border-style: dashed; }
-.skynet-card-disabled .skynet-card-name,
-.skynet-card-disabled .skynet-card-prompt,
-.skynet-card-disabled .skynet-card-footer,
-.skynet-card-disabled .skynet-card-schedule { opacity: 0.6; }
+/* A single compound selector, not a comma-separated list sharing one opacity
+   declaration — the build's CSS minifier merged that group-rule form with an
+   unrelated rule elsewhere that happened to also be "opacity:.6", and dropped
+   the .skynet-card-disabled ancestor from the first selector in the process.
+   Net effect: EVERY card title rendered at 60% opacity, not just disabled
+   ones — which is the actual reason titles still looked grey after two rounds
+   of color/weight fixes that never touched the real cause. Using a specific
+   muted color instead of opacity, on an unambiguous :is() selector, removes
+   both the shared-declaration collision risk and the ambiguous selector list. */
+.skynet-card-disabled :is(.skynet-card-name, .skynet-card-prompt, .skynet-card-footer, .skynet-card-schedule) {
+  color: var(--text-muted);
+}
 
 .skynet-card-paused-badge {
   font-size: 0.72rem;
