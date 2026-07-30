@@ -1077,6 +1077,22 @@ export async function runAmazonSync() {
 
 // ── Amazon Business settings ──────────────────────────────────────────────────
 
+export async function getIspSettings() {
+  const res = await fetch(`${API}/settings/isp`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load ISP settings');
+  return data;
+}
+
+export async function putIspSettings(body) {
+  const res = await fetch(`${API}/settings/isp`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save ISP settings');
+  return data;
+}
+
 export async function getAmazonSettings() {
   const res = await fetch(`${API}/settings/amazon`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

@@ -3080,6 +3080,52 @@ const MIGRATIONS = [
   // An event notification routes to the event-source lane matching its location,
   // falling back to the unscoped one.
   `ALTER TABLE club_notification_groups ADD COLUMN IF NOT EXISTS location_id UUID`,
+  // ── 120: Idaho ABC portal credentials ───────────────────────────────────────
+  // Same storage pattern as amazon_password/amazon_otp_secret on this same table:
+  // plain columns, entered ONLY through Settings (never through a prompt or
+  // chat transcript), returned to the browser only as a configured/not-configured
+  // boolean. The raw password is retrievable solely via a service-token-gated
+  // endpoint (GET /api/abc/isp-credentials) for Betty's automation.
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS isp_username TEXT`,
+  `ALTER TABLE company_integrations ADD COLUMN IF NOT EXISTS isp_password TEXT`,
+  // 121: correct the record. April/May/June were reconciled and stored as
+  // status='filed' during the original hand-reconciliation — but "filed" there
+  // meant "this is the locked, correct internal record", not "submitted to the
+  // state". Nothing has actually been entered on apps.isp.idaho.gov for any of
+  // the three. Reset to 'draft' so Betty can prepare each one for real, and Craig
+  // confirms the state portal submission himself via the existing endpoint,
+  // which already refuses service tokens.
+  `UPDATE abc_filings SET status = 'draft', filed_at = NULL, filed_by = NULL
+     WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113'
+       AND period_month IN ('2026-04-01','2026-05-01','2026-06-01')`,
+  // 122: April's beginning inventory (1,778.00 gal) was Craig's pre-automation
+  // estimate — not derived from a prior filing, because no March row existed to
+  // chain from. computeFiling() requires a prior-month row to establish
+  // Beginning Inventory (see abcFiling.js §prior_filing check), so without this
+  // anchor April can never pass preflight and Betty can never prepare it.
+  // This March row is NOT something to file or re-derive — it is the fixed
+  // historical starting point the whole reconciliation was built from.
+  `INSERT INTO abc_filings
+     (company_id, period_month, ending_inventory, status, notes, filed_at)
+   VALUES
+     ('8d2df498-b5c0-4f73-94cd-323956036113','2026-03-01',1778.00,'filed',
+      'Pre-automation anchor. This is Craig''s estimated ending inventory for March
+       2026, entered directly (not computed) so April has a Beginning Inventory to
+       chain from. Not itself a filing to submit or reconcile.', NOW())
+   ON CONFLICT (company_id, period_month) DO NOTHING`,
+  // 123: distinguishes an anchor row (March: exists only so April has a Beginning
+  // Inventory) from a genuinely reconciled month (April/May/June: real line
+  // detail). This matters because April and May CANNOT be reproduced by a live
+  // computeFiling() call — the reconciliation deliberately booked May's real
+  // vintly bottling run (342.37 gal, 25 Viognier WS) onto April instead, per
+  // Craig's decision. A fresh recompute correctly flags that as a residual
+  // failure; it is not a bug, it is the check working. So these three months
+  // must be served to Betty exactly as stored, never recomputed. June's stored
+  // figures happen to already match a live recompute, but is treated the same
+  // way for consistency.
+  `ALTER TABLE abc_filings ADD COLUMN IF NOT EXISTS has_detail BOOLEAN NOT NULL DEFAULT true`,
+  `UPDATE abc_filings SET has_detail = false
+     WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113' AND period_month = '2026-03-01'`,
 ];
 
 export async function runMigrations() {
