@@ -3126,6 +3126,19 @@ const MIGRATIONS = [
   `ALTER TABLE abc_filings ADD COLUMN IF NOT EXISTS has_detail BOOLEAN NOT NULL DEFAULT true`,
   `UPDATE abc_filings SET has_detail = false
      WHERE company_id = '8d2df498-b5c0-4f73-94cd-323956036113' AND period_month = '2026-03-01'`,
+  // 124: the $0 canary re-texted the owner every ~200s after every deploy today —
+  // 5 times in one hour — because it has no memory across server restarts of which
+  // transactions it already reported. This table is that memory: an id is only
+  // alerted again if its QBO LastUpdatedTime has actually advanced since we last
+  // saw it (a genuinely new event), not merely because the process rebooted.
+  `CREATE TABLE IF NOT EXISTS qbo_zero_canary_seen (
+     company_id        UUID NOT NULL,
+     purchase_id       VARCHAR(40) NOT NULL,
+     last_updated_time TIMESTAMPTZ NOT NULL,
+     first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     last_alerted_at   TIMESTAMPTZ,
+     PRIMARY KEY (company_id, purchase_id)
+   )`,
 ];
 
 export async function runMigrations() {
