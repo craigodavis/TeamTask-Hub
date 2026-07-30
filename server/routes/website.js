@@ -343,22 +343,38 @@ websiteRouter.post('/reservations/book', async (req, res) => {
       return res.status(409).json({ error: 'That time was just taken. Please pick another.' });
     }
 
+    // ResOS wants E.164; a locally-formatted "208-504-2127" is rejected.
+    const digits = (phone || '').replace(/\D/g, '');
+    const e164 = digits.length === 10 ? `+1${digits}`
+      : digits.length === 11 && digits.startsWith('1') ? `+${digits}`
+      : `+${digits}`;
+
     const booking = await createBooking(base, cfg.api_key, {
-      people,
       date,
       time,
+      people,
       guest: {
         name: name.trim().slice(0, 200),
         email: email.trim().toLowerCase().slice(0, 255),
-        phone: phone.trim().slice(0, 40),
+        phone: e164,
+        notificationEmail: true, // ResOS sends the guest their confirmation
       },
+      source: 'website',
       comment: (comment || '').trim().slice(0, 1000),
+      languageCode: 'en',
     });
 
     res.set('Cache-Control', 'no-store');
-    res.json({ ok: true, venue, date, time, party: people, bookingId: booking?._id || booking?.id || null });
+    // A successful create returns the booking id as a bare string.
+    const bookingId = typeof booking === 'string' ? booking : (booking?._id || booking?.id || null);
+    res.json({ ok: true, venue, date, time, party: people, bookingId });
   } catch (e) {
-    res.status(502).json({ error: 'We could not complete that booking. Please call the winery.' });
+    console.error('[reservations/book] failed:', e.message);
+    res.status(502).json({
+      error: 'We could not complete that booking. Please call the winery.',
+      // TEMPORARY (preview only): surface ResOS's reason so this can be diagnosed.
+      detail: e.message,
+    });
   }
 });
 
