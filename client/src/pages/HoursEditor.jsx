@@ -13,6 +13,48 @@ function fmt(t) {
   return `${hh}:${String(m).padStart(2, '0')} ${ap}`;
 }
 
+// A tasting room lives in the afternoon and evening, so hours entry defaults to
+// PM. Native <input type="time"> always defaults its AM/PM segment to AM, which
+// is how "12 pm" kept getting saved as "12 am" (midnight) — so we use an
+// explicit hour / minute / AM-PM control instead.
+const HOURS_12 = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+
+// "HH:MM" (24h) -> { h12, min, ap }. Empty defaults to noon (12:00 PM).
+function parse24(v) {
+  if (!v) return { h12: 12, min: '00', ap: 'PM' };
+  const [hRaw, mRaw] = v.split(':');
+  const h = parseInt(hRaw, 10) || 0;
+  return { h12: h % 12 || 12, min: (mRaw || '00').padStart(2, '0'), ap: h >= 12 ? 'PM' : 'AM' };
+}
+// { h12, min, ap } -> "HH:MM" (24h). 12 AM -> 00, 12 PM -> 12.
+function to24(h12, min, ap) {
+  const h = (h12 % 12) + (ap === 'PM' ? 12 : 0);
+  return `${String(h).padStart(2, '0')}:${min}`;
+}
+
+function TimeField({ value, onChange }) {
+  const { h12, min, ap } = parse24(value);
+  const emit = (nh, nm, na) => onChange(to24(nh, nm, na));
+  // Keep an off-grid stored minute (e.g. legacy :23) selectable.
+  const minutes = MINUTES.includes(min) ? MINUTES : [...MINUTES, min].sort();
+  return (
+    <span className="timefield">
+      <select value={h12} onChange={(e) => emit(Number(e.target.value), min, ap)} aria-label="Hour">
+        {HOURS_12.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
+      <span className="colon">:</span>
+      <select value={min} onChange={(e) => emit(h12, e.target.value, ap)} aria-label="Minute">
+        {minutes.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select className="ap" value={ap} onChange={(e) => emit(h12, min, e.target.value)} aria-label="AM or PM">
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </span>
+  );
+}
+
 export function HoursEditor() {
   const [locations, setLocations] = useState([]);
   const [sched, setSched] = useState({}); // locId -> array[7] of [{opens,closes}]
@@ -47,7 +89,7 @@ export function HoursEditor() {
   const updateIv = (locId, dow, idx, key, val) =>
     setDay(locId, dow, sched[locId][dow].map((iv, i) => (i === idx ? { ...iv, [key]: val } : iv)));
   const addIv = (locId, dow) =>
-    setDay(locId, dow, [...sched[locId][dow], { opens: '11:00', closes: '17:00' }]);
+    setDay(locId, dow, [...sched[locId][dow], { opens: '12:00', closes: '21:00' }]);
   const removeIv = (locId, dow, idx) =>
     setDay(locId, dow, sched[locId][dow].filter((_, i) => i !== idx));
 
@@ -116,9 +158,9 @@ export function HoursEditor() {
                     ) : (
                       list.map((iv, idx) => (
                         <div className="interval" key={idx}>
-                          <input type="time" value={iv.opens} onChange={(e) => updateIv(loc.id, dow, idx, 'opens', e.target.value)} />
+                          <TimeField value={iv.opens} onChange={(v) => updateIv(loc.id, dow, idx, 'opens', v)} />
                           <span className="dash">–</span>
-                          <input type="time" value={iv.closes} onChange={(e) => updateIv(loc.id, dow, idx, 'closes', e.target.value)} />
+                          <TimeField value={iv.closes} onChange={(v) => updateIv(loc.id, dow, idx, 'closes', v)} />
                           <button className="mini" title="Remove" onClick={() => removeIv(loc.id, dow, idx)}>✕</button>
                         </div>
                       ))
@@ -194,8 +236,8 @@ function VenueDetails({ locId, initial, onError }) {
 function SpecialAdd({ locId, onAdded, onError }) {
   const [date, setDate] = useState('');
   const [closed, setClosed] = useState(true);
-  const [opens, setOpens] = useState('11:00');
-  const [closes, setCloses] = useState('17:00');
+  const [opens, setOpens] = useState('12:00');
+  const [closes, setCloses] = useState('21:00');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -215,9 +257,9 @@ function SpecialAdd({ locId, onAdded, onError }) {
       <label className="chk"><input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} /> Closed</label>
       {!closed && (
         <>
-          <input type="time" value={opens} onChange={(e) => setOpens(e.target.value)} />
+          <TimeField value={opens} onChange={setOpens} />
           <span className="dash">–</span>
-          <input type="time" value={closes} onChange={(e) => setCloses(e.target.value)} />
+          <TimeField value={closes} onChange={setCloses} />
         </>
       )}
       <input className="note-in" placeholder="Note (e.g. Thanksgiving)" value={note} onChange={(e) => setNote(e.target.value)} />

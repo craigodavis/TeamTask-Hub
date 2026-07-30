@@ -25,6 +25,10 @@
 .day-hours .closed { color: #9ca3af; font-size: 0.86rem; font-style: italic; }
 .interval { display: flex; align-items: center; gap: 6px; }
 .interval input[type="time"] { padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 7px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.timefield { display: inline-flex; align-items: center; gap: 3px; }
+.timefield select { padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 7px; font-size: 0.85rem; font-variant-numeric: tabular-nums; background: #fff; color: #111827; cursor: pointer; }
+.timefield .colon { color: #9ca3af; margin: 0 -1px; }
+.timefield select.ap { margin-left: 3px; }
 .dash { color: #9ca3af; }
 .day-actions { display: flex; gap: 6px; }
 .mini { background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer; color: #4b5563; }
