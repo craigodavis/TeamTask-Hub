@@ -37,6 +37,36 @@ export async function ping(base, apiKey) {
   }
 }
 
+/**
+ * Bookable times for a date + party size, straight from ResOS.
+ *
+ * ResOS already owns all of this: its own opening hours, seating interval,
+ * booking duration (including per-party-size durations), max bookings/guests,
+ * and which times are bookable online. Asking it directly means we stop keeping
+ * a second, drifting copy of the schedule in kindred_web.hours and stop
+ * inventing rules like "the last booking is one slot before closing".
+ *
+ * Returns { times, closed }: `closed` distinguishes "no opening hours that day"
+ * from "open but nothing left", which the picker words differently.
+ */
+export async function availableTimes(base, apiKey, { people, date }) {
+  const q = `/bookingFlow/times?people=${encodeURIComponent(people)}` +
+    `&date=${encodeURIComponent(date)}&onlyBookableOnline=true`;
+  const r = await resosFetch(base, apiKey, q);
+  if (!r.ok) throw new Error(`ResOS availableTimes HTTP ${r.status}`);
+  const blocks = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+  // One entry per opening-hour block (lunch/dinner etc.) — flatten and dedupe.
+  const times = [...new Set(blocks.flatMap((b) => b?.availableTimes || []))]
+    .filter((t) => /^\d{1,2}:\d{2}$/.test(t))
+    .sort((a, b) => {
+      const [ah, am] = a.split(':').map(Number);
+      const [bh, bm] = b.split(':').map(Number);
+      return ah * 60 + am - (bh * 60 + bm);
+    })
+    .map((t) => (t.length === 4 ? `0${t}` : t));
+  return { times, closed: blocks.length === 0 };
+}
+
 /** Tables free for a party size within a datetime window. Returns [] on failure. */
 export async function availableTables(base, apiKey, { people, fromDateTime, toDateTime }) {
   const q = `/bookingFlow/availableTables?people=${encodeURIComponent(people)}` +
