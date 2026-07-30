@@ -8,7 +8,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { availableTimes } from '../lib/resosClient.js';
+import { availableTimes, createBooking } from '../lib/resosClient.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
 
@@ -288,6 +288,78 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=30');
     res.json({ venue, date, party, bookingEnabled: true, closed, slots: times });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/website/reservations/book
+// Completes a reservation started in the website's picker. This WRITES a real
+// booking into the venue's ResOS account, so it is deliberately narrow:
+//   - honeypot + field validation,
+//   - a per-IP rate limit (it's public and it creates records),
+//   - and the requested time is re-checked against ResOS availability before
+//     writing, so a hand-crafted POST can't book a time that isn't offered.
+// The ResOS key stays server-side; the browser never sees it.
+const bookHits = new Map(); // ip -> [timestamps]
+function rateLimited(ip, max = 5, windowMs = 15 * 60 * 1000) {
+  const now = Date.now();
+  const hits = (bookHits.get(ip) || []).filter((t) => now - t < windowMs);
+  hits.push(now);
+  bookHits.set(ip, hits);
+  if (bookHits.size > 5000) bookHits.clear(); // crude bound; this is one box
+  return hits.length > max;
+}
+
+websiteRouter.post('/reservations/book', async (req, res) => {
+  try {
+    const { venue, date, time, party, name, email, phone, comment, website } = req.body || {};
+    if (website) return res.json({ ok: true }); // honeypot: accept, don't write
+
+    const people = Math.min(Math.max(parseInt(party, 10) || 0, 1), 40);
+    if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !/^\d{2}:\d{2}$/.test(time || '')) {
+      return res.status(400).json({ error: 'A venue, date and time are required.' });
+    }
+    if (!name?.trim() || !isEmail(email) || !phone?.trim()) {
+      return res.status(400).json({ error: 'Please give us a name, email and phone number.' });
+    }
+    if (rateLimited(req.ip)) {
+      return res.status(429).json({ error: 'Too many booking attempts. Please call the winery.' });
+    }
+
+    const companyId = await kindredCompanyId();
+    const loc = (await query(
+      `SELECT id, name FROM locations WHERE company_id = $1 AND web_slug = $2 LIMIT 1`, [companyId, venue]
+    )).rows[0];
+    if (!loc) return res.status(404).json({ error: 'Unknown venue' });
+    const cfg = (await query(
+      `SELECT api_key, api_base, active FROM kindred_web.resos_config WHERE location_id = $1`, [loc.id]
+    )).rows[0];
+    if (!cfg?.api_key || cfg.active === false) {
+      return res.status(503).json({ error: 'Online booking is not available for this venue.' });
+    }
+
+    const base = cfg.api_base || 'https://api.resos.com';
+    // Re-check: only write a time ResOS is actually offering right now.
+    const { times } = await availableTimes(base, cfg.api_key, { people, date });
+    if (!times.includes(time)) {
+      return res.status(409).json({ error: 'That time was just taken. Please pick another.' });
+    }
+
+    const booking = await createBooking(base, cfg.api_key, {
+      people,
+      date,
+      time,
+      guest: {
+        name: name.trim().slice(0, 200),
+        email: email.trim().toLowerCase().slice(0, 255),
+        phone: phone.trim().slice(0, 40),
+      },
+      comment: (comment || '').trim().slice(0, 1000),
+    });
+
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, venue, date, time, party: people, bookingId: booking?._id || booking?.id || null });
+  } catch (e) {
+    res.status(502).json({ error: 'We could not complete that booking. Please call the winery.' });
+  }
 });
 
 // GET /api/website/events/calendar?venue=&month=YYYY-MM — published events in a month.
