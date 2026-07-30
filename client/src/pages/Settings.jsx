@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
@@ -338,6 +338,12 @@ export function Settings() {
   const [c7Testing, setC7Testing]             = useState(false);
   const [c7TestResult, setC7TestResult]       = useState('');
 
+  // Idaho ABC portal
+  const [ispSettings, setIspSettings]     = useState(null);
+  const [ispUsername, setIspUsername]     = useState('');
+  const [ispPassword, setIspPassword]     = useState('');
+  const [ispSaving, setIspSaving]         = useState(false);
+
   // Amazon Business
   const [amazonSettings, setAmazonSettings]   = useState(null);
   const [amazonEmail, setAmazonEmail]         = useState('');
@@ -392,9 +398,10 @@ export function Settings() {
       getGeneralSettings(),
       getC7Settings(),
       getAmazonSettings(),
+      getIspSettings(),
       getSyscoSettings(),
     ])
-      .then(([r, g, c7, amz, sys]) => {
+      .then(([r, g, c7, amz, isp, sys]) => {
         setSettings(r);
         setSquareApplicationId(r.square_application_id || '');
         setSquareEnv(r.square_env || 'production');
@@ -413,6 +420,8 @@ export function Settings() {
         setC7ApiBaseUrl(c7.c7_api_base_url || '');
         setAmazonSettings(amz);
         setAmazonEmail(amz.amazon_email || '');
+        setIspSettings(isp);
+        setIspUsername(isp.isp_username || '');
         setSyscoSettings(sys);
         setSyscoUsername(sys.sysco_username || '');
         setHaUrl(r.ha_url || '');
@@ -1140,6 +1149,63 @@ export function Settings() {
                 <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Mail'}</button>
               </div>
               {mailTestResult && <p className="test-result success">{mailTestResult}</p>}
+            </form>
+          </fieldset>
+
+          {/* ── Idaho ABC portal ──────────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Idaho ABC Reporting</legend>
+            <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+              Login for <a href="https://apps.isp.idaho.gov/AbcReporting/login" target="_blank" rel="noreferrer">
+              apps.isp.idaho.gov/AbcReporting</a>, used only by Betty's monthly filing-preparation
+              routine to save a draft on the state portal. Betty never submits — you review and
+              submit yourself. Password is stored server-side and never returned to this screen.
+            </p>
+            <form
+              className="settings-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setIspSaving(true); setError(''); setMessage('');
+                try {
+                  const body = {};
+                  if (ispUsername.trim()) body.isp_username = ispUsername.trim();
+                  if (ispPassword.trim()) body.isp_password = ispPassword.trim();
+                  await putIspSettings(body);
+                  setMessage('ABC portal settings saved.');
+                  setIspPassword('');
+                  const fresh = await getIspSettings();
+                  setIspSettings(fresh);
+                  setIspUsername(fresh.isp_username || '');
+                } catch (e) { setError(e.message); }
+                finally { setIspSaving(false); }
+              }}
+            >
+              <label>
+                Email / Username
+                <input
+                  type="text"
+                  placeholder="the login for the ABC portal"
+                  value={ispUsername}
+                  onChange={(e) => setIspUsername(e.target.value)}
+                  autoComplete="username"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  placeholder={ispSettings?.isp_configured ? 'Leave blank to keep current' : 'ABC portal password'}
+                  value={ispPassword}
+                  onChange={(e) => setIspPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+              {ispSettings?.isp_configured && (
+                <p className="test-result success" style={{ marginBottom: 0 }}>✓ Password is configured</p>
+              )}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button type="submit" disabled={ispSaving}>{ispSaving ? 'Saving…' : 'Save ABC Login'}</button>
+              </div>
             </form>
           </fieldset>
 

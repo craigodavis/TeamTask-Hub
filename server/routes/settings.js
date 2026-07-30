@@ -396,6 +396,52 @@ router.get('/commerce7/sync-log', requireOwner, async (req, res) => {
   }
 });
 
+// ── Idaho ABC portal ──────────────────────────────────────────────────────────
+// Same posture as Amazon below: stored plainly on this row (consistent with
+// every other integration here), entered only through this form, returned to
+// the browser only as a configured/not-configured flag. The raw password is
+// retrievable solely by Betty's automation via a service-token-gated endpoint
+// (GET /api/abc/isp-credentials) — never through this settings surface.
+
+// GET /settings/isp — returns username (never password)
+router.get('/isp', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT isp_username,
+              isp_password IS NOT NULL AND isp_password != '' AS isp_configured
+       FROM company_integrations WHERE company_id = $1`,
+      [companyId(req)]
+    );
+    const row = r.rows[0];
+    res.json({
+      isp_username:  row?.isp_username || '',
+      isp_configured: !!row?.isp_configured,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /settings/isp — save username + password
+router.put('/isp', requireOwner, async (req, res) => {
+  const { isp_username, isp_password } = req.body ?? {};
+  try {
+    await query(
+      `INSERT INTO company_integrations (company_id, isp_username, isp_password, updated_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (company_id) DO UPDATE SET
+         isp_username = COALESCE(NULLIF($2,''), company_integrations.isp_username),
+         isp_password = COALESCE(NULLIF($3,''), company_integrations.isp_password),
+         updated_at   = NOW(),
+         updated_by   = $4`,
+      [companyId(req), isp_username?.trim() || null, isp_password || null, req.userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Amazon Business ──────────────────────────────────────────────────────────
 
 // GET /settings/amazon — returns email (never password)

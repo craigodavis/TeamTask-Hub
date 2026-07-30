@@ -112,6 +112,16 @@ gives **1,984.86** — matching the physical count exactly. Variance **0.0000 ga
 > absorbed into the April figure rather than reported in May. The 940.55 is therefore a
 > reconciling entry correcting a prior estimate, not a measured production quantity.
 > This is a one-time artifact of the March estimate and does not recur.
+>
+> **This is why April and May can never be reproduced by a live `computeFiling()` call.**
+> Ask it for May today and it will honestly find that real 342.37 gal bottling run and
+> assign it to May — colliding with the stored chain, which already spent those gallons in
+> April. The residual it reports (342.38 gal) is that same wine being counted twice by two
+> different methods, not evidence of a problem. April, May and June are therefore flagged
+> `has_detail = true` in `abc_filings` and served to Betty exactly as stored
+> (`detail.source: "stored"` in the API response) — never recomputed. A March 2026 anchor
+> row (`has_detail = false`, ending inventory 1,778.00) exists solely so April has a
+> Beginning Inventory to chain from; it is not itself a filing.
 
 ### July 2026 (file in August)
 
@@ -155,43 +165,54 @@ counting. **She saves; she never submits.** The attestation is the licensee's.
 | Piece | Where |
 |---|---|
 | Computation | `server/lib/abcFiling.js` |
-| API | `server/routes/abc.js` — `GET /api/abc/filing/:month`, `POST .../draft`, `POST .../filed` |
+| API | `server/routes/abc.js` — `GET /next-month`, `GET /filing/:month`, `GET /isp-credentials`, `POST .../draft`, `POST .../filed` |
 | Review page | `/abc` in TeamHub — counted vs expected, residual, line sheet, backup |
 | Betty's instructions | `docs/skills/abc-wine-report.md` |
 | Schedule | `skynet_schedules` — "Idaho ABC wine report — prepare & save" |
+| Credentials | Settings → Idaho ABC Reporting (owner only; password never echoed back) |
 
 **The flow:**
 
 1. Crew completes the physical count in the first days of the month.
-2. On the 5th, Betty pulls `GET /api/abc/filing/{last month}`.
-3. If any preflight check fails, she stops and texts Craig the reason. She does not
-   open the portal.
-4. Otherwise she enters the lines on the ISP portal, **saves as draft**, and records
-   the figures via `POST .../draft`.
-5. She texts Craig with the headline numbers and a link to `/abc`.
-6. Craig reviews, submits on the portal himself, and clicks *"I submitted this"* —
-   which sets `status = 'filed'` and becomes next month's Beginning Inventory.
+2. Betty pulls `GET /api/abc/next-month` to find the one month she's allowed to touch —
+   never "last month" by assumption, because the portal only holds one report at a time
+   and April/May/June 2026 are being caught up sequentially before July settles into the
+   steady monthly cadence.
+3. `GET /api/abc/filing/{month}`. A month with `detail.source === "stored"` was already
+   hand-reconciled once (see §5 below) and must be entered **exactly as returned, never
+   recomputed** — a fresh recompute deliberately fails preflight for these three months,
+   which is the check working correctly, not a bug (see the note in §5). A month with no
+   `source` tag is freshly computed; respect `readyToFile` as usual.
+4. If blocked, she stops and texts Craig the reason. She does not open the portal.
+5. Otherwise: `GET /isp-credentials` (works only with her own service token), logs in,
+   enters the lines, **saves as draft** — never submits.
+6. She texts Craig, and explicitly points him at the **state portal itself** to review and
+   submit — not only the internal `/abc` page.
+7. Craig submits on the portal himself, then clicks *"I submitted this"* on `/abc` —
+   which sets `status = 'filed'` and unblocks the next month in the sequence.
 
 `POST /api/abc/filing/:month/filed` **rejects service tokens** by design. Only a
-signed-in human can record a filing.
+signed-in human can record a filing. `GET /isp-credentials` is the mirror image —
+it **rejects everyone except a service token**, so a signed-in human browsing TeamHub
+can never pull the raw portal password back out through the API.
 
 ### Safeguards
 
-- Preflight blocks the filing on a stale count, a missing prior filing, a bottling run
-  with no case count, or an out-of-tolerance residual.
+- Preflight blocks a freshly computed filing on a stale count, a missing prior filing, a
+  bottling run with no case count, or an out-of-tolerance residual.
 - `POST .../draft` refuses to save anything that failed preflight — a draft that can't
-  be filed should never look ready.
+  be filed should never look ready. (Not used for `stored` months — see §5.)
 - `saveDraft` will not overwrite a month already marked `filed`.
+- `GET /next-month` enforces the one-at-a-time sequence in one place, rather than trusting
+  every caller to work it out.
 - The physical count is restated to month-end by backing out activity between the close
   of the month and the moment of the count (§5 shows this tying to the cent for June).
 
 ### Known gaps
 
-- **ISP portal credentials are not yet stored.** The schedule is created but **disabled**
-  until they are. They belong in `company_integrations`, entered through Settings — never
-  in a prompt, a commit, or a chat transcript.
 - **The portal's terms of service have not been checked.** Many state systems prohibit
-  automated access. If Idaho's do, keep steps 1–2 and 5 (Betty prepares and notifies) and
-  have Craig key the numbers in manually — that retains most of the value.
+  automated access. If Idaho's do, fall back to steps 1–2 and 6 (Betty prepares and
+  notifies, using the stored/computed figures) and have Craig key the numbers in
+  manually — that retains most of the value.
 - Breakage, spillage and dumped bottles are still not separately recorded; they fall into
   the residual.
