@@ -369,12 +369,9 @@ websiteRouter.post('/reservations/book', async (req, res) => {
     const bookingId = typeof booking === 'string' ? booking : (booking?._id || booking?.id || null);
     res.json({ ok: true, venue, date, time, party: people, bookingId });
   } catch (e) {
+    // Logged server-side only — the browser gets a safe message, not ResOS's.
     console.error('[reservations/book] failed:', e.message);
-    res.status(502).json({
-      error: 'We could not complete that booking. Please call the winery.',
-      // TEMPORARY (preview only): surface ResOS's reason so this can be diagnosed.
-      detail: e.message,
-    });
+    res.status(502).json({ error: 'We could not complete that booking. Please call the winery.' });
   }
 });
 
