@@ -96,30 +96,28 @@ report a bug to the state as if it were wine. Past bugs that surfaced exactly th
 timezone boundary error, a refund sign error, a Square payment sync that silently covered
 only one location, and a catalog sync that orphaned line items. See `docs/ABC_FILING.md` §3.
 
-## Step 3 — Get the portal login
+## Step 3 — The portal is Craig's, not yours
 
-```
-GET /api/abc/isp-credentials
-```
+**Do not log in to apps.isp.idaho.gov. You cannot, and you must not claim you did.**
 
-This only works with your own service token — it will refuse a regular user session, by
-design. If it 404s, the credentials haven't been entered in Settings yet; tell Craig and
-stop.
+The agent runs with no browser tool and no browser automation library — driving a web
+form is outside what it can do. An earlier version of this playbook told it to log in and
+save the report anyway. It could not, so it reported `awaiting_submission` from
+`/abc/next-month` as though that meant "saved on the portal", and Craig went to the portal
+twice to review a draft that was never there.
 
-## Step 4 — Enter it on the portal
+`GET /api/abc/isp-credentials` still exists but is no longer part of this flow. There is
+no reason to hand state portal credentials to something that cannot use them.
 
-This is the step that actually gets the work in front of Craig. A run that skips it has
-not accomplished anything, however good the summary reads.
+If portal automation is ever wanted, it needs three things first, in order: clearance that
+the ISP terms of service permit automated access, a real browser automation stack, and a
+tested login/form script. It is a project, not a prompt change.
 
-Log in at https://apps.isp.idaho.gov/AbcReporting/login with the credentials from Step 3,
-then look for an existing saved report for the period:
+## Step 4 — Hand the numbers to Craig
 
-- **One exists** — compare every line against `lines`. All matching: leave it and report
-  "already saved — verified". Any differing: correct them to match `lines`, save, and
-  report exactly what changed.
-- **None exists** — create the wine report for the period and fill it in.
-
-Fill or verify using `lines`, exactly as returned:
+Post a comment on the task with the plain sentence *"Nothing has been entered on the
+portal — that step is yours"*, followed by the full ten-line table using the exact ABC
+form field names:
 
 | Portal field | Response field |
 |---|---|
@@ -134,10 +132,14 @@ Fill or verify using `lines`, exactly as returned:
 | Returned Product | `lines.returnedProduct` |
 | Ending Inventory | `lines.endingInventory` |
 
-**Save. Do not submit.** Capture a screenshot of the saved form.
+Tell him where to go (https://apps.isp.idaho.gov/AbcReporting/login), and that once he has
+submitted he records it at **Manage → Reports → Idaho ABC filing** with the
+"I submitted this — record it as filed" button. The next month is not prepared until he
+does — that button is what advances `/abc/next-month`.
 
-If any portal value fails to match what you entered after saving, report the mismatch
-rather than correcting it silently — the discrepancy itself is the useful information.
+`POST /team/notify` currently logs without sending (`getManagerPhoneNumbers()` in the
+Paperclip plugin is a hardcoded empty list), so the task comment is the real channel.
+Never rely on the text arriving.
 
 ## Step 5 — Record the draft
 

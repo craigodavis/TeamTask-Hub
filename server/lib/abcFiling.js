@@ -218,13 +218,25 @@ export async function computeFiling(companyId, month) {
       ? `${count.bottles.toLocaleString()} bottles across ${count.lines} lines, counted ${count.lastCountedAt.toISOString().slice(0, 10)}.`
       : 'No physical inventory count on record. Do not file.',
   });
+  // Tested against the OLDEST line, not the newest. MAX only proves somebody
+  // counted something after month end — count one bottle on the 2nd and a
+  // shelf full of stale July figures would sail through. MIN is the question
+  // actually worth asking: was every line counted after the month closed?
+  const countCoversPeriod =
+    !!count.firstCountedAt && new Date(count.firstCountedAt) >= new Date(m_end);
   checks.push({
     id: 'count_is_current',
-    ok: !!count.lastCountedAt && new Date(count.lastCountedAt) >= new Date(m_end),
+    ok: countCoversPeriod,
     label: 'Count covers this period',
-    detail: count.lastCountedAt && new Date(count.lastCountedAt) >= new Date(m_end)
-      ? `Counted after ${month} closed.`
-      : `Count predates the end of ${month} — it is a stale count from an earlier period.`,
+    detail: countCoversPeriod
+      ? `All ${count.lines} lines counted after ${month} closed.`
+      : !count.firstCountedAt
+        ? `No physical inventory count on record.`
+        : new Date(count.lastCountedAt) >= new Date(m_end)
+          ? `Partial count — the oldest line was counted `
+            + `${count.firstCountedAt.toISOString().slice(0, 10)}, before ${month} closed. `
+            + `Some lines are current but not all; recount the stale ones before filing.`
+          : `Count predates the end of ${month} — it is a stale count from an earlier period.`,
   });
   checks.push({
     id: 'production_complete',
