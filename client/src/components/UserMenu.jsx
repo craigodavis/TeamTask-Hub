@@ -79,11 +79,6 @@ export function UserMenu({ user, onLogout, compact = false }) {
             </button>
           )}
           {isManager && (
-            <Link to="/abc" className="user-menu-item" role="menuitem" onClick={close}>
-              ABC Filing
-            </Link>
-          )}
-          {isManager && (
             <Link to="/settings" className="user-menu-item" role="menuitem" onClick={close}>
               Settings
             </Link>

@@ -43,6 +43,7 @@ import {
 } from '../api';
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
+import { AbcFiling } from './AbcFiling';
 import { RichEditor } from '../components/RichEditor';
 import './Manager.css';
 
@@ -136,6 +137,9 @@ export function Manager() {
   const [taskReport, setTaskReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [activeReport, setActiveReport] = useState('food-waste');
+  // These reports bring their own controls, so the shared intro hint and
+  // date-range picker above them don't apply.
+  const selfContainedReport = ['scheduled', 'ai-usage', 'abc'].includes(activeReport);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [wageTitles, setWageTitles] = useState([]);
@@ -600,9 +604,18 @@ export function Manager() {
                 AI usage
               </button>
             )}
+            {isManager && (
+              <button
+                type="button"
+                className={activeReport === 'abc' ? 'active' : ''}
+                onClick={() => setActiveReport('abc')}
+              >
+                Idaho ABC filing
+              </button>
+            )}
           </nav>
 
-          {activeReport !== 'scheduled' && activeReport !== 'ai-usage' && (
+          {!selfContainedReport && (
           <p className="hint">
             {activeReport === 'debt'
               ? 'Debt report compares month-end balances for two calendar years. Edit the table and save.'
@@ -610,7 +623,7 @@ export function Manager() {
           </p>
           )}
 
-          {activeReport !== 'debt' && activeReport !== 'scheduled' && activeReport !== 'ai-usage' && (
+          {activeReport !== 'debt' && !selfContainedReport && (
           <div className="report-filters">
             <label>
               From
@@ -732,6 +745,8 @@ export function Manager() {
           {activeReport === 'scheduled' && isManager && <ScheduledReports />}
 
           {activeReport === 'ai-usage' && isManager && <AiUsageReport />}
+
+          {activeReport === 'abc' && isManager && <AbcFiling />}
         </section>
       )}
 
