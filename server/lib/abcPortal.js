@@ -228,15 +228,34 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     // ── Open the outstanding report ──────────────────────────────────────────
     // The portal holds one report in progress at a time and exposes it as
     // "Continue Report", so the link is discovered rather than a URL guessed.
+    // Work from the reporting list, which is where both the "continue" link and
+    // the "start new" form live.
+    const org = page.url().match(/organizationDetails\/(\d+)/)?.[1];
+    if (!org) throw new Error('Could not determine the organization id after login.');
+    await page.goto(`${BASE}/organizationDetails/${org}/bw-reporting`, { waitUntil: 'networkidle' });
+    await dismissModals(page);
+
     const cont = page.locator('a[href*="bwReport/continue"]').first();
-    if (!(await cont.count())) {
-      throw new Error('No outstanding Beer/Wine report on the portal — nothing to continue.');
+    if (await cont.count()) {
+      // Navigate to the href rather than clicking it. The newsflash dialog can
+      // re-open at any moment and float over the link, and no amount of
+      // dismissing beforehand wins that race. A goto cannot be intercepted.
+      const contHref = await cont.getAttribute('href');
+      await page.goto(new URL(contHref, BASE).toString(), { waitUntil: 'networkidle' });
+    } else {
+      // Once a month is submitted the next one does not exist yet — it has to be
+      // opened via "Start New Report". Submit the form directly rather than
+      // clicking, for the same interception reason.
+      const create = page.locator('form[action*="bwReport/create"]');
+      if (!(await create.count())) {
+        throw new Error(
+          'No report to continue and no way to start one — the portal has not opened the next period yet.');
+      }
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle' }).catch(() => {}),
+        page.evaluate(() => document.querySelector('form[action*="bwReport/create"]').submit()),
+      ]);
     }
-    // Navigate to the href rather than clicking it. The newsflash dialog can
-    // re-open at any moment and float over the link, and no amount of dismissing
-    // beforehand wins that race reliably. A goto cannot be intercepted.
-    const contHref = await cont.getAttribute('href');
-    await page.goto(new URL(contHref, BASE).toString(), { waitUntil: 'networkidle' });
     await dismissModals(page);
 
     // Refuse to touch a report for a different period than asked for.
@@ -256,11 +275,20 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     // ── Step 1: report Wine only ─────────────────────────────────────────────
     const wine = page.locator('#chk-WINE');
     if (await wine.count()) {
-      // Only ensure Wine is reportable. The other categories are left exactly as
-      // the portal has them: which categories appear on a filed report is the
-      // licensee's choice and matches how previous months were submitted.
-      // Wine is located by column position later, so extra columns are harmless.
-      if (!(await wine.isChecked()) && !dryRun) await wine.check();
+      // Report Wine only. Kindred is a winery, so the beer and spirits columns
+      // are noise on every form. Dropping them also shifts Wine's column index,
+      // which is exactly why the field lookup keys off the "Wine Gallons" header
+      // position rather than a fixed category number.
+      if (!dryRun) {
+        for (const id of ['#chk-BEER', '#chk-STRONG_BEER',
+                          '#chk-CONTRACTED_BEER_PRODUCTION', '#chk-COCKTAILS']) {
+          const box = page.locator(id);
+          if ((await box.count()) && (await box.isChecked())) {
+            await box.uncheck({ force: true }).catch(() => {});
+          }
+        }
+        if (!(await wine.isChecked())) await wine.check({ force: true });
+      }
       await Promise.all([
         page.waitForLoadState('networkidle').catch(() => {}),
         page.locator('button:has-text("Next"), a:has-text("Next")').first()
@@ -270,6 +298,7 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     }
 
     // ── Step 2: amounts ──────────────────────────────────────────────────────
+    const reportUrl = page.url();   // .../reporting/bwReport/<id>/edit
     const map = await wineFieldMap(page);
     if (!map) throw new Error('Could not find the Wine Gallons section on the amounts page.');
 
@@ -292,13 +321,31 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     }
 
     // ── Read back what the portal now holds ──────────────────────────────────
-    // Re-derive the map: after saving, the page has been re-rendered and the
-    // earlier element handles are stale.
+    // Re-open the report rather than reading the page still on screen. Saving
+    // redirects to the reporting list, so reading in place is a race against
+    // that navigation — one that May happened to win and June lost. Re-fetching
+    // also makes this a real check: it proves the values persisted on the
+    // portal, not merely that they are sitting in the DOM we just typed into.
+    if (!dryRun) {
+      await page.goto(reportUrl, { waitUntil: 'networkidle' }).catch(() => {});
+      await dismissModals(page);
+      if (await page.locator('#chk-WINE').count()) {
+        await Promise.all([
+          page.waitForLoadState('networkidle').catch(() => {}),
+          page.locator('button:has-text("Next"), a:has-text("Next")').first()
+            .click({ force: true }),
+        ]);
+        await dismissModals(page);
+      }
+    }
+
     const after = (await wineFieldMap(page)) || map;
     const observed = {};
     for (const [key, label] of LINE_LABELS) {
+      // A saved value may render as an input or as read-only text depending on
+      // the step the portal returns us to, so accept either.
       const f = pick(after.fields, label);
-      observed[key] = f ? n2(f.value) : null;
+      observed[key] = f ? n2(f.value) : n2(pick(after.readonly, label));
     }
     observed.beginningInventory = n2(pick(after.readonly, 'Beginning Inventory')
       ?? pick(after.fields, 'Beginning Inventory')?.value);
