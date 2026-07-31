@@ -11,6 +11,7 @@ import { query } from '../db.js';
 import { availableTimes, createBooking } from '../lib/resosClient.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
+import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
 
 export const websiteRouter = express.Router();
 
@@ -450,4 +451,32 @@ websiteRouter.get('/events/:slug', async (req, res) => {
     if (!r.rows.length) return res.status(404).json({ error: 'Event not found' });
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/**
+ * GET /api/website/app-tenant
+ *
+ * "Which winery am I?" — asked by the guest app so it does not have to be told
+ * at build time. The answer comes from the origin the request arrives from, so
+ * one deployment can serve several wineries and a dev origin can point at a
+ * test tenant without a separate build or a rebuilt bundle.
+ *
+ * Returns only public facts: the winery's name and its Commerce7 tenant slug,
+ * which is already visible in the club-list URL the app calls next. No
+ * credentials, and no company id — nothing here grants anything.
+ */
+websiteRouter.get('/app-tenant', async (req, res) => {
+  try {
+    const app = await companyForRequest(req);
+    // No fallback on purpose: an unrecognised origin gets nothing rather than
+    // quietly inheriting production.
+    if (!app) return res.status(404).json({ error: 'This origin is not configured for an app.' });
+
+    const tenant = await tenantForCompany(app.companyId);
+    if (!tenant) return res.status(409).json({ error: 'That winery has no Commerce7 tenant configured.' });
+
+    res.json({ tenant, label: app.label });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });

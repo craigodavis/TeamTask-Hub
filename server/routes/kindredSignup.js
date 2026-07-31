@@ -17,6 +17,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { query } from '../db.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
+import { companyForRequest } from '../lib/appOrigin.js';
 
 const router = express.Router();
 
@@ -28,12 +29,35 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Digits only, so "(208) 555-0142" and "2085550142" are the same person. */
 const normalizePhone = (p) => String(p || '').replace(/\D/g, '');
 
-async function integration() {
+/**
+ * The winery this signup belongs to, and its Commerce7 credentials if it has
+ * any here.
+ *
+ * This used to be `LIMIT 1` — take whichever row has a key — which was fine
+ * while there was exactly one winery and wrong the moment there was a second.
+ * The company now comes from the origin the app is served from (see
+ * lib/appOrigin.js): the origin decides which winery a NEW account belongs to,
+ * and nothing else.
+ *
+ * Commerce7 credentials are optional. A winery configured in ClubSteward but
+ * not here still gets accounts — the customer simply is not pre-created, and
+ * the club signup creates it later (ClubSteward's flow already POSTs /customer
+ * and handles the duplicate case). That is deliberate: it means a test tenant
+ * needs no credentials copied into this database to be usable.
+ */
+async function integration(req) {
+  const app = await companyForRequest(req);
+  // No fallback: an unrecognised origin is refused rather than quietly
+  // inheriting production's winery.
+  if (!app) {
+    const err = new Error('This app origin is not configured.');
+    err.status = 403;
+    throw err;
+  }
   const r = await query(
     `SELECT company_id, c7_api_key, c7_tenant_slug, c7_api_base_url
-       FROM company_integrations WHERE c7_api_key IS NOT NULL AND c7_api_key <> '' LIMIT 1`);
-  if (!r.rows.length) throw new Error('Commerce7 is not configured');
-  return r.rows[0];
+       FROM company_integrations WHERE company_id = $1`, [app.companyId]);
+  return r.rows[0] || { company_id: app.companyId, c7_api_key: null };
 }
 
 /** Issues the same opaque session ClubSteward does — one session store, not two. */
@@ -64,9 +88,10 @@ router.post('/signup', async (req, res) => {
   const lastName = rest.join(' ') || firstName;
 
   try {
-    const integ = await integration();
+    const integ = await integration(req);
     const companyId = integ.company_id;
-    const c7 = makeC7Client(integ);
+    // A winery with no Commerce7 key here still gets accounts — see integration().
+    const c7 = integ.c7_api_key ? makeC7Client(integ) : null;
 
     // ── Match an existing Commerce7 customer before creating one ─────────────
     // Someone who has bought wine or booked a table before is already in C7.
@@ -74,12 +99,13 @@ router.post('/signup', async (req, res) => {
     // existing club membership from them.
     let customer = null;
     try {
+      if (!c7) throw new Error('no Commerce7 credentials for this winery');
       const found = await c7.get(`/customer?q=${encodeURIComponent(email)}&limit=5`);
       customer = (found.customers || []).find((c) =>
         (c.emails || []).some((e) => String(e.email).toLowerCase() === email)) || null;
     } catch { /* search is best-effort; fall through to create */ }
 
-    if (!customer) {
+    if (!customer && c7) {
       try {
         customer = await c7.post('/customer', {
           firstName, lastName,
@@ -141,7 +167,9 @@ router.post('/signup', async (req, res) => {
       offerClub: !isClubMember,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    // An unconfigured origin is a 403, not a 500 — it is a refusal, not a fault,
+    // and the app needs to be able to tell those apart.
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

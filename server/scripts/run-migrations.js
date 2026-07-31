@@ -3167,6 +3167,35 @@ const MIGRATIONS = [
   // 'saved_with_mismatches' is 21 characters and silently blew the 20-char cap,
   // failing the run record after the portal work had already succeeded.
   `ALTER TABLE abc_portal_runs ALTER COLUMN status TYPE VARCHAR(32)`,
+  // Which winery a guest-facing app belongs to, keyed by the origin it is
+  // served from. Deliberately its own table rather than a column on
+  // company_integrations: that row also holds Square, QBO, Twilio, mail, push
+  // and half a dozen other credentials, and editing it to point a test app at
+  // a different tenant would put all of them in the blast radius.
+  //
+  // The origin only ever decides WHICH WINERY a NEW account belongs to. It
+  // never decides whose account, card or membership — those follow the session.
+  // An unknown origin resolves to nothing and is refused; there is no default,
+  // because a default is what would let a forged Origin inherit production.
+  // No FK on company_id, deliberately. The company that matters here is the one
+  // ClubSteward performs the signup as, and those live in club_steward.companies
+  // — the Resos tenant has no row in TeamHub's own companies table. A REFERENCES
+  // clause would therefore reject exactly the dev mapping this exists to enable.
+  // Validity is checked where it is used, against the integration that will
+  // actually be called.
+  `CREATE TABLE IF NOT EXISTS app_origins (
+     origin      TEXT PRIMARY KEY,
+     company_id  UUID NOT NULL,
+     label       TEXT,
+     enabled     BOOLEAN NOT NULL DEFAULT true,
+     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  // Production, and the dev origin used for testing against the Resos tenant.
+  // Separate rows on purpose: changing the dev mapping cannot touch production.
+  `INSERT INTO app_origins (origin, company_id, label) VALUES
+     ('https://friend.kindredvineyards.com', '8d2df498-b5c0-4f73-94cd-323956036113', 'Kindred — production'),
+     ('http://localhost:5177',               '67722387-c097-4c85-862e-c4ccfca3f8e4', 'Resos — local dev')
+   ON CONFLICT (origin) DO NOTHING`,
 ];
 
 export async function runMigrations() {
