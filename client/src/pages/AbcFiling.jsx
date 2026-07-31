@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getAbcFiling, markAbcFiled } from '../api';
+import { getAbcFiling, markAbcFiled, fillAbcPortal, getAbcPortalRun } from '../api';
 import './AbcFiling.css';
 
 const GAL = (n) => (n === null || n === undefined ? '—' : Number(n).toFixed(2));
@@ -18,6 +18,8 @@ export function AbcFiling() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [portalRun, setPortalRun] = useState(null);
+  const [filling, setFilling] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -26,6 +28,7 @@ export function AbcFiling() {
       .then(setData)
       .catch((e) => { setError(e.message); setData(null); })
       .finally(() => setLoading(false));
+    getAbcPortalRun(month).then(setPortalRun).catch(() => setPortalRun(null));
   }, [month]);
 
   useEffect(() => { load(); }, [load]);
@@ -41,9 +44,26 @@ export function AbcFiling() {
     finally { setSaving(false); }
   };
 
+  const runPortalFill = async () => {
+    if (!window.confirm(
+      `Fill the ${month} report on the Idaho ABC portal?\n\n` +
+      `This signs in and saves the figures below. It does NOT submit — ` +
+      `submitting stays yours.`
+    )) return;
+    setFilling(true);
+    setError('');
+    try {
+      const r = await fillAbcPortal(month);
+      setPortalRun(r.run || (await getAbcPortalRun(month)));
+      if (r.status === 'failed') setError(r.error || 'Portal run failed.');
+    } catch (e) { setError(e.message); }
+    finally { setFilling(false); load(); }
+  };
+
   const l = data?.lines;
   const d = data?.detail;
   const filed = data?.stored?.status === 'filed';
+  const mismatches = portalRun?.mismatches || [];
 
   return (
     <div className="abc-page">
@@ -216,7 +236,55 @@ export function AbcFiling() {
             </div>
           )}
 
+          {/* ── Portal ───────────────────────────────────────────────────── */}
+          <h3 className="abc-h3">State portal</h3>
+          {portalRun ? (
+            <div className={`abc-portal-run abc-portal-${portalRun.status}`}>
+              <div className="abc-portal-line">
+                <strong>
+                  {portalRun.status === 'saved' && 'Saved on the portal — verified'}
+                  {portalRun.status === 'saved_with_mismatches' && 'Saved, but the read-back disagrees'}
+                  {portalRun.status === 'failed' && 'Last portal run failed'}
+                  {portalRun.status === 'dry_run' && 'Dry run only — nothing was saved'}
+                  {portalRun.status === 'running' && 'Portal run in progress…'}
+                </strong>
+                <span className="abc-portal-when">
+                  {DATE(portalRun.started_at)} · {portalRun.trigger}
+                </span>
+              </div>
+              {portalRun.error && <p className="abc-error">{portalRun.error}</p>}
+              {mismatches.length > 0 && (
+                <table className="abc-table abc-mismatch">
+                  <thead><tr><th>Line</th><th className="num">Entered</th><th className="num">Portal shows</th></tr></thead>
+                  <tbody>
+                    {mismatches.map((m, i) => (
+                      <tr key={i}>
+                        <td>{m.line}{m.note ? <em> ({m.note})</em> : null}</td>
+                        <td className="num">{GAL(m.entered)}</td>
+                        <td className="num">{GAL(m.observed)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {portalRun.status?.startsWith('saved') && !mismatches.length && (
+                <p className="hint">
+                  Every line was read back off the portal and matches what was entered.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="abc-empty">Nothing has been put on the portal for {month}.</p>
+          )}
+
           <div className="abc-actions">
+            <button
+              className="abc-portal-btn"
+              onClick={runPortalFill}
+              disabled={filling || filed || !data.readyToFile}
+            >
+              {filling ? 'Filling the portal…' : 'Fill the portal now'}
+            </button>
             <button
               className="abc-filed-btn"
               onClick={confirmFiled}

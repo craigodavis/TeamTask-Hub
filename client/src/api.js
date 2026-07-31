@@ -1289,6 +1289,24 @@ export async function markAbcFiled(month, notes) {
   return data;
 }
 
+export async function fillAbcPortal(month, { dryRun = false } = {}) {
+  const res = await fetch(`${API}/abc/filing/${month}/portal-fill`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ dryRun }),
+  });
+  const data = await res.json().catch(() => ({}));
+  // 422 carries a real result (blocked/failed) rather than a transport error,
+  // so surface its message instead of a generic one.
+  if (!res.ok && !data.status) throw new Error(data.error || 'Portal run failed');
+  return data;
+}
+
+export async function getAbcPortalRun(month) {
+  const res = await fetch(`${API}/abc/portal-run/${month}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load portal run');
+  return data.run;
+}
+
 // ── Kindred app (friend.kindredvineyards.com) ────────────────────────────────
 
 export async function getKindredMembers({ filter = 'all', search = '', limit = 100, offset = 0 } = {}) {
