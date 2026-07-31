@@ -232,10 +232,11 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     if (!(await cont.count())) {
       throw new Error('No outstanding Beer/Wine report on the portal — nothing to continue.');
     }
-    await Promise.all([
-      page.waitForLoadState('networkidle').catch(() => {}),
-      cont.click(),
-    ]);
+    // Navigate to the href rather than clicking it. The newsflash dialog can
+    // re-open at any moment and float over the link, and no amount of dismissing
+    // beforehand wins that race reliably. A goto cannot be intercepted.
+    const contHref = await cont.getAttribute('href');
+    await page.goto(new URL(contHref, BASE).toString(), { waitUntil: 'networkidle' });
     await dismissModals(page);
 
     // Refuse to touch a report for a different period than asked for.
@@ -262,7 +263,8 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
       if (!(await wine.isChecked()) && !dryRun) await wine.check();
       await Promise.all([
         page.waitForLoadState('networkidle').catch(() => {}),
-        page.locator('button:has-text("Next"), a:has-text("Next")').first().click(),
+        page.locator('button:has-text("Next"), a:has-text("Next")').first()
+          .click({ force: true }),
       ]);
       await dismissModals(page);
     }
@@ -282,7 +284,8 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     if (!dryRun) {
       await Promise.all([
         page.waitForLoadState('networkidle').catch(() => {}),
-        page.locator('a:has-text("Save"), button:has-text("Save")').first().click(),
+        page.locator('a:has-text("Save"), button:has-text("Save")').first()
+          .click({ force: true }),
       ]);
       await page.waitForTimeout(1500);
       await dismissModals(page);
