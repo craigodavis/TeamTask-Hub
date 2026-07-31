@@ -32,12 +32,22 @@ GET /api/abc/next-month
 
 Returns the one month you should be working on:
 
-- `reason: "awaiting_submission"` — this month is saved and waiting on Craig. **Do not
-  touch the portal.** If you're running because of the monthly schedule and this comes
-  back, just re-send the reminder text (below) and stop — do not re-enter or re-save it.
-- `reason: "next_in_sequence"` — the next month after the latest one Craig has confirmed
-  filed. This is the one to prepare.
 - `month: null, reason: "no_filing_history"` — nothing to chain from. Stop and tell Craig.
+- any month returned — **this is the month to prepare now.** Continue to the next step.
+
+**Do not over-read `reason`.** Both `"awaiting_submission"` and `"next_in_sequence"` mean
+the same thing to the caller: this month is not yet confirmed filed, so it is this run's
+job. `awaiting_submission` is derived purely from this database —
+
+```sql
+SELECT period_month FROM abc_filings WHERE status <> 'filed' AND has_detail = true
+```
+
+— so it says **nothing** about whether anything exists on the Idaho portal. A month that
+has never been touched on the portal reports `awaiting_submission` too. Never describe a
+report as "already saved on the portal" without having seen it there, and never stop early
+on the strength of this field. (Doing exactly that is what caused April 2026 to be
+reported as portal-ready when nothing had been saved.)
 
 ---
 
@@ -98,8 +108,18 @@ stop.
 
 ## Step 4 — Enter it on the portal
 
-Log in at https://apps.isp.idaho.gov/AbcReporting/login with the credentials from Step 3.
-Fill the wine report for the period using `lines`, exactly as returned:
+This is the step that actually gets the work in front of Craig. A run that skips it has
+not accomplished anything, however good the summary reads.
+
+Log in at https://apps.isp.idaho.gov/AbcReporting/login with the credentials from Step 3,
+then look for an existing saved report for the period:
+
+- **One exists** — compare every line against `lines`. All matching: leave it and report
+  "already saved — verified". Any differing: correct them to match `lines`, save, and
+  report exactly what changed.
+- **None exists** — create the wine report for the period and fill it in.
+
+Fill or verify using `lines`, exactly as returned:
 
 | Portal field | Response field |
 |---|---|
