@@ -19,6 +19,7 @@ import { Products } from './pages/Products';
 import { WineInventory } from './pages/WineInventory';
 import { WineInventoryReport } from './pages/WineInventoryReport';
 import { AbcFiling } from './pages/AbcFiling';
+import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
 import ShiftFeedback from './pages/ShiftFeedback';
@@ -187,6 +188,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <WebsiteImages />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/marketing/loyalty"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <Loyalty />
               ) : (
                 <Navigate to="/" replace />
               )

@@ -20,6 +20,7 @@ import { requireAuth, requireManager, requireScheduleAccess } from './middleware
 import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
+import { loyaltyRouter, memberRouter as loyaltyMemberRouter } from './routes/loyalty.js';
 import { clubNotificationsRouter } from './routes/clubNotifications.js';
 import { kindredAppRouter } from './routes/kindredApp.js';
 import { kindredSignupRouter } from './routes/kindredSignup.js';
@@ -129,11 +130,13 @@ app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter)
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
 app.use('/api/abc', requireAuth, abcRouter);      // Idaho ABC wine report — prepares only, never submits
+app.use('/api/loyalty', loyaltyRouter);           // points: staff admin + cost model
 // Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,
 // and the /me/* routes authenticate as a club member, not a TeamHub user.
 app.use('/api/club-notifications', clubNotificationsRouter);
 app.use('/api/kindred-app', kindredSignupRouter);  // POST /signup — public, creates the account
 app.use('/api/kindred-app', kindredPerksRouter);   // perks: member reads, staff redeems with a PIN
+app.use('/api/kindred-app', loyaltyMemberRouter);  // member reads their own points balance
 app.use('/api/kindred-app', kindredAppRouter);     // members report, settings, activity beacon
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/skynet', requireAuth, requireManager, skynetRouter);

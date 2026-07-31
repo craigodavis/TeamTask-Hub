@@ -3196,6 +3196,66 @@ const MIGRATIONS = [
      ('https://friend.kindredvineyards.com', '8d2df498-b5c0-4f73-94cd-323956036113', 'Kindred — production'),
      ('http://localhost:5177',               '67722387-c097-4c85-862e-c4ccfca3f8e4', 'Resos — local dev')
    ON CONFLICT (origin) DO NOTHING`,
+  // Loyalty points.
+  //
+  // Append-only. A balance is SUM(points), never a stored figure that can drift
+  // from the events that produced it. Every row records who, how many, why and
+  // what caused it, so a balance can always be explained and a bad award undone
+  // with a compensating entry rather than an edit.
+  //
+  // customer_id is the Commerce7 customer UUID — the key that club_members.id
+  // and pickup_signatures.customer_id already share, and what member_accounts
+  // links an app login to.
+  //
+  // idempotency_key is what stops a replayed webhook, a re-run backfill or a
+  // double-scanned redemption from awarding twice. batch lets an entire
+  // backfill be dropped or re-run as one unit.
+  `CREATE TABLE IF NOT EXISTS loyalty_ledger (
+     id              BIGSERIAL PRIMARY KEY,
+     company_id      UUID NOT NULL,
+     customer_id     UUID NOT NULL,
+     points          INTEGER NOT NULL,
+     rule_key        VARCHAR(40),
+     reason          TEXT,
+     source_kind     VARCHAR(30),
+     source_id       TEXT,
+     idempotency_key TEXT NOT NULL,
+     batch           VARCHAR(60),
+     occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by      UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_ledger_idem
+     ON loyalty_ledger(company_id, idempotency_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_loyalty_ledger_customer
+     ON loyalty_ledger(company_id, customer_id, occurred_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_loyalty_ledger_batch ON loyalty_ledger(batch)`,
+  // Earn rates live as data so changing +250 to +300 is a form, not a deploy.
+  `CREATE TABLE IF NOT EXISTS loyalty_rules (
+     company_id  UUID NOT NULL,
+     rule_key    VARCHAR(40) NOT NULL,
+     label       TEXT NOT NULL,
+     description TEXT,
+     points      INTEGER NOT NULL,
+     icon        VARCHAR(8),
+     active      BOOLEAN NOT NULL DEFAULT true,
+     one_time    BOOLEAN NOT NULL DEFAULT false,
+     sort_order  INTEGER NOT NULL DEFAULT 0,
+     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     PRIMARY KEY (company_id, rule_key)
+   )`,
+  // The four rates from the Club Kindred mockups, plus a purchase rule seeded
+  // INACTIVE. The mockup rules are deliberately non-purchase — that is the part
+  // Square and Commerce7 loyalty cannot score — but most programmes also earn on
+  // spend, so the lever exists without altering the designed economics.
+  `INSERT INTO loyalty_rules (company_id, rule_key, label, description, points, icon, active, one_time, sort_order)
+   VALUES
+     ('8d2df498-b5c0-4f73-94cd-323956036113','profile_photo','Add a profile photo','One-time welcome bonus',500,'◎',true,true,1),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','event_attend','Attend an event','Check in at the door',250,'♪',true,false,2),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','club_pickup','Pick up a release','Every quarter',300,'◆',true,false,3),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','referral','Refer a friend','When they join',1000,'♥',true,false,4),
+     ('8d2df498-b5c0-4f73-94cd-323956036113','purchase','Purchase','Points per dollar spent',1,'$',false,false,5)
+   ON CONFLICT (company_id, rule_key) DO NOTHING`,
 ];
 
 export async function runMigrations() {

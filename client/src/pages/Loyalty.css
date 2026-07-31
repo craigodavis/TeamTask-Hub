@@ -1,0 +1,41 @@
+/* Loyalty — Marketing > Loyalty */
+
+.loyalty .hint { max-width: 62ch; }
+.loy-error { color: #b3261e; font-size: .86rem; margin: .6rem 0; }
+
+/* The cost model, given prominence: it is the number that decides whether the
+   programme is affordable, and it should be readable at a glance. */
+.loy-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+             gap: .9rem; margin: 1.2rem 0 1.8rem; }
+.loy-stat { border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1rem; }
+.loy-stat-n { font-size: 1.5rem; font-weight: 650; color: var(--text); line-height: 1.1; }
+.loy-stat-l { font-size: .76rem; color: var(--text-muted); margin-top: .25rem; }
+
+.loy-h3 { margin: 1.6rem 0 .3rem; font-size: 1rem; }
+
+.loy-table { width: 100%; border-collapse: collapse; margin: .8rem 0 1.4rem; font-size: .87rem; }
+.loy-table th { text-align: left; font-weight: 600; color: var(--text-muted);
+                font-size: .78rem; padding: .45rem .6rem; border-bottom: 1px solid var(--border); }
+.loy-table td { padding: .55rem .6rem; border-bottom: 1px solid var(--border); }
+.loy-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.loy-table .num.neg { color: #b3261e; }
+.loy-table tr.off { opacity: .5; }
+.loy-empty { color: var(--text-muted); text-align: center; padding: 1.2rem 0; }
+
+.loy-ic { display: inline-block; width: 1.2rem; color: var(--primary); }
+.loy-desc { display: block; font-style: normal; font-size: .76rem;
+            color: var(--text-muted); margin-left: 1.2rem; }
+.loy-pts { width: 5.5rem; text-align: right; padding: .25rem .4rem;
+           border: 1px solid var(--border); border-radius: 5px; background: var(--card);
+           color: var(--text); font-variant-numeric: tabular-nums; }
+
+.loy-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin: .4rem 0 1.6rem; }
+.loy-btn { padding: .5rem 1rem; border-radius: 6px; border: 1px solid var(--primary);
+           background: var(--primary); color: #fff; font-size: .85rem; cursor: pointer; }
+.loy-btn:disabled { opacity: .45; cursor: not-allowed; }
+.loy-note { font-size: .78rem; color: var(--text-muted); }
+
+.loy-tabs { display: flex; gap: .4rem; margin: 1.4rem 0 .2rem; }
+.loy-tabs button { padding: .38rem .85rem; border-radius: 6px; border: 1px solid var(--border);
+                   background: transparent; color: var(--text-muted); font-size: .82rem; cursor: pointer; }
+.loy-tabs button.on { background: var(--card); color: var(--text); border-color: var(--primary); }

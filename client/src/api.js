@@ -1307,6 +1307,38 @@ export async function getAbcPortalRun(month) {
   return data.run;
 }
 
+// ── Loyalty ──────────────────────────────────────────────────────────────────
+
+async function loyGet(path) {
+  const res = await fetch(`${API}/loyalty${path}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Loyalty request failed');
+  return data;
+}
+
+export const getLoyaltyStats    = () => loyGet('/stats');
+export const getLoyaltyRules    = () => loyGet('/rules');
+export const getLoyaltyBalances = () => loyGet('/balances');
+export const getLoyaltyLedger   = () => loyGet('/ledger');
+
+export async function putLoyaltyRule(key, patch) {
+  const res = await fetch(`${API}/loyalty/rules/${key}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save the rule');
+  return data;
+}
+
+export async function runLoyaltyBackfill({ months = 12, dryRun = false } = {}) {
+  const res = await fetch(`${API}/loyalty/backfill`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ months, dryRun }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Backfill failed');
+  return data;
+}
+
 // ── Kindred app (friend.kindredvineyards.com) ────────────────────────────────
 
 export async function getKindredMembers({ filter = 'all', search = '', limit = 100, offset = 0 } = {}) {
