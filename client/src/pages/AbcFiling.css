@@ -48,6 +48,26 @@
 .abc-filed-btn:disabled { opacity: .45; cursor: not-allowed; }
 .abc-actions-note { font-size: .82rem; color: #b3261e; }
 
+/* Portal run — deliberately a quieter colour than the green "record as filed"
+   button, because filling the portal is the reversible half of the job. */
+.abc-portal-btn { padding: .55rem 1.1rem; border-radius: 6px; border: 1px solid #2a5d8f;
+                  background: #2a5d8f; color: #fff; font-size: .87rem; cursor: pointer; }
+.abc-portal-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.abc-portal-run { border: 1px solid #ddd; border-left-width: 4px; border-radius: 6px;
+                  padding: .7rem .9rem; margin: .4rem 0 .2rem; }
+.abc-portal-saved { border-left-color: #1b6b32; }
+.abc-portal-saved_with_mismatches { border-left-color: #b3801e; }
+.abc-portal-failed { border-left-color: #b3261e; }
+.abc-portal-dry_run,
+.abc-portal-running { border-left-color: #888; }
+
+.abc-portal-line { display: flex; justify-content: space-between; align-items: baseline;
+                   gap: .8rem; flex-wrap: wrap; font-size: .88rem; }
+.abc-portal-when { color: #888; font-size: .8rem; }
+.abc-mismatch { margin-top: .6rem; }
+.abc-mismatch em { color: #888; font-style: normal; font-size: .8rem; }
+
 @media (max-width: 640px) {
   .abc-checks li { grid-template-columns: 1.2rem 1fr; }
   .abc-checks li .abc-check-detail { grid-column: 2; }

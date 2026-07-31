@@ -408,7 +408,8 @@ router.get('/isp', requireOwner, async (req, res) => {
   try {
     const r = await query(
       `SELECT isp_username,
-              isp_password IS NOT NULL AND isp_password != '' AS isp_configured
+              isp_password IS NOT NULL AND isp_password != '' AS isp_configured,
+              COALESCE(abc_autofill_enabled, false) AS abc_autofill_enabled
        FROM company_integrations WHERE company_id = $1`,
       [companyId(req)]
     );
@@ -416,6 +417,7 @@ router.get('/isp', requireOwner, async (req, res) => {
     res.json({
       isp_username:  row?.isp_username || '',
       isp_configured: !!row?.isp_configured,
+      abc_autofill_enabled: !!row?.abc_autofill_enabled,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -424,17 +426,19 @@ router.get('/isp', requireOwner, async (req, res) => {
 
 // PUT /settings/isp — save username + password
 router.put('/isp', requireOwner, async (req, res) => {
-  const { isp_username, isp_password } = req.body ?? {};
+  const { isp_username, isp_password, abc_autofill_enabled } = req.body ?? {};
   try {
     await query(
-      `INSERT INTO company_integrations (company_id, isp_username, isp_password, updated_by)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO company_integrations (company_id, isp_username, isp_password, abc_autofill_enabled, updated_by)
+       VALUES ($1, $2, $3, COALESCE($5, false), $4)
        ON CONFLICT (company_id) DO UPDATE SET
          isp_username = COALESCE(NULLIF($2,''), company_integrations.isp_username),
          isp_password = COALESCE(NULLIF($3,''), company_integrations.isp_password),
+         abc_autofill_enabled = COALESCE($5, company_integrations.abc_autofill_enabled),
          updated_at   = NOW(),
          updated_by   = $4`,
-      [companyId(req), isp_username?.trim() || null, isp_password || null, req.userId]
+      [companyId(req), isp_username?.trim() || null, isp_password || null, req.userId,
+       typeof abc_autofill_enabled === 'boolean' ? abc_autofill_enabled : null]
     );
     res.json({ ok: true });
   } catch (err) {

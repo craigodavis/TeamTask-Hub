@@ -3139,6 +3139,31 @@ const MIGRATIONS = [
      last_alerted_at   TIMESTAMPTZ,
      PRIMARY KEY (company_id, purchase_id)
    )`,
+  // 125: record of every attempt to put a report on the Idaho ABC portal.
+  // `observed` is the point of this table: after saving, the automation reads
+  // the values back off the portal and stores what it actually saw, separately
+  // from what it meant to enter. "Saved on the portal" then becomes a checked
+  // fact rather than a claim — which is exactly what went wrong when an agent
+  // reported a save that had never happened.
+  `CREATE TABLE IF NOT EXISTS abc_portal_runs (
+     id           SERIAL PRIMARY KEY,
+     company_id   UUID NOT NULL,
+     period_month DATE NOT NULL,
+     status       VARCHAR(20) NOT NULL,
+     trigger      VARCHAR(20) NOT NULL,
+     entered      JSONB,
+     observed     JSONB,
+     mismatches   JSONB,
+     screenshot   TEXT,
+     error        TEXT,
+     started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     finished_at  TIMESTAMPTZ
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_abc_portal_runs_company_month
+     ON abc_portal_runs(company_id, period_month DESC, started_at DESC)`,
+  // Off by default: filling a state compliance form on a schedule is opt-in.
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS abc_autofill_enabled BOOLEAN NOT NULL DEFAULT false`,
 ];
 
 export async function runMigrations() {

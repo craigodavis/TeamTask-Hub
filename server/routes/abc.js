@@ -14,6 +14,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { computeFiling, saveDraft } from '../lib/abcFiling.js';
+import { runAbcPortalFill, lastPortalRun } from '../lib/abcPortal.js';
 
 const router = express.Router();
 
@@ -159,6 +160,34 @@ router.get('/isp-credentials', async (req, res) => {
       return res.status(404).json({ error: 'ISP portal credentials are not configured in Settings yet.' });
     }
     res.json({ username: row.isp_username, password: row.isp_password });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/abc/filing/:month/portal-fill ──────────────────────────────────
+// Drives the state portal: fills the report and saves it, never submits.
+// Signed-in humans only — a service token cannot start a portal session, so an
+// agent can't quietly file on the licensee's behalf.
+router.post('/filing/:month/portal-fill', async (req, res) => {
+  if (req.isServiceToken) {
+    return res.status(403).json({ error: 'Portal runs must be started by a signed-in user.' });
+  }
+  try {
+    const result = await runAbcPortalFill(cid(req), req.params.month, {
+      dryRun: req.body?.dryRun === true,
+      trigger: 'manual',
+    });
+    res.status(result.ok ? 200 : 422).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/abc/portal-run/:month ───────────────────────────────────────────
+router.get('/portal-run/:month', async (req, res) => {
+  try {
+    res.json({ run: await lastPortalRun(cid(req), req.params.month) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
