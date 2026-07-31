@@ -176,35 +176,45 @@ export function AbcFiling() {
           </table>
 
           {/* ── Backup ───────────────────────────────────────────────────── */}
+          {/* Only a freshly computed filing carries the source breakdown. A
+              hand-reconciled month is served straight from storage and has no
+              salesBreakdown/productionRuns to show. */}
           <h3 className="abc-h3">Where the numbers came from</h3>
-          <div className="abc-backup">
-            <div>
-              <h4>Sales to consumers</h4>
-              <table className="abc-table"><tbody>
-                <tr><td>Commerce7 bottles</td><td className="num">{GAL(d.salesBreakdown.commerce7Bottles)}</td></tr>
-                <tr><td>Square bottles</td><td className="num">{GAL(d.salesBreakdown.squareBottles)}</td></tr>
-                <tr><td>Wine by the glass</td><td className="num">{GAL(d.salesBreakdown.wineGlasses)}</td></tr>
-                <tr><td>Paid tastings</td><td className="num">{GAL(d.salesBreakdown.paidTastings)}</td></tr>
-              </tbody></table>
-            </div>
-            <div>
-              <h4>Production</h4>
-              {d.productionRuns.length === 0 ? (
-                <p className="abc-empty">No bottling runs dated in {month}.</p>
-              ) : (
+          {d.source === 'stored' ? (
+            <p className="abc-empty">
+              These figures come from the original hand reconciliation, not a live
+              computation, so there is no source breakdown to show. Enter them as-is.
+            </p>
+          ) : (
+            <div className="abc-backup">
+              <div>
+                <h4>Sales to consumers</h4>
                 <table className="abc-table"><tbody>
-                  {d.productionRuns.map((r, i) => (
-                    <tr key={i}>
-                      <td>{r.name} <em>{r.date}</em>
-                        {r.cases === null && <strong className="abc-warn"> — no case count</strong>}
-                      </td>
-                      <td className="num">{r.cases === null ? '—' : `${r.cases} cs / ${GAL(r.gallons)}`}</td>
-                    </tr>
-                  ))}
+                  <tr><td>Commerce7 bottles</td><td className="num">{GAL(d.salesBreakdown?.commerce7Bottles)}</td></tr>
+                  <tr><td>Square bottles</td><td className="num">{GAL(d.salesBreakdown?.squareBottles)}</td></tr>
+                  <tr><td>Wine by the glass</td><td className="num">{GAL(d.salesBreakdown?.wineGlasses)}</td></tr>
+                  <tr><td>Paid tastings</td><td className="num">{GAL(d.salesBreakdown?.paidTastings)}</td></tr>
                 </tbody></table>
-              )}
+              </div>
+              <div>
+                <h4>Production</h4>
+                {(d.productionRuns?.length ?? 0) === 0 ? (
+                  <p className="abc-empty">No bottling runs dated in {month}.</p>
+                ) : (
+                  <table className="abc-table"><tbody>
+                    {d.productionRuns.map((r, i) => (
+                      <tr key={i}>
+                        <td>{r.name} <em>{r.date}</em>
+                          {r.cases === null && <strong className="abc-warn"> — no case count</strong>}
+                        </td>
+                        <td className="num">{r.cases === null ? '—' : `${r.cases} cs / ${GAL(r.gallons)}`}</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="abc-actions">
             <button
