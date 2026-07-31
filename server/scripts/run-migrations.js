@@ -3263,6 +3263,14 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS photo_path TEXT`,
   `ALTER TABLE club_steward.member_accounts
      ADD COLUMN IF NOT EXISTS photo_updated_at TIMESTAMPTZ`,
+  // The pickup points reward collecting PROMPTLY, not collecting at all: wine
+  // left sitting is inventory the winery is holding on someone else's behalf.
+  // 300-for-any-pickup became 400-within-30-days.
+  `UPDATE loyalty_rules
+      SET label = 'Pick up a release within 30 days',
+          description = 'Collect within 30 days of the release',
+          points = 400, updated_at = NOW()
+    WHERE rule_key = 'club_pickup' AND points = 300`,
 ];
 
 export async function runMigrations() {

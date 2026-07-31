@@ -17,6 +17,15 @@
  */
 import { query } from '../db.js';
 
+/** Collect within this many days of the release to earn the pickup points. */
+export const PICKUP_WINDOW_DAYS = 30;
+
+/**
+ * Least members a processing run must ship to before it counts as a release.
+ * Commerce7 carries one-member test packages alongside the real quarterly runs.
+ */
+const MIN_RELEASE_SHIPMENTS = 5;
+
 /** Active earn rules, in display order. */
 export async function getRules(companyId, { includeInactive = false } = {}) {
   const r = await query(
@@ -105,33 +114,55 @@ export async function runBackfill(companyId, {
   const tag = batch || `backfill-${months}mo`;
   const summary = { batch: tag, dryRun, months, rules: {}, totalPoints: 0, totalEntries: 0, members: 0 };
 
-  // ── Club pickups ───────────────────────────────────────────────────────────
+  // ── Club pickups, collected promptly ───────────────────────────────────────
+  // The points reward collecting within PICKUP_WINDOW_DAYS of the release, not
+  // collecting at all: wine left sitting is inventory the winery is holding on
+  // someone else's behalf. A late pickup earns nothing.
   const pickupPts = await rulePoints(companyId, 'club_pickup');
   if (pickupPts) {
     const rows = (await query(
-      `SELECT p.id, p.customer_id, p.signed_at, p.customer_name
+      `WITH releases AS (
+         -- A release is a processing run that shipped to a real number of
+         -- members. Commerce7 also carries one-member test packages (Jan 10,
+         -- Feb 8, Jul 31 2026); left in, a test would reset the clock and make
+         -- a genuinely late pickup look punctual.
+         SELECT DISTINCT process_date::date AS d
+           FROM commerce7.club_package
+          WHERE company_id = $1
+            AND process_date IS NOT NULL
+            AND COALESCE(club_member_shipment_count, 0) >= $3
+       )
+       SELECT p.id, p.customer_id, p.signed_at, p.customer_name,
+              (SELECT max(d) FROM releases WHERE d <= p.signed_at::date) AS release_date
          FROM club_steward.pickup_signatures p
         WHERE p.company_id = $1
           AND p.signed_at >= NOW() - ($2 || ' months')::interval
           AND EXISTS (SELECT 1 FROM club_steward.club_members m
                        WHERE m.id::text = p.customer_id)
         ORDER BY p.signed_at`,
-      [companyId, String(months)]
+      [companyId, String(months), MIN_RELEASE_SHIPMENTS]
     )).rows;
 
-    let awarded = 0;
+    let awarded = 0; let late = 0; let noRelease = 0;
     for (const row of rows) {
+      if (!row.release_date) { noRelease++; continue; }
+      const days = Math.floor(
+        (new Date(row.signed_at) - new Date(row.release_date)) / 86400000);
+      if (days > PICKUP_WINDOW_DAYS) { late++; continue; }
+
       if (dryRun) { awarded++; continue; }
       const res = await award(companyId, row.customer_id, {
         points: pickupPts, ruleKey: 'club_pickup',
-        reason: 'Picked up a release', sourceKind: 'pickup_signature',
-        sourceId: String(row.id), idempotencyKey: `club_pickup:${row.id}`,
+        reason: `Picked up a release within ${PICKUP_WINDOW_DAYS} days`,
+        sourceKind: 'pickup_signature', sourceId: String(row.id),
+        idempotencyKey: `club_pickup:${row.id}`,
         batch: tag, occurredAt: row.signed_at,
       });
       if (res.awarded) awarded++;
     }
     summary.rules.club_pickup = {
-      points: pickupPts, matched: rows.length, awarded,
+      points: pickupPts, windowDays: PICKUP_WINDOW_DAYS,
+      matched: rows.length, awarded, late, noRelease,
       totalPoints: awarded * pickupPts,
     };
     summary.totalEntries += awarded;
