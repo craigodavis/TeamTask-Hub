@@ -15,6 +15,12 @@
  * through member_accounts.commerce7_customer_id.
  */
 import express from 'express';
+import crypto from 'crypto';
+import path from 'path';
+import fs from 'fs/promises';
+import { fileURLToPath } from 'url';
+import multer from 'multer';
+import sharp from 'sharp';
 import { query } from '../db.js';
 import { requireAuth, requireManager, requireOwner } from '../middleware/auth.js';
 import { requireMemberSession } from './clubNotifications.js';
@@ -25,6 +31,19 @@ import {
 
 const router = express.Router();
 function cid(req) { return req.companyId || req.user?.company_id; }
+
+const PHOTO_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'uploads', 'member-photos');
+// Held in memory, never written as uploaded: the bytes go through sharp first,
+// which re-encodes them. A file that only claims to be a JPEG does not survive
+// that, and nothing attacker-supplied reaches disk under its own name.
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) return cb(new Error('That does not look like a photo.'));
+    cb(null, true);
+  },
+});
 
 // ── Member-facing ────────────────────────────────────────────────────────────
 // Mounted under /api/kindred-app so it sits with the app's other member routes.
@@ -42,6 +61,67 @@ memberRouter.get('/me/loyalty', requireMemberSession, async (req, res) => {
       return res.json({ balance: 0, rules: await getRules(req.companyId), history: [] });
     }
     res.json(await getMemberSummary(req.companyId, acct.commerce7_customer_id));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * POST /me/photo — the member's profile picture, and the one-time 500 points.
+ *
+ * The award is keyed on the customer, not the upload, so replacing the photo
+ * later does not pay again. The points are only claimed once the image is
+ * safely on disk: awarding first would leave a member paid for a photo that
+ * failed to save.
+ */
+memberRouter.post('/me/photo', requireMemberSession, photoUpload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No photo was received.' });
+  try {
+    const acct = (await query(
+      `SELECT commerce7_customer_id, photo_path FROM club_steward.member_accounts WHERE id = $1`,
+      [req.memberAccountId])).rows[0];
+
+    await fs.mkdir(PHOTO_DIR, { recursive: true });
+    const name = `${crypto.randomBytes(16).toString('hex')}.jpg`;
+    await sharp(req.file.buffer)
+      .rotate()                                   // honour EXIF; phone photos are often sideways
+      .resize(800, 800, { fit: 'cover', position: 'attention' })
+      .jpeg({ quality: 82 })
+      .toFile(path.join(PHOTO_DIR, name));
+
+    const rel = `member-photos/${name}`;
+    await query(
+      `UPDATE club_steward.member_accounts
+          SET photo_path = $2, photo_updated_at = NOW() WHERE id = $1`,
+      [req.memberAccountId, rel]);
+
+    // Replacing a photo should not orphan the old file.
+    if (acct?.photo_path && acct.photo_path !== rel) {
+      fs.unlink(path.join(PHOTO_DIR, '..', acct.photo_path)).catch(() => {});
+    }
+
+    let awarded = 0;
+    if (acct?.commerce7_customer_id) {
+      const rule = (await getRules(req.companyId)).find((r) => r.rule_key === 'profile_photo');
+      if (rule) {
+        const out = await award(req.companyId, acct.commerce7_customer_id, {
+          points: rule.points, ruleKey: 'profile_photo',
+          reason: 'Added a profile photo', sourceKind: 'member_photo',
+          sourceId: rel,
+          // One-time: keyed on the member, so a re-upload never pays twice.
+          idempotencyKey: `profile_photo:${acct.commerce7_customer_id}`,
+        });
+        if (out.awarded) awarded = rule.points;
+      }
+    }
+    res.json({ ok: true, photoUrl: `/api/uploads/${rel}`, pointsAwarded: awarded });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+memberRouter.get('/me/photo', requireMemberSession, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT photo_path FROM club_steward.member_accounts WHERE id = $1`, [req.memberAccountId]);
+    const p = r.rows[0]?.photo_path;
+    res.json({ photoUrl: p ? `/api/uploads/${p}` : null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

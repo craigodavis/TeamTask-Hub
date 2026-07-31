@@ -3256,6 +3256,13 @@ const MIGRATIONS = [
      ('8d2df498-b5c0-4f73-94cd-323956036113','referral','Refer a friend','When they join',1000,'♥',true,false,4),
      ('8d2df498-b5c0-4f73-94cd-323956036113','purchase','Purchase','Points per dollar spent',1,'$',false,false,5)
    ON CONFLICT (company_id, rule_key) DO NOTHING`,
+  // A member's profile photo. The file name carries a random token rather than
+  // the account id: uploads are served as static files, so a guessable path
+  // would let anyone enumerate members' faces.
+  `ALTER TABLE club_steward.member_accounts
+     ADD COLUMN IF NOT EXISTS photo_path TEXT`,
+  `ALTER TABLE club_steward.member_accounts
+     ADD COLUMN IF NOT EXISTS photo_updated_at TIMESTAMPTZ`,
 ];
 
 export async function runMigrations() {
