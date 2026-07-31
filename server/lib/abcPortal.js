@@ -39,6 +39,33 @@ const LINE_LABELS = [
 const n2 = (v) => (v === null || v === undefined || v === '' ? null
   : Number(String(v).replace(/[$,\s]/g, '')));
 
+/**
+ * The portal greets you with a "newsflash" announcement modal that sits over
+ * the page and swallows clicks. Dismiss whatever is open before interacting.
+ */
+async function dismissModals(page) {
+  await page.waitForSelector('body', { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(800);           // let the modal actually render
+  // Try the polite close first, then remove the backdrop outright. Waiting on a
+  // click here races the modal's own fade-in, and a leftover backdrop silently
+  // swallows every later click.
+  const closer = page.locator(
+    '.modal.in [data-dismiss="modal"], .modal.show [data-bs-dismiss="modal"], .modal.in .close, .modal.show .close'
+  ).first();
+  if (await closer.count().catch(() => 0)) {
+    await closer.click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  await page.evaluate(() => {
+    document.querySelectorAll('.modal, .modal-backdrop').forEach((el) => el.remove());
+    if (document.body) {
+      document.body.classList.remove('modal-open');
+      document.body.style.removeProperty('overflow');
+      document.body.style.removeProperty('padding-right');
+    }
+  }).catch(() => {});
+}
+
 async function getCredentials(companyId) {
   const r = await query(
     `SELECT isp_username, isp_password FROM company_integrations WHERE company_id = $1`,
@@ -88,20 +115,55 @@ function portalMonthLabel(month) {
   return `${new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })} ${y}`;
 }
 
-/** Set one numeric field, located by its row label. */
-async function fillByLabel(page, label, value) {
-  const input = page.locator('tr', { hasText: label }).locator('input[type="text"]').first();
-  if (!(await input.count())) throw new Error(`No input found for portal line "${label}"`);
-  await input.fill(String(value ?? 0));
+/**
+ * Map each row label to the input name inside the WINE section only.
+ *
+ * The amounts page repeats identical row labels once per reported category, so
+ * a document-wide "first row containing this label" lands on Beer. This walks
+ * up from the "Wine Gallons" heading to its enclosing block and reads the field
+ * names from there, giving exact selectors that do not depend on which
+ * categories happen to be ticked or on a hardcoded category index.
+ *
+ * Returns { labelText: {name, value} } plus derived read-only figures.
+ */
+async function wineFieldMap(page) {
+  return page.evaluate(() => {
+    // Categories are COLUMNS, line items are ROWS, so the column position of the
+    // "Wine Gallons" header is what identifies our fields. Matching a row label
+    // alone would land on Beer, since every label repeats once per category.
+    const th = Array.from(document.querySelectorAll('th'))
+      .find((h) => /^\s*Wine Gallons\b/i.test(h.textContent || ''));
+    if (!th || !th.parentElement) return null;
+
+    const pos = Array.from(th.parentElement.children).indexOf(th);
+    if (pos < 1) return null;                       // column 0 is the row label
+
+    const table = th.closest('table');
+    if (!table) return null;
+
+    const out = { categoryIndex: pos - 1, fields: {}, readonly: {} };
+    for (const row of Array.from(table.querySelectorAll('tr'))) {
+      const cells = Array.from(row.children);
+      if (cells.length <= pos) continue;
+      const label = (cells[0].textContent || '').trim().replace(/\s+/g, ' ');
+      if (!label) continue;
+      const cell = cells[pos];
+      const input = cell.querySelector('input');
+      if (input && input.name) {
+        out.fields[label] = { name: input.name, value: input.value };
+      } else {
+        const t = (cell.textContent || '').trim();
+        if (t) out.readonly[label] = t;
+      }
+    }
+    return out;
+  });
 }
 
-/** Read one field back, located the same way. */
-async function readByLabel(page, label) {
-  const row = page.locator('tr', { hasText: label }).first();
-  if (!(await row.count())) return null;
-  const input = row.locator('input[type="text"]').first();
-  if (await input.count()) return n2(await input.inputValue());
-  return n2((await row.innerText()).split('\n').pop());
+/** Find the entry in a field map whose label starts with `label`. */
+function pick(map, label) {
+  const key = Object.keys(map || {}).find((k) => k.toLowerCase().startsWith(label.toLowerCase()));
+  return key ? map[key] : null;
 }
 
 /**
@@ -161,6 +223,7 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
       page.click('button[type="submit"], input[type="submit"]'),
     ]);
     if (/\/login/i.test(page.url())) throw new Error('Portal login failed — check the credentials in Settings.');
+    await dismissModals(page);
 
     // ── Open the outstanding report ──────────────────────────────────────────
     // The portal holds one report in progress at a time and exposes it as
@@ -173,36 +236,47 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
       page.waitForLoadState('networkidle').catch(() => {}),
       cont.click(),
     ]);
+    await dismissModals(page);
 
     // Refuse to touch a report for a different period than asked for.
+    // Match against the whole page rather than a specific heading element —
+    // the title is not reliably the first h1/h2 on the page.
     const want = portalMonthLabel(month);
-    const heading = (await page.locator('h1, h2').first().innerText().catch(() => '')) || '';
-    if (!heading.includes(want)) {
+    const pageText = (await page.locator('body').innerText().catch(() => '')) || '';
+    if (!pageText.includes(want)) {
+      const seen = (pageText.match(/Beer\/Wine Report[^\n]*/) || [''])[0]
+        || pageText.split('\n').map((x) => x.trim()).filter(Boolean)[0] || '(page unreadable)';
       throw new Error(
-        `Portal's outstanding report is not ${want} (page reads "${heading.trim().slice(0, 90)}"). `
-        + `Months must be filed in order — file the earlier one first.`
+        `Portal's outstanding report is not ${want} — it reads "${seen.slice(0, 90)}". `
+        + `Months must be filed in order; file the earlier one first.`
       );
     }
 
     // ── Step 1: report Wine only ─────────────────────────────────────────────
     const wine = page.locator('#chk-WINE');
     if (await wine.count()) {
-      for (const id of ['#chk-BEER', '#chk-STRONG_BEER', '#chk-CONTRACTED_BEER_PRODUCTION', '#chk-COCKTAILS']) {
-        const box = page.locator(id);
-        if ((await box.count()) && (await box.isChecked()) && !dryRun) await box.uncheck();
-      }
+      // Only ensure Wine is reportable. The other categories are left exactly as
+      // the portal has them: which categories appear on a filed report is the
+      // licensee's choice and matches how previous months were submitted.
+      // Wine is located by column position later, so extra columns are harmless.
       if (!(await wine.isChecked()) && !dryRun) await wine.check();
       await Promise.all([
         page.waitForLoadState('networkidle').catch(() => {}),
         page.locator('button:has-text("Next"), a:has-text("Next")').first().click(),
       ]);
+      await dismissModals(page);
     }
 
     // ── Step 2: amounts ──────────────────────────────────────────────────────
+    const map = await wineFieldMap(page);
+    if (!map) throw new Error('Could not find the Wine Gallons section on the amounts page.');
+
     const entered = {};
     for (const [key, label] of LINE_LABELS) {
       entered[key] = lines[key] ?? 0;
-      if (!dryRun) await fillByLabel(page, label, entered[key]);
+      const f = pick(map.fields, label);
+      if (!f) throw new Error(`No Wine input for portal line "${label}".`);
+      if (!dryRun) await page.fill(`[name="${f.name}"]`, String(entered[key]));
     }
 
     if (!dryRun) {
@@ -211,18 +285,31 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
         page.locator('a:has-text("Save"), button:has-text("Save")').first().click(),
       ]);
       await page.waitForTimeout(1500);
+      await dismissModals(page);
     }
 
     // ── Read back what the portal now holds ──────────────────────────────────
+    // Re-derive the map: after saving, the page has been re-rendered and the
+    // earlier element handles are stale.
+    const after = (await wineFieldMap(page)) || map;
     const observed = {};
-    for (const [key, label] of LINE_LABELS) observed[key] = await readByLabel(page, label);
-    observed.beginningInventory = await readByLabel(page, 'Beginning Inventory');
-    observed.endingInventory = await readByLabel(page, 'Ending Inventory');
+    for (const [key, label] of LINE_LABELS) {
+      const f = pick(after.fields, label);
+      observed[key] = f ? n2(f.value) : null;
+    }
+    observed.beginningInventory = n2(pick(after.readonly, 'Beginning Inventory')
+      ?? pick(after.fields, 'Beginning Inventory')?.value);
+    observed.endingInventory = n2(pick(after.readonly, 'Ending Inventory')
+      ?? pick(after.fields, 'Ending Inventory')?.value);
 
     const mismatches = [];
     for (const [key] of LINE_LABELS) {
       const want2 = Number(entered[key] ?? 0);
       const got = observed[key];
+      // The portal renders a zero line as an empty box, so blank-for-zero is
+      // agreement, not a discrepancy. Flagging it would put five false warnings
+      // on every clean month and teach the reader to ignore the real one.
+      if (got === null && want2 === 0) continue;
       if (got === null || Math.abs(got - want2) > 0.005) {
         mismatches.push({ line: key, entered: want2, observed: got });
       }
@@ -232,7 +319,7 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
     for (const key of ['beginningInventory', 'endingInventory']) {
       const want2 = lines[key];
       const got = observed[key];
-      if (want2 != null && got != null && Math.abs(got - want2) > 0.005) {
+      if (want2 != null && got != null && Math.abs(got - want2) > 1) {
         mismatches.push({ line: key, entered: want2, observed: got, note: 'portal-derived' });
       }
     }

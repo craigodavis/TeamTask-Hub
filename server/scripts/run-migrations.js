@@ -3164,6 +3164,9 @@ const MIGRATIONS = [
   // Off by default: filling a state compliance form on a schedule is opt-in.
   `ALTER TABLE company_integrations
      ADD COLUMN IF NOT EXISTS abc_autofill_enabled BOOLEAN NOT NULL DEFAULT false`,
+  // 'saved_with_mismatches' is 21 characters and silently blew the 20-char cap,
+  // failing the run record after the portal work had already succeeded.
+  `ALTER TABLE abc_portal_runs ALTER COLUMN status TYPE VARCHAR(32)`,
 ];
 
 export async function runMigrations() {
