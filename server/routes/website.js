@@ -480,3 +480,53 @@ websiteRouter.get('/app-tenant', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+/**
+ * GET /api/website/zip/:zip  →  { city, stateCode }
+ *
+ * So the club signup can ask for a ZIP and fill in city and state, instead of
+ * making someone type all three.
+ *
+ * Proxied through here rather than called from the page, deliberately: /join
+ * carries a strict CSP with no third-party origins precisely because it is the
+ * screen with a card field on it. Punching a hole in that policy to save two
+ * fields of typing would be a poor trade, so the outside call happens here.
+ *
+ * Our own customers answer most lookups without leaving the building — the
+ * addresses already on file cover the ZIPs local guests actually use. Anything
+ * unseen falls through to a public ZIP directory, and the answer is remembered
+ * for the life of the process so the same ZIP is never fetched twice.
+ */
+const zipCache = new Map();
+
+websiteRouter.get('/zip/:zip', async (req, res) => {
+  const zip = String(req.params.zip || '').replace(/\D/g, '').slice(0, 5);
+  if (zip.length !== 5) return res.status(400).json({ error: 'Five-digit ZIP required.' });
+  if (zipCache.has(zip)) return res.json(zipCache.get(zip));
+
+  const remember = (v) => { zipCache.set(zip, v); return res.json(v); };
+
+  try {
+    // Addresses we already hold. Most-used spelling wins, since the same ZIP
+    // gets typed several ways ("Caldwell", "caldwell", "CALDWELL").
+    const local = await query(
+      `SELECT city, state_code, count(*)::int n
+         FROM club_steward.club_members
+        WHERE regexp_replace(COALESCE(zip_code, ''), '[^0-9]', '', 'g') LIKE $1 || '%'
+          AND city IS NOT NULL AND state_code IS NOT NULL
+        GROUP BY city, state_code ORDER BY n DESC LIMIT 1`, [zip]);
+    if (local.rows.length) {
+      return remember({ city: local.rows[0].city, stateCode: local.rows[0].state_code });
+    }
+
+    const r = await fetch(`https://api.zippopotam.us/us/${zip}`, { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) return res.status(404).json({ error: 'Unknown ZIP.' });
+    const j = await r.json();
+    const place = (j.places || [])[0];
+    if (!place) return res.status(404).json({ error: 'Unknown ZIP.' });
+    return remember({ city: place['place name'], stateCode: place['state abbreviation'] });
+  } catch (e) {
+    // A lookup failure must never block the signup — the guest types it in.
+    res.status(404).json({ error: 'Could not look that ZIP up.' });
+  }
+});
