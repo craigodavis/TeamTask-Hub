@@ -33,6 +33,24 @@ function to24(h12, min, ap) {
   return `${String(h).padStart(2, '0')}:${min}`;
 }
 
+// Dates a seasonal rule actually covers. Shown under the rule so "August
+// Saturdays" is concrete before it's saved — this is what catches an off-by-one
+// or a window that quietly covers nothing.
+function seasonDates(dow, from, to, cap = 40) {
+  if (!from || !to || to < from) return [];
+  const out = [];
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  let t = Date.UTC(fy, fm - 1, fd);
+  const end = Date.UTC(ty, tm - 1, td);
+  while (t <= end && out.length < cap) {
+    const d = new Date(t);
+    if (d.getUTCDay() === Number(dow)) out.push(d);
+    t += 86400000;
+  }
+  return out;
+}
+
 function TimeField({ value, onChange }) {
   const { h12, min, ap } = parse24(value);
   const emit = (nh, nm, na) => onChange(to24(nh, nm, na));
@@ -58,6 +76,7 @@ function TimeField({ value, onChange }) {
 export function HoursEditor() {
   const [locations, setLocations] = useState([]);
   const [sched, setSched] = useState({}); // locId -> array[7] of [{opens,closes}]
+  const [seasons, setSeasons] = useState({}); // locId -> [{day_of_week,opens,closes,from_date,to_date,label}]
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [savingId, setSavingId] = useState(null);
@@ -69,13 +88,24 @@ export function HoursEditor() {
     try {
       const { locations } = await getHours();
       setLocations(locations);
-      const s = {};
+      const s = {}, sea = {};
       for (const loc of locations) {
         const days = Array.from({ length: 7 }, () => []);
-        for (const r of loc.regular) days[r.day_of_week].push({ opens: r.opens, closes: r.closes });
+        const seasonal = [];
+        for (const r of loc.regular) {
+          // A row with a date window is a season; without one it's the year-round rule.
+          if (r.from_date || r.to_date) {
+            seasonal.push({ day_of_week: r.day_of_week, opens: r.opens, closes: r.closes,
+                            from_date: r.from_date || '', to_date: r.to_date || '', label: r.label || '' });
+          } else {
+            days[r.day_of_week].push({ opens: r.opens, closes: r.closes });
+          }
+        }
         s[loc.id] = days;
+        sea[loc.id] = seasonal;
       }
       setSched(s);
+      setSeasons(sea);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -93,6 +123,14 @@ export function HoursEditor() {
   const removeIv = (locId, dow, idx) =>
     setDay(locId, dow, sched[locId][dow].filter((_, i) => i !== idx));
 
+  const setSeason = (locId, idx, key, val) =>
+    setSeasons((prev) => ({ ...prev, [locId]: prev[locId].map((r, i) => (i === idx ? { ...r, [key]: val } : r)) }));
+  const addSeason = (locId) =>
+    setSeasons((prev) => ({ ...prev, [locId]: [...(prev[locId] || []),
+      { day_of_week: 6, opens: '12:00', closes: '22:00', from_date: '', to_date: '', label: '' }] }));
+  const removeSeason = (locId, idx) =>
+    setSeasons((prev) => ({ ...prev, [locId]: prev[locId].filter((_, i) => i !== idx) }));
+
   const copyPrevDay = (locId, dow) => {
     if (dow === 0) return;
     setDay(locId, dow, sched[locId][dow - 1].map((iv) => ({ ...iv })));
@@ -106,6 +144,9 @@ export function HoursEditor() {
       sched[locId].forEach((list, dow) =>
         list.forEach((iv) => { if (iv.opens && iv.closes) intervals.push({ day_of_week: dow, opens: iv.opens, closes: iv.closes }); })
       );
+      (seasons[locId] || []).forEach((r) => {
+        if (r.opens && r.closes && r.from_date && r.to_date) intervals.push({ ...r });
+      });
       await saveHours(locId, intervals);
       setSavedId(locId);
       setTimeout(() => setSavedId((s) => (s === locId ? null : s)), 1800);
@@ -174,6 +215,50 @@ export function HoursEditor() {
                 </div>
               );
             })}
+          </div>
+
+          <div className="specials">
+            <h3>Seasonal hours</h3>
+            <p className="hint">
+              A different closing time for one weekday over a stretch of dates &mdash; &ldquo;Saturdays in
+              August we&rsquo;re open until 10&rdquo;. These beat the weekly hours above, and a holiday
+              below beats both.
+            </p>
+            {(seasons[loc.id] || []).map((r, idx) => {
+              const hits = seasonDates(r.day_of_week, r.from_date, r.to_date);
+              return (
+                <div className="season-row" key={idx}>
+                  <div className="season-line">
+                    <select value={r.day_of_week} onChange={(e) => setSeason(loc.id, idx, 'day_of_week', Number(e.target.value))} aria-label="Weekday">
+                      {DAYS.map((d, i) => <option key={i} value={i}>{d}s</option>)}
+                    </select>
+                    <span className="lbl">from</span>
+                    <input type="date" value={r.from_date} onChange={(e) => setSeason(loc.id, idx, 'from_date', e.target.value)} aria-label="First date" />
+                    <span className="lbl">to</span>
+                    <input type="date" value={r.to_date} onChange={(e) => setSeason(loc.id, idx, 'to_date', e.target.value)} aria-label="Last date" />
+                    <TimeField value={r.opens} onChange={(v) => setSeason(loc.id, idx, 'opens', v)} />
+                    <span className="dash">&ndash;</span>
+                    <TimeField value={r.closes} onChange={(v) => setSeason(loc.id, idx, 'closes', v)} />
+                    <button className="mini" title="Remove" onClick={() => removeSeason(loc.id, idx)}>&#10005;</button>
+                  </div>
+                  <div className="season-line">
+                    <input className="season-label" type="text" placeholder="Name it, e.g. August late Saturdays"
+                           value={r.label} onChange={(e) => setSeason(loc.id, idx, 'label', e.target.value)} aria-label="Label" />
+                    <span className={hits.length ? 'season-hits' : 'season-hits warn'}>
+                      {!r.from_date || !r.to_date
+                        ? 'Pick a first and last date'
+                        : hits.length === 0
+                          ? 'No ' + DAYS[r.day_of_week] + 's fall in that range'
+                          : 'Affects ' + hits.length + ' ' + DAYS[r.day_of_week] + (hits.length === 1 ? '' : 's') + ': '
+                            + hits.slice(0, 6).map((d) => d.getUTCDate() + ' ' +
+                                ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]).join(', ')
+                            + (hits.length > 6 ? '\u2026' : '')}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+            <button className="mini" onClick={() => addSeason(loc.id)}>+ seasonal hours</button>
           </div>
 
           <div className="specials">

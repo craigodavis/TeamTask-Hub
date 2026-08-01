@@ -60,6 +60,17 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_kw_hours_loc ON kindred_web.hours(location_id, department, day_of_week)`,
 
+  // Seasonal hours: the SAME weekday rule, optionally bounded by a date window.
+  // Both NULL (every existing row) means "all year", so this needs no migration.
+  // "Saturdays in August we close at 10" is one row: day_of_week=6, from 08-01,
+  // to 08-31. Resolution is most-specific-wins — an exact-date row in
+  // hours_special beats a bounded rule, which beats the unbounded year-round one.
+  `ALTER TABLE kindred_web.hours ADD COLUMN IF NOT EXISTS from_date DATE`,
+  `ALTER TABLE kindred_web.hours ADD COLUMN IF NOT EXISTS to_date   DATE`,
+  `ALTER TABLE kindred_web.hours ADD COLUMN IF NOT EXISTS label     VARCHAR(80)`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_hours_season
+     ON kindred_web.hours(location_id, department, day_of_week, from_date, to_date)`,
+
   // Special / holiday hours + temporary closures for specific dates (override regular).
   `CREATE TABLE IF NOT EXISTS kindred_web.hours_special (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),

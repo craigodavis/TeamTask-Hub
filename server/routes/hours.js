@@ -26,9 +26,11 @@ router.get('/', async (req, res) => {
     for (const loc of locs.rows) {
       const reg = await query(
         `SELECT id, day_of_week,
-                to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes, sort
+                to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes, sort,
+                to_char(from_date,'YYYY-MM-DD') AS from_date,
+                to_char(to_date,'YYYY-MM-DD')   AS to_date, label
            FROM kindred_web.hours WHERE location_id = $1 AND department = $2
-          ORDER BY day_of_week, sort, opens`,
+          ORDER BY day_of_week, from_date NULLS FIRST, sort, opens`,
         [loc.id, DEPT]
       );
       const spec = await query(
@@ -92,10 +94,16 @@ router.put('/:locationId', requireManager, async (req, res) => {
     let sort = 0;
     for (const iv of intervals) {
       if (iv.day_of_week == null || !iv.opens || !iv.closes) continue;
+      // from_date/to_date empty => the year-round rule. Both set => a season.
+      const from = iv.from_date || null;
+      const to = iv.to_date || null;
+      if (from && to && to < from) continue; // ignore a window that ends before it starts
       await query(
-        `INSERT INTO kindred_web.hours (company_id, location_id, department, day_of_week, opens, closes, sort)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [cId(req), locationId, department, iv.day_of_week, iv.opens, iv.closes, sort++]
+        `INSERT INTO kindred_web.hours
+           (company_id, location_id, department, day_of_week, opens, closes, sort, from_date, to_date, label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [cId(req), locationId, department, iv.day_of_week, iv.opens, iv.closes, sort++,
+         from, to, (iv.label || '').trim().slice(0, 80) || null]
       );
     }
     res.json({ ok: true });

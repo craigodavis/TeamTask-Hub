@@ -9,6 +9,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { availableTimes, createBooking } from '../lib/resosClient.js';
+import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
@@ -223,13 +224,21 @@ websiteRouter.get('/hours', async (_req, res) => {
     const venues = [];
     for (const loc of locs.rows) {
       const reg = await query(
-        `SELECT day_of_week, to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes
+        `SELECT day_of_week, to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes,
+                to_char(from_date,'YYYY-MM-DD') AS from_date,
+                to_char(to_date,'YYYY-MM-DD') AS to_date, label
            FROM kindred_web.hours WHERE location_id = $1 AND department = 'main'
           ORDER BY day_of_week, sort, opens`,
         [loc.id]
       );
+      // `days` stays the plain weekly pattern — it's what the hours TABLE prints.
+      // Seasonal rules are deliberately kept out of it so the table doesn't claim
+      // August's hours apply all year; they surface via `upcoming` instead.
       const days = Array.from({ length: 7 }, (_, d) => ({ day: d, intervals: [] }));
-      for (const row of reg.rows) days[row.day_of_week].intervals.push({ opens: row.opens, closes: row.closes });
+      for (const row of reg.rows) {
+        if (row.from_date || row.to_date) continue;
+        days[row.day_of_week].intervals.push({ opens: row.opens, closes: row.closes });
+      }
 
       const spec = await query(
         `SELECT to_char(on_date,'YYYY-MM-DD') AS date, is_closed,
@@ -244,7 +253,21 @@ websiteRouter.get('/hours', async (_req, res) => {
            FROM kindred_web.venue_details WHERE location_id = $1`,
         [loc.id]
       );
-      venues.push({ venue: loc.web_slug, name: loc.name, days, specials: spec.rows, details: det.rows[0] || {} });
+      // Resolved next 60 days, and the subset that differs from the weekly pattern.
+      // `upcoming` is what the site shows as "different this week"; `today` drives
+      // the Open now badge so a seasonal rule is honoured there too.
+      const tz = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Boise' });
+      const today = tz.format(new Date());
+      const specialRows = spec.rows.map((r) => ({ ...r, on_date: r.date }));
+      const upcoming = exceptions(reg.rows, specialRows, today, addDays(today, 60))
+        .map((d) => ({ date: d.date, closed: d.closed, intervals: d.intervals, label: d.label, source: d.source }));
+
+      venues.push({
+        venue: loc.web_slug, name: loc.name, days,
+        today: resolveDay(reg.rows, specialRows, today),
+        upcoming,
+        specials: spec.rows, details: det.rows[0] || {},
+      });
     }
     res.json({ timezone: 'America/Boise', venues });
   } catch (e) { res.status(500).json({ error: e.message }); }
