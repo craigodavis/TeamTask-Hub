@@ -22,7 +22,7 @@ function matchesSearch(item, term) {
 // completed. Only pressing "Done" does — it also auto-normalizes any bottle
 // overflow (>= 12) into cases first. This removes all the timing-based
 // auto-complete logic that made items disappear unpredictably.
-function WineCountCard({ item, locationId, onSaved }) {
+function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
   const [cases, setCases] = useState(item.cases ?? 0);
   const [bottles, setBottles] = useState(item.bottles ?? 0);
   // Library is a slice of the count above, not an extra pile of wine.
@@ -30,6 +30,7 @@ function WineCountCard({ item, locationId, onSaved }) {
   const [libBottles, setLibBottles] = useState(item.library?.bottles ?? 0);
   const [showLibrary, setShowLibrary] = useState(
     (item.library?.cases ?? 0) > 0 || (item.library?.bottles ?? 0) > 0);
+  const canLibrary = allowsLibrary !== false;
   const [savedFlash, setSavedFlash] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const timerRef = useRef(null);
@@ -128,7 +129,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             : 'Never counted'}
         </div>
       </div>
-      {showLibrary && (
+      {canLibrary && showLibrary && (
         <div className="wine-count-library">
           <span className="wine-count-library-label">
             Of that count, library:
@@ -180,6 +181,7 @@ function WineCountCard({ item, locationId, onSaved }) {
             onBlur={() => persistDraft(cases, bottles)}
           />
         </label>
+        {canLibrary && (
         <button
           type="button"
           className={`wine-count-library-toggle${showLibrary ? ' on' : ''}`}
@@ -188,6 +190,7 @@ function WineCountCard({ item, locationId, onSaved }) {
         >
           Library
         </button>
+        )}
         <button
           type="button"
           className="wine-count-done"
@@ -308,7 +311,13 @@ export function WineInventory() {
       ) : (
         <div className="wine-count-list">
           {visible.map((item) => (
-            <WineCountCard key={item.id} item={item} locationId={locationId} onSaved={handleSaved} />
+            <WineCountCard
+              key={item.id}
+              item={item}
+              locationId={locationId}
+              allowsLibrary={locations.find((l) => l.id === locationId)?.allows_library !== false}
+              onSaved={handleSaved}
+            />
           ))}
         </div>
       )}

@@ -9,7 +9,7 @@ const companyId = (req) => req.companyId;
 router.get('/', async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, company_id, name, square_location_id, created_at
+      `SELECT id, company_id, name, square_location_id, allows_library, created_at
        FROM locations WHERE company_id = $1 ORDER BY name`,
       [companyId(req)]
     );

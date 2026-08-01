@@ -88,6 +88,20 @@ router.post('/', requireInventoryAccess, async (req, res) => {
       });
     }
 
+    // Not every location keeps library stock. The count screen hides the field
+    // there, but hiding a control is presentation — this is the rule.
+    if (libraryBottles > 0) {
+      const loc = await query(
+        `SELECT name, allows_library FROM locations WHERE id = $1 AND company_id = $2`,
+        [location_id, companyId]
+      );
+      if (loc.rows[0] && loc.rows[0].allows_library === false) {
+        return res.status(400).json({
+          error: `${loc.rows[0].name} does not hold library stock — record it at the location that does.`,
+        });
+      }
+    }
+
     await query(
       `INSERT INTO product.product_inventory
          (product_id, location_id, company_id, total_bottles, library_bottles,

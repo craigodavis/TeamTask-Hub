@@ -3295,6 +3295,12 @@ const MIGRATIONS = [
   `ALTER TABLE product.product_inventory
      ADD CONSTRAINT product_inventory_library_within_total
      CHECK (library_bottles >= 0 AND library_bottles <= total_bottles)`,
+  // Library stock is kept at the Estate only, so the Creek count screen should
+  // not offer the split at all. A per-location flag rather than a name check —
+  // "Creek" is a label someone may rename, not a rule.
+  `ALTER TABLE locations
+     ADD COLUMN IF NOT EXISTS allows_library BOOLEAN NOT NULL DEFAULT true`,
+  `UPDATE locations SET allows_library = false WHERE name ILIKE '%creek%'`,
 ];
 
 export async function runMigrations() {
