@@ -166,3 +166,19 @@
 .wine-count-done:not(:disabled):hover {
   background: #2f8709;
 }
+
+/* Library — a slice of the count above, not a second pile of wine, so it sits
+   under the main inputs and stays hidden until it applies. */
+.wine-count-library-toggle {
+  padding: .35rem .6rem; border-radius: 6px; border: 1px solid #b9772a;
+  background: transparent; color: #b9772a; font-size: .78rem; cursor: pointer;
+}
+.wine-count-library-toggle.on { background: #b9772a; color: #fff; }
+
+.wine-count-library {
+  display: flex; align-items: flex-end; gap: .6rem; flex-wrap: wrap;
+  padding: .5rem .6rem; margin: .4rem 0 0;
+  border-left: 3px solid #b9772a; background: rgba(185, 119, 42, .07);
+  border-radius: 0 6px 6px 0;
+}
+.wine-count-library-label { font-size: .78rem; color: #8a5a1f; padding-bottom: .35rem; }

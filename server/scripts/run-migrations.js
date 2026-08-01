@@ -3271,6 +3271,30 @@ const MIGRATIONS = [
           description = 'Collect within 30 days of the release',
           points = 400, updated_at = NOW()
     WHERE rule_key = 'club_pickup' AND points = 300`,
+  // 126: library wine. Bottles pulled out of the sellable pool and set aside,
+  // which may be some of a lot or all of it.
+  //
+  // library_bottles is a SUBSET of total_bottles, not a sibling of it.
+  // total_bottles stays "every bottle physically on the property", so sellable
+  // is total - library. Carving library out of the total instead would drop it
+  // straight out of the Idaho ABC count, which sums total_bottles — the state
+  // filing would then show a loss of exactly the library volume, wine that
+  // never left the building. Keeping it a subset makes that impossible by
+  // construction rather than by remembering.
+  `ALTER TABLE product.product_inventory
+     ADD COLUMN IF NOT EXISTS library_bottles INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE product.product_inventory_log
+     ADD COLUMN IF NOT EXISTS library_bottles INTEGER NOT NULL DEFAULT 0`,
+  // The route and the form both check this, but neither is the guarantee — a
+  // bad script or a hand-run UPDATE bypasses both. library_bottles is a subset
+  // of the count by definition, so the database is where that belongs.
+  `ALTER TABLE product.product_inventory
+     DROP CONSTRAINT IF EXISTS product_inventory_library_within_total`,
+  `UPDATE product.product_inventory SET library_bottles = total_bottles
+     WHERE library_bottles > total_bottles`,
+  `ALTER TABLE product.product_inventory
+     ADD CONSTRAINT product_inventory_library_within_total
+     CHECK (library_bottles >= 0 AND library_bottles <= total_bottles)`,
 ];
 
 export async function runMigrations() {

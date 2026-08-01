@@ -25,6 +25,11 @@ function matchesSearch(item, term) {
 function WineCountCard({ item, locationId, onSaved }) {
   const [cases, setCases] = useState(item.cases ?? 0);
   const [bottles, setBottles] = useState(item.bottles ?? 0);
+  // Library is a slice of the count above, not an extra pile of wine.
+  const [libCases, setLibCases] = useState(item.library?.cases ?? 0);
+  const [libBottles, setLibBottles] = useState(item.library?.bottles ?? 0);
+  const [showLibrary, setShowLibrary] = useState(
+    (item.library?.cases ?? 0) > 0 || (item.library?.bottles ?? 0) > 0);
   const [savedFlash, setSavedFlash] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const timerRef = useRef(null);
@@ -36,6 +41,9 @@ function WineCountCard({ item, locationId, onSaved }) {
   useEffect(() => {
     setCases(item.cases ?? 0);
     setBottles(item.bottles ?? 0);
+    setLibCases(item.library?.cases ?? 0);
+    setLibBottles(item.library?.bottles ?? 0);
+    setShowLibrary((item.library?.cases ?? 0) > 0 || (item.library?.bottles ?? 0) > 0);
     touchedRef.current = false;
   }, [item.id]);
 
@@ -49,6 +57,8 @@ function WineCountCard({ item, locationId, onSaved }) {
         location_id: locationId,
         cases: nextCases,
         bottles: nextBottles,
+        library_cases: libCases,
+        library_bottles: libBottles,
       });
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 900);
@@ -81,6 +91,14 @@ function WineCountCard({ item, locationId, onSaved }) {
       setCases(finalCases);
       setBottles(finalBottles);
     }
+    const totalB = finalCases * CASE_SIZE + finalBottles;
+    const libB = (parseInt(libCases, 10) || 0) * CASE_SIZE + (parseInt(libBottles, 10) || 0);
+    if (libB > totalB) {
+      window.alert(
+        `Library (${libB} bottles) is more than the ${totalB} counted.\n\n`
+        + `Library bottles are part of the count, not on top of it.`);
+      return;
+    }
     setFinishing(true);
     try {
       await saveWineInventoryCount({
@@ -88,6 +106,8 @@ function WineCountCard({ item, locationId, onSaved }) {
         location_id: locationId,
         cases: finalCases,
         bottles: finalBottles,
+        library_cases: libCases,
+        library_bottles: libBottles,
       });
       onSaved(item.id, finalCases, finalBottles);
     } catch {
@@ -108,6 +128,31 @@ function WineCountCard({ item, locationId, onSaved }) {
             : 'Never counted'}
         </div>
       </div>
+      {showLibrary && (
+        <div className="wine-count-library">
+          <span className="wine-count-library-label">
+            Of that count, library:
+          </span>
+          <label className="wine-count-field">
+            <span>Cases</span>
+            <input
+              type="number" inputMode="numeric" min="0" value={libCases}
+              onChange={(e) => { setLibCases(e.target.value); touchedRef.current = true; }}
+              onFocus={(e) => e.target.select()}
+              onBlur={() => persistDraft(cases, bottles)}
+            />
+          </label>
+          <label className="wine-count-field">
+            <span>Bottles</span>
+            <input
+              type="number" inputMode="numeric" min="0" value={libBottles}
+              onChange={(e) => { setLibBottles(e.target.value); touchedRef.current = true; }}
+              onFocus={(e) => e.target.select()}
+              onBlur={() => persistDraft(cases, bottles)}
+            />
+          </label>
+        </div>
+      )}
       <div className="wine-count-inputs">
         <label className="wine-count-field">
           <span>Cases</span>
@@ -135,6 +180,14 @@ function WineCountCard({ item, locationId, onSaved }) {
             onBlur={() => persistDraft(cases, bottles)}
           />
         </label>
+        <button
+          type="button"
+          className={`wine-count-library-toggle${showLibrary ? ' on' : ''}`}
+          onClick={() => setShowLibrary((v) => !v)}
+          title="Mark some (or all) of this count as library stock"
+        >
+          Library
+        </button>
         <button
           type="button"
           className="wine-count-done"

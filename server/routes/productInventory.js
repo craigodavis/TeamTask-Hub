@@ -29,6 +29,7 @@ router.get('/', requireInventoryAccess, async (req, res) => {
     const r = await query(
       `SELECT p.id, p.name, p.vintage, p.varietal, p.display_order,
               COALESCE(pi.total_bottles, 0) AS total_bottles,
+              COALESCE(pi.library_bottles, 0) AS library_bottles,
               pi.last_counted_at,
               u.display_name AS last_counted_by_name,
               (pi.last_counted_at IS NOT NULL
@@ -56,6 +57,7 @@ router.get('/', requireInventoryAccess, async (req, res) => {
       last_counted_by_name: row.last_counted_by_name,
       counted_today: row.counted_today,
       ...fromTotalBottles(row.total_bottles),
+      library: fromTotalBottles(row.library_bottles),
     }));
     res.json({ items });
   } catch (err) {
@@ -67,30 +69,48 @@ router.get('/', requireInventoryAccess, async (req, res) => {
 // Body: { product_id, location_id, cases, bottles }
 router.post('/', requireInventoryAccess, async (req, res) => {
   try {
-    const { product_id, location_id, cases, bottles } = req.body;
+    const { product_id, location_id, cases, bottles,
+            library_cases, library_bottles } = req.body;
     if (!product_id || !location_id) {
       return res.status(400).json({ error: 'product_id and location_id are required' });
     }
     const companyId = cid(req);
     const totalBottles = toTotalBottles(cases, bottles);
+    const libraryBottles = toTotalBottles(library_cases, library_bottles);
+
+    // Library is a subset of the count, so it cannot exceed it. Rejecting here
+    // rather than clamping: silently reducing a number someone deliberately
+    // typed on an inventory form hides a miscount instead of surfacing it.
+    if (libraryBottles > totalBottles) {
+      return res.status(400).json({
+        error: `Library (${libraryBottles} bottles) cannot exceed the total counted `
+             + `(${totalBottles}). Library bottles are part of the count, not extra to it.`,
+      });
+    }
 
     await query(
       `INSERT INTO product.product_inventory
-         (product_id, location_id, company_id, total_bottles, last_counted_at, last_counted_by)
-       VALUES ($1, $2, $3, $4, NOW(), $5)
+         (product_id, location_id, company_id, total_bottles, library_bottles,
+          last_counted_at, last_counted_by)
+       VALUES ($1, $2, $3, $4, $6, NOW(), $5)
        ON CONFLICT (product_id, location_id) DO UPDATE
-         SET total_bottles = $4, last_counted_at = NOW(), last_counted_by = $5`,
-      [product_id, location_id, companyId, totalBottles, req.userId]
+         SET total_bottles = $4, library_bottles = $6,
+             last_counted_at = NOW(), last_counted_by = $5`,
+      [product_id, location_id, companyId, totalBottles, req.userId, libraryBottles]
     );
 
     await query(
       `INSERT INTO product.product_inventory_log
-         (product_id, location_id, company_id, total_bottles, counted_by)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [product_id, location_id, companyId, totalBottles, req.userId]
+         (product_id, location_id, company_id, total_bottles, library_bottles, counted_by)
+       VALUES ($1, $2, $3, $4, $6, $5)`,
+      [product_id, location_id, companyId, totalBottles, req.userId, libraryBottles]
     );
 
-    res.status(201).json({ ...fromTotalBottles(totalBottles), counted_today: true });
+    res.status(201).json({
+      ...fromTotalBottles(totalBottles),
+      library: fromTotalBottles(libraryBottles),
+      counted_today: true,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

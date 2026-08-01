@@ -1241,11 +1241,16 @@ export async function getWineInventoryList(locationId) {
   return data;
 }
 
-export async function saveWineInventoryCount({ product_id, location_id, cases, bottles }) {
+export async function saveWineInventoryCount({
+  product_id, location_id, cases, bottles, library_cases, library_bottles,
+}) {
   const res = await fetch(`${API}/products/inventory`, {
     method: 'POST',
     headers: { ...headers(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ product_id, location_id, cases, bottles }),
+    body: JSON.stringify({
+      product_id, location_id, cases, bottles,
+      library_cases: library_cases || 0, library_bottles: library_bottles || 0,
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to save count');
