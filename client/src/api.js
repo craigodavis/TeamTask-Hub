@@ -2289,6 +2289,16 @@ export async function getHours() {
   if (!res.ok) throw new Error('Failed to load hours');
   return res.json(); // { locations: [{ id, name, venue, regular, specials }] }
 }
+export async function confirmHoursPublished(locationId, checks) {
+  const res = await fetch(`${API}/hours/${locationId}/confirm-publish`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(checks),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not record confirmation');
+  return res.json();
+}
+
 export async function saveHours(locationId, intervals) {
   const res = await fetch(`${API}/hours/${locationId}`, {
     method: 'PUT',

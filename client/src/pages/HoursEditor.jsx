@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getHours, saveHours, saveVenueDetails, addSpecialHours, deleteSpecialHours } from '../api';
+import { getHours, saveHours, saveVenueDetails, addSpecialHours, deleteSpecialHours, confirmHoursPublished } from '../api';
 import './HoursEditor.css';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -73,6 +73,83 @@ function TimeField({ value, onChange }) {
   );
 }
 
+// Where each venue's listings live, so the dialog can link straight to them
+// rather than making someone hunt. Facebook is a different page per venue.
+const LISTINGS = {
+  estate: { facebook: 'https://www.facebook.com/kindredvineyards' },
+  creek:  { facebook: 'https://www.facebook.com/kindredbythecreek' },
+};
+const GOOGLE_URL = 'https://business.google.com/';
+const APPLE_URL = 'https://businessconnect.apple.com/';
+
+/**
+ * Shown after hours are saved. Google, Apple and Facebook are still updated by
+ * hand, so saving here can silently disagree with what customers actually see.
+ * All three must be ticked before Completed enables, and the confirmation is
+ * recorded so there's a receipt of who said the listings were updated, and when.
+ */
+function PublishDialog({ loc, onDone, onDismiss }) {
+  const [checks, setChecks] = useState({ google: false, apple: false, facebook: false });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const all = checks.google && checks.apple && checks.facebook;
+  const fb = LISTINGS[loc.venue]?.facebook || 'https://www.facebook.com/';
+
+  const rows = [
+    { key: 'google', name: 'Google Business Profile', url: GOOGLE_URL,
+      text: 'I confirm that I have updated the opening hours on the Google Business Profile for ' + loc.name +
+            ' so that they match the hours entered above, including any seasonal or holiday changes.' },
+    { key: 'apple', name: 'Apple Business Connect', url: APPLE_URL,
+      text: 'I confirm that I have updated the opening hours in Apple Business Connect for ' + loc.name +
+            ' so that they match the hours entered above, including any seasonal or holiday changes.' },
+    { key: 'facebook', name: 'Facebook Page', url: fb,
+      text: 'I confirm that I have updated the opening hours on the Facebook page for ' + loc.name +
+            '. Facebook holds weekly hours only, so seasonal and holiday changes cannot be shown there.' },
+  ];
+
+  const submit = async () => {
+    setSaving(true); setErr('');
+    try { await confirmHoursPublished(loc.id, checks); onDone(); }
+    catch (e) { setErr(e.message); setSaving(false); }
+  };
+
+  return (
+    <div className="pub-backdrop" role="dialog" aria-modal="true" aria-labelledby="pub-title">
+      <div className="pub-modal">
+        <h2 id="pub-title">Update the listings for {loc.name}</h2>
+        <p className="pub-lead">
+          The hours are saved and the website will show them. Google, Apple and Facebook
+          are not connected yet, so they still have to be changed by hand &mdash; otherwise
+          customers will keep seeing the old hours.
+        </p>
+
+        {rows.map((r) => (
+          <label className={'pub-row' + (checks[r.key] ? ' on' : '')} key={r.key}>
+            <input type="checkbox" checked={checks[r.key]}
+                   onChange={(e) => setChecks((c) => ({ ...c, [r.key]: e.target.checked }))} />
+            <span>
+              <span className="pub-name">
+                {r.name}
+                <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>Open &#8599;</a>
+              </span>
+              <span className="pub-text">{r.text}</span>
+            </span>
+          </label>
+        ))}
+
+        {err && <p className="pub-err">{err}</p>}
+        <div className="pub-actions">
+          <button className="pub-later" onClick={onDismiss} disabled={saving}>I&rsquo;ll do it later</button>
+          <button className="btn btn-primary" onClick={submit} disabled={!all || saving}>
+            {saving ? 'Recording…' : 'Completed'}
+          </button>
+        </div>
+        {!all && <p className="pub-hint">Tick all three to enable Completed.</p>}
+      </div>
+    </div>
+  );
+}
+
 export function HoursEditor() {
   const [locations, setLocations] = useState([]);
   const [sched, setSched] = useState({}); // locId -> array[7] of [{opens,closes}]
@@ -81,6 +158,7 @@ export function HoursEditor() {
   const [error, setError] = useState('');
   const [savingId, setSavingId] = useState(null);
   const [savedId, setSavedId] = useState(null);
+  const [publishFor, setPublishFor] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,6 +228,7 @@ export function HoursEditor() {
       await saveHours(locId, intervals);
       setSavedId(locId);
       setTimeout(() => setSavedId((s) => (s === locId ? null : s)), 1800);
+      setPublishFor(locId); // hours changed here — now nudge the outside listings
     } catch (e) {
       setError(e.message);
     } finally {
@@ -171,6 +250,14 @@ export function HoursEditor() {
         Google, Apple &amp; Twilio later. Edit once here.
       </p>
       {error && <div className="hours-error">{error}</div>}
+
+      {publishFor && (
+        <PublishDialog
+          loc={locations.find((l) => l.id === publishFor)}
+          onDone={() => setPublishFor(null)}
+          onDismiss={() => setPublishFor(null)}
+        />
+      )}
 
       {locations.length === 0 && (
         <p className="hint">No website venues found. Give a location a web key (estate/creek) first.</p>

@@ -110,6 +110,24 @@ router.put('/:locationId', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/hours/:locationId/confirm-publish — record that a manager updated
+// the outside listings by hand. Not a push; a receipt. Until the Google/Apple
+// APIs are connected this is the only evidence the published hours match ours.
+router.post('/:locationId/confirm-publish', requireManager, async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    const { google, apple, facebook } = req.body || {};
+    const chk = await query(`SELECT id FROM locations WHERE id = $1 AND company_id = $2`, [locationId, cId(req)]);
+    if (!chk.rows.length) return res.status(404).json({ error: 'Location not found' });
+    await query(
+      `INSERT INTO kindred_web.hours_publish_log (company_id, location_id, google, apple, facebook, confirmed_by)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [cId(req), locationId, !!google, !!apple, !!facebook, req.userId || null]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/hours/:locationId/special — add a holiday/closure override.
 router.post('/:locationId/special', requireManager, async (req, res) => {
   try {

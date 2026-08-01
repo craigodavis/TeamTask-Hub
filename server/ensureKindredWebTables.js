@@ -87,6 +87,23 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_kw_hours_special ON kindred_web.hours_special(location_id, department, on_date)`,
 
+  // Who confirmed the outside listings were updated, and when.
+  // Google/Apple/Facebook are still updated by hand, so hours can be saved here
+  // and silently disagree with what's published. This turns that into a record:
+  // after saving, the manager ticks off each listing, and we keep the receipt.
+  // When the API pushes land this becomes the fallback log rather than dead weight.
+  `CREATE TABLE IF NOT EXISTS kindred_web.hours_publish_log (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID,
+    location_id   UUID NOT NULL,
+    google        BOOLEAN NOT NULL DEFAULT false,
+    apple         BOOLEAN NOT NULL DEFAULT false,
+    facebook      BOOLEAN NOT NULL DEFAULT false,
+    confirmed_by  UUID,
+    confirmed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_publish_log ON kindred_web.hours_publish_log(location_id, confirmed_at DESC)`,
+
   // Per-venue public details: address, phone, geo — for website structured data
   // and the Google/Apple hours pushes. Keyed to a location (teamtask_hub.locations).
   `CREATE TABLE IF NOT EXISTS kindred_web.venue_details (
