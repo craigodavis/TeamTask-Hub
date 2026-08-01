@@ -51,6 +51,24 @@ function seasonDates(dow, from, to, cap = 40) {
   return out;
 }
 
+// A half-finished seasonal rule used to be dropped on save without a word, so
+// you'd enter August, hit Save, and it would simply not be there. Saving now
+// refuses and says which rule and why.
+function seasonProblems(rows) {
+  const out = [];
+  (rows || []).forEach((r, i) => {
+    const who = DAYS[r.day_of_week] + 's' + (r.label ? ' (' + r.label + ')' : '');
+    if (!r.from_date && !r.to_date) out.push({ i, msg: `${who}: needs a first and last date.` });
+    else if (!r.from_date) out.push({ i, msg: `${who}: needs a first date.` });
+    else if (!r.to_date) out.push({ i, msg: `${who}: needs a last date.` });
+    else if (r.to_date < r.from_date) out.push({ i, msg: `${who}: the last date is before the first.` });
+    else if (seasonDates(r.day_of_week, r.from_date, r.to_date).length === 0)
+      out.push({ i, msg: `${who}: no ${DAYS[r.day_of_week]}s fall between those dates.` });
+    else if (!r.opens || !r.closes) out.push({ i, msg: `${who}: needs an opening and closing time.` });
+  });
+  return out;
+}
+
 function TimeField({ value, onChange }) {
   const { h12, min, ap } = parse24(value);
   const emit = (nh, nm, na) => onChange(to24(nh, nm, na));
@@ -159,6 +177,7 @@ export function HoursEditor() {
   const [savingId, setSavingId] = useState(null);
   const [savedId, setSavedId] = useState(null);
   const [publishFor, setPublishFor] = useState(null);
+  const [seasonErrs, setSeasonErrs] = useState({}); // locId -> { rowIndex: message }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -215,6 +234,14 @@ export function HoursEditor() {
   };
 
   const save = async (locId) => {
+    // Validate before touching the server — an incomplete seasonal rule should
+    // stop the save and say so, not vanish while everything else succeeds.
+    const problems = seasonProblems(seasons[locId]);
+    setSeasonErrs((p) => ({ ...p, [locId]: problems.reduce((m, x) => ({ ...m, [x.i]: x.msg }), {}) }));
+    if (problems.length) {
+      setError('Nothing was saved. ' + problems.map((x) => x.msg).join(' '));
+      return;
+    }
     setSavingId(locId);
     setError('');
     try {
@@ -222,9 +249,7 @@ export function HoursEditor() {
       sched[locId].forEach((list, dow) =>
         list.forEach((iv) => { if (iv.opens && iv.closes) intervals.push({ day_of_week: dow, opens: iv.opens, closes: iv.closes }); })
       );
-      (seasons[locId] || []).forEach((r) => {
-        if (r.opens && r.closes && r.from_date && r.to_date) intervals.push({ ...r });
-      });
+      (seasons[locId] || []).forEach((r) => intervals.push({ ...r }));
       await saveHours(locId, intervals);
       setSavedId(locId);
       setTimeout(() => setSavedId((s) => (s === locId ? null : s)), 1800);
@@ -313,8 +338,9 @@ export function HoursEditor() {
             </p>
             {(seasons[loc.id] || []).map((r, idx) => {
               const hits = seasonDates(r.day_of_week, r.from_date, r.to_date);
+              const rowErr = seasonErrs[loc.id]?.[idx];
               return (
-                <div className="season-row" key={idx}>
+                <div className={'season-row' + (rowErr ? ' bad' : '')} key={idx}>
                   <div className="season-line">
                     <select value={r.day_of_week} onChange={(e) => setSeason(loc.id, idx, 'day_of_week', Number(e.target.value))} aria-label="Weekday">
                       {DAYS.map((d, i) => <option key={i} value={i}>{d}s</option>)}
@@ -342,6 +368,7 @@ export function HoursEditor() {
                             + (hits.length > 6 ? '\u2026' : '')}
                     </span>
                   </div>
+                  {rowErr && <div className="season-err">{rowErr}</div>}
                 </div>
               );
             })}

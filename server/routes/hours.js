@@ -95,9 +95,16 @@ router.put('/:locationId', requireManager, async (req, res) => {
     for (const iv of intervals) {
       if (iv.day_of_week == null || !iv.opens || !iv.closes) continue;
       // from_date/to_date empty => the year-round rule. Both set => a season.
+      // Reject a half-specified or backwards window rather than skipping it —
+      // silently dropping a row means the manager saves August and it isn't there.
       const from = iv.from_date || null;
       const to = iv.to_date || null;
-      if (from && to && to < from) continue; // ignore a window that ends before it starts
+      if (!!from !== !!to) {
+        return res.status(400).json({ error: 'A seasonal rule needs both a first and a last date.' });
+      }
+      if (from && to && to < from) {
+        return res.status(400).json({ error: 'A seasonal rule ends before it starts.' });
+      }
       await query(
         `INSERT INTO kindred_web.hours
            (company_id, location_id, department, day_of_week, opens, closes, sort, from_date, to_date, label)
