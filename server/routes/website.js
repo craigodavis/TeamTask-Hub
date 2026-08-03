@@ -13,6 +13,7 @@ import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
+import { notifyWebsiteContentChanged } from '../lib/websiteDeploy.js';
 
 export const websiteRouter = express.Router();
 
@@ -160,6 +161,51 @@ websiteRouter.get('/images', async (_req, res) => {
     }
     res.json({ slots });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/**
+ * POST /api/website/commerce7-hook — Commerce7 tells us a club, product or
+ * collection changed, so the website can rebuild instead of waiting an hour.
+ *
+ * Commerce7 offers NO way to authenticate a webhook: no signature header, no
+ * shared secret, no basic auth (developer.commerce7.com/docs/webhooks). So this
+ * is a public endpoint and is built to be safe as one:
+ *
+ *  - It has no side effect beyond "rebuild the static site". Nothing here trusts
+ *    the payload — the build re-reads everything from the authoritative APIs, so
+ *    a forged call can't inject content, only cause a rebuild.
+ *  - The rebuild is debounced (see lib/websiteDeploy.js), so even a flood
+ *    collapses to at most one build per 90s. That's the rate limit.
+ *  - C7_WEBHOOK_SECRET, if set, must arrive as ?key= — belt and braces for the
+ *    nuisance case. Optional on purpose: the endpoint has to work the moment it
+ *    deploys, or Commerce7 starts counting failures against it.
+ *
+ * Always answers 200, including for objects we ignore. Commerce7 disables a
+ * webhook permanently after 48h of errors and it can't be re-enabled, only
+ * recreated — so a 4xx for "not interested" would quietly cost us the hook.
+ */
+const C7_HOOK_OBJECTS = new Set(['Club', 'Product', 'Collection']);
+
+websiteRouter.post('/commerce7-hook', async (req, res) => {
+  // Answer first: never make Commerce7 wait on our database or on GitHub.
+  res.json({ ok: true });
+  try {
+    const secret = process.env.C7_WEBHOOK_SECRET;
+    if (secret && req.query.key !== secret) return;
+
+    const { object, action, tenantId } = req.body || {};
+    if (!C7_HOOK_OBJECTS.has(object)) return;
+
+    // One tenant per Team install, but check anyway — this URL is public.
+    const companyId = await kindredCompanyId();
+    const ir = await query('SELECT c7_tenant_slug FROM company_integrations WHERE company_id = $1', [companyId]);
+    const ours = ir.rows[0]?.c7_tenant_slug;
+    if (ours && tenantId && tenantId !== ours) return;
+
+    notifyWebsiteContentChanged(`commerce7 ${object} ${action || 'change'}`);
+  } catch (e) {
+    console.warn('[commerce7-hook]', e.message);
+  }
 });
 
 // GET /api/website/collections — published Commerce7 collections (slug + title)

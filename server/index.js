@@ -75,6 +75,13 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: true, credentials: true }));
+// Ahead of the global parser, and more generous than it: Commerce7 posts the
+// ENTIRE changed object to the webhook, and a fat product can clear the default
+// 100kb. A 413 there is counted as a delivery failure, and 48h of those makes
+// Commerce7 disable the webhook permanently — it can only be recreated, not
+// re-enabled. body-parser marks the request once parsed, so express.json() below
+// sees this one is done and leaves it alone.
+app.use('/api/website/commerce7-hook', express.json({ limit: '5mb' }));
 app.use(express.json());
 // The Kindred app's member session is an httpOnly cookie issued by ClubSteward on
 // domain .kindredvineyards.com, so it reaches this host too. The app cannot read
