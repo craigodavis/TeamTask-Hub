@@ -82,6 +82,16 @@ app.use(cors({ origin: true, credentials: true }));
 // re-enabled. body-parser marks the request once parsed, so express.json() below
 // sees this one is done and leaves it alone.
 app.use('/api/website/commerce7-hook', express.json({ limit: '5mb' }));
+// A truncated or malformed body must not read as a delivery failure — 48h of
+// those and Commerce7 disables the webhook for good. Swallow the parse error and
+// answer 200: there's nothing to act on, and the next change will tell us again.
+// (This also stops Express's default handler returning a stack trace and server
+// paths on a public endpoint.)
+app.use('/api/website/commerce7-hook', (err, req, res, next) => {
+  if (!err) return next();
+  console.warn('[commerce7-hook] unparseable body:', err.message);
+  res.status(200).json({ ok: true });
+});
 app.use(express.json());
 // The Kindred app's member session is an httpOnly cookie issued by ClubSteward on
 // domain .kindredvineyards.com, so it reaches this host too. The app cannot read
