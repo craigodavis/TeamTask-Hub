@@ -12,6 +12,7 @@
  * Env: IG_ACCESS_TOKEN (required), IG_USER_ID (default "me"), IG_GRAPH_BASE.
  */
 import { query } from '../db.js';
+import { notifyWebsiteContentChanged } from './websiteDeploy.js';
 
 const IG_BASE = process.env.IG_GRAPH_BASE || 'https://graph.instagram.com';
 const IG_USER = process.env.IG_USER_ID || 'me';
@@ -45,6 +46,9 @@ export async function syncInstagram() {
     `DELETE FROM kindred_web.instagram_media
       WHERE id NOT IN (SELECT id FROM kindred_web.instagram_media ORDER BY posted_at DESC LIMIT 48)`
   );
+  // Runs on a timer with no HTTP request behind it, so the route-level watch in
+  // index.js can't see it — tell the website directly.
+  if (count) notifyWebsiteContentChanged('instagram sync');
   return { ok: true, count };
 }
 

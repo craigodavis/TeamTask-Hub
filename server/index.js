@@ -63,6 +63,8 @@ import { mediaRouter } from './routes/media.js';
 import { hoursRouter } from './routes/hours.js';
 import { pageImagesRouter } from './routes/pageImages.js';
 import { startInstagramScheduler } from './lib/instagramSync.js';
+// Rebuilds the public website when anything it reads changes here.
+import { websiteContentWatch } from './lib/websiteDeploy.js';
 import { websiteRouter } from './routes/website.js';
 import { marketingRouter } from './routes/marketing.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -103,7 +105,7 @@ app.use('/api/food-waste', requireAuth, foodWasteRouter);
 app.use('/api/integrations/qbo', qboRouter);
 app.use('/api/integrations', requireAuth, requireManager, integrationsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
-app.use('/api/locations', requireAuth, locationsRouter);
+app.use('/api/locations', requireAuth, websiteContentWatch, locationsRouter);
 app.use('/api/debt', requireAuth, debtRouter);
 app.use('/api/receipts', requireAuth, receiptsRouter);
 app.use('/api/harvester', requireAuth, harvesterRouter);
@@ -116,16 +118,16 @@ app.use('/api/square/sync', requireAuth, requireManager, squareSyncRouter);
 app.use('/api/products/inventory', requireAuth, productInventoryRouter);
 app.use('/api/scheduling', requireAuth, requireScheduleAccess, schedulingRouter);
 app.use('/api/feedback', feedbackRouter);                        // public — token + PIN, no login
-app.use('/api/events', requireAuth, requireScheduleAccess, eventsRouter);
-app.use('/api/musicians', requireAuth, requireScheduleAccess, musiciansRouter);
+app.use('/api/events', requireAuth, requireScheduleAccess, websiteContentWatch, eventsRouter);
+app.use('/api/musicians', requireAuth, requireScheduleAccess, websiteContentWatch, musiciansRouter);
 app.use('/api/promo', requireAuth, requireScheduleAccess, promoRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
-app.use('/api/media', requireAuth, mediaRouter);
-app.use('/api/hours', requireAuth, hoursRouter);
-app.use('/api/page-images', requireAuth, pageImagesRouter);
+app.use('/api/media', requireAuth, websiteContentWatch, mediaRouter);
+app.use('/api/hours', requireAuth, websiteContentWatch, hoursRouter);
+app.use('/api/page-images', requireAuth, websiteContentWatch, pageImagesRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
-app.use('/api/marketing', requireAuth, requireManager, marketingRouter);
+app.use('/api/marketing', requireAuth, requireManager, websiteContentWatch, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own

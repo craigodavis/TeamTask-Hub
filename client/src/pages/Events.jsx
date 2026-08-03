@@ -131,6 +131,11 @@ function EventsTab() {
               {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
               {form.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => set('image_url', '')}>Remove</button>}
             </div>
+            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
+                Best at <b>2400 × 1600</b> (landscape 3:2), JPG or PNG, under 8 MB. Keep the subject
+                centred and away from the edges — the website crops this two ways: a wide 21:9 banner
+                on the event page and a 3:2 tile on the home page.
+              </div>
           </div>
         </div>
         {err && <p style={{ color: 'crimson' }}>{err}</p>}
@@ -410,13 +415,22 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
               {f.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('image_url', ''); updateEvent(ev.id, { image_url: null }); }}>Remove</button>}
             </div>
+            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
+                Best at <b>2400 × 1600</b> (landscape 3:2), JPG or PNG, under 8 MB. Keep the subject
+                centred and away from the edges — the website crops this two ways: a wide 21:9 banner
+                on the event page and a 3:2 tile on the home page.
+              </div>
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lbl}>Social / Google image <span style={{ opacity: 0.5, fontWeight: 400 }}>(landscape 1200×900 for Google Business & FB posts; falls back to Photo)</span></label>
+            <label style={lbl}>Social / Google image <span style={{ opacity: 0.5, fontWeight: 400 }}>(landscape 1200×900 for Google Business & FB posts)</span></label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               {f.social_image_url && <img src={f.social_image_url} alt="" style={{ height: 60, borderRadius: 8, objectFit: 'cover' }} />}
               <input type="file" accept="image/*" onChange={(e) => onSocialPhoto(e.target.files[0])} />
               {f.social_image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('social_image_url', ''); updateEvent(ev.id, { social_image_url: null }); }}>Remove</button>}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
+              Heads up: the website uses this one too when it's set, in place of the Photo. If the
+              Photo above is the better shot, leave this empty.
             </div>
           </div>
         </div>
