@@ -26,9 +26,10 @@ function isWinePath(pathname) {
   return pathname.startsWith('/products');
 }
 
-// Any route that lives under the Marketing parent menu.
+// Any route that lives under the Marketing parent menu. Events keeps its
+// top-level /events path but is presented under Marketing, so it counts here.
 function isMarketingPath(pathname) {
-  return pathname.startsWith('/marketing');
+  return pathname.startsWith('/marketing') || pathname.startsWith('/events');
 }
 
 export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
@@ -160,17 +161,6 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Scheduling</span>
             </NavLink>
           )}
-          {canAccessSchedule && (
-            <NavLink
-              to="/events"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🎪"
-              title="Events"
-              onClick={() => { if (isMobile()) setCollapsed(true); }}
-            >
-              <span>Events</span>
-            </NavLink>
-          )}
           {isManager && (
             <NavLink
               to="/square"
@@ -204,7 +194,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           {/* Kitchen — collapsible parent grouping Receipts, Item Catalog,
               Ingredients, Recipes and Shopping. Shopping is available to all
               roles; the manager-only items are gated individually below. */}
-          {isManager && (
+          {(isManager || canAccessSchedule) && (
             <>
               <div className="nav-item-row">
                 <button
@@ -229,6 +219,18 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </div>
               {marketingExpanded && (
                 <div className="nav-sub-group">
+                  {canAccessSchedule && (
+                    <Link
+                      to="/events"
+                      className={`nav-sub-item${location.pathname.startsWith('/events') ? ' active' : ''}`}
+                      onClick={() => { if (isMobile()) setCollapsed(true); }}
+                    >
+                      <span className="nav-sub-icon">🎪</span>
+                      <span>Events</span>
+                    </Link>
+                  )}
+                  {isManager && (
+                  <>
                   <Link
                     to="/marketing/media"
                     className={`nav-sub-item${location.pathname.startsWith('/marketing/media') ? ' active' : ''}`}
@@ -269,6 +271,8 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                     <span className="nav-sub-icon">⚙️</span>
                     <span>Website Settings</span>
                   </Link>
+                  </>
+                  )}
                 </div>
               )}
             </>
