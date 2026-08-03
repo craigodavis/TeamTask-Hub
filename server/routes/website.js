@@ -85,6 +85,29 @@ websiteRouter.post('/contact', async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not send your message right now.' }); }
 });
 
+/**
+ * Media uploaded through Team's own library is stored as a host-relative path
+ * ("/api/uploads/media/foo.png"), which only resolves against whoever is asking.
+ * This is a cross-origin read API — the static website is a different host — so a
+ * relative path there means a broken image, as the Brian Crouse Sunset Music
+ * Series event proved. Everything leaving here gets an absolute URL.
+ *
+ * Rows imported from WordPress are already absolute and pass through untouched.
+ * With APP_BASE_URL unset this is a no-op rather than an error: same behaviour as
+ * before, still broken, but not newly broken in some other way.
+ */
+const MEDIA_ORIGIN = (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+const MEDIA_FIELDS = ['image_url', 'social_image_url', 'musician_photo', 'url', 'media_url', 'thumbnail_url'];
+const absUrl = (u) => (typeof u === 'string' && u.startsWith('/') ? MEDIA_ORIGIN + u : u);
+function absMedia(row) {
+  if (!row || typeof row !== 'object') return row;
+  for (const f of MEDIA_FIELDS) if (f in row) row[f] = absUrl(row[f]);
+  // Media library rows carry a variants array of { url, w } for srcset.
+  if (Array.isArray(row.variants)) row.variants = row.variants.map((v) => (v && v.url ? { ...v, url: absUrl(v.url) } : v));
+  return row;
+}
+const absMediaAll = (rows) => (Array.isArray(rows) ? rows.map(absMedia) : rows);
+
 const LIST_FIELDS = `
   e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
   e.event_url, e.image_url, e.social_image_url, e.category,
@@ -119,7 +142,7 @@ websiteRouter.get('/instagram', async (_req, res) => {
       `SELECT id, media_type, media_url, thumbnail_url, permalink, caption, posted_at
          FROM kindred_web.instagram_media ORDER BY posted_at DESC LIMIT 12`
     );
-    res.json({ media: r.rows });
+    res.json({ media: absMediaAll(r.rows) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -133,7 +156,7 @@ websiteRouter.get('/images', async (_req, res) => {
     );
     const slots = {};
     for (const row of r.rows) {
-      slots[row.slot_key] = { url: row.url, variants: row.variants, alt: row.alt_text || '', width: row.width, height: row.height };
+      slots[row.slot_key] = absMedia({ url: row.url, variants: row.variants, alt: row.alt_text || '', width: row.width, height: row.height });
     }
     res.json({ slots });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -424,7 +447,7 @@ websiteRouter.get('/events/calendar', async (req, res) => {
         ORDER BY e.start_at ASC`,
       params
     );
-    res.json({ events: r.rows });
+    res.json({ events: absMediaAll(r.rows) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -454,7 +477,7 @@ websiteRouter.get('/events', async (req, res) => {
         LIMIT $${params.length}`,
       params
     );
-    res.json({ events: r.rows, limit });
+    res.json({ events: absMediaAll(r.rows), limit });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -472,7 +495,7 @@ websiteRouter.get('/events/:slug', async (req, res) => {
       [companyId, req.params.slug]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Event not found' });
-    res.json(r.rows[0]);
+    res.json(absMedia(r.rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
