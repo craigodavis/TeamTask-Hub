@@ -6,8 +6,18 @@ const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var
 const lbl = { fontSize: 12, opacity: 0.7, fontWeight: 600, display: 'block', marginBottom: 4 };
 const btn = (primary) => ({ padding: '9px 16px', borderRadius: 8, border: primary ? 'none' : '1px solid var(--border,#ccc)', cursor: 'pointer', fontWeight: 600, background: primary ? '#7c2d3a' : 'transparent', color: primary ? '#fff' : 'inherit' });
 const money = (n) => (n == null ? '' : '$' + Number(n).toLocaleString());
-const fmtDT = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
-const toLocalInput = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+// timeZone: 'UTC' for the same reason as toLocalInput below — the stored time IS
+// the wall clock, so rendering it in the viewer's zone would show a manager in
+// Boise 12:30 PM for an event that starts at 6:30.
+const fmtDT = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }) : '');
+// Event times are stored as WALL CLOCK labelled UTC: 18:30Z means "6:30 PM", not
+// 6:30 PM Boise. The whole stack agrees on this — the public site formats these
+// in UTC on purpose (website/src/lib/events.js) so what was typed is what shows.
+// So the datetime-local input wants the stored string verbatim. Converting to
+// browser-local here shifted it 6 hours west, and since save posts the field back
+// untouched, EVERY edit moved the event 6 hours earlier: a 6:30 PM Thursdays at
+// the Creek came back as 12:30 PM after one unrelated change to its title.
+const toLocalInput = (iso) => (iso ? String(iso).slice(0, 16) : '');
 
 export default function Events() {
   const [tab, setTab] = useState('events');
@@ -339,7 +349,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [templates, setTemplates] = useState([]);
   const [ne, setNe] = useState({ contact_id: '', template_id: '', send_at: '' });
   const [pkg, setPkg] = useState(false);
-  const toLocal = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const toLocal = toLocalInput; // see the note on toLocalInput — stored time is wall clock
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
     start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '',
