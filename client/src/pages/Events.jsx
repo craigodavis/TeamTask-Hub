@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, uploadEventImage, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview } from '../api';
+import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -41,19 +42,11 @@ function EventsTab() {
   const [locations, setLocations] = useState([]);
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [users, setUsers] = useState([]);
   const [view, setView] = useState('list');
   const [filter, setFilter] = useState({ location_id: '', musician_id: '', status: '', from: '', to: '' });
   const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
-
-  const onPhoto = async (file) => {
-    if (!file) return;
-    setUploading(true); setErr('');
-    try { const { url } = await uploadEventImage(file); setForm((f) => ({ ...f, image_url: url })); }
-    catch (x) { setErr(x.message); } finally { setUploading(false); }
-  };
 
   const load = useCallback(async () => {
     try {
@@ -135,12 +128,7 @@ function EventsTab() {
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={lbl}>Photo</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {form.image_url && <img src={form.image_url} alt="" style={{ height: 60, borderRadius: 8, objectFit: 'cover' }} />}
-              <input type="file" accept="image/*" onChange={(e) => onPhoto(e.target.files[0])} />
-              {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
-              {form.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => set('image_url', '')}>Remove</button>}
-            </div>
+            <ImageField value={form.image_url} onChange={(url) => set('image_url', url)} />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
                 Best at <b>2400 × 1600</b> (landscape 3:2), JPG or PNG, under 8 MB. Keep the subject
                 centred and away from the edges — the website crops this two ways: a wide 21:9 banner
@@ -355,15 +343,12 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
     start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const setField = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const saveDetails = async () => {
     const body = {};
     for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url']) body[k] = f[k] === '' ? null : f[k];
     await updateEvent(ev.id, body); setSavedD(true); setTimeout(() => setSavedD(false), 1200);
   };
-  const onPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('image_url', url); await updateEvent(ev.id, { image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
-  const onSocialPhoto = async (file) => { if (!file) return; setUploading(true); try { const { url } = await uploadEventImage(file); setField('social_image_url', url); await updateEvent(ev.id, { social_image_url: url }); } catch (e) { /* noop */ } finally { setUploading(false); } };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
   const loadPromo = () => getPromoTasks(ev.id).then((p) => setPromo(Array.isArray(p) ? p : [])).catch(() => {});
   const loadEmails = () => getEventEmails(ev.id).then((x) => setEmails(Array.isArray(x) ? x : [])).catch(() => {});
@@ -419,12 +404,10 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           <div style={{ gridColumn: '1 / -1' }}><HtmlDesc value={f.description} onChange={(v) => setField('description', v)} /></div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={lbl}>Photo</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {f.image_url && <img src={f.image_url} alt="" style={{ height: 70, borderRadius: 8, objectFit: 'cover' }} />}
-              <input type="file" accept="image/*" onChange={(e) => onPhoto(e.target.files[0])} />
-              {uploading && <span style={{ opacity: 0.6 }}>uploading…</span>}
-              {f.image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('image_url', ''); updateEvent(ev.id, { image_url: null }); }}>Remove</button>}
-            </div>
+            <ImageField
+              value={f.image_url}
+              onChange={(url) => { setField('image_url', url); updateEvent(ev.id, { image_url: url || null }); }}
+            />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
                 Best at <b>2400 × 1600</b> (landscape 3:2), JPG or PNG, under 8 MB. Keep the subject
                 centred and away from the edges — the website crops this two ways: a wide 21:9 banner
@@ -433,11 +416,10 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={lbl}>Social / Google image <span style={{ opacity: 0.5, fontWeight: 400 }}>(landscape 1200×900 for Google Business & FB posts)</span></label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {f.social_image_url && <img src={f.social_image_url} alt="" style={{ height: 60, borderRadius: 8, objectFit: 'cover' }} />}
-              <input type="file" accept="image/*" onChange={(e) => onSocialPhoto(e.target.files[0])} />
-              {f.social_image_url && <button style={{ ...btn(false), padding: '4px 10px' }} onClick={() => { setField('social_image_url', ''); updateEvent(ev.id, { social_image_url: null }); }}>Remove</button>}
-            </div>
+            <ImageField
+              value={f.social_image_url}
+              onChange={(url) => { setField('social_image_url', url); updateEvent(ev.id, { social_image_url: url || null }); }}
+            />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
               Heads up: the website uses this one too when it's set, in place of the Photo. If the
               Photo above is the better shot, leave this empty.
