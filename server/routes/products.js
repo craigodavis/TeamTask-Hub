@@ -582,7 +582,13 @@ function buildC7Payload(body) {
   if (body.origin_vineyard !== undefined) meta['origin-vineyard'] = body.origin_vineyard ?? null;
   if (body.label_story !== undefined)     meta['label-story'] = body.label_story ?? null;
   if (body.awards !== undefined)          meta.awards = body.awards ?? null;
-  if (body.tags !== undefined)            meta.tags = body.tags ?? [];
+  // Deliberately NOT sending tags. Commerce7's metaData accepts only the keys
+  // configured for the tenant — awards, label-story, release-date, testimonials,
+  // pairing-notes, tasting-notes, cases-produced, origin-vineyard,
+  // wine-maker-s-notes — and every value must be a scalar. "tags" is neither a
+  // configured key nor a scalar, so including it 422s the whole PUT and no other
+  // field saves either. C7 products have no top-level tags field, so tags stay a
+  // TeamHub-side concept.
   if (Object.keys(meta).length)           p.metaData = meta;
 
   return p;
