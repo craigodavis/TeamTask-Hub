@@ -4,6 +4,7 @@ import {
   getProductLine, createProductLine, updateProductLine,
   getUnassignedProducts, attachProductsToLine,
 } from '../api';
+import { RichEditor } from '../components/RichEditor';
 import './ProductLines.css';
 
 const WINE_STYLES = ['Red', 'White', 'Rosé', 'Sparkling', 'Dessert', 'Fortified', 'Orange', 'Other'];
@@ -44,8 +45,11 @@ export function ProductLineDetail() {
     varietal: '', origin_project: '', wine_style: '', appellation: '',
     region: '', country: 'US', description: '', teaser: '', winemaker_notes: '',
     seo_title: '', seo_description: '', club_eligible: true, is_archived: false,
-    display_order: 0,
+    display_order: 0, label_story: '', tasting_notes: '', awards: '',
   });
+  // RichEditor is uncontrolled after mount, so it can only render once the line
+  // has loaded — otherwise it initialises empty and the first keystroke wipes it.
+  const setHtml = (k) => (html) => setF((prev) => ({ ...prev, [k]: html }));
   const set = (k) => (e) => {
     const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setF((prev) => ({ ...prev, [k]: v }));
@@ -71,6 +75,8 @@ export function ProductLineDetail() {
           seo_description: l.seo_description || '',
           club_eligible: l.club_eligible !== false, is_archived: Boolean(l.is_archived),
           display_order: l.display_order ?? 0,
+          label_story: l.label_story || '', tasting_notes: l.tasting_notes || '',
+          awards: l.awards || '',
         });
         setProducts(l.products || []);
       })
@@ -192,9 +198,28 @@ export function ProductLineDetail() {
 
       <div className="pld-section">
         <p className="pld-section-title">Copy</p>
+        <p className="pld-hint" style={{ marginBottom: 14 }}>
+          These describe the wine, not the vintage — edited here once, inherited by
+          every vintage.
+        </p>
         <div className="pld-grid">
           <Field label="Teaser" wide><input className="pld-input" value={f.teaser} onChange={set('teaser')} /></Field>
-          <Field label="Description" wide><textarea className="pld-textarea" value={f.description} onChange={set('description')} /></Field>
+          <Field label="Description" wide>
+            <RichEditor initialContent={f.description} onChange={setHtml('description')}
+                        placeholder="Full description…" />
+          </Field>
+          <Field label="Label Story" wide>
+            <RichEditor initialContent={f.label_story} onChange={setHtml('label_story')}
+                        placeholder="The story behind the label…" />
+          </Field>
+          <Field label="Tasting Notes" wide>
+            <RichEditor initialContent={f.tasting_notes} onChange={setHtml('tasting_notes')}
+                        placeholder="Aroma, palate, finish…" />
+          </Field>
+          <Field label="Awards" wide hint="One accumulated list for the wine — Papa's runs 2020 through 2023">
+            <RichEditor initialContent={f.awards} onChange={setHtml('awards')}
+                        placeholder="Medals and competitions…" />
+          </Field>
           <Field label="Winemaker Notes" wide><textarea className="pld-textarea" value={f.winemaker_notes} onChange={set('winemaker_notes')} /></Field>
           <Field label="SEO Title"><input className="pld-input" value={f.seo_title} onChange={set('seo_title')} /></Field>
           <Field label="SEO Description"><input className="pld-input" value={f.seo_description} onChange={set('seo_description')} /></Field>

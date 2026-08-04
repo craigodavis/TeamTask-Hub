@@ -3495,6 +3495,51 @@ const MIGRATIONS = [
   `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS release_date    TEXT`,
   `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS origin_vineyard TEXT`,
   `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS cases_produced  INTEGER`,
+
+  // ---------------------------------------------------------------------------
+  // Long-form copy belongs to the wine, not the vintage.
+  //
+  // The label story, description, tasting notes and SEO description describe the
+  // wine itself — they are rewritten when the label or the blend changes, not
+  // every year. description and seo_description were already on the line; these
+  // two were still sitting per-vintage on c7_products.
+  //
+  // Awards belong here too. They read like a vintage fact, but in practice they
+  // are kept as one accumulated list per wine — Papa's is a single block running
+  // from a 2020 Double Gold through a 2023 SF Chronicle Silver. Splitting that
+  // per vintage would mean retyping the whole history every year.
+  //
+  // What stays on the vintage: release_date, cases_produced, and residual_sugar —
+  // those genuinely differ year to year.
+  `ALTER TABLE product.product_lines ADD COLUMN IF NOT EXISTS label_story   TEXT`,
+  `ALTER TABLE product.product_lines ADD COLUMN IF NOT EXISTS tasting_notes TEXT`,
+  `ALTER TABLE product.product_lines ADD COLUMN IF NOT EXISTS awards        TEXT`,
+  // Seed each line from its newest vintage that actually has content, so the
+  // copy moves up rather than being retyped. Only fills blanks.
+  `UPDATE product.product_lines l SET
+     label_story   = COALESCE(l.label_story,   src.label_story),
+     tasting_notes = COALESCE(l.tasting_notes, src.tasting_notes),
+     awards        = COALESCE(l.awards,        src.awards),
+     description   = COALESCE(l.description,   src.description),
+     teaser        = COALESCE(l.teaser,        src.teaser),
+     winemaker_notes = COALESCE(l.winemaker_notes, src.winemaker_notes),
+     seo_title       = COALESCE(l.seo_title,       src.seo_title),
+     seo_description = COALESCE(l.seo_description, src.seo_description)
+   FROM (
+     SELECT DISTINCT ON (p.product_line_id)
+            p.product_line_id,
+            c.label_story, c.tasting_notes, p.description, c.teaser,
+            c.winemaker_notes, c.seo_title, c.seo_description,
+            -- awards is jsonb holding an HTML string; #>>'{}' unwraps it to text
+            NULLIF(c.awards #>> '{}', '[]') AS awards
+       FROM product.products p
+       JOIN product.c7_products c ON c.product_id = p.id
+      WHERE p.product_line_id IS NOT NULL
+      ORDER BY p.product_line_id,
+               (c.label_story IS NOT NULL) DESC,
+               p.vintage DESC NULLS LAST
+   ) src
+   WHERE src.product_line_id = l.id`,
 ];
 
 export async function runMigrations() {

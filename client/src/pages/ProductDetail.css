@@ -367,3 +367,28 @@
   .pd-row { flex-direction: column; gap: 0; }
   .pd-header { flex-direction: column; align-items: flex-start; }
 }
+
+/* SKUs run long — "23-into-the-mystic-estate-pinot-noir" is 36 characters, and
+   the wholesale suffix adds two more. The field was pinned to 100px inline,
+   which cut off everything past the vintage. */
+.pd-variants-table .pd-variant-sku {
+  min-width: 280px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+/* Copy owned by the product line, shown here read-only. */
+.pd-readonly-html {
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background: #fafafa;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #3f3f46;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.pd-readonly-html p:first-child { margin-top: 0; }
+.pd-readonly-html p:last-child  { margin-bottom: 0; }
+.pd-readonly-empty { color: #a1a1aa; font-style: italic; }

@@ -31,6 +31,7 @@ const LINE_FIELDS = [
   'name', 'sku_base', 'upc', 'ttb_label_id', 'product_type', 'varietal',
   'origin_project', 'wine_style', 'appellation', 'region', 'country',
   'description', 'teaser', 'winemaker_notes', 'seo_title', 'seo_description',
+  'label_story', 'tasting_notes', 'awards',
   'club_eligible', 'is_archived', 'display_order',
 ];
 const ARRAY_FIELDS = ['food_pairings', 'tags'];

@@ -61,6 +61,14 @@ function TagInput({ tags, onChange }) {
   );
 }
 
+// ── Inherited HTML, rendered read-only ────────────────────────────────────────
+// The line owns this copy; showing it here as a disabled editor would imply it
+// is editable, so it renders as plain content instead.
+function ReadOnlyHtml({ html, empty }) {
+  if (!html) return <div className="pd-readonly-html pd-readonly-empty">{empty}</div>;
+  return <div className="pd-readonly-html" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 // ── Sync badge ────────────────────────────────────────────────────────────────
 function SyncBadge({ sync }) {
   const c7 = sync?.commerce7;
@@ -368,26 +376,55 @@ export function ProductDetail() {
 
             <div className="pd-field">
               <label htmlFor="pd-description">Description</label>
-              {/* Stored and served as HTML — Commerce7 renders it on the product
-                  page, so it is edited as rich text rather than raw markup. */}
-              <RichEditor
-                initialContent={description}
-                onChange={setDescription}
-                placeholder="Full product description…"
-              />
+              {/* Description, label story, tasting notes and awards describe the
+                  wine, not the vintage, so the line owns them. Read-only here. */}
+              {line ? (
+                <ReadOnlyHtml html={line.description} empty="No description on the line yet." />
+              ) : (
+                <RichEditor
+                  initialContent={description}
+                  onChange={setDescription}
+                  placeholder="Full product description…"
+                />
+              )}
             </div>
 
-            <div className="pd-field">
-              <label htmlFor="pd-label-story">Label Story</label>
-              <RichEditor
-                initialContent={labelStory}
-                onChange={setLabelStory}
-                placeholder="The story behind the label…"
-              />
-              <span className="pd-field-hint">
-                Commerce7 <code>label-story</code>. Shown on the product page.
-              </span>
-            </div>
+            {line ? (
+              <>
+                <div className="pd-field">
+                  <label>Label Story</label>
+                  <ReadOnlyHtml html={line.label_story} empty="No label story on the line yet." />
+                </div>
+                <div className="pd-field">
+                  <label>Tasting Notes</label>
+                  <ReadOnlyHtml html={line.tasting_notes} empty="No tasting notes on the line yet." />
+                </div>
+                <div className="pd-field">
+                  <label>Awards</label>
+                  <ReadOnlyHtml html={line.awards} empty="No awards on the line yet." />
+                </div>
+                <p className="pd-inherited-note">
+                  These belong to {line.name} and are shared by every vintage.{' '}
+                  <button type="button" className="pd-inherited-edit"
+                          onClick={() => navigate(`/product-lines/${line.id}`)}>
+                    Edit on the line →
+                  </button>
+                </p>
+              </>
+            ) : (
+              <div className="pd-field">
+                <label htmlFor="pd-label-story">Label Story</label>
+                <RichEditor
+                  initialContent={labelStory}
+                  onChange={setLabelStory}
+                  placeholder="The story behind the label…"
+                />
+                <span className="pd-field-hint">
+                  Commerce7 <code>label-story</code>. Attach this product to a line to
+                  share it across vintages.
+                </span>
+              </div>
+            )}
 
             <div className="pd-row">
               <div className="pd-field-check">
@@ -656,10 +693,10 @@ export function ProductDetail() {
                     <td>
                       <input
                         type="text"
+                        className="pd-variant-sku"
                         value={v.sku || ''}
                         onChange={(e) => updateVariantField(idx, 'sku', e.target.value)}
                         placeholder="SKU"
-                        style={{ width: 100 }}
                       />
                     </td>
                     <td>
