@@ -429,14 +429,21 @@ router.post('/import/c7', requireAuth, async (req, res) => {
           `INSERT INTO product.c7_products
              (product_id, company_id, c7_product_id, c7_handle, teaser, winemaker_notes,
               residual_sugar, food_pairings, awards, club_eligible, available_channels,
-              seo_title, seo_description, tags, sort_position, c7_created_at, c7_updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+              seo_title, seo_description, tags, sort_position, c7_created_at, c7_updated_at,
+              label_story, tasting_notes, pairing_notes, testimonials, release_date,
+              origin_vineyard, cases_produced)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+                   $18,$19,$20,$21,$22,$23,$24)
            ON CONFLICT (product_id) DO UPDATE SET
              c7_product_id = EXCLUDED.c7_product_id, c7_handle = EXCLUDED.c7_handle,
              teaser = EXCLUDED.teaser, winemaker_notes = EXCLUDED.winemaker_notes,
              food_pairings = EXCLUDED.food_pairings, awards = EXCLUDED.awards,
              club_eligible = EXCLUDED.club_eligible, available_channels = EXCLUDED.available_channels,
-             tags = EXCLUDED.tags, c7_updated_at = EXCLUDED.c7_updated_at`,
+             tags = EXCLUDED.tags, c7_updated_at = EXCLUDED.c7_updated_at,
+             label_story = EXCLUDED.label_story, tasting_notes = EXCLUDED.tasting_notes,
+             pairing_notes = EXCLUDED.pairing_notes, testimonials = EXCLUDED.testimonials,
+             release_date = EXCLUDED.release_date, origin_vineyard = EXCLUDED.origin_vineyard,
+             cases_produced = EXCLUDED.cases_produced`,
           [
             productId, companyId, String(p.id),
             p.slug || null,          // C7 uses slug not handle
@@ -453,6 +460,15 @@ router.post('/import/c7', requireAuth, async (req, res) => {
             p.sortOrder ?? 0,
             p.createdAt || null,
             p.updatedAt || null,
+            // C7 metaData keys, stored so the form can round-trip them instead of
+            // loading blank and clearing them on save.
+            p.metaData?.['label-story'] ?? null,
+            p.metaData?.['tasting-notes'] ?? null,
+            p.metaData?.['pairing-notes'] ?? null,
+            p.metaData?.testimonials ?? null,
+            p.metaData?.['release-date'] ?? null,
+            p.metaData?.['origin-vineyard'] ?? null,
+            (() => { const n = parseInt(p.metaData?.['cases-produced'], 10); return Number.isFinite(n) ? n : null; })(),
           ]
         );
 

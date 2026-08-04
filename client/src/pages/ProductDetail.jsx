@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getProduct, updateProduct, createProduct } from '../api';
+import { RichEditor } from '../components/RichEditor';
 import './ProductDetail.css';
 import './ProductLines.css';
 
@@ -143,15 +144,17 @@ export function ProductDetail() {
         setSlug(p.c7?.c7_handle || '');
         setSeoTitle(p.c7?.seo_title || '');
         setSeoDesc(p.c7?.seo_description || '');
-        setTastingNotes('');  // not stored locally, C7 only
+        // These are Commerce7 metaData fields, now stored locally so the form can
+        // round-trip them. Loading them blank and saving would clear them in C7.
+        setTastingNotes(p.c7?.tasting_notes || '');
         setWinemakerNotes(p.c7?.winemaker_notes || '');
-        setPairingNotes('');
-        setReleaseDate('');
-        setCasesProduced('');
-        setOriginVineyard('');
-        setLabelStory('');
+        setPairingNotes(p.c7?.pairing_notes || '');
+        setReleaseDate(p.c7?.release_date || '');
+        setCasesProduced(p.c7?.cases_produced != null ? String(p.c7.cases_produced) : '');
+        setOriginVineyard(p.c7?.origin_vineyard || '');
+        setLabelStory(p.c7?.label_story || '');
         setTags(Array.isArray(p.c7?.tags) ? p.c7.tags : []);
-        setAwards('');
+        setAwards(typeof p.c7?.awards === 'string' ? p.c7.awards : '');
         setLine(p.line || null);
         setVariants((p.variants || []).map((v) => ({ ...v, _price: v.price_cents != null ? (v.price_cents / 100).toFixed(2) : '' })));
         setProductSync(p.sync || null);
@@ -364,14 +367,26 @@ export function ProductDetail() {
             </div>
 
             <div className="pd-field">
-              <label htmlFor="pd-description">Description / Label Story</label>
-              <textarea
-                id="pd-description"
-                className="tall"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Full product description (HTML supported)"
+              <label htmlFor="pd-description">Description</label>
+              {/* Stored and served as HTML — Commerce7 renders it on the product
+                  page, so it is edited as rich text rather than raw markup. */}
+              <RichEditor
+                initialContent={description}
+                onChange={setDescription}
+                placeholder="Full product description…"
               />
+            </div>
+
+            <div className="pd-field">
+              <label htmlFor="pd-label-story">Label Story</label>
+              <RichEditor
+                initialContent={labelStory}
+                onChange={setLabelStory}
+                placeholder="The story behind the label…"
+              />
+              <span className="pd-field-hint">
+                Commerce7 <code>label-story</code>. Shown on the product page.
+              </span>
             </div>
 
             <div className="pd-row">

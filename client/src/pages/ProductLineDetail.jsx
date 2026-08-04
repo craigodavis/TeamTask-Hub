@@ -164,7 +164,7 @@ export function ProductLineDetail() {
           <Field label="UPC" required={isWine} hint={isWine ? 'Required for wine — same across vintages' : undefined}>
             <input className="pld-input pld-mono" value={f.upc} onChange={set('upc')} />
           </Field>
-          <Field label="TTB Label ID" required={isWine} hint={isWine ? 'Required for wine — the COLA covers the label, not the vintage' : undefined}>
+          <Field label="TTB Label ID" required={isWine} hint={isWine ? 'Required for wine — a COLA covers the label, which usually spans vintages' : undefined}>
             <input className="pld-input pld-mono" value={f.ttb_label_id} onChange={set('ttb_label_id')} />
           </Field>
           <Field label="Display Order">

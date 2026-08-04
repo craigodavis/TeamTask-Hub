@@ -3478,6 +3478,23 @@ const MIGRATIONS = [
      ON product.product_channels (variant_id, channel, COALESCE(price_level_id, '00000000-0000-0000-0000-000000000000'::uuid))`,
   `CREATE INDEX IF NOT EXISTS product_channels_external_idx
      ON product.product_channels (channel, external_id)`,
+
+  // ---------------------------------------------------------------------------
+  // Commerce7 metaData fields we were not storing.
+  //
+  // The product form loaded these as empty strings because they lived only in
+  // C7, then sent them back as null on save — which tells C7 to clear them.
+  // Papa's label story alone is ~1,500 words. The tags 422 happened to fail
+  // every push before it landed, so the wipe never fired; fixing that removed
+  // the accidental protection. Storing them locally is what makes the form able
+  // to round-trip them honestly.
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS label_story     TEXT`,
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS tasting_notes   TEXT`,
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS pairing_notes   TEXT`,
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS testimonials    TEXT`,
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS release_date    TEXT`,
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS origin_vineyard TEXT`,
+  `ALTER TABLE product.c7_products ADD COLUMN IF NOT EXISTS cases_produced  INTEGER`,
 ];
 
 export async function runMigrations() {
