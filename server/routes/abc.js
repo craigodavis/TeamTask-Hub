@@ -13,7 +13,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { computeFiling, saveDraft } from '../lib/abcFiling.js';
+import { computeFiling, saveDraft, unfulfilledAsOf } from '../lib/abcFiling.js';
 import { runAbcPortalFill, lastPortalRun } from '../lib/abcPortal.js';
 
 const router = express.Router();
@@ -29,6 +29,24 @@ router.get('/filing/:month', async (req, res) => {
     );
     const row = stored.rows[0];
     const storedMeta = row ? { status: row.status, prepared_at: row.prepared_at, filed_at: row.filed_at, notes: row.notes } : null;
+
+    // Sold but still on the shelf. Both ends of the month, because the LEVEL is
+    // not what reconciles — the CHANGE is. Beginning inventory came from a count
+    // that already contained last month's outstanding wine, so only the amount
+    // by which sales outran fulfilments during this month drives the two apart.
+    const [y, mo] = req.params.month.split('-').map(Number);
+    const monthStartIso = new Date(Date.UTC(y, mo - 1, 1)).toISOString();
+    const monthEndIso = new Date(Date.UTC(y, mo, 1)).toISOString();
+    const [openUnf, closeUnf] = await Promise.all([
+      unfulfilledAsOf(cid(req), monthStartIso),
+      unfulfilledAsOf(cid(req), monthEndIso),
+    ]);
+    const unfulfilled = {
+      ...closeUnf,
+      opening: openUnf.gallons,
+      closing: closeUnf.gallons,
+      change: Math.round((closeUnf.gallons - openUnf.gallons) * 100) / 100,
+    };
 
     // A month with real stored detail (April/May/June 2026) was hand-reconciled
     // once and is served exactly as stored, never recomputed. April and May
@@ -56,12 +74,13 @@ router.get('/filing/:month', async (req, res) => {
           returnedProduct: n(row.returned_product), endingInventory: n(row.ending_inventory),
         },
         detail: { source: 'stored', freeTastings: n(row.free_tastings), residual: n(row.residual) },
+        unfulfilled,
         stored: storedMeta,
       });
     }
 
     const filing = await computeFiling(cid(req), req.params.month);
-    res.json({ ...filing, stored: storedMeta });
+    res.json({ ...filing, unfulfilled, stored: storedMeta });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

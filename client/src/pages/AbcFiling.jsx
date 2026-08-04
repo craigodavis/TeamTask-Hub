@@ -236,6 +236,62 @@ export function AbcFiling() {
             </div>
           )}
 
+          {/* ── Sold but not collected ───────────────────────────────────── */}
+          {data.unfulfilled?.bottles > 0 && (
+            <>
+              <h3 className="abc-h3">Sold but not yet collected</h3>
+              <p className="hint">
+                Wine paid for on or before {month} closed, still on the premises at
+                month end. It has already been counted as a sale, so it has left the
+                expected inventory — but the physical count still finds it on the
+                shelf. That makes the count read <strong>high</strong> by roughly this
+                much, showing up as an unexplained overage rather than a loss.
+              </p>
+              <table className="abc-table abc-unfulfilled">
+                <tbody>
+                  {data.unfulfilled.byMethod.map((m) => (
+                    <tr key={m.method}>
+                      <td>
+                        {m.method}
+                        <em> — {m.orders} order{m.orders === 1 ? '' : 's'}, {m.bottles} bottles</em>
+                      </td>
+                      <td className="num">{GAL(m.gallons)}</td>
+                    </tr>
+                  ))}
+                  <tr className="abc-subtotal">
+                    <td>Outstanding at month end</td>
+                    <td className="num">{GAL(data.unfulfilled.closing)}</td>
+                  </tr>
+                  <tr>
+                    <td>Outstanding at month start</td>
+                    <td className="num">{GAL(data.unfulfilled.opening)}</td>
+                  </tr>
+                  <tr className="abc-subtotal">
+                    <td>
+                      = Change over the month
+                      <em> — how much of the unexplained difference this accounts for</em>
+                    </td>
+                    <td className="num">
+                      {data.unfulfilled.change >= 0 ? '+' : '−'}{GAL(Math.abs(data.unfulfilled.change))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="hint">
+                The <strong>change</strong> is the figure that reconciles, not the
+                total. Beginning inventory came from a count that already contained
+                last month's outstanding wine, so only what sales outran collections
+                during {month} pushes the books and the shelf apart. A rising balance
+                makes the count read high by that much.
+              </p>
+              <p className="hint">
+                Nothing here is entered on the ABC form and nothing is subtracted
+                anywhere — this explains the unexplained difference above rather than
+                adjusting it.
+              </p>
+            </>
+          )}
+
           {/* ── Portal ───────────────────────────────────────────────────── */}
           <h3 className="abc-h3">State portal</h3>
           {portalRun ? (

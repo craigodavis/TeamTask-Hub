@@ -73,3 +73,8 @@
   .abc-checks li .abc-check-detail { grid-column: 2; }
   .abc-table td.num { width: 7.5rem; }
 }
+
+/* Sold-but-not-collected: explanatory, not a filed figure, so it reads as a
+   note rather than another form table. */
+.abc-unfulfilled { margin-top: .4rem; }
+.abc-unfulfilled em { color: #888; font-style: normal; font-size: .8rem; }

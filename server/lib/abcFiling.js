@@ -81,6 +81,66 @@ async function volumesBetween(companyId, startIso, endIso) {
   };
 }
 
+/**
+ * Wine paid for but not yet handed over, as of `asOfIso`.
+ *
+ * This is the gap between the books and the shelf. A club pickup is a sale the
+ * day it is charged, so it leaves expected inventory immediately — but the
+ * bottles sit in the back until the member collects them, so the physical count
+ * still finds them. The count therefore reads HIGH against expectations by
+ * exactly this volume, which surfaces as an unexplained overage rather than a
+ * loss.
+ *
+ * As-of, not current: an order fulfilled after the month closed was still
+ * outstanding at month end and belongs in that month's figure. Where an order
+ * has never been fulfilled at all, the live remaining quantity is the best
+ * available estimate — Commerce7 keeps quantity_fulfilled as a running total
+ * rather than a history, so a partial fulfilment cannot be replayed to a date.
+ */
+export async function unfulfilledAsOf(companyId, asOfIso) {
+  const r = await query(
+    `SELECT o.order_delivery_method AS method,
+            COUNT(DISTINCT o.id)::int AS orders,
+            SUM(CASE
+                  WHEN o.order_fulfilled_date IS NULL
+                    THEN oi.quantity - COALESCE(oi.quantity_fulfilled, 0)
+                  WHEN o.order_fulfilled_date > $3 THEN oi.quantity
+                  ELSE 0
+                END)::int AS bottles,
+            SUM(CASE
+                  WHEN o.order_fulfilled_date IS NULL
+                    THEN (oi.quantity - COALESCE(oi.quantity_fulfilled, 0)) * oi.volume_in_ml
+                  WHEN o.order_fulfilled_date > $3 THEN oi.quantity * oi.volume_in_ml
+                  ELSE 0
+                END) / 3785.411784 AS gallons
+       FROM commerce7.orders o
+       JOIN commerce7.order_items oi ON oi.order_id = o.id
+      WHERE o.company_id = $1
+        AND oi.item_type = 'Wine'
+        AND oi.volume_in_ml IS NOT NULL
+        AND oi.quantity > 0
+        AND o.order_paid_date < $2
+      GROUP BY o.order_delivery_method`,
+    [companyId, asOfIso, asOfIso]
+  );
+
+  const rows = r.rows
+    .map((x) => ({
+      method: x.method || 'Unspecified',
+      orders: Number(x.orders),
+      bottles: Number(x.bottles),
+      gallons: round2(x.gallons),
+    }))
+    .filter((x) => x.bottles > 0)
+    .sort((a, b) => b.gallons - a.gallons);
+
+  return {
+    gallons: round2(rows.reduce((t, x) => t + x.gallons, 0)),
+    bottles: rows.reduce((t, x) => t + x.bottles, 0),
+    byMethod: rows,
+  };
+}
+
 // ── Production: vintly bottling runs dated inside the month ──────────────────
 async function productionFor(companyId, startIso, endIso) {
   const r = await query(
