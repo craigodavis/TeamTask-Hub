@@ -23,7 +23,7 @@ function isKitchenPath(pathname) {
 
 // Any route that lives under the Wine parent menu.
 function isWinePath(pathname) {
-  return pathname.startsWith('/products');
+  return pathname.startsWith('/products') || pathname.startsWith('/product-lines');
 }
 
 // Any route that lives under the Marketing parent menu. Events keeps its
@@ -406,6 +406,16 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           )}
           {canAccessInventory && wineExpanded && (
             <div className="nav-sub-group">
+              {isManager && (
+                <Link
+                  to="/product-lines"
+                  className={`nav-sub-item${location.pathname.startsWith('/product-lines') ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">🍾</span>
+                  <span>Product Lines</span>
+                </Link>
+              )}
               {isManager && (
                 <Link
                   to="/products"

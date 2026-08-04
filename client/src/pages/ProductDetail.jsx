@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getProduct, updateProduct, createProduct } from '../api';
 import './ProductDetail.css';
+import './ProductLines.css';
 
 const WINE_STYLES = ['Red', 'White', 'Rosé', 'Sparkling', 'Dessert', 'Fortified', 'Orange', 'Other'];
 
@@ -117,6 +118,10 @@ export function ProductDetail() {
   // Original product data (for sync badge)
   const [productSync, setProductSync] = useState(null);
 
+  // The product line this vintage belongs to. When set, the line owns the wine-level
+  // fields and they render read-only here — edited once on the line, not per vintage.
+  const [line, setLine] = useState(null);
+
   // ── Load product ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isNew) return;
@@ -147,6 +152,7 @@ export function ProductDetail() {
         setLabelStory('');
         setTags(Array.isArray(p.c7?.tags) ? p.c7.tags : []);
         setAwards('');
+        setLine(p.line || null);
         setVariants((p.variants || []).map((v) => ({ ...v, _price: v.price_cents != null ? (v.price_cents / 100).toFixed(2) : '' })));
         setProductSync(p.sync || null);
       })
@@ -287,6 +293,50 @@ export function ProductDetail() {
 
       {tab === 'details' && (
         <>
+          {/* Inherited from the product line — read-only here by design. These are
+              facts about the wine, not the vintage, so they are edited in one place. */}
+          {line ? (
+            <div className="pd-inherited">
+              <div className="pd-inherited-head">
+                <p className="pd-inherited-title">From product line — {line.name}</p>
+                <button type="button" className="pd-inherited-edit"
+                        onClick={() => navigate(`/product-lines/${line.id}`)}>
+                  Edit line →
+                </button>
+              </div>
+              <div className="pd-inherited-grid">
+                {[
+                  ['SKU Base', line.sku_base],
+                  ['UPC', line.upc],
+                  ['TTB Label ID', line.ttb_label_id],
+                  ['Varietal', line.varietal],
+                  ['Style', line.wine_style],
+                  ['Appellation', line.appellation],
+                  ['Region', line.region],
+                  ['Country', line.country],
+                  ['Origin Project', line.origin_project],
+                  ['Club Eligible', line.club_eligible ? 'Yes' : 'No'],
+                ].map(([label, val]) => (
+                  <div className="pd-inh-item" key={label}>
+                    <span className="pd-inh-label">{label}</span>
+                    <span className="pd-inh-value">
+                      {val || <span className="pd-inh-empty">not set</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="pd-inherited-note">
+                Changing any of these on the line updates every vintage of {line.name}.
+              </p>
+            </div>
+          ) : !isNew && (
+            <div className="pd-unlinked">
+              This product isn’t attached to a product line, so its varietal, appellation
+              and label data are stored on the vintage alone and have to be retyped for the
+              next one. Attach it from the line screen.
+            </div>
+          )}
+
           {/* Product Info */}
           <div className="pd-section">
             <p className="pd-section-title">Product Info</p>
@@ -372,12 +422,13 @@ export function ProductDetail() {
                   type="text"
                   value={varietal}
                   onChange={(e) => setVarietal(e.target.value)}
+                  disabled={Boolean(line)}
                   placeholder="e.g. Cabernet Sauvignon"
                 />
               </div>
               <div className="pd-field">
                 <label htmlFor="pd-style">Wine Style</label>
-                <select id="pd-style" value={wineStyle} onChange={(e) => setWineStyle(e.target.value)}>
+                <select id="pd-style" value={wineStyle} onChange={(e) => setWineStyle(e.target.value)} disabled={Boolean(line)}>
                   <option value="">— Select —</option>
                   {WINE_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -389,6 +440,7 @@ export function ProductDetail() {
                   type="text"
                   value={productType}
                   onChange={(e) => setProductType(e.target.value)}
+                  disabled={Boolean(line)}
                   placeholder="e.g. Wine"
                 />
                 <span className="pd-field-hint">Commerce7's top-level product type (Wine vs Non-Wine) — used to filter the catalog.</span>
@@ -403,6 +455,7 @@ export function ProductDetail() {
                   type="text"
                   value={appellation}
                   onChange={(e) => setAppellation(e.target.value)}
+                  disabled={Boolean(line)}
                   placeholder="e.g. Napa Valley"
                 />
               </div>
@@ -413,6 +466,7 @@ export function ProductDetail() {
                   type="text"
                   value={region}
                   onChange={(e) => setRegion(e.target.value)}
+                  disabled={Boolean(line)}
                   placeholder="e.g. North Coast"
                 />
               </div>
@@ -423,6 +477,7 @@ export function ProductDetail() {
                   type="text"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
+                  disabled={Boolean(line)}
                   placeholder="e.g. USA"
                 />
               </div>

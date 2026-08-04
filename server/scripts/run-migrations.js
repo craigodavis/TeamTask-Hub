@@ -3301,6 +3301,183 @@ const MIGRATIONS = [
   `ALTER TABLE locations
      ADD COLUMN IF NOT EXISTS allows_library BOOLEAN NOT NULL DEFAULT true`,
   `UPDATE locations SET allows_library = false WHERE name ILIKE '%creek%'`,
+
+  // ---------------------------------------------------------------------------
+  // Product lines: the wine, as distinct from a vintage of it.
+  //
+  // product.products is currently one row per vintage, so everything true of the
+  // *wine* rather than the *vintage* is duplicated on every row — and therefore
+  // filled in inconsistently. Of 84 wine rows: 84 have no alcohol_pct, 70 no
+  // description, 25 no appellation, 16 no varietal. Nobody retypes the Snake
+  // River Valley appellation on every new vintage forever, so they don't.
+  //
+  // sku_base is the product SKU minus the vintage prefix: 23-papas-malbec ->
+  // papas-malbec. upc and ttb_label_id live here because a COLA covers a brand
+  // label, not a vintage.
+  `CREATE TABLE IF NOT EXISTS product.product_lines (
+     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id     UUID NOT NULL,
+     name           VARCHAR(200) NOT NULL,
+     sku_base       VARCHAR(120) NOT NULL,
+     upc            VARCHAR(32),
+     ttb_label_id   VARCHAR(64),
+     product_type   VARCHAR(40) NOT NULL DEFAULT 'Wine',
+     varietal       VARCHAR(120),
+     origin_project VARCHAR(120),
+     wine_style     VARCHAR(40),
+     appellation    VARCHAR(120),
+     region         VARCHAR(120),
+     country        VARCHAR(60),
+     description    TEXT,
+     teaser         TEXT,
+     winemaker_notes TEXT,
+     food_pairings  TEXT[],
+     images         JSONB NOT NULL DEFAULT '[]'::jsonb,
+     seo_title      VARCHAR(200),
+     seo_description TEXT,
+     tags           TEXT[],
+     club_eligible  BOOLEAN NOT NULL DEFAULT true,
+     is_archived    BOOLEAN NOT NULL DEFAULT false,
+     display_order  INTEGER NOT NULL DEFAULT 0,
+     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by     UUID,
+     updated_by     UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS product_lines_company_sku_base_key
+     ON product.product_lines (company_id, lower(sku_base))`,
+  // UPC and TTB label are required for wine only — merchandise and reservations
+  // share this table and have neither. A partial constraint, not NOT NULL.
+  `ALTER TABLE product.product_lines
+     DROP CONSTRAINT IF EXISTS product_lines_wine_requires_identifiers`,
+  `ALTER TABLE product.product_lines
+     ADD CONSTRAINT product_lines_wine_requires_identifiers
+     CHECK (product_type <> 'Wine' OR (upc IS NOT NULL AND ttb_label_id IS NOT NULL))
+     NOT VALID`,
+  `ALTER TABLE product.products
+     ADD COLUMN IF NOT EXISTS product_line_id UUID REFERENCES product.product_lines(id)`,
+  `CREATE INDEX IF NOT EXISTS products_product_line_id_idx
+     ON product.products (product_line_id)`,
+
+  // ---------------------------------------------------------------------------
+  // Price levels: who is buying, as distinct from what they are buying.
+  //
+  // A variant is a physical sellable unit (750ml bottle, glass pour). Wholesale
+  // is not a different unit — it is the same bottle at a different price to a
+  // different kind of buyer. Modelling it as a level rather than as fixed
+  // "restaurant" / "store" columns means adding a distributor or an export
+  // account is a row, not a migration.
+  //
+  // The -w SKU Square carries is a channel artifact: Square needs a separate
+  // variation to hold a second price, so the wholesale SKU is recorded on the
+  // channel mapping, not here.
+  `CREATE TABLE IF NOT EXISTS product.price_levels (
+     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id    UUID NOT NULL,
+     code          VARCHAR(40) NOT NULL,
+     name          VARCHAR(120) NOT NULL,
+     -- how the default price is derived from list: percent off, or a target margin
+     rule_kind     VARCHAR(20) NOT NULL DEFAULT 'discount_pct'
+                     CHECK (rule_kind IN ('discount_pct','margin_pct','fixed')),
+     rule_value    NUMERIC(6,3),
+     sku_suffix    VARCHAR(12),
+     display_order INTEGER NOT NULL DEFAULT 0,
+     is_active     BOOLEAN NOT NULL DEFAULT true,
+     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS price_levels_company_code_key
+     ON product.price_levels (company_id, lower(code))`,
+  // Seed the levels we actually use today. Wholesale defaults to 50% off list —
+  // the industry convention, and the number that lets a restaurant reach a
+  // normal 2.5-3x list price. Current wholesale prices sit at 68-97% of retail,
+  // which is why they do not clear.
+  `INSERT INTO product.price_levels (company_id, code, name, rule_kind, rule_value, sku_suffix, display_order)
+     SELECT DISTINCT p.company_id, v.code, v.name, v.rule_kind, v.rule_value, v.sku_suffix, v.display_order
+       FROM product.products p
+       CROSS JOIN (VALUES
+         ('retail',    'Retail',              'discount_pct',  0.0,  NULL, 0),
+         ('club',      'Club',                'discount_pct', 15.0,  NULL, 1),
+         ('wholesale', 'Wholesale',           'discount_pct', 50.0,  '-w', 2)
+       ) AS v(code, name, rule_kind, rule_value, sku_suffix, display_order)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM product.price_levels pl
+         WHERE pl.company_id = p.company_id AND lower(pl.code) = v.code)`,
+
+  // Per-variant price per level. Absent row means "derive from the level rule";
+  // a present row is a deliberate override, which is why is_override exists —
+  // a bulk "set wholesale to 50%" must not silently overwrite a negotiated price.
+  `CREATE TABLE IF NOT EXISTS product.variant_prices (
+     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     variant_id     UUID NOT NULL REFERENCES product.product_variants(id) ON DELETE CASCADE,
+     price_level_id UUID NOT NULL REFERENCES product.price_levels(id) ON DELETE CASCADE,
+     price_cents    INTEGER NOT NULL CHECK (price_cents >= 0),
+     is_override    BOOLEAN NOT NULL DEFAULT false,
+     note           TEXT,
+     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_by     UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS variant_prices_variant_level_key
+     ON product.variant_prices (variant_id, price_level_id)`,
+
+  // ---------------------------------------------------------------------------
+  // Glass pours as variants of the wine, not separate products.
+  //
+  // Square models a pour as its own item ("23 Glass Gypsy Soul"), disconnected
+  // from the bottle. Here it is a variant, so the pour follows the wine.
+  // Default is NOT available: opening a bottle to pour by the glass is a
+  // decision, not a default, and not every wine is poured.
+  `ALTER TABLE product.product_variants
+     ADD COLUMN IF NOT EXISTS is_glass BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE INDEX IF NOT EXISTS product_variants_is_glass_idx
+     ON product.product_variants (is_glass) WHERE is_glass`,
+
+  // ---------------------------------------------------------------------------
+  // Tasting flight membership, effective-dated.
+  //
+  // A boolean cannot answer "how did it sell while it was on the flight" — the
+  // moment the lineup changes the past is gone. Gypsy Soul came off the flight
+  // on 2026-08-01; with a flag we could no longer say it was ever on it, which
+  // is exactly the comparison this is for.
+  `CREATE TABLE IF NOT EXISTS product.product_tasting_periods (
+     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     product_id UUID NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
+     started_on DATE NOT NULL,
+     ended_on   DATE,
+     note       TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by UUID,
+     CHECK (ended_on IS NULL OR ended_on >= started_on)
+   )`,
+  `CREATE INDEX IF NOT EXISTS product_tasting_periods_current_idx
+     ON product.product_tasting_periods (product_id) WHERE ended_on IS NULL`,
+
+  // ---------------------------------------------------------------------------
+  // Channel publication + push state.
+  //
+  // Without this, "TeamHub is master and pushes everywhere" means every new wine
+  // appears in Square the moment it is created — which is wrong: the 24 Pinot is
+  // a club release before it is a tasting-room product. One row per variant per
+  // channel per price level, holding that channel's own id so updates can find
+  // what they wrote.
+  `CREATE TABLE IF NOT EXISTS product.product_channels (
+     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     variant_id     UUID NOT NULL REFERENCES product.product_variants(id) ON DELETE CASCADE,
+     channel        VARCHAR(20) NOT NULL CHECK (channel IN ('commerce7','square','vinoshipper')),
+     price_level_id UUID REFERENCES product.price_levels(id),
+     is_published   BOOLEAN NOT NULL DEFAULT false,
+     publish_at     TIMESTAMPTZ,
+     external_id    VARCHAR(120),
+     external_sku   VARCHAR(120),
+     last_pushed_at TIMESTAMPTZ,
+     last_push_error TEXT,
+     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS product_channels_variant_channel_level_key
+     ON product.product_channels (variant_id, channel, COALESCE(price_level_id, '00000000-0000-0000-0000-000000000000'::uuid))`,
+  `CREATE INDEX IF NOT EXISTS product_channels_external_idx
+     ON product.product_channels (channel, external_id)`,
 ];
 
 export async function runMigrations() {

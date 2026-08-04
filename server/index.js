@@ -52,6 +52,7 @@ import { squareRouter } from './routes/square.js';
 import { squareSyncRouter, startSquareSyncScheduler } from './routes/squareSync.js';
 import { productsRouter } from './routes/products.js';
 import { productInventoryRouter } from './routes/productInventory.js';
+import { productLinesRouter } from './routes/productLines.js';
 import { schedulingRouter } from './routes/scheduling.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { eventsRouter, musiciansRouter } from './routes/events.js';
@@ -138,6 +139,7 @@ app.use('/api/feedback', feedbackRouter);                        // public — t
 app.use('/api/events', requireAuth, requireScheduleAccess, websiteContentWatch, eventsRouter);
 app.use('/api/musicians', requireAuth, requireScheduleAccess, websiteContentWatch, musiciansRouter);
 app.use('/api/promo', requireAuth, requireScheduleAccess, promoRouter);
+app.use('/api/product-lines', requireAuth, productLinesRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/media', requireAuth, websiteContentWatch, mediaRouter);

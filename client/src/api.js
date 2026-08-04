@@ -1232,6 +1232,60 @@ export async function getProduct(id) {
   return data;
 }
 
+// ── Product Lines ─────────────────────────────────────────────────────────────
+// A line is the wine; a product is one vintage of it.
+
+export async function getProductLines(params = {}) {
+  const qs = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''))
+  ).toString();
+  const res = await fetch(`${API}/product-lines${qs ? `?${qs}` : ''}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load product lines');
+  return data;
+}
+
+export async function getProductLine(id) {
+  const res = await fetch(`${API}/product-lines/${id}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load product line');
+  return data;
+}
+
+export async function createProductLine(body) {
+  const res = await fetch(`${API}/product-lines`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create product line');
+  return data;
+}
+
+export async function updateProductLine(id, body) {
+  const res = await fetch(`${API}/product-lines/${id}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update product line');
+  return data;
+}
+
+export async function getUnassignedProducts(lineId) {
+  const res = await fetch(`${API}/product-lines/${lineId}/unassigned`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load unassigned products');
+  return data;
+}
+
+export async function attachProductsToLine(lineId, productIds) {
+  const res = await fetch(`${API}/product-lines/${lineId}/attach`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ product_ids: productIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to attach products');
+  return data;
+}
+
 // ── Wine Inventory ─────────────────────────────────────────────────────────────
 
 export async function getWineInventoryList(locationId) {

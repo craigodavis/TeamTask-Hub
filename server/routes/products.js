@@ -245,7 +245,7 @@ router.get('/catalog-sync/status', requireAuth, requireManager, async (req, res)
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const result = await withConn(async (client) => {
-      const [prod, c7, variants, syncRows] = await Promise.all([
+      const [prod, c7, variants, syncRows, line] = await Promise.all([
         client.query(
           `SELECT * FROM product.products WHERE id = $1 AND company_id = $2`,
           [req.params.id, cid(req)]
@@ -267,8 +267,16 @@ router.get('/:id', requireAuth, async (req, res) => {
            FROM product.sync_status WHERE product_id = $1`,
           [req.params.id]
         ),
+        // The line this vintage belongs to. Its fields render read-only on the
+        // product screen — they are edited once on the line, not per vintage.
+        client.query(
+          `SELECT l.* FROM product.product_lines l
+             JOIN product.products p ON p.product_line_id = l.id
+            WHERE p.id = $1`,
+          [req.params.id]
+        ),
       ]);
-      return { prod, c7, variants, syncRows };
+      return { prod, c7, variants, syncRows, line };
     });
 
     if (!result.prod.rows.length) return res.status(404).json({ error: 'Product not found' });
@@ -281,6 +289,7 @@ router.get('/:id', requireAuth, async (req, res) => {
       c7: result.c7.rows[0] || null,
       variants: result.variants.rows,
       sync: syncStatus,
+      line: result.line.rows[0] || null,
     });
   } catch (err) {
     console.error('[products] GET /:id error:', err.message);

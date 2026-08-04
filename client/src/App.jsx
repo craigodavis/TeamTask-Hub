@@ -26,6 +26,8 @@ import ShiftFeedback from './pages/ShiftFeedback';
 import Events from './pages/Events';
 import { getGeneralSettings } from './api';
 import { ProductDetail } from './pages/ProductDetail';
+import { ProductLines } from './pages/ProductLines';
+import { ProductLineDetail } from './pages/ProductLineDetail';
 import { BettyComparison } from './pages/BettyComparison';
 import { Gateway } from './pages/Gateway';
 import { Skynet } from './pages/Skynet';
@@ -238,6 +240,36 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <SquareReconcile />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/product-lines"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <ProductLines />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/product-lines/new"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <ProductLineDetail />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/product-lines/:id"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <ProductLineDetail />
               ) : (
                 <Navigate to="/" replace />
               )
