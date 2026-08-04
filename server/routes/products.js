@@ -688,7 +688,9 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (b.winemaker_notes !== undefined) addC7('winemaker_notes', b.winemaker_notes ?? null);
       if (b.seo_title !== undefined)       addC7('seo_title', b.seo_title ?? null);
       if (b.seo_description !== undefined) addC7('seo_description', b.seo_description ?? null);
-      if (b.tags !== undefined)            addC7('tags', JSON.stringify(b.tags ?? []));
+      // c7_products.tags is text[], not jsonb — pass the array and let pg build the
+      // literal. JSON.stringify produces "[]", which Postgres rejects as malformed.
+      if (b.tags !== undefined)            addC7('tags', Array.isArray(b.tags) ? b.tags : []);
 
       if (c7Fields.length > 2) {
         const placeholders = c7Vals.map((_, i) => `$${i + 1}`).join(', ');
@@ -894,7 +896,7 @@ router.post('/', requireAuth, async (req, res) => {
             b.winemaker_notes ?? null,
             b.seo_title ?? null,
             b.seo_description ?? null,
-            JSON.stringify(b.tags ?? []),
+            Array.isArray(b.tags) ? b.tags : [],   // text[], not jsonb
           ]
         );
       }
