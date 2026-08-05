@@ -90,10 +90,14 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
   // deliberate intent.
   const handleDone = async () => {
     clearTimeout(timerRef.current);
-    // Both boxes empty means nobody counted this wine. Previously that saved a
-    // zero (or, when pre-filled, re-saved last month's number as current). Ask
-    // instead — typing an explicit 0 is still how you record "none left".
-    if (String(cases).trim() === '' && String(bottles).trim() === '') {
+    // Nothing entered anywhere means nobody counted this wine — save that and it
+    // records a zero that looks like a real count. But library is its own pile
+    // now, so "no sellable stock, eleven cases in the library" is a complete
+    // count with both regular boxes legitimately empty. Only block when all four
+    // are blank.
+    const anyEntry = [cases, bottles, libCases, libBottles]
+      .some((v) => String(v).trim() !== '');
+    if (!anyEntry) {
       window.alert(
         `No count entered for ${item.name}.\n\n`
         + `Enter a number — type 0 if there are none left.`);
