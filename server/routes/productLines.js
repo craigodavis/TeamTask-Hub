@@ -300,6 +300,9 @@ router.post('/bottle', requireAuth, requireManager, async (req, res) => {
       const label = name || `${String(vintage).slice(-2)} ${L.name}`;
       const cases = Number.isFinite(parseInt(starting_case_count, 10))
         ? parseInt(starting_case_count, 10) : null;
+      // SKU = 2-digit vintage + "-" + the line's (already canonical) sku_base, lowercase:
+      // "23-papas-malbec". Recomputed on every save so it tracks the vintage.
+      const sku = L.sku_base ? `${String(vintage).slice(-2)}-${String(L.sku_base).trim().toLowerCase()}` : null;
 
       const existing = await client.query(
         `SELECT id FROM product.products WHERE vintly_project_id = $1 AND company_id = $2`,
@@ -310,9 +313,9 @@ router.post('/bottle', requireAuth, requireManager, async (req, res) => {
         const upd = await client.query(
           `UPDATE product.products
               SET product_line_id = $1, vintage = $2, starting_case_count = $3,
-                  name = $4, updated_at = NOW()
-            WHERE id = $5 RETURNING *`,
-          [product_line_id, vintage, cases, label, existing.rows[0].id]
+                  name = $4, sku = $5, updated_at = NOW()
+            WHERE id = $6 RETURNING *`,
+          [product_line_id, vintage, cases, label, sku, existing.rows[0].id]
         );
         return { product: upd.rows[0], created: false };
       }
@@ -321,12 +324,12 @@ router.post('/bottle', requireAuth, requireManager, async (req, res) => {
       // rest. Nothing here is retyped that the line already knows.
       const ins = await client.query(
         `INSERT INTO product.products
-           (company_id, name, vintage, product_line_id, starting_case_count,
+           (company_id, name, sku, vintage, product_line_id, starting_case_count,
             vintly_project_id, product_type, varietal, wine_style, appellation,
             region, country, is_available, is_archived, display_order, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false,false,0,$13)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false,false,0,$14)
          RETURNING *`,
-        [cid(req), label, vintage, product_line_id, cases, vintly_project_id,
+        [cid(req), label, sku, vintage, product_line_id, cases, vintly_project_id,
          L.product_type || 'Wine', L.varietal, L.wine_style, L.appellation,
          L.region, L.country, req.userId || null]
       );

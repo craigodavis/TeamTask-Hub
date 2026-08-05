@@ -277,6 +277,7 @@ export function WineInventory() {
   };
 
   const remaining = items.filter((i) => !i.counted_today).length;
+  const counted = items.length - remaining;
 
   // Live-filtered — completing an item removes it from the Uncompleted view
   // immediately. This never touches which pill is selected (statusView only
@@ -319,6 +320,40 @@ export function WineInventory() {
 
       {items.length > 0 && (
         <p className="wine-inv-progress">{remaining} of {items.length} remaining</p>
+      )}
+
+      {/* Session summary. A wine that was skipped is invisible once the counter
+          has moved past it — the Uncompleted tab shows cards, not a list you can
+          scan at the end. Naming what's left is how a miss gets caught now
+          rather than when physical stock disagrees months later.
+          Hidden until something has been counted, so it isn't noise at the start. */}
+      {items.length > 0 && counted > 0 && (
+        remaining > 0 ? (
+          <div className="wine-inv-summary">
+            <p className="wine-inv-summary-head">
+              {counted} of {items.length} counted — {remaining} still to go
+            </p>
+            <div className="wine-inv-summary-list">
+              {items.filter((i) => !i.counted_today).map((i) => (
+                <button
+                  key={i.id}
+                  type="button"
+                  className="wine-inv-summary-chip"
+                  onClick={() => { setSearch(i.name); setStatusView('all'); }}
+                  title="Jump to this wine"
+                >
+                  {i.name}{i.vintage ? ` (${i.vintage})` : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="wine-inv-summary wine-inv-summary-done">
+            <p className="wine-inv-summary-head">
+              All {items.length} wines counted for this location. Count complete.
+            </p>
+          </div>
+        )
       )}
 
       {error && <p className="wine-inv-error">{error}</p>}

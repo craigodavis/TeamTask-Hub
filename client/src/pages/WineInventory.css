@@ -202,3 +202,36 @@
   color: #c4c4c8;
   font-style: italic;
 }
+
+/* Session summary — names the wines still uncounted, so a skipped one is
+   caught at the end of the count rather than months later. */
+.wine-inv-summary {
+  margin: .5rem 0 .9rem;
+  padding: .6rem .75rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: 8px;
+}
+.wine-inv-summary-head {
+  margin: 0 0 .45rem;
+  font-size: .82rem;
+  font-weight: 600;
+  color: #92400e;
+}
+.wine-inv-summary-list { display: flex; flex-wrap: wrap; gap: .35rem; }
+.wine-inv-summary-chip {
+  padding: .22rem .55rem;
+  border: 1px solid #fcd34d;
+  background: #fff;
+  color: #92400e;
+  border-radius: 999px;
+  font-size: .76rem;
+  cursor: pointer;
+}
+.wine-inv-summary-chip:hover { background: #fef3c7; }
+
+.wine-inv-summary-done {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.wine-inv-summary-done .wine-inv-summary-head { margin: 0; color: #15803d; }
