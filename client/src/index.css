@@ -1,5 +1,12 @@
 /* app styles */
 :root {
+  /* This app is designed light. Saying so stops the browser applying its own
+     dark treatment to anything it renders itself — form fields, scrollbars and
+     above all the selection highlight. Without it those follow the OS into dark
+     while every colour in our stylesheets stays light, which is what made
+     highlighted text unreadable: a dark UA highlight behind dark app text. */
+  color-scheme: light;
+
   --bg: #f5f5f0;
   --card: #fff;
   --card-done: #e8f5e9;
@@ -10,6 +17,48 @@
   --border: #e0e0e0;
   --radius: 16px;
   --touch: 48px;
+
+  /* Aliases for names the stylesheets already reach for but nothing defined.
+     An undefined custom property does not fall back to something sensible — the
+     whole declaration becomes invalid and the element quietly inherits its
+     parent instead, so `color: var(--text-primary)` on a dark panel left the
+     text whatever colour it happened to sit on. Twenty such names were in use
+     across the app against ten that existed. */
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --border-color: var(--border);
+  --card-bg: var(--card);
+  --input-bg: var(--card);
+  --surface: var(--card);
+  --surface-alt: var(--bg);
+  --surface-secondary: var(--bg);
+  --bg-page: var(--bg);
+  --bg-subtle: #fafafa;
+  --bg-muted: #f0f0f0;
+  --table-head-bg: #fafafa;
+  --hover: #f5f5f5;
+  --hover-bg: #f5f5f5;
+  --color-primary: var(--primary);
+  --accent: var(--primary);
+  --color-error: #b3261e;
+  --error: #b3261e;
+  --danger: #b3261e;
+  --success: #1b6b32;
+}
+
+/* Never leave the highlight to the browser: the default pairs an OS-chosen
+   background with our text colour, which is exactly the combination that goes
+   unreadable in dark mode. */
+::selection {
+  background: var(--primary-soft);
+  color: var(--text);
+}
+
+/* Form controls are UA-rendered, so they need their colours stated outright
+   rather than inherited. */
+input, select, textarea {
+  background-color: var(--card);
+  color: var(--text);
 }
 
 * {
