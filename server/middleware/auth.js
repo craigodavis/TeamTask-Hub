@@ -42,7 +42,20 @@ export async function requireAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     req.userId = payload.userId;
     req.companyId = payload.companyId;
-    req.role = payload.role;
+
+    // Read the role from the database, not from the token.
+    //
+    // Tokens last 90 days and carry the role they were minted with, so a role
+    // change did not take effect until the user happened to log out — while
+    // /api/auth/me reads the database, so the UI showed the new role and every
+    // API call was still judged against the old one. Granting worked in the menu
+    // and failed on the request; revoking left privileges live for up to 90 days.
+    //
+    // One indexed lookup per request. At this scale that is nothing next to
+    // permissions being wrong.
+    const r = await query(`SELECT role FROM users WHERE id = $1`, [payload.userId]);
+    if (!r.rows.length) return res.status(401).json({ error: 'User not found' });
+    req.role = r.rows[0].role;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
