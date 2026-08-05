@@ -3540,6 +3540,35 @@ const MIGRATIONS = [
                p.vintage DESC NULLS LAST
    ) src
    WHERE src.product_line_id = l.id`,
+
+  // ---------------------------------------------------------------------------
+  // Vintly projects → product lines.
+  //
+  // Vintly and TeamHub are two front-ends over one database, so this is a
+  // foreign key rather than a sync. A project is a lot of wine being made; a
+  // product line is the label it will be bottled under.
+  //
+  // Deliberately NULLABLE. A project's barrels can all end up blended into
+  // another project, so most lots never become a label of their own. The link
+  // only has to exist at bottling — enforced there, not here, because a NOT NULL
+  // column would block creating a project before anyone knows where it lands.
+  `ALTER TABLE vintly.projects
+     ADD COLUMN IF NOT EXISTS product_line_id UUID REFERENCES product.product_lines(id)`,
+  `CREATE INDEX IF NOT EXISTS projects_product_line_id_idx
+     ON vintly.projects (product_line_id)`,
+
+  // The bottled-case figure carried from the project onto the product it
+  // creates. Vintly calls it starting_case_qty on the project; this is the same
+  // number, recorded against the vintage it produced.
+  `ALTER TABLE product.products
+     ADD COLUMN IF NOT EXISTS starting_case_count INTEGER
+       CHECK (starting_case_count IS NULL OR starting_case_count >= 0)`,
+  // Which project bottled this vintage — the other half of the link, so the
+  // product can be traced back to the lot.
+  `ALTER TABLE product.products
+     ADD COLUMN IF NOT EXISTS vintly_project_id UUID`,
+  `CREATE INDEX IF NOT EXISTS products_vintly_project_id_idx
+     ON product.products (vintly_project_id)`,
 ];
 
 export async function runMigrations() {

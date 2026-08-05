@@ -247,4 +247,109 @@ router.get('/:id/unassigned', requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /api/product-lines/lookup/options ─────────────────────────────────────
+// Flat list for the product-line dropdown on a Vintly project. Deliberately
+// minimal — Vintly needs an id and a label, not the whole record.
+router.get('/lookup/options', requireAuth, async (req, res) => {
+  try {
+    const rows = await withConn((client) => client.query(
+      `SELECT id, name, sku_base, varietal, wine_style
+         FROM product.product_lines
+        WHERE company_id = $1 AND is_archived = false
+        ORDER BY name`,
+      [cid(req)]
+    ));
+    res.json(rows.rows);
+  } catch (err) {
+    console.error('[product-lines] lookup error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/product-lines/bottle ────────────────────────────────────────────
+// Called when a Vintly project records its bottling. Creates the vintage under
+// the chosen line and links the two together.
+//
+// The product line is REQUIRED here even though it is optional on the project:
+// a lot can be blended away and never bottled under its own label, but the
+// moment it IS bottled it has one, and that is the point at which winemaking
+// becomes sellable stock.
+//
+// Idempotent on vintly_project_id — bottling can be edited and re-saved, so a
+// second call updates the product it already created rather than making another.
+router.post('/bottle', requireAuth, requireManager, async (req, res) => {
+  const {
+    product_line_id, vintage, starting_case_count,
+    vintly_project_id, name, bottling_date,
+  } = req.body || {};
+
+  if (!product_line_id)   return res.status(400).json({ error: 'product_line_id is required to bottle' });
+  if (!vintage)           return res.status(400).json({ error: 'vintage is required' });
+  if (!vintly_project_id) return res.status(400).json({ error: 'vintly_project_id is required' });
+
+  try {
+    const out = await withConn(async (client) => {
+      const line = await client.query(
+        `SELECT * FROM product.product_lines WHERE id = $1 AND company_id = $2`,
+        [product_line_id, cid(req)]
+      );
+      if (!line.rows.length) return { error: 'Product line not found', status: 404 };
+      const L = line.rows[0];
+
+      // "23 Papa's Malbec" from vintage 2023 + line "Papa's Malbec"
+      const label = name || `${String(vintage).slice(-2)} ${L.name}`;
+      const cases = Number.isFinite(parseInt(starting_case_count, 10))
+        ? parseInt(starting_case_count, 10) : null;
+
+      const existing = await client.query(
+        `SELECT id FROM product.products WHERE vintly_project_id = $1 AND company_id = $2`,
+        [vintly_project_id, cid(req)]
+      );
+
+      if (existing.rows.length) {
+        const upd = await client.query(
+          `UPDATE product.products
+              SET product_line_id = $1, vintage = $2, starting_case_count = $3,
+                  name = $4, updated_at = NOW()
+            WHERE id = $5 RETURNING *`,
+          [product_line_id, vintage, cases, label, existing.rows[0].id]
+        );
+        return { product: upd.rows[0], created: false };
+      }
+
+      // Vintage-level facts come from the line; the vintage itself supplies the
+      // rest. Nothing here is retyped that the line already knows.
+      const ins = await client.query(
+        `INSERT INTO product.products
+           (company_id, name, vintage, product_line_id, starting_case_count,
+            vintly_project_id, product_type, varietal, wine_style, appellation,
+            region, country, is_available, is_archived, display_order, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false,false,0,$13)
+         RETURNING *`,
+        [cid(req), label, vintage, product_line_id, cases, vintly_project_id,
+         L.product_type || 'Wine', L.varietal, L.wine_style, L.appellation,
+         L.region, L.country, req.userId || null]
+      );
+
+      // Link the project back, so the trace works in both directions.
+      await client.query(
+        `UPDATE vintly.projects
+            SET product_line_id = $1, bottling_date = COALESCE(bottling_date, $2)
+          WHERE id = $3`,
+        [product_line_id, bottling_date || null, vintly_project_id]
+      );
+
+      return { product: ins.rows[0], created: true };
+    });
+
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    // Created unavailable on purpose — a wine that has just been bottled is not
+    // automatically for sale, and publishing is a separate decision per channel.
+    res.status(out.created ? 201 : 200).json(out);
+  } catch (err) {
+    console.error('[product-lines] bottle error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as productLinesRouter };
