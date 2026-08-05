@@ -3581,6 +3581,33 @@ const MIGRATIONS = [
   // stays visible without stopping work.
   `ALTER TABLE product.product_lines
      DROP CONSTRAINT IF EXISTS product_lines_wine_requires_identifiers`,
+
+  // ---------------------------------------------------------------------------
+  // Active vs available for sale.
+  //
+  // These were one flag and shouldn't be. A wine that has been bottled but is
+  // not yet on sale — a club release before it reaches the tasting room, or a
+  // vintage still resting — is physically on the rack and must be counted. Under
+  // one flag the choice was: mark it for sale so it can be counted, or leave it
+  // uncountable. Bottling creates products unavailable, so every newly bottled
+  // wine was invisible to inventory.
+  //
+  //   is_active     — exists physically; appears on the count sheet
+  //   is_available  — can be sold; requires is_active
+  `ALTER TABLE product.products
+     ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`,
+  // Seed from current behaviour rather than switching everything on: active
+  // starts as exactly what is_available already said, so the count sheet does
+  // not suddenly grow from 17 wines to 85. Anything that should be counted but
+  // not sold gets switched on deliberately.
+  `UPDATE product.products SET is_active = (is_available AND NOT is_archived)`,
+  `ALTER TABLE product.products
+     DROP CONSTRAINT IF EXISTS products_available_requires_active`,
+  `ALTER TABLE product.products
+     ADD CONSTRAINT products_available_requires_active
+     CHECK (is_active OR NOT is_available)`,
+  `CREATE INDEX IF NOT EXISTS products_is_active_idx
+     ON product.products (is_active) WHERE is_active`,
 ];
 
 export async function runMigrations() {

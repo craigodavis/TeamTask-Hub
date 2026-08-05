@@ -39,7 +39,10 @@ router.get('/', requireInventoryAccess, async (req, res) => {
        LEFT JOIN product.product_inventory pi
          ON pi.product_id = p.id AND pi.location_id = $2
        LEFT JOIN users u ON u.id = pi.last_counted_by
-       WHERE p.company_id = $1 AND p.is_available = true AND p.is_archived = false
+       -- Counted because it physically exists, not because it is for sale. A
+       -- club-release wine or one still resting is on the rack and must be
+       -- counted; is_available would hide it.
+       WHERE p.company_id = $1 AND p.is_active = true AND p.is_archived = false
          -- Exclude products explicitly classified as something other than
          -- Wine (Beer, Food, etc.) via Commerce7's product_type, but don't
          -- hide not-yet-synced wines that still have a null type.

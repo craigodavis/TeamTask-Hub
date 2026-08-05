@@ -95,6 +95,7 @@ export function ProductDetail() {
   const [name, setName]               = useState('');
   const [teaser, setTeaser]           = useState('');
   const [description, setDescription] = useState('');
+  const [isActive, setIsActive]       = useState(true);
   const [isAvailable, setIsAvailable] = useState(true);
   const [isArchived, setIsArchived]   = useState(false);
 
@@ -140,6 +141,7 @@ export function ProductDetail() {
         setName(p.name || '');
         setTeaser(p.c7?.teaser || '');
         setDescription(p.description || '');
+        setIsActive(p.is_active !== false);
         setIsAvailable(Boolean(p.is_available));
         setIsArchived(Boolean(p.is_archived));
         setVintage(p.vintage ? String(p.vintage) : '');
@@ -177,6 +179,7 @@ export function ProductDetail() {
       name: name.trim(),
       description: description || null,
       teaser: teaser || null,
+      is_active: isActive,
       is_available: isAvailable,
       is_archived: isArchived,
       vintage: vintage ? parseInt(vintage, 10) : null,
@@ -429,12 +432,33 @@ export function ProductDetail() {
             <div className="pd-row">
               <div className="pd-field-check">
                 <input
+                  id="pd-active"
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setIsActive(on);
+                    // A wine that doesn't physically exist can't be for sale.
+                    if (!on) setIsAvailable(false);
+                  }}
+                />
+                <label htmlFor="pd-active">Active</label>
+                <span className="pd-field-hint">On the shelf — appears on the inventory count sheet.</span>
+              </div>
+              <div className="pd-field-check">
+                <input
                   id="pd-available"
                   type="checkbox"
                   checked={isAvailable}
+                  disabled={!isActive}
                   onChange={(e) => setIsAvailable(e.target.checked)}
                 />
                 <label htmlFor="pd-available">Available for sale</label>
+                <span className="pd-field-hint">
+                  {isActive
+                    ? 'Can be sold. Bottled but not yet released? Leave this off.'
+                    : 'Requires Active.'}
+                </span>
               </div>
               {!isNew && (
                 <div className="pd-field-check">

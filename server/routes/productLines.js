@@ -317,6 +317,12 @@ router.post('/bottle', requireAuth, requireManager, async (req, res) => {
             WHERE id = $6 RETURNING *`,
           [product_line_id, vintage, cases, label, sku, existing.rows[0].id]
         );
+        await client.query(
+          `INSERT INTO product.c7_products (product_id, company_id, cases_produced)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (product_id) DO UPDATE SET cases_produced = EXCLUDED.cases_produced`,
+          [upd.rows[0].id, cid(req), cases]
+        );
         return { product: upd.rows[0], created: false };
       }
 
@@ -326,12 +332,23 @@ router.post('/bottle', requireAuth, requireManager, async (req, res) => {
         `INSERT INTO product.products
            (company_id, name, sku, vintage, product_line_id, starting_case_count,
             vintly_project_id, product_type, varietal, wine_style, appellation,
-            region, country, is_available, is_archived, display_order, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false,false,0,$14)
+            region, country, is_active, is_available, is_archived, display_order, created_by)
+         -- Active so a freshly bottled wine lands on the count sheet straight
+         -- away; not for sale until someone decides it is.
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,false,false,0,$14)
          RETURNING *`,
         [cid(req), label, sku, vintage, product_line_id, cases, vintly_project_id,
          L.product_type || 'Wine', L.varietal, L.wine_style, L.appellation,
          L.region, L.country, req.userId || null]
+      );
+
+      // Mirror the case count into the Commerce7 "Cases Produced" field (local; C7 sync never
+      // overwrites it), creating the overlay row for a freshly-bottled product.
+      await client.query(
+        `INSERT INTO product.c7_products (product_id, company_id, cases_produced)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (product_id) DO UPDATE SET cases_produced = EXCLUDED.cases_produced`,
+        [ins.rows[0].id, cid(req), cases]
       );
 
       // Link the project back, so the trace works in both directions.

@@ -32,7 +32,7 @@ function cid(req) { return req.companyId; }
 router.get('/', requireAuth, async (req, res) => {
   try {
     const {
-      vintage, varietal, wine_style, available, product_type,
+      vintage, varietal, wine_style, available, active, product_type,
       archived = 'false', search,
       limit = 50, offset = 0,
     } = req.query;
@@ -47,6 +47,7 @@ router.get('/', requireAuth, async (req, res) => {
     if (wine_style)   add('p.wine_style =',    wine_style);
     if (product_type) add('p.product_type =',  product_type);
     if (available !== undefined) add('p.is_available =', available === 'true');
+    if (active !== undefined)    add('p.is_active =',    active === 'true');
     if (search) {
       params.push(`%${search}%`);
       conditions.push(`(p.name ILIKE $${params.length} OR p.varietal ILIKE $${params.length})`);
@@ -60,7 +61,7 @@ router.get('/', requireAuth, async (req, res) => {
     const result = await withConn((client) => client.query(
       `SELECT
          p.id, p.name, p.vintage, p.varietal, p.wine_style, p.appellation,
-         p.region, p.alcohol_pct, p.is_available, p.is_archived, p.product_type,
+         p.region, p.alcohol_pct, p.is_active, p.is_available, p.is_archived, p.product_type,
          p.display_order, p.images, p.created_at, p.updated_at,
          c7.c7_product_id, c7.c7_handle, c7.teaser,
          -- variant summary
@@ -684,7 +685,14 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (b.appellation !== undefined)  addProd('appellation', b.appellation ?? null);
       if (b.region !== undefined)       addProd('region', b.region ?? null);
       if (b.country !== undefined)      addProd('country', b.country ?? null);
-      if (b.is_available !== undefined) addProd('is_available', Boolean(b.is_available));
+      if (b.is_active !== undefined) addProd('is_active', Boolean(b.is_active));
+      if (b.is_available !== undefined) {
+        // Available requires Active. Rather than 400 on a combination the UI
+        // already prevents, treat "not active" as decisive — a wine that does not
+        // physically exist cannot be for sale.
+        const avail = Boolean(b.is_available) && (b.is_active === undefined || Boolean(b.is_active));
+        addProd('is_available', avail);
+      }
       if (b.is_archived !== undefined)  addProd('is_archived', Boolean(b.is_archived));
 
       if (prodFields.length) {

@@ -37,7 +37,11 @@ function ProductCard({ product, onClick }) {
         <div className="prod-card-footer">
           <span className="prod-card-price">{formatPrice(product.min_price_cents)}</span>
           <span className="prod-card-variants">{product.variant_count} SKU{product.variant_count !== 1 ? 's' : ''}</span>
-          <span className="prod-card-avail">{product.is_available ? '● Active' : '○ Inactive'}</span>
+          <span className="prod-card-avail">
+            {product.is_available ? '● For sale'
+              : product.is_active ? '◐ Active, not for sale'
+              : '○ Inactive'}
+          </span>
         </div>
         <div className="prod-card-sync">
           <span className="prod-sync-label">C7</span>{syncBadge(product.c7_needs_push, product.c7_sync_error)}
