@@ -64,8 +64,10 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
         location_id: locationId,
         cases: nextCases,
         bottles: nextBottles,
-        library_cases: libCases,
-        library_bottles: libBottles,
+        // Same rule as Done: blank library means "not re-entered", so keep what
+        // is stored rather than writing a zero over a standing holding.
+        library_cases:   String(libCases).trim()   === '' ? (item.library?.cases   ?? 0) : libCases,
+        library_bottles: String(libBottles).trim() === '' ? (item.library?.bottles ?? 0) : libBottles,
       });
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 900);
@@ -118,8 +120,11 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
         location_id: locationId,
         cases: finalCases,
         bottles: finalBottles,
-        library_cases: libCases,
-        library_bottles: libBottles,
+        // Blank means "not re-entered", so keep what is already stored. Library
+        // is a standing holding, not a figure recounted from scratch each month —
+        // zeroing it because nobody retyped it would quietly lose the stock.
+        library_cases:   String(libCases).trim()   === '' ? (item.library?.cases   ?? 0) : libCases,
+        library_bottles: String(libBottles).trim() === '' ? (item.library?.bottles ?? 0) : libBottles,
       });
       onSaved(item.id, finalCases, finalBottles);
     } catch {
@@ -202,7 +207,8 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
             <label className="wine-count-field wine-count-field-sm">
               <span>Cases</span>
               <input
-                type="number" inputMode="numeric" min="0" placeholder="0" value={libCases}
+                type="number" inputMode="numeric" min="0" value={libCases}
+                placeholder={String(item.library?.cases ?? 0)}
                 onChange={(e) => { setLibCases(e.target.value); touchedRef.current = true; }}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => persistDraft(cases, bottles)}
@@ -211,7 +217,8 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
             <label className="wine-count-field wine-count-field-sm">
               <span>Bottles</span>
               <input
-                type="number" inputMode="numeric" min="0" placeholder="0" value={libBottles}
+                type="number" inputMode="numeric" min="0" value={libBottles}
+                placeholder={String(item.library?.bottles ?? 0)}
                 onChange={(e) => { setLibBottles(e.target.value); touchedRef.current = true; }}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => persistDraft(cases, bottles)}
