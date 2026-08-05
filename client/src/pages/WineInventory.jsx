@@ -23,11 +23,16 @@ function matchesSearch(item, term) {
 // overflow (>= 12) into cases first. This removes all the timing-based
 // auto-complete logic that made items disappear unpredictably.
 function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
-  const [cases, setCases] = useState(item.cases ?? 0);
-  const [bottles, setBottles] = useState(item.bottles ?? 0);
+  // Start empty, not pre-filled with last month's count. A pre-filled box is
+  // indistinguishable from one the counter has already filled in, so a wine that
+  // was never actually counted silently re-saves last month's number as though it
+  // were this month's. Last month's figures show as placeholders instead — visible
+  // for reference, impossible to mistake for an entry.
+  const [cases, setCases] = useState('');
+  const [bottles, setBottles] = useState('');
   // Library is a slice of the count above, not an extra pile of wine.
-  const [libCases, setLibCases] = useState(item.library?.cases ?? 0);
-  const [libBottles, setLibBottles] = useState(item.library?.bottles ?? 0);
+  const [libCases, setLibCases] = useState('');
+  const [libBottles, setLibBottles] = useState('');
   const [showLibrary, setShowLibrary] = useState(
     (item.library?.cases ?? 0) > 0 || (item.library?.bottles ?? 0) > 0);
   const canLibrary = allowsLibrary !== false;
@@ -40,10 +45,10 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
   const touchedRef = useRef(false);
 
   useEffect(() => {
-    setCases(item.cases ?? 0);
-    setBottles(item.bottles ?? 0);
-    setLibCases(item.library?.cases ?? 0);
-    setLibBottles(item.library?.bottles ?? 0);
+    setCases('');
+    setBottles('');
+    setLibCases('');
+    setLibBottles('');
     setShowLibrary((item.library?.cases ?? 0) > 0 || (item.library?.bottles ?? 0) > 0);
     touchedRef.current = false;
   }, [item.id]);
@@ -84,6 +89,15 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
   // deliberate intent.
   const handleDone = async () => {
     clearTimeout(timerRef.current);
+    // Both boxes empty means nobody counted this wine. Previously that saved a
+    // zero (or, when pre-filled, re-saved last month's number as current). Ask
+    // instead — typing an explicit 0 is still how you record "none left".
+    if (String(cases).trim() === '' && String(bottles).trim() === '') {
+      window.alert(
+        `No count entered for ${item.name}.\n\n`
+        + `Enter a number — type 0 if there are none left.`);
+      return;
+    }
     let finalCases = caseCount;
     let finalBottles = bottleCount;
     if (finalBottles >= CASE_SIZE) {
@@ -129,31 +143,6 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
             : 'Never counted'}
         </div>
       </div>
-      {canLibrary && showLibrary && (
-        <div className="wine-count-library">
-          <span className="wine-count-library-label">
-            Of that count, library:
-          </span>
-          <label className="wine-count-field">
-            <span>Cases</span>
-            <input
-              type="number" inputMode="numeric" min="0" value={libCases}
-              onChange={(e) => { setLibCases(e.target.value); touchedRef.current = true; }}
-              onFocus={(e) => e.target.select()}
-              onBlur={() => persistDraft(cases, bottles)}
-            />
-          </label>
-          <label className="wine-count-field">
-            <span>Bottles</span>
-            <input
-              type="number" inputMode="numeric" min="0" value={libBottles}
-              onChange={(e) => { setLibBottles(e.target.value); touchedRef.current = true; }}
-              onFocus={(e) => e.target.select()}
-              onBlur={() => persistDraft(cases, bottles)}
-            />
-          </label>
-        </div>
-      )}
       <div className="wine-count-inputs">
         <label className="wine-count-field">
           <span>Cases</span>
@@ -161,6 +150,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
             type="number"
             inputMode="numeric"
             min="0"
+            placeholder={item.last_counted_at ? String(item.cases ?? 0) : '0'}
             value={cases}
             onChange={(e) => { const v = e.target.value; setCases(v); scheduleSave(v, bottles); }}
             onFocus={(e) => e.target.select()}
@@ -174,6 +164,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
             type="number"
             inputMode="numeric"
             min="0"
+            placeholder={item.last_counted_at ? String(item.bottles ?? 0) : '0'}
             value={bottles}
             onChange={(e) => { const v = e.target.value; setBottles(v); scheduleSave(cases, v); }}
             onFocus={(e) => e.target.select()}
@@ -202,6 +193,36 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
         </button>
         {savedFlash && <span className="wine-count-saved">saved</span>}
       </div>
+
+      {/* Sits directly under the Library button that reveals it, tinted and
+          smaller — it is a subset of the count above, not a second count. */}
+      {canLibrary && showLibrary && (
+        <div className="wine-count-library">
+          <span className="wine-count-library-label">
+            Of the count above, how many are library?
+          </span>
+          <div className="wine-count-library-fields">
+            <label className="wine-count-field wine-count-field-sm">
+              <span>Cases</span>
+              <input
+                type="number" inputMode="numeric" min="0" placeholder="0" value={libCases}
+                onChange={(e) => { setLibCases(e.target.value); touchedRef.current = true; }}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => persistDraft(cases, bottles)}
+              />
+            </label>
+            <label className="wine-count-field wine-count-field-sm">
+              <span>Bottles</span>
+              <input
+                type="number" inputMode="numeric" min="0" placeholder="0" value={libBottles}
+                onChange={(e) => { setLibBottles(e.target.value); touchedRef.current = true; }}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => persistDraft(cases, bottles)}
+              />
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

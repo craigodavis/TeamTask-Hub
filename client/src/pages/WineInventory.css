@@ -175,10 +175,30 @@
 }
 .wine-count-library-toggle.on { background: #b9772a; color: #fff; }
 
+/* Library sits BELOW the main count, directly under the button that reveals it,
+   in the same amber as that button. It is a subset of the count above — smaller
+   fields say so without needing a sentence. */
 .wine-count-library {
-  display: flex; align-items: flex-end; gap: .6rem; flex-wrap: wrap;
-  padding: .5rem .6rem; margin: .4rem 0 0;
-  border-left: 3px solid #b9772a; background: rgba(185, 119, 42, .07);
+  display: flex; flex-direction: column; gap: .35rem;
+  padding: .45rem .6rem .5rem; margin: .35rem 0 0;
+  border: 1px solid rgba(185, 119, 42, .35);
+  border-left: 3px solid #b9772a;
+  background: rgba(185, 119, 42, .07);
   border-radius: 0 6px 6px 0;
 }
-.wine-count-library-label { font-size: .78rem; color: #8a5a1f; padding-bottom: .35rem; }
+.wine-count-library-label { font-size: .74rem; color: #8a5a1f; }
+.wine-count-library-fields { display: flex; gap: .5rem; align-items: flex-end; }
+
+/* Two-thirds the width of the main count boxes. */
+.wine-count-field-sm span { font-size: .68rem; }
+.wine-count-field-sm input {
+  width: 3.6rem; padding: .25rem .35rem; font-size: .85rem;
+}
+
+
+/* Last month's figure shows as a placeholder — visible for reference, and
+   plainly not an entry. Never mistake it for something already counted. */
+.wine-count-inputs input::placeholder {
+  color: #c4c4c8;
+  font-style: italic;
+}
