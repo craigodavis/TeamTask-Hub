@@ -3569,6 +3569,18 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS vintly_project_id UUID`,
   `CREATE INDEX IF NOT EXISTS products_vintly_project_id_idx
      ON product.products (vintly_project_id)`,
+
+  // ---------------------------------------------------------------------------
+  // Let a wine line exist before its compliance numbers are known.
+  //
+  // Requiring UPC and TTB label id at insert sounds right and works badly: the
+  // structure can't be built until someone has every label in hand, and the
+  // pressure is to type a placeholder to get past it — which is worse than a
+  // blank, because a blank is obviously missing and "PENDING-VERIFY" looks like
+  // data. The line list already flags any wine line missing either, so the gap
+  // stays visible without stopping work.
+  `ALTER TABLE product.product_lines
+     DROP CONSTRAINT IF EXISTS product_lines_wine_requires_identifiers`,
 ];
 
 export async function runMigrations() {
