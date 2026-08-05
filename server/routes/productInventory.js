@@ -81,15 +81,9 @@ router.post('/', requireInventoryAccess, async (req, res) => {
     const totalBottles = toTotalBottles(cases, bottles);
     const libraryBottles = toTotalBottles(library_cases, library_bottles);
 
-    // Library is a subset of the count, so it cannot exceed it. Rejecting here
-    // rather than clamping: silently reducing a number someone deliberately
-    // typed on an inventory form hides a miscount instead of surfacing it.
-    if (libraryBottles > totalBottles) {
-      return res.status(400).json({
-        error: `Library (${libraryBottles} bottles) cannot exceed the total counted `
-             + `(${totalBottles}). Library bottles are part of the count, not extra to it.`,
-      });
-    }
+    // Library is its own pile, not a slice of the regular count, so there is no
+    // ceiling to check — regular can be zero while the library holds eleven
+    // cases. Both still have to be non-negative, which the database enforces.
 
     // Not every location keeps library stock. The count screen hides the field
     // there, but hiding a control is presentation — this is the rule.

@@ -3608,6 +3608,30 @@ const MIGRATIONS = [
      CHECK (is_active OR NOT is_available)`,
   `CREATE INDEX IF NOT EXISTS products_is_active_idx
      ON product.products (is_active) WHERE is_active`,
+
+  // ---------------------------------------------------------------------------
+  // Library becomes a SEPARATE count, not a slice of the regular one.
+  //
+  // Was: library_bottles <= total_bottles, library being part of the count.
+  // Now: the two are disjoint piles. Regular stock can be zero while the library
+  // holds eleven cases — which is the real situation for a wine that has sold
+  // out but is still held back.
+  //
+  // Order matters. Subtract BEFORE dropping the constraint is impossible (the
+  // subtraction is what makes rows legal under the old rule anyway), so drop
+  // first, then subtract, or the existing 114 library bottles of 11 Sails would
+  // be counted twice — once in total_bottles, once again in library_bottles.
+  `ALTER TABLE product.product_inventory
+     DROP CONSTRAINT IF EXISTS product_inventory_library_within_total`,
+  `UPDATE product.product_inventory
+      SET total_bottles = GREATEST(total_bottles - COALESCE(library_bottles, 0), 0)
+    WHERE COALESCE(library_bottles, 0) > 0`,
+  // Both piles still have to be non-negative; that part of the old rule stays.
+  `ALTER TABLE product.product_inventory
+     DROP CONSTRAINT IF EXISTS product_inventory_counts_non_negative`,
+  `ALTER TABLE product.product_inventory
+     ADD CONSTRAINT product_inventory_counts_non_negative
+     CHECK (total_bottles >= 0 AND COALESCE(library_bottles, 0) >= 0)`,
 ];
 
 export async function runMigrations() {

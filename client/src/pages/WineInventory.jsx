@@ -30,7 +30,8 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
   // for reference, impossible to mistake for an entry.
   const [cases, setCases] = useState('');
   const [bottles, setBottles] = useState('');
-  // Library is a slice of the count above, not an extra pile of wine.
+  // Library is its own pile, counted separately from sellable stock. Regular
+  // can be zero while the library holds cases of a wine that has sold out.
   const [libCases, setLibCases] = useState('');
   const [libBottles, setLibBottles] = useState('');
   const [showLibrary, setShowLibrary] = useState(
@@ -105,14 +106,6 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
       finalBottles = finalBottles % CASE_SIZE;
       setCases(finalCases);
       setBottles(finalBottles);
-    }
-    const totalB = finalCases * CASE_SIZE + finalBottles;
-    const libB = (parseInt(libCases, 10) || 0) * CASE_SIZE + (parseInt(libBottles, 10) || 0);
-    if (libB > totalB) {
-      window.alert(
-        `Library (${libB} bottles) is more than the ${totalB} counted.\n\n`
-        + `Library bottles are part of the count, not on top of it.`);
-      return;
     }
     setFinishing(true);
     try {
@@ -199,7 +192,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
       {canLibrary && showLibrary && (
         <div className="wine-count-library">
           <span className="wine-count-library-label">
-            Of the count above, how many are library?
+            Library — counted separately, not part of the count above
           </span>
           <div className="wine-count-library-fields">
             <label className="wine-count-field wine-count-field-sm">

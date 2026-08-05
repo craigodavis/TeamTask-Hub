@@ -182,7 +182,12 @@ async function productionFor(companyId, startIso, endIso) {
 // abc_filings rather than recomputing history from this table.
 async function physicalCount(companyId) {
   const r = await query(
-    `SELECT COALESCE(SUM(total_bottles), 0)::int AS bottles,
+    // Library is a SEPARATE pile from regular stock, not a slice of it, so the
+    // filing has to add the two. Library wine is still wine we hold — the state
+    // wants everything on the premises, whether or not it is for sale.
+    `SELECT COALESCE(SUM(total_bottles + COALESCE(library_bottles, 0)), 0)::int AS bottles,
+            COALESCE(SUM(total_bottles), 0)::int                                AS regular_bottles,
+            COALESCE(SUM(library_bottles), 0)::int                              AS library_bottles,
             COUNT(*)::int                        AS lines,
             MIN(last_counted_at)                 AS first_counted_at,
             MAX(last_counted_at)                 AS last_counted_at
@@ -192,7 +197,9 @@ async function physicalCount(companyId) {
   );
   const row = r.rows[0];
   return {
-    bottles:        Number(row.bottles),
+    bottles:        Number(row.bottles),          // regular + library
+    regularBottles: Number(row.regular_bottles),
+    libraryBottles: Number(row.library_bottles),
     lines:          Number(row.lines),
     gallons:        round2(Number(row.bottles) * GAL_PER_BOTTLE),
     firstCountedAt: row.first_counted_at,
