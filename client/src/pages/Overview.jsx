@@ -73,12 +73,25 @@ export function Overview() {
       </p>
 
       <div className="ov-grid">
+        {/* Square net sales — after discounts, before tax, and the same figure
+            the labor percentage divides into. Commerce7 is a separate channel
+            and is listed rather than folded in, so this matches Square. */}
         <Card
-          title="Sales" sub="last 7 days"
+          title="Sales" sub="Square, last 7 days"
           value={money(d.sales7.value)}
           lastYear={d.sales7.lastYear === null ? null : money(d.sales7.lastYear)}
           change={d.sales7.change}
-        />
+        >
+          <table className="ov-breakdown">
+            <tbody>
+              <tr>
+                <td>Commerce7</td>
+                <td className="num">{money(d.sales7.commerce7)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="ov-note">Net of discounts, before tax.</p>
+        </Card>
 
         <Card
           title="Events" sub="last 7 days"
@@ -88,7 +101,7 @@ export function Overview() {
         />
 
         <Card
-          title="Labor" sub="last 14 days"
+          title="Labor" sub="last 14 days, of Square net"
           value={pct(d.labor14.value)}
           lastYear={d.labor14.lastYear === null ? null : pct(d.labor14.lastYear)}
           change={d.labor14.change}
