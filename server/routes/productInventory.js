@@ -7,6 +7,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireInventoryAccess } from '../middleware/auth.js';
 import { toTotalBottles, fromTotalBottles, parseVolumeMl, mlToLitersGallons, CASE_SIZE } from '../lib/wineInventory.js';
+import { unfulfilledAsOf } from '../lib/abcFiling.js';
 
 const router = express.Router();
 const cid = (req) => req.companyId;
@@ -221,6 +222,14 @@ router.get('/report', requireInventoryAccess, async (req, res) => {
       cases: Math.round(((bottlesByLocation.get(l.id) || 0) / CASE_SIZE) * 10) / 10,
     }));
 
+    // A count answers "what is on the property", but the number people act on
+    // is "what can I still sell" — and roughly 1,200 bottles of that is already
+    // somebody's club order awaiting collection. Reporting the total alone
+    // overstates what is available.
+    const held = await unfulfilledAsOf(companyId, `${asOf}T23:59:59.999Z`);
+    const heldBottles = held.bottles || 0;
+    const sellableBottles = grandTotalBottles - heldBottles;
+
     res.json({
       as_of: asOf,
       items,
@@ -228,6 +237,18 @@ router.get('/report', requireInventoryAccess, async (req, res) => {
         all_locations: {
           total_bottles: grandTotalBottles,
           cases: Math.round((grandTotalBottles / CASE_SIZE) * 10) / 10,
+        },
+        held: {
+          bottles: heldBottles,
+          cases: Math.round((heldBottles / CASE_SIZE) * 10) / 10,
+          pct: grandTotalBottles
+            ? Math.round((heldBottles / grandTotalBottles) * 1000) / 10
+            : null,
+          by_method: held.byMethod,
+        },
+        sellable: {
+          bottles: sellableBottles,
+          cases: Math.round((sellableBottles / CASE_SIZE) * 10) / 10,
         },
         by_location: locationSummary,
         volume: mlToLitersGallons(totalMl),

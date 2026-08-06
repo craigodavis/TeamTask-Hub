@@ -19,6 +19,7 @@ import { Products } from './pages/Products';
 import { WineInventory } from './pages/WineInventory';
 import { WineInventoryReport } from './pages/WineInventoryReport';
 import { AbcFiling } from './pages/AbcFiling';
+import { Overview } from './pages/Overview';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
@@ -121,7 +122,27 @@ function App() {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AuthGate user={user} />}>
         <Route element={<AppShellLayout user={user} onLogout={onLogout} timezone={timezone} />}>
-          <Route path="/" element={<Dashboard />} />
+          {/* Managers and owners land on the overview; everyone else keeps the
+              task list. Dashboard.jsx is that task list despite its name. */}
+          <Route
+            path="/"
+            element={
+              user?.role === 'owner' || user?.role === 'manager'
+                ? <Navigate to="/dashboard" replace />
+                : <Dashboard />
+            }
+          />
+          <Route path="/tasks" element={<Dashboard />} />
+          <Route
+            path="/dashboard"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <Overview />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
           <Route path="/manage" element={<Manager />} />
           <Route path="/scheduling" element={
             (user?.role === 'schedule' || user?.role === 'manager' || user?.role === 'owner')

@@ -1325,6 +1325,13 @@ export async function getWineInventoryReport({ asOf, locationId, allItems }) {
 
 // ── Idaho ABC wine report ────────────────────────────────────────────────────
 
+export async function getDashboard() {
+  const res = await fetch(`${API}/dashboard`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load dashboard');
+  return data;
+}
+
 export async function getAbcFiling(month) {
   const res = await fetch(`${API}/abc/filing/${month}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

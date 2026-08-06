@@ -79,3 +79,8 @@
   padding-top: 0.6rem;
   font-weight: 600;
 }
+
+/* Sold-but-not-collected sits between the location totals and the volume lines,
+   because it changes how the number above it should be read. */
+.wine-report-held td { color: #8a5a1f; }
+.wine-report-sellable td { font-weight: 700; border-top: 1px solid #ddd; }

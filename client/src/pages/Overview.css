@@ -1,0 +1,51 @@
+.ov-page { padding: 1rem 1.25rem 3rem; max-width: 1100px; }
+.ov-title { margin: 0 0 .25rem; font-size: 1.4rem; }
+.ov-sub { margin: 0 0 1.5rem; color: var(--text-muted); font-size: .87rem; line-height: 1.5; }
+.ov-loading, .ov-error { font-size: .87rem; }
+.ov-loading { color: var(--text-muted); }
+.ov-error { color: #b3261e; }
+
+.ov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.ov-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem 1.1rem;
+}
+.ov-card-muted { opacity: .6; }
+
+.ov-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.ov-card-head h3 { margin: 0; font-size: .82rem; text-transform: uppercase;
+                   letter-spacing: .04em; color: var(--text-muted); font-weight: 700; }
+.ov-card-sub { font-size: .75rem; color: var(--text-muted); }
+
+.ov-value { font-size: 1.9rem; font-weight: 700; margin: .5rem 0 .35rem;
+            font-variant-numeric: tabular-nums; color: var(--text); }
+
+.ov-compare { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; font-size: .8rem; }
+.ov-change { font-weight: 700; }
+.ov-change.good { color: #1b6b32; }
+.ov-change.bad  { color: #b3261e; }
+/* A missing comparison is information, not an error — state it plainly rather
+   than colouring it like a drop. */
+.ov-change.none { color: var(--text-muted); font-weight: 400; font-style: italic; }
+.ov-ly { color: var(--text-muted); }
+
+.ov-breakdown { width: 100%; border-collapse: collapse; margin-top: .9rem; font-size: .82rem; }
+.ov-breakdown td { padding: .3rem 0; border-bottom: 1px solid var(--border); }
+.ov-breakdown td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-breakdown tr.held td { color: #8a5a1f; }
+.ov-breakdown tr.held em { font-style: normal; color: var(--text-muted); }
+.ov-breakdown tr.ov-net td { font-weight: 700; border-bottom: none; border-top: 1px solid var(--border); }
+
+.ov-note { margin: .6rem 0 0; font-size: .76rem; color: var(--text-muted); line-height: 1.45; }
+
+@media (max-width: 640px) {
+  .ov-grid { grid-template-columns: 1fr; }
+  .ov-value { font-size: 1.6rem; }
+}

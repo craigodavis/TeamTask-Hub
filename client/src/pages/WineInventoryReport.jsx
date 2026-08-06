@@ -96,6 +96,25 @@ export function WineInventoryReport() {
                   <td style={{ textAlign: 'right' }}>{l.cases} cases</td>
                 </tr>
               ))}
+              {/* The count says what is on the property; this says what is
+                  still ours to sell. Without it the total reads as available
+                  stock when a large slice is already sold and awaiting
+                  collection. */}
+              {summary.held && (
+                <>
+                  <tr className="wine-report-held">
+                    <td>Sold, not collected</td>
+                    <td style={{ textAlign: 'right' }}>
+                      −{summary.held.cases} cases
+                      {summary.held.pct !== null && ` · ${summary.held.pct}%`}
+                    </td>
+                  </tr>
+                  <tr className="wine-report-sellable">
+                    <td>Still sellable</td>
+                    <td style={{ textAlign: 'right' }}>{summary.sellable.cases} cases</td>
+                  </tr>
+                </>
+              )}
               <tr>
                 <td>Total liters</td>
                 <td style={{ textAlign: 'right' }}>

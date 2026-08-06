@@ -95,10 +95,22 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
 
       <div className="app-shell-body">
         <nav className="app-shell-sidebar" id="app-sidebar" aria-label="Main navigation">
-          {/* Dashboard + collapsible sub-items */}
+          {/* Managers land on the dashboard, so Tasks points at its own path —
+              "/" redirects them away and the link would never match. */}
+          {isManager && (
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+              data-icon="📈"
+              title="Dashboard"
+              onClick={() => { if (isMobile()) setCollapsed(true); }}
+            >
+              <span>Dashboard</span>
+            </NavLink>
+          )}
           <div className="nav-item-row">
             <NavLink
-              to="/"
+              to={isManager ? '/tasks' : '/'}
               end
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
               data-icon="🏠"
