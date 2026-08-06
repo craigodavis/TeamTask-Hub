@@ -664,6 +664,9 @@ export async function syncClubs(companyId, integration) {
   const logId = await logStart(companyId, 'clubs', 'full', null);
   const c7 = makeC7Client(integration);
 
+  // Anything not touched by this pass is no longer in Commerce7. Safe to reason
+  // about only because this is a FULL sync — see the sweep at the end.
+  const runStartedAt = new Date();
   let page = 1, total = Infinity, synced = 0;
   const failed = [];
 
@@ -686,6 +689,7 @@ export async function syncClubs(companyId, integration) {
              image         = EXCLUDED.image,
              metadata      = EXCLUDED.metadata,
              c7_updated_at = EXCLUDED.c7_updated_at,
+             deleted_at    = NULL,
              synced_at     = NOW()`,
           [
             club.id, companyId,
@@ -706,8 +710,38 @@ export async function syncClubs(companyId, integration) {
       page++;
     }
 
+    // ── Sweep: clubs Commerce7 no longer returns ────────────────────────────
+    // C7 has no delete webhook; a trashed club simply stops appearing in the
+    // list. Since this is a full pass, any row whose synced_at predates it is
+    // gone at source. Mark it deleted and force it Not Available, because
+    // consumers filter on status — ClubSteward's club picker reads
+    // `status = 'Available'`, which is how a deleted Voyager's Pass kept
+    // offering itself.
+    //
+    // Guarded on synced > 0. An auth failure or an empty page would otherwise
+    // look identical to "every club was deleted" and retire the lot.
+    let retired = [];
+    if (synced > 0 && !failed.length) {
+      const r = await query(
+        `UPDATE commerce7.club
+            SET deleted_at   = NOW(),
+                status       = 'Not Available',
+                admin_status = 'Not Available'
+          WHERE company_id = $1
+            AND synced_at < $2
+            AND deleted_at IS NULL
+        RETURNING id, title`,
+        [companyId, runStartedAt]
+      );
+      retired = r.rows;
+      if (retired.length) {
+        console.warn(`[c7sync] retired ${retired.length} club(s) missing from Commerce7: `
+          + retired.map((x) => x.title).join(', '));
+      }
+    }
+
     await logFinish(logId, synced, failureNote(failed));
-    return { synced, entity: 'clubs', failed };
+    return { synced, entity: 'clubs', failed, retired };
   } catch (err) {
     await logFinish(logId, synced, err.message);
     throw err;

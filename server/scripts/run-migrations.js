@@ -3632,6 +3632,11 @@ const MIGRATIONS = [
   `ALTER TABLE product.product_inventory
      ADD CONSTRAINT product_inventory_counts_non_negative
      CHECK (total_bottles >= 0 AND COALESCE(library_bottles, 0) >= 0)`,
+  // Commerce7 has no delete webhook and its list endpoints simply stop returning
+  // a trashed record, so an upsert-only sync leaves the row behind forever with
+  // whatever status it last had. A deleted Voyager's Pass therefore kept
+  // advertising itself as Available to every downstream app.
+  `ALTER TABLE commerce7.club ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
 ];
 
 export async function runMigrations() {
