@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Team Hub">
+  <title>Team Hub</title>
+  <!-- Small-size variant, used for 16-32px only.
+       At favicon size the spokes are barely a pixel wide and do not read as
+       connections — they just close up the gaps between the dots and turn the
+       mark to mush. Dropping them and enlarging the dots keeps the same idea
+       legible. This is the full mark's graceful degradation, drawn on purpose
+       rather than left to the resampler. -->
+  <rect width="64" height="64" rx="12" fill="#0d47a1"/>
+  <circle cx="32" cy="31" r="12" fill="#fff"/>
+  <circle cx="32" cy="9.5" r="7" fill="#fff"/>
+  <circle cx="52" cy="45" r="7" fill="#fff"/>
+  <circle cx="12" cy="45" r="7" fill="#fff"/>
+</svg>
