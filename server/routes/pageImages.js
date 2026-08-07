@@ -8,6 +8,7 @@ import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { IMAGE_SLOTS, ALL_SLOT_KEYS } from '../lib/imageSlots.js';
 import { publishWebsiteNow } from '../lib/websiteDeploy.js';
+import { absMediaAll } from '../lib/mediaUrls.js';
 
 const router = express.Router();
 
@@ -29,7 +30,8 @@ router.get('/', async (_req, res) => {
          JOIN kindred_web.media m ON m.id = p.media_id`
     );
     const assignments = {};
-    for (const row of r.rows) assignments[row.slot_key] = row;
+    // Absolute, because the website's in-page editor reads this cross-origin.
+    for (const row of absMediaAll(r.rows)) assignments[row.slot_key] = row;
     res.json({ catalog: IMAGE_SLOTS, assignments });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

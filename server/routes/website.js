@@ -14,6 +14,7 @@ import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
 import { notifyWebsiteContentChanged } from '../lib/websiteDeploy.js';
+import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
 
 export const websiteRouter = express.Router();
 
@@ -86,28 +87,6 @@ websiteRouter.post('/contact', async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not send your message right now.' }); }
 });
 
-/**
- * Media uploaded through Team's own library is stored as a host-relative path
- * ("/api/uploads/media/foo.png"), which only resolves against whoever is asking.
- * This is a cross-origin read API — the static website is a different host — so a
- * relative path there means a broken image, as the Brian Crouse Sunset Music
- * Series event proved. Everything leaving here gets an absolute URL.
- *
- * Rows imported from WordPress are already absolute and pass through untouched.
- * With APP_BASE_URL unset this is a no-op rather than an error: same behaviour as
- * before, still broken, but not newly broken in some other way.
- */
-const MEDIA_ORIGIN = (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
-const MEDIA_FIELDS = ['image_url', 'social_image_url', 'musician_photo', 'url', 'media_url', 'thumbnail_url'];
-const absUrl = (u) => (typeof u === 'string' && u.startsWith('/') ? MEDIA_ORIGIN + u : u);
-function absMedia(row) {
-  if (!row || typeof row !== 'object') return row;
-  for (const f of MEDIA_FIELDS) if (f in row) row[f] = absUrl(row[f]);
-  // Media library rows carry a variants array of { url, w } for srcset.
-  if (Array.isArray(row.variants)) row.variants = row.variants.map((v) => (v && v.url ? { ...v, url: absUrl(v.url) } : v));
-  return row;
-}
-const absMediaAll = (rows) => (Array.isArray(rows) ? rows.map(absMedia) : rows);
 
 const LIST_FIELDS = `
   e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,

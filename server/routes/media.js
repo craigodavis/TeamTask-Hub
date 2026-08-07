@@ -15,6 +15,7 @@ import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { MEDIA_DIR, generateVariants, safeBase, filesFor } from '../lib/mediaVariants.js';
 import { importWordpressMedia } from '../lib/importWordpressMedia.js';
+import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
 
 const router = express.Router();
 const cId = (req) => req.companyId;
@@ -60,7 +61,7 @@ router.get('/', async (req, res) => {
     `SELECT * FROM kindred_web.media ${clause} ORDER BY created_at DESC LIMIT $${limIdx} OFFSET $${offIdx}`,
     params
   );
-  res.json({ media: rows.rows, total: countRes.rows[0].n });
+  res.json({ media: absMediaAll(rows.rows), total: countRes.rows[0].n });
 });
 
 // Special folders that always exist and can't be removed.
@@ -141,7 +142,7 @@ router.post('/import/wordpress', requireManager, (req, res) => {
 router.get('/:id', async (req, res) => {
   const r = await query(`SELECT * FROM kindred_web.media WHERE id = $1`, [req.params.id]);
   if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
-  res.json(r.rows[0]);
+  res.json(absMedia(r.rows[0]));
 });
 
 // POST /api/media/upload — upload one image (field name: "file").
@@ -165,7 +166,7 @@ router.post('/upload', requireManager, upload.single('file'), async (req, res) =
      b.alt_text || null, b.caption || null, b.credit || null, b.folder || 'library',
      tags, variants ? JSON.stringify(variants) : null, cId(req), req.userId]
   );
-  res.status(201).json(r.rows[0]);
+  res.status(201).json(absMedia(r.rows[0]));
 });
 
 // PATCH /api/media/:id — edit metadata (alt_text, caption, credit, folder, tags).
@@ -189,7 +190,7 @@ router.patch('/:id', requireManager, async (req, res) => {
     params
   );
   if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
-  res.json(r.rows[0]);
+  res.json(absMedia(r.rows[0]));
 });
 
 // DELETE /api/media/:id — remove the row and all on-disk files (original + variants).
