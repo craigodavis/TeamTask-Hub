@@ -200,6 +200,21 @@
   color: #111827;
   font-size: 0.9rem;
 }
+/* Bottle over glass, stacked, so the two prices stay one unit in the footer
+   flex row. Side by side they overflowed the card and wrapped "SKUs" and the
+   availability text onto extra lines. */
+.prod-card-prices {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+/* Secondary to the bottle price, so it reads as extra detail rather than
+   competing with it. */
+.prod-card-price-glass {
+  font-size: 0.7rem;
+  color: #6b7280;
+  font-weight: 400;
+}
 .prod-card-avail {
   margin-left: auto;
   font-size: 0.75rem;

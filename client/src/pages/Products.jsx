@@ -35,7 +35,14 @@ function ProductCard({ product, onClick }) {
           {product.appellation && <span className="prod-meta-pill prod-meta-light">{product.appellation}</span>}
         </div>
         <div className="prod-card-footer">
-          <span className="prod-card-price">{formatPrice(product.min_price_cents)}</span>
+          <span className="prod-card-prices">
+            <span className="prod-card-price">
+              {formatPrice(product.bottle_price_cents ?? product.min_price_cents)}
+            </span>
+            {product.glass_price_cents != null && (
+              <span className="prod-card-price-glass">{formatPrice(product.glass_price_cents)} glass</span>
+            )}
+          </span>
           <span className="prod-card-variants">{product.variant_count} SKU{product.variant_count !== 1 ? 's' : ''}</span>
           <span className="prod-card-avail">
             {product.is_available ? '● For sale'
