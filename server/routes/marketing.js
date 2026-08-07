@@ -6,8 +6,18 @@
 import express from 'express';
 import { query } from '../db.js';
 import { ping as resosPing } from '../lib/resosClient.js';
+import { tokenStatus } from '../lib/instagramToken.js';
 
 export const marketingRouter = express.Router();
+
+// GET /api/marketing/instagram — how much life the feed's token has left.
+// An Instagram token dying is invisible from the outside: the website's feed just
+// goes empty, which reads as "they haven't posted". This is where to look.
+// Returns no token material, only its state.
+marketingRouter.get('/instagram', async (_req, res) => {
+  try { res.json(await tokenStatus()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // Resolve a venue web_slug → { location_id, name } for this company.
 async function resolveVenue(companyId, venue) {

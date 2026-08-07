@@ -9,18 +9,24 @@
  * for a Business account via a Page token, set IG_GRAPH_BASE=https://graph.facebook.com/v21.0
  * and IG_USER_ID to the IG user id.
  *
- * Env: IG_ACCESS_TOKEN (required), IG_USER_ID (default "me"), IG_GRAPH_BASE.
+ * The token is NOT read from the environment at run time — see lib/instagramToken.js.
+ * It's held in kindred_web.settings and refreshed before it lapses, because an
+ * Instagram Login token dies after 60 days and takes the feed with it, silently.
+ * IG_ACCESS_TOKEN seeds that store once and is ignored afterwards.
+ *
+ * Env: IG_ACCESS_TOKEN (first run only), IG_USER_ID (default "me"), IG_GRAPH_BASE.
  */
 import { query } from '../db.js';
 import { notifyWebsiteContentChanged } from './websiteDeploy.js';
+import { currentToken } from './instagramToken.js';
 
 const IG_BASE = process.env.IG_GRAPH_BASE || 'https://graph.instagram.com';
 const IG_USER = process.env.IG_USER_ID || 'me';
 const FIELDS = 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp';
 
 export async function syncInstagram() {
-  const token = process.env.IG_ACCESS_TOKEN;
-  if (!token) return { ok: false, reason: 'IG_ACCESS_TOKEN not set' };
+  const token = await currentToken();
+  if (!token) return { ok: false, reason: 'no Instagram token (set IG_ACCESS_TOKEN once to seed it)' };
 
   const url = `${IG_BASE}/${IG_USER}/media?fields=${FIELDS}&limit=24&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url);
@@ -56,13 +62,11 @@ let started = false;
 export function startInstagramScheduler() {
   if (started) return;
   started = true;
-  if (!process.env.IG_ACCESS_TOKEN) {
-    console.log('Instagram scheduler idle (IG_ACCESS_TOKEN not set).');
-    return;
-  }
+  // No env check here: once seeded, the token lives in the database, so an empty
+  // IG_ACCESS_TOKEN is the normal steady state rather than a reason not to run.
   const run = () =>
     syncInstagram()
-      .then((r) => r.ok && console.log(`Instagram synced: ${r.count} posts.`))
+      .then((r) => (r.ok ? console.log(`Instagram synced: ${r.count} posts.`) : console.log(`Instagram sync skipped: ${r.reason}`)))
       .catch((e) => console.error('Instagram sync failed:', e.message));
   setTimeout(run, 20 * 1000); // shortly after boot
   setInterval(run, 60 * 60 * 1000); // hourly
