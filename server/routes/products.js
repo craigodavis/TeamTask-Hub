@@ -66,6 +66,16 @@ router.get('/', requireAuth, async (req, res) => {
          c7.c7_product_id, c7.c7_handle, c7.teaser,
          -- variant summary
          (SELECT COUNT(*) FROM product.product_variants v WHERE v.product_id = p.id) AS variant_count,
+         -- The bottle, not the cheapest variant. MIN() alone returned the 5oz
+         -- glass pour on every wine that has one, which is not the price
+         -- anyone means when they look at a product.
+         (SELECT v.price_cents FROM product.product_variants v
+           WHERE v.product_id = p.id AND v.is_available = true AND NOT v.is_glass
+           ORDER BY v.is_default DESC, v.ordinal, v.price_cents DESC
+           LIMIT 1) AS bottle_price_cents,
+         (SELECT MIN(v.price_cents) FROM product.product_variants v
+           WHERE v.product_id = p.id AND v.is_available = true AND v.is_glass) AS glass_price_cents,
+         -- kept as a fallback for a product that is somehow glass-only
          (SELECT MIN(v.price_cents) FROM product.product_variants v WHERE v.product_id = p.id AND v.is_available = true) AS min_price_cents,
          -- sync status
          (SELECT s.needs_push FROM product.sync_status s WHERE s.product_id = p.id AND s.system = 'commerce7') AS c7_needs_push,
@@ -746,60 +756,92 @@ router.put('/:id', requireAuth, async (req, res) => {
       );
       const c7ProductId = c7Row.rows[0]?.c7_product_id;
 
+      // ── Local variant edits ────────────────────────────────────────────
+      // Applied before Commerce7 is touched, and outside its try: a failed
+      // push must not silently discard changes the user was told were saved
+      // locally.
+      const c7VariantPatches = new Map(); // c7 variant id -> fields to change
+      // Apply the edits locally and note what Commerce7 needs told.
+      if (Array.isArray(b.variants)) {
+        for (const v of b.variants) {
+          if (!v.id) continue;
+          // Get c7_variant_id
+          const cvRow = await client.query(
+            `SELECT cd.c7_variant_id FROM product.product_variants pv
+             JOIN product.c7_variant_data cd ON cd.variant_id = pv.id
+             WHERE pv.id = $1 AND pv.product_id = $2`,
+            [v.id, productId]
+          );
+          const c7VariantId = cvRow.rows[0]?.c7_variant_id;
+
+          // Update local variant
+          const vFields = [];
+          const vVals = [];
+          const addV = (col, val) => { vVals.push(val); vFields.push(`${col} = $${vVals.length}`); };
+          if (v.sku !== undefined)           addV('sku', v.sku ?? null);
+          if (v.price_cents !== undefined)   addV('price_cents', v.price_cents != null ? parseInt(v.price_cents, 10) : null);
+          if (v.volume_format !== undefined)  addV('volume_format', v.volume_format ?? null);
+          if (v.is_available !== undefined)  addV('is_available', Boolean(v.is_available));
+          if (vFields.length) {
+            vVals.push(v.id, productId);
+            await client.query(
+              `UPDATE product.product_variants SET ${vFields.join(', ')}, updated_at = NOW()
+               WHERE id = $${vVals.length - 1} AND product_id = $${vVals.length}`,
+              vVals
+            );
+          }
+
+          // Collect the change; the push happens once, further down.
+          if (c7VariantId) {
+            const volumeML = (() => {
+              const fmt = v.volume_format || '';
+              const map = { '187ml': 187, '375ml': 375, '500ml': 500, '750ml': 750, '1L': 1000, '1.5L': 1500, '3L': 3000, '6L': 6000 };
+              if (map[fmt]) return map[fmt];
+              const m = fmt.match(/^(\d+)ml$/i);
+              return m ? parseInt(m[1], 10) : undefined;
+            })();
+            const patch = {};
+            if (v.sku !== undefined) patch.sku = v.sku;
+            if (v.price_cents !== undefined) patch.price = v.price_cents != null ? parseInt(v.price_cents, 10) : null;
+            if (volumeML !== undefined) patch.volumeInML = volumeML;
+            if (v.alcohol_pct !== undefined) patch.alcoholPercentage = v.alcohol_pct;
+            if (Object.keys(patch).length) c7VariantPatches.set(c7VariantId, patch);
+          }
+        }
+      }
+
       if (integration?.c7_api_key && c7ProductId) {
+        // Which push is in flight, so a failure can say which one broke.
+        let stage = 'product';
         try {
           const { makeC7Client } = await import('../lib/commerce7Client.js');
           const c7 = makeC7Client(integration);
           const payload = buildC7Payload(b);
           await c7.put(`/product/${c7ProductId}`, payload);
 
-          // Update variants in C7 if provided
-          if (Array.isArray(b.variants)) {
-            for (const v of b.variants) {
-              if (!v.id) continue;
-              // Get c7_variant_id
-              const cvRow = await client.query(
-                `SELECT cd.c7_variant_id FROM product.product_variants pv
-                 JOIN product.c7_variant_data cd ON cd.variant_id = pv.id
-                 WHERE pv.id = $1 AND pv.product_id = $2`,
-                [v.id, productId]
+          stage = 'variant';
+          // ── Push variant changes ────────────────────────────────────────
+          // Commerce7 has no variant resource: /product-variant/{id} and
+          // /product/{id}/variant/{id} both 404. Variants are nested in the
+          // product and are written by PUTting the product with a full
+          // `variants` array — every variant, not just the changed one, since
+          // omitting the others would drop them.
+          //
+          // The array must carry each variant whole. Commerce7 rejects a
+          // partial variant with "required" on title, sku, sortOrder,
+          // costOfGood and hasShipping, and rejects its own derived fields
+          // with "invalid additional property" — so the current values are
+          // re-read and merged rather than sent back verbatim.
+          if (c7VariantPatches.size) {
+            const current = await c7.get(`/product/${c7ProductId}`);
+            const DERIVED = new Set(['productId', 'hasInventory', 'inventoryPolicy', 'inventory']);
+            const variants = (current.variants || []).map((cv) => {
+              const base = Object.fromEntries(
+                Object.entries(cv).filter(([k]) => !DERIVED.has(k))
               );
-              const c7VariantId = cvRow.rows[0]?.c7_variant_id;
-
-              // Update local variant
-              const vFields = [];
-              const vVals = [];
-              const addV = (col, val) => { vVals.push(val); vFields.push(`${col} = $${vVals.length}`); };
-              if (v.sku !== undefined)           addV('sku', v.sku ?? null);
-              if (v.price_cents !== undefined)   addV('price_cents', v.price_cents != null ? parseInt(v.price_cents, 10) : null);
-              if (v.volume_format !== undefined)  addV('volume_format', v.volume_format ?? null);
-              if (v.is_available !== undefined)  addV('is_available', Boolean(v.is_available));
-              if (vFields.length) {
-                vVals.push(v.id, productId);
-                await client.query(
-                  `UPDATE product.product_variants SET ${vFields.join(', ')}, updated_at = NOW()
-                   WHERE id = $${vVals.length - 1} AND product_id = $${vVals.length}`,
-                  vVals
-                );
-              }
-
-              // Push variant to C7
-              if (c7VariantId) {
-                const volumeML = (() => {
-                  const fmt = v.volume_format || '';
-                  const map = { '187ml': 187, '375ml': 375, '500ml': 500, '750ml': 750, '1L': 1000, '1.5L': 1500, '3L': 3000, '6L': 6000 };
-                  if (map[fmt]) return map[fmt];
-                  const m = fmt.match(/^(\d+)ml$/i);
-                  return m ? parseInt(m[1], 10) : undefined;
-                })();
-                const varPayload = {};
-                if (v.sku !== undefined) varPayload.sku = v.sku;
-                if (v.price_cents !== undefined) varPayload.price = v.price_cents != null ? parseInt(v.price_cents, 10) : null;
-                if (volumeML !== undefined) varPayload.volumeInML = volumeML;
-                if (v.alcohol_pct !== undefined) varPayload.alcoholPercentage = v.alcohol_pct;
-                await c7.put(`/product-variant/${c7VariantId}`, varPayload);
-              }
-            }
+              return { ...base, ...(c7VariantPatches.get(cv.id) || {}) };
+            });
+            await c7.put(`/product/${c7ProductId}`, { variants });
           }
 
           // Mark synced
@@ -810,13 +852,19 @@ router.put('/:id', requireAuth, async (req, res) => {
             [companyId, productId]
           );
         } catch (err) {
-          console.error('[products] PUT C7 push failed:', err.message);
-          c7Error = err.message;
+          // A variant failure still leaves the product itself published, so
+          // don't report it as the whole sync failing — that sent Craig
+          // looking for a problem that wasn't there.
+          const message = stage === 'variant'
+            ? `Product saved to Commerce7, but variant details did not: ${err.message}`
+            : `Commerce7 product push failed: ${err.message}`;
+          console.error('[products] PUT C7 push failed:', message);
+          c7Error = message;
           await client.query(
             `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, sync_error)
              VALUES ($1, $2, 'commerce7', true, $3)
              ON CONFLICT (product_id, system) DO UPDATE SET needs_push = true, sync_error = $3`,
-            [companyId, productId, err.message]
+            [companyId, productId, message]
           );
         }
       } else if (c7ProductId) {
