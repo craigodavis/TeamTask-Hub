@@ -33,6 +33,7 @@ export function Campaigns() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
+  const [dialog, setDialog] = useState(null);   // { name, kind } while open
   const saveTimer = useRef(null);
 
   const load = useCallback(() => {
@@ -105,15 +106,14 @@ export function Campaigns() {
     } catch (err) { setError(err.message); }
   };
 
-  const newCampaign = async () => {
-    const name = window.prompt('Campaign name');
-    if (!name) return;
-    const kind = window.prompt(
-      `Type — ${Object.keys(kinds).join(', ')}`, 'general');
+  const submitNew = async (e) => {
+    e.preventDefault();
+    if (!dialog?.name?.trim()) return;
     try {
-      const d = await createCampaign({ name, kind: kind || 'general' });
+      const d = await createCampaign({ name: dialog.name.trim(), kind: dialog.kind });
+      setDialog(null);
       load(); setOpenId(d.campaign.id);
-    } catch (e) { setError(e.message); }
+    } catch (err) { setError(err.message); }
   };
 
   // ── list ──────────────────────────────────────────────────────────────────
@@ -125,9 +125,43 @@ export function Campaigns() {
             <h2 className="cmp-title">Campaigns</h2>
             <p className="cmp-sub">Emails are built from blocks. Brand comes from the tokens, not from you.</p>
           </div>
-          <button className="cmp-primary" onClick={newCampaign}>New campaign</button>
+          <button className="cmp-primary"
+                  onClick={() => setDialog({ name: '', kind: 'general' })}>New campaign</button>
         </div>
         {error && <p className="cmp-error">{error}</p>}
+
+        {dialog && (
+          <div className="cmp-scrim" onClick={() => setDialog(null)}>
+            <form className="cmp-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitNew}>
+              <h3>New campaign</h3>
+              <label className="cmp-field">
+                <span>Name</span>
+                <input autoFocus value={dialog.name} placeholder="June release — club"
+                       onChange={(e) => setDialog({ ...dialog, name: e.target.value })} />
+              </label>
+              <label className="cmp-field">
+                <span>Type</span>
+                <select value={dialog.kind}
+                        onChange={(e) => setDialog({ ...dialog, kind: e.target.value })}>
+                  {Object.entries(kinds).map(([k, v]) => (
+                    <option key={k} value={k}>{v.label}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="cmp-dialognote">
+                The type fills in a starting set of blocks. You can add or remove
+                any of them afterwards.
+              </p>
+              <div className="cmp-dialogbtns">
+                <button type="button" className="cmp-ghost"
+                        onClick={() => setDialog(null)}>Cancel</button>
+                <button type="submit" className="cmp-primary"
+                        disabled={!dialog.name.trim()}>Create</button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {!list.length && <p className="cmp-empty">Nothing yet. Start one.</p>}
         <table className="cmp-table">
           <tbody>
