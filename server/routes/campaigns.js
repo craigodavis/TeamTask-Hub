@@ -125,6 +125,41 @@ router.post('/preview', requireManager, async (req, res) => {
   }
 });
 
+// ── POST /api/campaigns/:id/duplicate ────────────────────────────────────────
+// Copying a campaign IS the template mechanism. A separate "save as template"
+// concept would mean two things to keep in sync and two places to look for the
+// one you half-remember; a copy is editable, disposable, and already
+// understood.
+router.post('/:id/duplicate', requireManager, async (req, res) => {
+  try {
+    const src = await query(
+      `SELECT * FROM email_campaigns WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cid(req)]);
+    if (!src.rows.length) return res.status(404).json({ error: 'Not found' });
+    const c = src.rows[0];
+
+    // "name-copy", then "name-copy-2" and so on. Suffixing a busy name blindly
+    // gives you three identical rows and no way to tell them apart.
+    const base = `${c.name}-copy`;
+    const taken = (await query(
+      `SELECT name FROM email_campaigns WHERE company_id = $1 AND name LIKE $2`,
+      [cid(req), `${base}%`])).rows.map((r) => r.name);
+    let name = base;
+    for (let n = 2; taken.includes(name); n++) name = `${base}-${n}`;
+
+    // Everything about the copy is a draft: no listmonk campaign, nothing sent,
+    // no sent_html. Carrying those over would make a copy look like it had
+    // already gone out.
+    const r = await query(
+      `INSERT INTO email_campaigns
+         (company_id, name, subject, preheader, kind, sections, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7) RETURNING *`,
+      [cid(req), name, c.subject, c.preheader, c.kind,
+       JSON.stringify(c.sections), req.userId || null]);
+    res.status(201).json({ campaign: r.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.delete('/:id', requireManager, async (req, res) => {
   try {
     await query(`DELETE FROM email_campaigns WHERE id = $1 AND company_id = $2`,

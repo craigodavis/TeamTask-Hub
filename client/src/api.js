@@ -1402,6 +1402,14 @@ export async function previewCampaign(body) {
   return res.text();
 }
 
+export async function duplicateCampaign(id) {
+  const res = await fetch(`${API}/campaigns/${id}/duplicate`, {
+    method: 'POST', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to duplicate');
+  return d;
+}
+
 export async function getDashboard() {
   const res = await fetch(`${API}/dashboard`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

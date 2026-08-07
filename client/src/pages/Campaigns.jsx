@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getCampaigns, createCampaign, getCampaign, saveCampaign, previewCampaign,
+  duplicateCampaign,
 } from '../api';
 import './Campaigns.css';
 
@@ -95,6 +96,15 @@ export function Campaigns() {
     setSelected(Math.max(0, i - 1));
   };
 
+  const duplicate = async (id, e) => {
+    e?.stopPropagation();
+    try {
+      const d = await duplicateCampaign(id);
+      load();
+      setOpenId(d.campaign.id);   // open the copy so it can be renamed at once
+    } catch (err) { setError(err.message); }
+  };
+
   const newCampaign = async () => {
     const name = window.prompt('Campaign name');
     if (!name) return;
@@ -129,6 +139,8 @@ export function Campaigns() {
                 </td>
                 <td className="right">
                   <span className={`cmp-status cmp-${x.status}`}>{x.status}</span>
+                  <button className="cmp-dup" title="Duplicate"
+                          onClick={(e) => duplicate(x.id, e)}>Duplicate</button>
                 </td>
               </tr>
             ))}
@@ -152,7 +164,10 @@ export function Campaigns() {
           <input className="cmp-nameinput" value={c.name}
                  onChange={(e) => persist({ ...c, name: e.target.value })} />
         </div>
-        <span className="cmp-saving">{saving ? 'Saving…' : 'Saved'}</span>
+        <span className="cmp-headactions">
+          <button className="cmp-dup" onClick={(e) => duplicate(c.id, e)}>Duplicate</button>
+          <span className="cmp-saving">{saving ? 'Saving…' : 'Saved'}</span>
+        </span>
       </div>
 
       {error && <p className="cmp-error">{error}</p>}

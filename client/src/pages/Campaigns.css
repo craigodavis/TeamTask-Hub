@@ -69,3 +69,9 @@
   .cmp-grid { grid-template-columns: 1fr; }
   .cmp-preview { height: 520px; }
 }
+
+.cmp-headactions { display: flex; align-items: center; gap: .8rem; }
+.cmp-dup { margin-left: .6rem; padding: .2rem .55rem; border: 1px solid var(--border);
+           border-radius: 999px; background: var(--card); font-size: .74rem;
+           cursor: pointer; color: var(--text-muted); }
+.cmp-dup:hover { border-color: var(--primary); color: var(--primary); }
