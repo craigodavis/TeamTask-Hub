@@ -2512,3 +2512,73 @@ export async function getImportStatus() {
   if (!res.ok) throw new Error('Failed to get import status');
   return res.json();
 }
+
+// ── The Crew ────────────────────────────────────────────────────────────────
+// Staff profiles for the website's "meet the team" page. Open to every signed-in
+// user: the endpoints decide what you may touch based on WHOSE profile it is,
+// not on your role, so there is no role check to mirror here.
+
+export async function getCrew(includeFormer = false) {
+  const res = await fetch(`${API}/crew${includeFormer ? '?all=1' : ''}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load the crew');
+  return data;
+}
+
+export async function getMyCrewProfile() {
+  const res = await fetch(`${API}/crew/me`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load your profile');
+  return data;
+}
+
+export async function saveMyCrewProfile(fields) {
+  const res = await fetch(`${API}/crew/me`, { method: 'PUT', headers: headers(), body: JSON.stringify(fields) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save');
+  return data;
+}
+
+export async function setMyCrewConsent(consent) {
+  const res = await fetch(`${API}/crew/me/consent`, { method: 'POST', headers: headers(), body: JSON.stringify({ consent }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save');
+  return data;
+}
+
+export async function uploadMyCrewPhoto(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API}/crew/me/photo`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` }, // no Content-Type — browser sets the boundary
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+export async function removeMyCrewPhoto() {
+  const res = await fetch(`${API}/crew/me/photo`, { method: 'DELETE', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not remove the photo');
+  return data;
+}
+
+// Manager only — the UI hides these, the server enforces them.
+export async function saveCrewProfile(squareId, fields) {
+  const res = await fetch(`${API}/crew/${encodeURIComponent(squareId)}`, { method: 'PUT', headers: headers(), body: JSON.stringify(fields) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save');
+  return data;
+}
+
+export async function approveCrewProfile(squareId, approved) {
+  const res = await fetch(`${API}/crew/${encodeURIComponent(squareId)}/approve`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ approved }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not update approval');
+  return data;
+}

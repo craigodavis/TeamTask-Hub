@@ -4,6 +4,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Manager } from './pages/Manager';
 import { Policies } from './pages/Policies';
+import Crew from './pages/Crew';
 import { WasteEntry } from './pages/WasteEntry';
 import { WasteList } from './pages/WasteList';
 import { Settings } from './pages/Settings';
@@ -162,6 +163,9 @@ function App() {
             (user?.role === 'schedule' || user?.role === 'manager' || user?.role === 'owner')
               ? <Events /> : <Navigate to="/" replace />} />
           <Route path="/policies" element={<Policies />} />
+          {/* Open to every signed-in user — the server decides what you may edit
+              by whose profile it is, not by role. No ternary here on purpose. */}
+          <Route path="/crew" element={<Crew />} />
           <Route path="/food" element={<FoodLayout />}>
             <Route
               index

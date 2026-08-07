@@ -158,6 +158,37 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_kw_ig_posted ON kindred_web.instagram_media(posted_at DESC)`,
 
+  // The Crew — staff profiles for the public "meet the team" page.
+  //
+  // Keyed on Square's team member id, NOT users.id. The Square integration hard
+  // deletes app users whose team member has gone (routes/integrations.js), so a
+  // profile hung off users.id would be destroyed when a seasonal employee cycles
+  // out — and Square keeps its own row, INACTIVE, forever. No FK: cross-schema,
+  // and team_square syncs independently, which is already the house norm here.
+  //
+  // Nothing about publication is stored as a flag. Someone is public only if they
+  // consented, a manager approved, and Square still says ACTIVE — evaluated at
+  // read time in the /api/website projection, so the day somebody leaves they come
+  // off the site without anyone having to remember to do it.
+  `CREATE TABLE IF NOT EXISTS kindred_web.crew_profile (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    square_team_member_id  VARCHAR(64) NOT NULL UNIQUE,
+    slug                   VARCHAR(80) UNIQUE,   -- assigned once at first publish, then frozen
+    nickname               VARCHAR(60),
+    bio                    TEXT,
+    education              TEXT,
+    square_job_id          VARCHAR(64),          -- which Square assignment to show; half the crew has several
+    media_id               UUID REFERENCES kindred_web.media(id) ON DELETE SET NULL,
+    consent_at             TIMESTAMPTZ,          -- the employee agreed to appear
+    approved_at            TIMESTAMPTZ,          -- a manager cleared the copy
+    approved_by            UUID,
+    sort_order             INT NOT NULL DEFAULT 0,
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by             UUID
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_crew_order ON kindred_web.crew_profile(sort_order, id)`,
+
   // Website form submissions (newsletter signups + contact messages).
   `CREATE TABLE IF NOT EXISTS kindred_web.form_submissions (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

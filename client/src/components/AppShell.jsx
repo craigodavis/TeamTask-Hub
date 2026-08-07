@@ -168,6 +168,17 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           >
             <span>Policies</span>
           </NavLink>
+          {/* Everyone, deliberately: this is where staff maintain their own
+              profile for the website, so it is not wrapped in a role check. */}
+          <NavLink
+            to="/crew"
+            className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
+            data-icon="🧑‍🌾"
+            title="The Crew"
+            onClick={() => { if (isMobile()) setCollapsed(true); }}
+          >
+            <span>The Crew</span>
+          </NavLink>
           {canAccessSchedule && (
             <NavLink
               to="/scheduling"

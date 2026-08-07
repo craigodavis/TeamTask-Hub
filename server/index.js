@@ -69,6 +69,7 @@ import { pageImagesRouter } from './routes/pageImages.js';
 import { startInstagramScheduler } from './lib/instagramSync.js';
 // Rebuilds the public website when anything it reads changes here.
 import { websiteContentWatch } from './lib/websiteDeploy.js';
+import { crewRouter } from './routes/crew.js';
 import { websiteRouter } from './routes/website.js';
 import { marketingRouter } from './routes/marketing.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -148,6 +149,7 @@ app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/media', requireAuth, websiteContentWatch, mediaRouter);
 app.use('/api/hours', requireAuth, websiteContentWatch, hoursRouter);
 app.use('/api/page-images', requireAuth, websiteContentWatch, pageImagesRouter);
+app.use('/api/crew', requireAuth, websiteContentWatch, crewRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
 app.use('/api/marketing', requireAuth, requireManager, websiteContentWatch, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
