@@ -4,11 +4,16 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
-// The push-to-WordPress bridge (lib/wpEventPush.js) is deliberately not wired up.
-// The production site's calendar is now maintained by hand in WordPress and is the
-// source of truth; TeamHub events feed preview.kindredvineyards.com instead, which
-// pulls from /api/website at build time. Re-importing this would let an edit here
-// overwrite the live site. See scripts/reconcile-events-from-wp.js.
+// There is no push-to-WordPress path, by design. The production calendar is
+// maintained by hand in WordPress and is the source of truth; TeamHub events feed
+// preview.kindredvineyards.com, which pulls from /api/website at build time.
+//
+// lib/wpEventPush.js and wp-bridge/tec-sync.php used to do this and were deleted
+// rather than left dormant. They shelled out to wp-cli against the live docroot
+// (/home/kindredv/public_html), so nothing stood between calling that function and
+// rewriting the live calendar — no API, no review, no undo. A commented-out warning
+// only works while someone reads it. Reading the other direction is still fine and
+// still supported: scripts/reconcile-events-from-wp.js.
 import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
 
 const cId = (req) => req.companyId;
