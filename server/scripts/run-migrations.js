@@ -3657,6 +3657,16 @@ const MIGRATIONS = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_menu_wines_lookup
      ON menu_wines(company_id, menu_key, section, sort_order)`,
+  // Square has TWO ways of retiring a catalog item and the sync only captured
+  // one. is_deleted was stored; is_archived was fetched and thrown away, so an
+  // archived item — still in the catalog, no longer sellable — was
+  // indistinguishable from a live one in every local query. Of 33 wine-glass
+  // items that were not deleted, 13 turned out to be archived.
+  `ALTER TABLE team_square.catalog_item
+     ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_catalog_item_live
+     ON team_square.catalog_item(reporting_category_id)
+     WHERE is_deleted = false AND is_archived = false`,
 ];
 
 export async function runMigrations() {

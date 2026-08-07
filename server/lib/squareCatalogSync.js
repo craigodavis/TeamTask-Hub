@@ -164,8 +164,8 @@ export async function runCatalogSync(companyId) {
               product_type, skip_modifier_screen, tax_ids,
               reporting_category_id, reporting_category_ordinal,
               present_at_all_locations, ecom_available, ecom_visibility,
-              version, is_deleted, updated_at, synced_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
+              version, is_deleted, is_archived, updated_at, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW())
            ON CONFLICT (id) DO UPDATE SET
              name                        = EXCLUDED.name,
              description                 = EXCLUDED.description,
@@ -189,6 +189,7 @@ export async function runCatalogSync(companyId) {
              ecom_visibility             = EXCLUDED.ecom_visibility,
              version                     = EXCLUDED.version,
              is_deleted                  = EXCLUDED.is_deleted,
+             is_archived                 = EXCLUDED.is_archived,
              updated_at                  = EXCLUDED.updated_at,
              synced_at                   = NOW()`,
           [
@@ -215,6 +216,9 @@ export async function runCatalogSync(companyId) {
             d.ecom_visibility              || null,
             obj.version                    || null,
             obj.is_deleted                 || false,
+            // Archived lives on item_data, not on the object like is_deleted —
+            // which is how it came to be missed.
+            d.is_archived                  || false,
             obj.updated_at                 || null,
           ]
         );
