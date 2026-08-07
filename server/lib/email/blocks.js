@@ -18,6 +18,26 @@ const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+/**
+ * The only place an <img> is produced.
+ *
+ * Alt text is required and empty is refused. A large share of recipients —
+ * Outlook desktop especially — see mail with images off by default, so alt text
+ * is not an accessibility nicety here, it is what the email says to a
+ * meaningful fraction of the people who receive it. Failing the render is
+ * deliberate: a missing alt is invisible in every preview and only surfaces in
+ * the inbox, by which point it has gone to everybody.
+ */
+function img(src, alt, { width, height } = {}) {
+  if (!alt || !String(alt).trim()) {
+    throw new Error('Image alt text is required — images are off by default for many recipients.');
+  }
+  return `<img src="${esc(src)}" alt="${esc(alt)}"`
+    + (width ? ` width="${width}"` : '')
+    + ` style="display:block;${width ? `width:${width}px;` : ''}`
+    + `${height ? `height:${height}px;` : 'height:auto;'}border:0;border-radius:2px;">`;
+}
+
 /** A full-width row. Every block sits in one so spacing stays uniform. */
 const row = (inner, { bg = 'transparent', padY = 20 } = {}) => `
 <tr>
@@ -64,14 +84,13 @@ export const blocks = {
     </table>`),
 
   /** A wine. Image left, name and note right — stacks on narrow screens. */
-  wine: ({ name, meta, note, imageUrl }) => row(`
+  wine: ({ name, meta, note, imageUrl, alt }) => row(`
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
            bgcolor="${e.surface}" style="background-color:${e.surface};border-radius:${layout.radius}px;">
       <tr>
         <td width="96" valign="top" style="padding:16px 0 16px 16px;">
           ${imageUrl
-            ? `<img src="${esc(imageUrl)}" width="80" alt="${esc(name)}"
-                 style="display:block;width:80px;height:auto;border:0;border-radius:2px;">`
+            ? img(imageUrl, alt || name, { width: 80 })
             : `<div style="width:80px;height:104px;background-color:${e.rule};border-radius:2px;"></div>`}
         </td>
         <td valign="top" style="padding:16px;">
@@ -113,6 +132,16 @@ export const blocks = {
            color:${palette.onAccent};text-decoration:none;">${esc(label)}</a>
       </td></tr>
     </table>`, { padY: 12 }),
+
+  /** A picture. `alt` is not optional — see img() above. */
+  image: ({ src, alt, caption }) => row(`
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+      <tr><td align="center">
+        ${img(src, alt, { width: layout.width - layout.gutter * 2 })}
+        ${caption ? `<p style="margin:8px 0 0;font-family:${t.bodyStack};font-size:12px;
+           line-height:1.5;color:${e.inkMuted};">${esc(caption)}</p>` : ''}
+      </td></tr>
+    </table>`, { padY: 10 }),
 
   /** Passthrough. Only used to place listmonk's content marker in the shell. */
   __raw__: ({ html }) => String(html ?? ''),

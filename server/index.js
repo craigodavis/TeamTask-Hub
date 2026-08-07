@@ -21,6 +21,7 @@ import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { emailMediaRouter } from './routes/emailMedia.js';
 import { menusRouter } from './routes/menus.js';
 import { loyaltyRouter, memberRouter as loyaltyMemberRouter } from './routes/loyalty.js';
 import { clubNotificationsRouter } from './routes/clubNotifications.js';
@@ -154,6 +155,9 @@ app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
 app.use('/api/abc', requireAuth, abcRouter);       // Idaho ABC wine report — prepares only, never submits
 app.use('/api/dashboard', requireAuth, dashboardRouter);  // manager/owner overview; role enforced in the router
+// Deliberately NOT behind requireAuth: mail clients fetch images with no session.
+// Reachable by anyone, so it resolves records rather than paths — see the router.
+app.use('/email-media', emailMediaRouter);
 app.use('/api/menus', requireAuth, menusRouter);           // tasting-room print menus
 app.use('/api/loyalty', loyaltyRouter);           // points: staff admin + cost model
 // Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,
