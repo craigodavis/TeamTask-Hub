@@ -3690,6 +3690,31 @@ const MIGRATIONS = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_email_campaigns_company
      ON email_campaigns(company_id, updated_at DESC)`,
+  // Commerce7 carries two independent statuses — adminStatus (sellable by staff
+  // in the POS and admin) and webStatus (listed on the public site) — but
+  // TeamHub only had one availability flag and pushed it to both. There was no
+  // way to express a wine that the tasting room can still ring up while it is
+  // off the website: club-only releases, allocations, anything sold down to the
+  // last few cases.
+  //
+  // Product-level, not per-variant, because Commerce7's variant object has no
+  // status of its own — a product's status governs every variant beneath it.
+  //
+  // Defaults true so every existing wine keeps the behaviour it has now
+  // (web status following availability) until someone deliberately turns it off.
+  `ALTER TABLE product.products
+     ADD COLUMN IF NOT EXISTS is_web_available BOOLEAN NOT NULL DEFAULT true`,
+  // Seed the flag from what Commerce7 actually says, not from the DEFAULT.
+  // Six products were already adminStatus Available / webStatus Not Available
+  // -- the exact state this column exists to express -- so defaulting every
+  // row to true would have quietly re-listed them on the storefront the next
+  // time anyone saved them. The column's default only governs new rows.
+  `UPDATE product.products p
+      SET is_web_available = false
+     FROM product.c7_products c7
+     JOIN commerce7.product cp ON cp.id = c7.c7_product_id
+    WHERE c7.product_id = p.id
+      AND cp.web_status IS DISTINCT FROM 'Available'`,
 ];
 
 export async function runMigrations() {

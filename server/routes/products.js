@@ -61,7 +61,7 @@ router.get('/', requireAuth, async (req, res) => {
     const result = await withConn((client) => client.query(
       `SELECT
          p.id, p.name, p.vintage, p.varietal, p.wine_style, p.appellation,
-         p.region, p.alcohol_pct, p.is_active, p.is_available, p.is_archived, p.product_type,
+         p.region, p.alcohol_pct, p.is_active, p.is_available, p.is_web_available, p.is_archived, p.product_type,
          p.display_order, p.images, p.created_at, p.updated_at,
          c7.c7_product_id, c7.c7_handle, c7.teaser,
          -- variant summary
@@ -573,17 +573,32 @@ router.post('/import/c7', requireAuth, async (req, res) => {
 });
 
 // ── Helper: build C7 API payload from our internal field names ────────────────
-function buildC7Payload(body) {
+function buildC7Payload(body, current = {}) {
   const p = {};
   if (body.name !== undefined)        p.title = body.name;
   if (body.description !== undefined) p.content = body.description ?? null;
   if (body.teaser !== undefined)      p.teaser = body.teaser ?? null;
   if (body.slug !== undefined)        p.slug = body.slug || undefined;
 
-  if (body.is_available !== undefined) {
-    const status = body.is_available ? 'Available' : 'Not Available';
-    p.webStatus = status;
-    p.adminStatus = status;
+  // Commerce7's two statuses are independent, and TeamHub now models them that
+  // way: is_available drives adminStatus (can staff sell it at all), and
+  // is_web_available additionally gates webStatus (is it listed on the site).
+  // A wine that is available but not web-available goes out as
+  // adminStatus Available / webStatus Not Available — sellable in the tasting
+  // room, invisible on the website.
+  //
+  // Web status can never outrank admin status: something staff cannot sell must
+  // not be listed publicly, so webStatus is the AND of the two flags.
+  // `current` carries the saved row, because the two flags have to be resolved
+  // together: a request that changes only one of them still needs the other's
+  // value to decide webStatus, and the body may not contain it.
+  if (body.is_available !== undefined || body.is_web_available !== undefined) {
+    const pick = (key) => (body[key] !== undefined ? Boolean(body[key]) : Boolean(current[key]));
+    const available    = pick('is_available');
+    const webAvailable = pick('is_web_available');
+
+    p.adminStatus = available ? 'Available' : 'Not Available';
+    p.webStatus   = available && webAvailable ? 'Available' : 'Not Available';
   }
 
   const wine = {};
@@ -703,6 +718,13 @@ router.put('/:id', requireAuth, async (req, res) => {
         const avail = Boolean(b.is_available) && (b.is_active === undefined || Boolean(b.is_active));
         addProd('is_available', avail);
       }
+      if (b.is_web_available !== undefined) {
+        // Web availability cannot outrank availability, the same way
+        // availability cannot outrank active. Something staff cannot sell must
+        // not be listed on the public site.
+        const web = Boolean(b.is_web_available) && (b.is_available === undefined || Boolean(b.is_available));
+        addProd('is_web_available', web);
+      }
       if (b.is_archived !== undefined)  addProd('is_archived', Boolean(b.is_archived));
 
       if (prodFields.length) {
@@ -816,7 +838,14 @@ router.put('/:id', requireAuth, async (req, res) => {
         try {
           const { makeC7Client } = await import('../lib/commerce7Client.js');
           const c7 = makeC7Client(integration);
-          const payload = buildC7Payload(b);
+          // Read back the saved availability flags. adminStatus and webStatus
+          // are derived from both together, and a request that toggles only one
+          // of them does not carry the other.
+          const cur = await client.query(
+            `SELECT is_available, is_web_available FROM product.products WHERE id = $1`,
+            [productId]
+          );
+          const payload = buildC7Payload(b, cur.rows[0] || {});
           await c7.put(`/product/${c7ProductId}`, payload);
 
           stage = 'variant';
@@ -919,7 +948,8 @@ router.post('/', requireAuth, async (req, res) => {
         try {
           const { makeC7Client } = await import('../lib/commerce7Client.js');
           const c7 = makeC7Client(integration);
-          const c7Payload = buildC7Payload(b);
+          // No saved row yet, so `current` is the column defaults.
+          const c7Payload = buildC7Payload(b, { is_available: true, is_web_available: true });
           c7Payload.type = 'Wine'; // required for C7 create
 
           const c7NewProduct = await c7.post('/product', c7Payload);
@@ -935,8 +965,8 @@ router.post('/', requireAuth, async (req, res) => {
       const prodRes = await client.query(
         `INSERT INTO product.products
            (company_id, name, description, vintage, varietal, wine_style,
-            appellation, region, country, is_available, is_archived, display_order, images, product_type)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            appellation, region, country, is_available, is_web_available, is_archived, display_order, images, product_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING id`,
         [
           companyId,
@@ -949,6 +979,7 @@ router.post('/', requireAuth, async (req, res) => {
           b.region ?? null,
           b.country ?? 'USA',
           b.is_available !== undefined ? Boolean(b.is_available) : true,
+          b.is_web_available !== undefined ? Boolean(b.is_web_available) : true,
           false,
           0,
           JSON.stringify([]),

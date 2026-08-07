@@ -97,6 +97,7 @@ export function ProductDetail() {
   const [description, setDescription] = useState('');
   const [isActive, setIsActive]       = useState(true);
   const [isAvailable, setIsAvailable] = useState(true);
+  const [isWebAvailable, setIsWebAvailable] = useState(true);
   const [isArchived, setIsArchived]   = useState(false);
 
   // Wine details
@@ -143,6 +144,8 @@ export function ProductDetail() {
         setDescription(p.description || '');
         setIsActive(p.is_active !== false);
         setIsAvailable(Boolean(p.is_available));
+        // Defaults on: an older product predating the column reads as true.
+        setIsWebAvailable(p.is_web_available !== false);
         setIsArchived(Boolean(p.is_archived));
         setVintage(p.vintage ? String(p.vintage) : '');
         setVarietal(p.varietal || '');
@@ -181,6 +184,7 @@ export function ProductDetail() {
       teaser: teaser || null,
       is_active: isActive,
       is_available: isAvailable,
+      is_web_available: isWebAvailable,
       is_archived: isArchived,
       vintage: vintage ? parseInt(vintage, 10) : null,
       varietal: varietal || null,
@@ -451,13 +455,33 @@ export function ProductDetail() {
                   type="checkbox"
                   checked={isAvailable}
                   disabled={!isActive}
-                  onChange={(e) => setIsAvailable(e.target.checked)}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setIsAvailable(on);
+                    // Web status can't outrank admin status.
+                    if (!on) setIsWebAvailable(false);
+                  }}
                 />
                 <label htmlFor="pd-available">Available for sale</label>
                 <span className="pd-field-hint">
                   {isActive
                     ? 'Can be sold. Bottled but not yet released? Leave this off.'
                     : 'Requires Active.'}
+                </span>
+              </div>
+              <div className="pd-field-check">
+                <input
+                  id="pd-web-available"
+                  type="checkbox"
+                  checked={isWebAvailable}
+                  disabled={!isAvailable}
+                  onChange={(e) => setIsWebAvailable(e.target.checked)}
+                />
+                <label htmlFor="pd-web-available">On the website</label>
+                <span className="pd-field-hint">
+                  {isAvailable
+                    ? 'Shows on the Commerce7 storefront. Off keeps it sellable in the tasting room only.'
+                    : 'Requires Available for sale.'}
                 </span>
               </div>
               {!isNew && (

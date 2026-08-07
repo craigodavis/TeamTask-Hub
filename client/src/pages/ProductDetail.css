@@ -232,6 +232,22 @@
 .pd-row {
   display: flex;
   gap: 14px;
+  flex-wrap: wrap;
+}
+/* Inside a side-by-side row a checkbox's hint has to sit under its label
+   rather than beside it. Sharing one row, the hints were squeezed into
+   two-words-per-line columns that were taller than the section itself. */
+.pd-row .pd-field-check {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
+}
+.pd-row .pd-field-check .pd-field-hint {
+  grid-column: 2;
 }
 .pd-row .pd-field {
   flex: 1;
