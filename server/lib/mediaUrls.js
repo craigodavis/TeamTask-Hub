@@ -16,11 +16,17 @@
  * With APP_BASE_URL unset this is a no-op: same behaviour as before, still wrong
  * for remote callers, but not newly wrong in some other way.
  */
-const ORIGIN = (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+// Read per call, not once at import. ES modules evaluate every import before the
+// importing module's body, so anything captured at module scope here would be
+// read BEFORE index.js gets to dotenv.config(). It happens to work today because
+// cPanel puts APP_BASE_URL into the process environment before node starts — but
+// if that ever stopped being true the only symptom would be every image on the
+// site quietly going relative again, which is the bug this file exists to fix.
+const origin = () => (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
 
 const FIELDS = ['url', 'image_url', 'social_image_url', 'musician_photo', 'media_url', 'thumbnail_url', 'photo_url'];
 
-export const absUrl = (u) => (typeof u === 'string' && u.startsWith('/') ? ORIGIN + u : u);
+export const absUrl = (u) => (typeof u === 'string' && u.startsWith('/') ? origin() + u : u);
 
 /** Rewrites known URL fields in place, plus the srcset `variants` blob. */
 export function absMedia(row) {
