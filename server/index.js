@@ -22,6 +22,7 @@ import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { emailMediaRouter } from './routes/emailMedia.js';
+import { campaignsRouter } from './routes/campaigns.js';
 import { menusRouter } from './routes/menus.js';
 import { loyaltyRouter, memberRouter as loyaltyMemberRouter } from './routes/loyalty.js';
 import { clubNotificationsRouter } from './routes/clubNotifications.js';
@@ -160,6 +161,7 @@ app.use('/api/dashboard', requireAuth, dashboardRouter);  // manager/owner overv
 // Deliberately NOT behind requireAuth: mail clients fetch images with no session.
 // Reachable by anyone, so it resolves records rather than paths — see the router.
 app.use('/email-media', emailMediaRouter);
+app.use('/api/campaigns', requireAuth, campaignsRouter);
 app.use('/api/menus', requireAuth, menusRouter);           // tasting-room print menus
 app.use('/api/loyalty', loyaltyRouter);           // points: staff admin + cost model
 // Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,

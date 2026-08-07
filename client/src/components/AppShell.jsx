@@ -261,6 +261,14 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   {isManager && (
                   <>
                   <Link
+                    to="/marketing/campaigns"
+                    className={`nav-sub-item${location.pathname.startsWith('/marketing/campaigns') ? ' active' : ''}`}
+                    onClick={() => { if (isMobile()) setCollapsed(true); }}
+                  >
+                    <span className="nav-sub-icon">✉️</span>
+                    <span>Campaigns</span>
+                  </Link>
+                  <Link
                     to="/marketing/media"
                     className={`nav-sub-item${location.pathname.startsWith('/marketing/media') ? ' active' : ''}`}
                     onClick={() => { if (isMobile()) setCollapsed(true); }}

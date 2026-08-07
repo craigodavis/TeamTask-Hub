@@ -3667,6 +3667,29 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_sq_catalog_item_live
      ON team_square.catalog_item(reporting_category_id)
      WHERE is_deleted = false AND is_archived = false`,
+  // Campaigns are stored as a list of blocks, not as HTML. That is the whole
+  // point of the block system: the same sections can be re-rendered when the
+  // brand changes, and a campaign can be edited without anyone touching markup.
+  // Sent campaigns freeze their resolved content into `sent_html` so an edit to
+  // a wine or an event later cannot rewrite what was actually mailed.
+  `CREATE TABLE IF NOT EXISTS email_campaigns (
+     id           SERIAL PRIMARY KEY,
+     company_id   UUID NOT NULL,
+     name         VARCHAR(200) NOT NULL,
+     subject      VARCHAR(300) NOT NULL DEFAULT '',
+     preheader    VARCHAR(300) NOT NULL DEFAULT '',
+     kind         VARCHAR(40)  NOT NULL DEFAULT 'general',
+     sections     JSONB        NOT NULL DEFAULT '[]',
+     status       VARCHAR(20)  NOT NULL DEFAULT 'draft',
+     listmonk_id  INTEGER,
+     sent_html    TEXT,
+     sent_at      TIMESTAMPTZ,
+     created_by   UUID,
+     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_email_campaigns_company
+     ON email_campaigns(company_id, updated_at DESC)`,
 ];
 
 export async function runMigrations() {

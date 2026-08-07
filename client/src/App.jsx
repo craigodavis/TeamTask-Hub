@@ -21,6 +21,7 @@ import { WineInventory } from './pages/WineInventory';
 import { WineInventoryReport } from './pages/WineInventoryReport';
 import { AbcFiling } from './pages/AbcFiling';
 import { Overview } from './pages/Overview';
+import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
@@ -135,6 +136,13 @@ function App() {
             }
           />
           <Route path="/tasks" element={<Dashboard />} />
+          <Route
+            path="/marketing/campaigns"
+            element={
+              user?.role === 'owner' || user?.role === 'manager'
+                ? <Campaigns /> : <Navigate to="/" replace />
+            }
+          />
           <Route
             path="/tasting-room/menus"
             element={

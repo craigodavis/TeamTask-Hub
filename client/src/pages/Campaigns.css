@@ -1,0 +1,71 @@
+.cmp-page { padding: 1rem 1.25rem 3rem; max-width: 1300px; }
+.cmp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.cmp-title { margin: 0 0 .25rem; font-size: 1.4rem; }
+.cmp-sub { margin: 0 0 1.25rem; color: var(--text-muted); font-size: .87rem; }
+.cmp-error { color: #b3261e; font-size: .85rem; margin: .4rem 0; }
+.cmp-empty { color: var(--text-muted); font-size: .85rem; }
+
+.cmp-primary { padding: .5rem 1rem; border-radius: 6px; border: 1px solid var(--primary);
+               background: var(--primary); color: #fff; font-size: .86rem; cursor: pointer; }
+.cmp-back { background: none; border: none; color: var(--primary); font-size: .84rem;
+            cursor: pointer; padding: 0; }
+
+.cmp-headline { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+.cmp-nameinput { font-size: 1.15rem; font-weight: 600; border: none; border-bottom: 1px solid transparent;
+                 background: none; color: var(--text); padding: .1rem 0; min-width: 260px; }
+.cmp-nameinput:hover, .cmp-nameinput:focus { border-bottom-color: var(--border); outline: none; }
+.cmp-saving { font-size: .78rem; color: var(--text-muted); }
+
+.cmp-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.cmp-table td { padding: .6rem .5rem; border-bottom: 1px solid var(--border); }
+.cmp-table tr { cursor: pointer; }
+.cmp-table tr:hover td { background: var(--bg); }
+.cmp-table td.right { text-align: right; width: 7rem; }
+.cmp-name { display: block; font-weight: 600; }
+.cmp-table em { color: var(--text-muted); font-style: normal; font-size: .78rem; }
+.cmp-status { font-size: .74rem; padding: .15rem .55rem; border-radius: 999px; border: 1px solid; }
+.cmp-draft { color: #8a6100; border-color: #ecd9a6; background: #fdf6e5; }
+.cmp-sent  { color: #1b6b32; border-color: #b7dfc2; background: #eef8f1; }
+
+.cmp-meta { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0 1.25rem; }
+.cmp-meta label { display: flex; flex-direction: column; gap: .25rem; font-size: .78rem;
+                  color: var(--text-muted); flex: 1 1 280px; }
+.cmp-meta input { padding: .45rem .55rem; border: 1px solid var(--border);
+                  border-radius: 6px; font-size: .88rem; }
+
+/* Three columns: what is in the email, what the selected block says, and what
+   it looks like. The preview is widest because it is the thing being judged. */
+.cmp-grid { display: grid; grid-template-columns: minmax(0, 210px) minmax(0, 280px) minmax(0, 1fr);
+            gap: 1rem; align-items: start; }
+.cmp-col { min-width: 0; }
+.cmp-coltitle { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+                color: var(--text-muted); margin: 0 0 .5rem; font-weight: 700; }
+
+.cmp-blocks { list-style: none; margin: 0 0 1.25rem; padding: 0; }
+.cmp-blocks li { display: flex; align-items: center; justify-content: space-between; gap: .4rem;
+                 padding: .45rem .55rem; border: 1px solid var(--border); border-radius: 6px;
+                 margin-bottom: .3rem; font-size: .84rem; cursor: pointer; background: var(--card); }
+.cmp-blocks li.on { border-color: var(--primary); background: var(--primary-soft); }
+.cmp-rowbtns { display: flex; gap: .1rem; }
+.cmp-rowbtns button { border: none; background: none; cursor: pointer; font-size: .8rem;
+                      color: var(--text-muted); padding: 0 .2rem; line-height: 1; }
+.cmp-rowbtns button:hover { color: var(--text); }
+
+.cmp-add { display: flex; flex-wrap: wrap; gap: .3rem; }
+.cmp-add button { padding: .3rem .6rem; border: 1px solid var(--border); border-radius: 999px;
+                  background: var(--card); font-size: .78rem; cursor: pointer; color: var(--text); }
+.cmp-add button:hover { border-color: var(--primary); color: var(--primary); }
+
+.cmp-field { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .8rem; }
+.cmp-field span { font-size: .76rem; color: var(--text-muted); }
+.cmp-field input, .cmp-field textarea { padding: .45rem .55rem; border: 1px solid var(--border);
+                  border-radius: 6px; font-size: .86rem; font-family: inherit; resize: vertical; }
+
+.cmp-preview { width: 100%; height: 680px; border: 1px solid var(--border);
+               border-radius: 8px; background: #fff; }
+.cmp-note { font-size: .74rem; color: var(--text-muted); margin: .5rem 0 0; line-height: 1.5; }
+
+@media (max-width: 1000px) {
+  .cmp-grid { grid-template-columns: 1fr; }
+  .cmp-preview { height: 520px; }
+}

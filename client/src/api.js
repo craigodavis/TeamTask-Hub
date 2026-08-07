@@ -1364,6 +1364,44 @@ export async function setGlassPricing(productId, { price_cents, is_available }) 
   return data;
 }
 
+export async function getCampaigns() {
+  const res = await fetch(`${API}/campaigns`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load campaigns');
+  return d;
+}
+
+export async function createCampaign(body) {
+  const res = await fetch(`${API}/campaigns`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create campaign');
+  return d;
+}
+
+export async function getCampaign(id) {
+  const res = await fetch(`${API}/campaigns/${id}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load campaign');
+  return d;
+}
+
+export async function saveCampaign(id, body) {
+  const res = await fetch(`${API}/campaigns/${id}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save');
+  return d;
+}
+
+// Returns HTML, not JSON — fed to the preview iframe via srcdoc, because an
+// iframe cannot carry the auth header a src= request would need.
+export async function previewCampaign(body) {
+  const res = await fetch(`${API}/campaigns/preview`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  return res.text();
+}
+
 export async function getDashboard() {
   const res = await fetch(`${API}/dashboard`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
