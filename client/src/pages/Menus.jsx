@@ -133,7 +133,10 @@ export function Menus() {
                     >
                       <span className="menus-grip" aria-hidden>⠿</span>
                       <span className="menus-name">
-                        {w.vintage ? `${String(w.vintage).slice(-2)} ` : ''}{w.name}
+                        {/* No vintage prefix: every vintaged product's name
+                            already begins with its year, so prefixing printed
+                            it twice ("23 23 Papa's"). */}
+                        {w.name}
                         <em>{w.varietal}</em>
                       </span>
                       <span className="menus-price">

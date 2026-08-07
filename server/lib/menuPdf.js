@@ -37,11 +37,37 @@ function money(n) {
 const club = (n) => (n === null || n === undefined ? null
   : Math.round(Number(n) * (1 - CLUB_DISCOUNT) * 100) / 100);
 
+/**
+ * Split "23 Papa's" into its year and the rest.
+ *
+ * Every vintaged product's name already begins with its year — all 68 of them,
+ * no exceptions — so prefixing the `vintage` column on top of the name printed
+ * the year twice ("23 23 Papa's"). The year in the name is also the one to
+ * trust: 14 products have a `vintage` column that disagrees with their own
+ * name, and the name is what the wine is actually called.
+ *
+ * Two digits are expanded to four to match how the menu is typeset. The
+ * column is only a fallback for a name with no year in it.
+ */
+function splitVintage(name, vintageCol) {
+  const m = String(name || '').match(/^((?:19|20)?\d{2})\s+(.*)$/);
+  if (!m) {
+    return { vint: vintageCol ? String(vintageCol) : '', rest: name || '' };
+  }
+  const [, year, rest] = m;
+  return { vint: year.length === 4 ? year : `20${year}`, rest };
+}
+
 function rows(wines) {
   return wines.map((w) => {
-    const vintage = w.vintage ? `${String(w.vintage).slice(-2)} ` : '';
-    return '<tr><td class="w"><span class="wv">' + esc(vintage) + '</span>'
-      + '<span class="wn">' + esc(w.name) + '</span><br>'
+    // Matches the hand-written rows in menu.html exactly: .vint / .wname /
+    // .wtype. The generated rows previously used .wv and .wn, which appear
+    // nowhere in the stylesheet, so every wine the app added printed unstyled
+    // next to the ones typed into the template.
+    const { vint, rest } = splitVintage(w.name, w.vintage);
+    return '<tr><td class="w">'
+      + (vint ? '<span class="vint">' + esc(vint) + '</span> ' : '')
+      + '<span class="wname">' + esc(rest) + '</span>'
       + '<span class="wtype">' + esc(w.varietal) + '</span></td>'
       + `<td class="p">${money(w.glass)}</td><td class="p">${money(club(w.glass))}</td><td></td>`
       + `<td class="p">${money(w.bottle)}</td><td class="p">${money(club(w.bottle))}</td></tr>`;
