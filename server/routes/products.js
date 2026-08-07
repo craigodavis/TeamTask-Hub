@@ -906,9 +906,38 @@ router.put('/:id', requireAuth, async (req, res) => {
         );
       }
 
+      // ── Square ─────────────────────────────────────────────────────────
+      // Driven by is_web_available: web-available means present and
+      // unarchived in Square, web-off means archived there. Runs after the
+      // local write so it pushes what was actually saved, and its failures are
+      // reported separately from Commerce7's -- the two systems fail
+      // independently and a Square problem says nothing about the storefront.
+      let sqError = null;
+      try {
+        const { pushProductToSquare } = await import('../lib/squareCatalogPush.js');
+        const { actions } = await pushProductToSquare(companyId, productId);
+        console.log('[products] Square push:', actions.join(' | ') || 'nothing to push');
+        await client.query(
+          `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, last_synced_at, sync_error)
+           VALUES ($1, $2, 'square', false, NOW(), NULL)
+           ON CONFLICT (product_id, system) DO UPDATE SET needs_push = false, last_synced_at = NOW(), sync_error = NULL`,
+          [companyId, productId]
+        );
+      } catch (err) {
+        console.error('[products] Square push failed:', err.message);
+        sqError = err.message;
+        await client.query(
+          `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, sync_error)
+           VALUES ($1, $2, 'square', true, $3)
+           ON CONFLICT (product_id, system) DO UPDATE SET needs_push = true, sync_error = $3`,
+          [companyId, productId, err.message]
+        );
+      }
+
       const full = await loadFullProduct(client, productId, companyId);
       const response = { ok: true, product: full };
       if (c7Error) response.c7Error = c7Error;
+      if (sqError) response.sqError = sqError;
       res.json(response);
     } finally {
       client.release();

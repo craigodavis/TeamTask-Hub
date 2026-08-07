@@ -3715,6 +3715,15 @@ const MIGRATIONS = [
      JOIN commerce7.product cp ON cp.id = c7.c7_product_id
     WHERE c7.product_id = p.id
       AND cp.web_status IS DISTINCT FROM 'Available'`,
+  // A wine occupies TWO items in Square -- the bottle and the 5oz pour are
+  // separate items there, not variations of one another, because that is how
+  // the tasting room rings them up. product.square_items is keyed by
+  // product_id and so can only hold one of them, which meant pushing the glass
+  // would overwrite the bottle's id. Each variant needs to know its own item.
+  `ALTER TABLE product.square_variation_data
+     ADD COLUMN IF NOT EXISTS square_item_id VARCHAR(64)`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_variation_item
+     ON product.square_variation_data(square_item_id)`,
 ];
 
 export async function runMigrations() {
