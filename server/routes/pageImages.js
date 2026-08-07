@@ -18,7 +18,17 @@ const router = express.Router();
 router.post('/publish', requireManager, async (_req, res) => {
   const r = await publishWebsiteNow(['manual publish']);
   if (r.ok) return res.json({ ok: true });
-  res.status(502).json({ error: `Deploy trigger failed. ${r.error}` });
+  // "GITHUB_DEPLOY_TOKEN is not set" is true but reads like the edit was lost,
+  // which it wasn't — the assignment is already saved and the hourly rebuild in
+  // deploy.yml will carry it. Say that, rather than showing someone a bare
+  // environment-variable name and letting them assume their work vanished.
+  const unconfigured = /not set/i.test(r.error || '');
+  res.status(unconfigured ? 503 : 502).json({
+    error: unconfigured
+      ? 'Saved. Instant publishing isn\u2019t switched on yet (no GitHub deploy token), so the site will pick this up within the hour instead.'
+      : `Saved, but the rebuild could not be triggered: ${r.error}. The site will pick it up within the hour.`,
+    saved: true,
+  });
 });
 
 // GET /api/page-images — the slot catalog + current assignments (with media info).
