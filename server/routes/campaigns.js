@@ -107,6 +107,80 @@ router.put('/:id', requireManager, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /api/campaigns/sources/:kind ─────────────────────────────────────────
+/**
+ * Records you can drop into a campaign, already shaped into block fields.
+ *
+ * The picker returns `fields` alongside each option so choosing one fills the
+ * block in a single step — no second lookup, and no chance of the composer and
+ * the server disagreeing about how a wine's detail line is composed.
+ *
+ * Populate-then-edit, not reference-at-render: the chosen values are copied
+ * into the campaign and stay editable. Resolving live at send would mean an
+ * edit to an event in September silently rewriting an email sent in August,
+ * including in its archive.
+ *
+ * Unpublished and archived records are excluded. Emailing five thousand people
+ * about a dish pulled from the menu last week is the failure worth designing
+ * out.
+ */
+router.get('/sources/:kind', requireManager, async (req, res) => {
+  try {
+    const tz = 'America/Denver';
+
+    if (req.params.kind === 'events') {
+      const r = await query(
+        `SELECT id, title, start_at, description, event_url
+           FROM events
+          WHERE company_id = $1 AND status = 'published'
+            AND start_at > NOW() - INTERVAL '7 days'
+          ORDER BY start_at LIMIT 200`, [cid(req)]);
+      return res.json({ options: r.rows.map((e) => {
+        // Date and time formatted separately and joined, rather than patching a
+        // combined locale string with a regex — the shape of that string is not
+        // ours to rely on. Both in the winery's timezone, not UTC: an 8pm
+        // Saturday event reads as Sunday otherwise.
+        const d = new Date(e.start_at);
+        const day = d.toLocaleDateString('en-US', {
+          timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' });
+        const time = d.toLocaleTimeString('en-US', {
+          timeZone: tz, hour: 'numeric', minute: '2-digit' })
+          .replace(':00', '').toLowerCase().replace(' ', '');
+        const when = `${day} · ${time}`;
+        return {
+          id: e.id,
+          label: `${new Date(e.start_at).toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric' })} — ${e.title}`,
+          fields: { date: when, title: e.title, detail: (e.description || '').trim().slice(0, 400) },
+          extra: { url: e.event_url || '' },
+        };
+      })});
+    }
+
+    if (req.params.kind === 'products') {
+      const r = await query(
+        `SELECT id, name, vintage, varietal, alcohol_pct, appellation, description
+           FROM product.products
+          WHERE company_id = $1 AND is_available = true AND is_archived = false
+            AND (product_type = 'Wine' OR product_type IS NULL)
+          ORDER BY display_order, name LIMIT 300`, [cid(req)]);
+      return res.json({ options: r.rows.map((p) => ({
+        id: p.id,
+        label: p.name,
+        fields: {
+          name: p.name,
+          // Only the parts that exist — a trailing " · " on a wine with no ABV
+          // looks like something failed to load.
+          meta: [p.appellation, p.varietal, p.alcohol_pct ? `${p.alcohol_pct}%` : null]
+            .filter(Boolean).join(' · '),
+          note: (p.description || '').trim().slice(0, 400),
+        },
+      }))});
+    }
+
+    res.status(404).json({ error: 'Unknown source' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /api/campaigns/preview ──────────────────────────────────────────────
 // Full document, so the preview shows the real shell and footer rather than a
 // prettier fiction of it.

@@ -92,3 +92,8 @@
 .cmp-ghost { padding: .5rem 1rem; border-radius: 6px; border: 1px solid var(--border);
              background: transparent; color: var(--text); font-size: .86rem; cursor: pointer; }
 .cmp-primary:disabled { opacity: .45; cursor: not-allowed; }
+
+.cmp-picker { padding-bottom: .7rem; border-bottom: 1px dashed var(--border); margin-bottom: 1rem; }
+.cmp-picker select { padding: .45rem .55rem; border: 1px solid var(--border);
+                     border-radius: 6px; font-size: .86rem; background: var(--card); color: var(--text); }
+.cmp-picker em { font-style: normal; font-size: .72rem; color: var(--text-muted); margin-top: .25rem; }

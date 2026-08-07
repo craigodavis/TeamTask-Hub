@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getCampaigns, createCampaign, getCampaign, saveCampaign, previewCampaign,
-  duplicateCampaign,
+  duplicateCampaign, getCampaignSource,
 } from '../api';
 import './Campaigns.css';
 
@@ -24,6 +24,17 @@ const BLOCK_FIELDS = {
 
 const BLOCK_ORDER = ['hero', 'letter', 'wine', 'event', 'image', 'button', 'divider', 'hours'];
 
+/**
+ * Blocks backed by a record. Choosing one fills the fields below it, which
+ * then stay editable — pick to populate, not pick to link. A block that
+ * re-resolved at send would let an edit next month rewrite an email already
+ * in someone's inbox.
+ */
+const BLOCK_SOURCE = {
+  event: { kind: 'events',   label: 'Insert an event' },
+  wine:  { kind: 'products', label: 'Insert a wine' },
+};
+
 export function Campaigns() {
   const [list, setList] = useState([]);
   const [kinds, setKinds] = useState({});
@@ -34,7 +45,11 @@ export function Campaigns() {
   const [saving, setSaving] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [dialog, setDialog] = useState(null);   // { name, kind } while open
+  const [sources, setSources] = useState({});   // kind -> options, fetched once
   const saveTimer = useRef(null);
+
+  const sel = c?.sections?.[selected];
+  const spec = sel ? BLOCK_FIELDS[sel.type] : null;
 
   const load = useCallback(() => {
     getCampaigns().then((d) => { setList(d.campaigns || []); setKinds(d.kinds || {}); })
@@ -73,6 +88,23 @@ export function Campaigns() {
       } finally { setSaving(false); }
     }, 600);
   }, []);
+
+  const src = sel ? BLOCK_SOURCE[sel.type] : null;
+  useEffect(() => {
+    if (!src || sources[src.kind]) return;
+    getCampaignSource(src.kind)
+      .then((o) => setSources((prev) => ({ ...prev, [src.kind]: o })))
+      .catch((e) => setError(e.message));
+  }, [src, sources]);
+
+  /** Copy a record's fields into the selected block, leaving the rest alone. */
+  const insertFrom = (optionId) => {
+    const opt = (sources[src.kind] || []).find((o) => String(o.id) === String(optionId));
+    if (!opt) return;
+    const sections = c.sections.map((s2, n) =>
+      (n === selected ? { ...s2, ...opt.fields } : s2));
+    persist({ ...c, sections });
+  };
 
   const setField = (i, key, val) => {
     const sections = c.sections.map((s, n) => (n === i ? { ...s, [key]: val } : s));
@@ -184,10 +216,8 @@ export function Campaigns() {
     );
   }
 
-  if (!c) return <div className="cmp-page"><p className="cmp-empty">Loading…</p></div>;
 
-  const sel = c.sections[selected];
-  const spec = sel ? BLOCK_FIELDS[sel.type] : null;
+  if (!c) return <div className="cmp-page"><p className="cmp-empty">Loading…</p></div>;
 
   // ── composer ──────────────────────────────────────────────────────────────
   return (
@@ -241,6 +271,18 @@ export function Campaigns() {
 
         <div className="cmp-col">
           <p className="cmp-coltitle">{spec ? spec.label : 'Nothing selected'}</p>
+          {src && (
+            <label className="cmp-field cmp-picker">
+              <span>{src.label}</span>
+              <select defaultValue="" onChange={(e) => { insertFrom(e.target.value); e.target.value = ''; }}>
+                <option value="" disabled>Choose…</option>
+                {(sources[src.kind] || []).map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </select>
+              <em>Fills the fields below. Edit them freely afterwards.</em>
+            </label>
+          )}
           {spec && spec.fields.length === 0 && <p className="cmp-empty">No settings.</p>}
           {spec && spec.fields.map(([key, label, kind]) => (
             <label key={key} className="cmp-field">

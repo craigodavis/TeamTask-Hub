@@ -1402,6 +1402,13 @@ export async function previewCampaign(body) {
   return res.text();
 }
 
+export async function getCampaignSource(kind) {
+  const res = await fetch(`${API}/campaigns/sources/${kind}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load options');
+  return d.options || [];
+}
+
 export async function duplicateCampaign(id) {
   const res = await fetch(`${API}/campaigns/${id}/duplicate`, {
     method: 'POST', headers: headers() });
