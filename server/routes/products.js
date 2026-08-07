@@ -991,4 +991,66 @@ router.delete('/tax-exempt/:id', requireAuth, requireManager, async (req, res) =
 });
 
 
+// ── PUT /api/products/:id/glass ──────────────────────────────────────────────
+// By-the-glass price and availability.
+//
+// Stored on the existing product_variants.is_glass row rather than as columns
+// on the product. A glass is a way of selling the bottle, not a separate thing
+// to stock — the variant carries its own price and availability, and
+// product_inventory stays keyed by product so nothing here touches the count.
+router.put('/:id/glass', requireManager, async (req, res) => {
+  const { price_cents, is_available } = req.body ?? {};
+  if (price_cents !== null && price_cents !== undefined
+      && (!Number.isFinite(Number(price_cents)) || Number(price_cents) < 0)) {
+    return res.status(400).json({ error: 'price_cents must be a non-negative number' });
+  }
+  try {
+    const owns = await query(
+      `SELECT id FROM product.products WHERE id = $1 AND company_id = $2`,
+      [req.params.id, req.companyId]
+    );
+    if (!owns.rows.length) return res.status(404).json({ error: 'Product not found' });
+
+    const existing = await query(
+      `SELECT id FROM product.product_variants
+        WHERE product_id = $1 AND is_glass = true LIMIT 1`,
+      [req.params.id]
+    );
+
+    if (existing.rows.length) {
+      await query(
+        `UPDATE product.product_variants
+            SET price_cents = COALESCE($2, price_cents),
+                is_available = COALESCE($3, is_available),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [existing.rows[0].id, price_cents ?? null,
+         typeof is_available === 'boolean' ? is_available : null]
+      );
+    } else {
+      // Ordinal after every bottle variant so the glass never displaces the
+      // default the rest of the app reads.
+      await query(
+        `INSERT INTO product.product_variants
+           (product_id, company_id, volume_format, price_cents, is_glass,
+            is_default, is_available, taxable, ordinal)
+         VALUES ($1, $2, 'Glass', $3, true, false, $4, true,
+                 COALESCE((SELECT MAX(ordinal) + 1 FROM product.product_variants
+                            WHERE product_id = $1), 0))`,
+        [req.params.id, req.companyId, price_cents ?? 0,
+         typeof is_available === 'boolean' ? is_available : true]
+      );
+    }
+
+    const r = await query(
+      `SELECT id, price_cents, is_available FROM product.product_variants
+        WHERE product_id = $1 AND is_glass = true LIMIT 1`,
+      [req.params.id]
+    );
+    res.json({ ok: true, glass: r.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { router as productsRouter };

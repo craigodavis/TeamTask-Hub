@@ -1325,6 +1325,45 @@ export async function getWineInventoryReport({ asOf, locationId, allItems }) {
 
 // ── Idaho ABC wine report ────────────────────────────────────────────────────
 
+export async function getMenu(key) {
+  const res = await fetch(`${API}/menus/${key}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load menu');
+  return data;
+}
+
+export async function saveMenuOrder(key, items) {
+  const res = await fetch(`${API}/menus/${key}/order`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ items }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save order');
+  return data;
+}
+
+export async function printMenu(key) {
+  const res = await fetch(`${API}/menus/${key}/print`, {
+    method: 'POST', headers: headers(),
+  });
+  if (!res.ok) {
+    // A missing template comes back as JSON with a usable message; anything
+    // else would otherwise surface as an unreadable blob.
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to build the menu PDF');
+  }
+  return res.blob();
+}
+
+export async function setGlassPricing(productId, { price_cents, is_available }) {
+  const res = await fetch(`${API}/products/${productId}/glass`, {
+    method: 'PUT', headers: headers(),
+    body: JSON.stringify({ price_cents, is_available }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save glass pricing');
+  return data;
+}
+
 export async function getDashboard() {
   const res = await fetch(`${API}/dashboard`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

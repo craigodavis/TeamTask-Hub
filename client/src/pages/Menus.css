@@ -1,0 +1,49 @@
+.menus-page { padding: 1rem 1.25rem 3rem; max-width: 1100px; }
+.menus-title { margin: 0 0 .25rem; font-size: 1.4rem; }
+.menus-sub { margin: 0 0 1.1rem; color: var(--text-muted); font-size: .87rem; line-height: 1.5; max-width: 46rem; }
+
+.menus-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.menus-spacer { flex: 1; }
+.menus-tab { padding: .4rem .85rem; border-radius: 6px; border: 1px solid var(--border);
+             background: var(--card); color: var(--text); font-size: .85rem; cursor: pointer; }
+.menus-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.menus-saving { font-size: .78rem; color: var(--text-muted); }
+.menus-print { padding: .45rem 1rem; border-radius: 6px; border: 1px solid #1b6b32;
+               background: #1b6b32; color: #fff; font-size: .85rem; cursor: pointer; }
+.menus-print:disabled { opacity: .5; cursor: not-allowed; }
+
+.menus-error   { color: #b3261e; font-size: .87rem; }
+.menus-loading { color: var(--text-muted); font-size: .87rem; }
+
+/* A capacity breach is a layout problem, not an error — amber, and it states
+   what to do rather than just going red. */
+.menus-warning { border: 1px solid #ecd9a6; background: #fdf6e5; color: #8a6100;
+                 padding: .6rem .8rem; border-radius: 7px; font-size: .84rem;
+                 margin-bottom: .8rem; line-height: 1.45; }
+
+.menus-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; }
+.menus-col-head { margin: 0 0 .5rem; font-size: .82rem; text-transform: uppercase;
+                  letter-spacing: .04em; color: var(--text-muted);
+                  display: flex; justify-content: space-between; align-items: baseline; }
+.menus-count { font-variant-numeric: tabular-nums; }
+.menus-count.over { color: #b3261e; font-weight: 700; }
+
+.menus-list { list-style: none; margin: 0; padding: 0; }
+.menus-row { display: grid; grid-template-columns: 1.1rem 1fr auto auto; gap: .6rem;
+             align-items: center; padding: .5rem .6rem; border: 1px solid var(--border);
+             border-radius: 7px; margin-bottom: .35rem; background: var(--card);
+             cursor: grab; font-size: .86rem; }
+.menus-row:active { cursor: grabbing; }
+.menus-row.excluded { opacity: .45; }
+.menus-grip { color: #bbb; }
+.menus-name em { display: block; font-style: normal; font-size: .78rem; color: var(--text-muted); }
+.menus-price { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.menus-price em { display: block; font-style: normal; font-size: .78rem; color: var(--text-muted); }
+.menus-nogl { color: var(--text-muted); font-size: .8rem; }
+.menus-toggle { padding: .25rem .55rem; border-radius: 5px; border: 1px solid var(--border);
+                background: transparent; color: var(--text-muted); font-size: .75rem; cursor: pointer; }
+.menus-empty { color: var(--text-muted); font-size: .83rem; padding: .5rem .1rem; }
+
+@media (max-width: 640px) {
+  .menus-grid { grid-template-columns: 1fr; }
+}

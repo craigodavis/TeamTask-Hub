@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "EB Garamond"; src: url("fonts/EBGaramond[wght].ttf"); font-weight: 400 800; font-style: normal; }
+  @font-face { font-family: "EB Garamond"; src: url("fonts/EBGaramond-Italic[wght].ttf"); font-weight: 400 800; font-style: italic; }
+  @page { size: 11in 8.5in; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { font-family: "EB Garamond", serif; color: #1a1a1a; }
+
+  .sheet { width: 11in; height: 8.5in; display: flex; page-break-after: always; overflow: hidden; }
+  .sheet:last-child { page-break-after: auto; }
+  .panel { width: 5.5in; height: 8.5in; padding: 0.55in 0.5in 0.5in; position: relative; }
+  .panel.divided { border-right: 0.5pt solid #e3dcd2; }
+
+  /* ---------- type system ---------- */
+  .sec-head { text-align: center; font-variant: small-caps; letter-spacing: 0.14em;
+              font-size: 21pt; font-weight: 500; color: #1a1a1a; }
+  .sec-head .rule { width: 0.62in; height: 0; border-top: 1.2pt solid #9b1b21; margin: 6pt auto 0; }
+  .sec-sub { text-align: center; font-style: italic; font-size: 10.5pt; color: #555; margin-top: 5pt; }
+
+  .sub-head { text-align: center; font-variant: small-caps; letter-spacing: 0.12em;
+              font-size: 14pt; font-weight: 500; margin-top: 20pt; }
+  .sub-head .rule { width: 0.4in; height: 0; border-top: 0.8pt solid #b7893c; margin: 4pt auto 0; }
+
+  .item { text-align: center; margin-top: 13pt; }
+  .item .name { font-size: 12.5pt; font-weight: 500; letter-spacing: 0.02em; }
+  .item .name .price { font-weight: 500; }
+  .item .name .price::before { content: "\00a0\00a0·\00a0\00a0"; color: #9b1b21; }
+  .item .desc { font-size: 10pt; color: #444; line-height: 1.32; margin: 2pt auto 0; max-width: 4.1in; }
+  .item .serves { font-size: 9pt; font-style: italic; color: #777; margin-top: 1.5pt; }
+
+  .footnote { position: absolute; bottom: 0.45in; left: 0.5in; right: 0.5in;
+              text-align: center; font-size: 8.5pt; font-style: italic; color: #666; line-height: 1.4; }
+  .footnote b { font-style: normal; font-variant: small-caps; font-weight: 500; letter-spacing: 0.06em; }
+
+  /* ---------- wine tables ---------- */
+  table.wine { width: 100%; border-collapse: collapse; margin-top: 10pt; }
+  table.wine th { font-variant: small-caps; font-weight: 500; letter-spacing: 0.08em;
+                  font-size: 9.5pt; color: #333; padding: 3pt 0 4pt; }
+  table.wine th.grp { border-bottom: 0.6pt solid #c9c1b4; }
+  table.wine td { font-size: 11pt; padding: 6.5pt 0 0; vertical-align: baseline; }
+  table.wine td.w { text-align: left; line-height: 1.25; padding-right: 6pt; }
+  table.wine td.p, table.wine th.p { text-align: center; width: 0.62in; white-space: nowrap; }
+  .vint { color: #1a1a1a; }
+  .wname { color: #9b1b21; font-weight: 500; }
+  .wtype { display: block; font-size: 10pt; color: #444; }
+  tr.tier-gap td { padding-top: 0; }
+  tr.tier-gap td div { border-top: 0.5pt solid #ddd5c8; margin: 9pt 0 2pt; }
+
+  /* ---------- cover ---------- */
+  .cover { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .cover img.logo { width: 3.5in; margin-top: 0.85in; }
+  .cover .winemaker { font-size: 12.5pt; margin-top: 0.42in; }
+  .cover .tagline { font-size: 13.5pt; font-style: italic; margin-top: 0.5in; color: #222; }
+  .cover .est { position: absolute; bottom: 0.7in; left: 0; right: 0; font-variant: small-caps;
+                letter-spacing: 0.1em; font-size: 13pt; line-height: 1.5; }
+
+  .backcover { display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; }
+  .backcover .thanks { font-variant: small-caps; letter-spacing: 0.08em; font-size: 12pt; line-height: 1.7; }
+  .backcover .rule { width: 0.62in; border-top: 1.2pt solid #9b1b21; margin: 22pt auto; }
+  .backcover .site { font-variant: small-caps; letter-spacing: 0.12em; font-size: 11.5pt; margin-top: 22pt; }
+
+  /* ---------- happy hour specials ---------- */
+  .specials { margin: 14pt auto 0; padding: 10pt 0 12pt; border-top: 1pt solid #b7893c; border-bottom: 1pt solid #b7893c; max-width: 3.6in; }
+  .specials div { text-align: center; font-size: 11.5pt; line-height: 1.7; }
+
+  /* ---------- club ---------- */
+  .club-item { margin-top: 12pt; }
+  .club-item .cname { font-size: 12.5pt; font-weight: 500; color: #9b1b21; text-align: center; }
+  .club-item .cdet { font-size: 10.5pt; color: #333; text-align: center; margin-top: 1.5pt; line-height: 1.35; }
+  .bene { font-size: 10.5pt; line-height: 1.45; text-align: center; margin-top: 7.5pt; }
+  .qr-wrap { text-align: center; margin-top: 16pt; }
+  .qr-wrap img { width: 1.05in; }
+  .qr-wrap .scan { font-variant: small-caps; letter-spacing: 0.1em; font-size: 10pt; margin-top: 4pt; }
+
+  /* ---------- roomy pages ---------- */
+  .roomy .item { margin-top: 26pt; }
+  .roomy .item .name { font-size: 14pt; }
+  .roomy .item .desc { font-size: 10.5pt; line-height: 1.5; margin-top: 4pt; max-width: 3.9in; }
+  .roomy .sec-sub { font-size: 11pt; line-height: 1.55; }
+  .roomy .sub-head { margin-top: 30pt; }
+  .roomy .specials { margin-top: 24pt; padding: 14pt 0 16pt; max-width: 3.8in; }
+  .roomy .specials div { line-height: 1.95; font-size: 12pt; }
+  .roomyplus .item { margin-top: 36pt; }
+  .roomyplus .sub-head { margin-top: 34pt; }
+  .orn { position: absolute; bottom: 0.55in; left: 0; right: 0; text-align: center; }
+  .orn img { width: 0.75in; }
+</style>
+</head>
+<body>
+<!-- ===== sheet 1 front: back cover | front cover ===== -->
+<div class="sheet">
+  <div class="panel backcover">
+    <div class="thanks">Thank you for visiting with us.<br>We hope to see you again soon.</div>
+    <div class="rule"></div>
+    <div class="thanks">Don&rsquo;t forget to visit our<br>Sunnyslope Vineyard!</div>
+    <div class="site">www.KindredVineyards.com</div>
+  </div>
+  <div class="panel cover">
+    <img class="logo" src="assets/crop_logo.png">
+    <div class="winemaker">Winemaker Craig Davis</div>
+    <div class="tagline">Always longer tables, never higher fences.</div>
+    <div class="est">Established 2015<br>Sunnyslope, Idaho</div>
+  </div>
+</div>
+
+<!-- ===== sheet 1 back: p2 white | p11 brunch drinks ===== -->
+<div class="sheet">
+  <div class="panel">
+    <div class="sec-head">Wine Menu<div class="rule"></div></div>
+    <div class="sec-sub">Curated Wine Tasting &mdash; $15<br>Four 2-oz pours of select wines from our collection<br>Tasting fee is waived with the purchase of one bottle</div>
+
+    <div class="sub-head">White &amp; Ros&eacute;<div class="rule"></div></div>
+    <table class="wine">
+      <tr><th class="w"></th><th class="p grp" colspan="2">By the Glass</th><th style="width:0.14in"></th><th class="p grp" colspan="2">By the Bottle</th></tr>
+      <tr><th class="w"></th><th class="p">Glass</th><th class="p">Club 77</th><th></th><th class="p">Bottle</th><th class="p">Club 77</th></tr>
+      <!-- WINES_WHITE:START -->
+      <tr><td class="w"><span class="vint">2025</span> <span class="wname">Paso a Paso</span><span class="wtype">Albari&#241;o</span></td>
+          <td class="p">&ndash;</td><td class="p">&ndash;</td><td></td><td class="p">$26</td><td class="p">$22.10</td></tr>
+      <tr><td class="w"><span class="vint">2025</span> <span class="wname">Paso a Paso</span><span class="wtype">Wild Albari&#241;o</span></td>
+          <td class="p">$9</td><td class="p">$7.65</td><td></td><td class="p">$26</td><td class="p">$22.10</td></tr>
+      <tr><td class="w"><span class="vint">2025</span> <span class="wname">A Souvenir</span><span class="wtype">French Oak Viognier</span></td>
+          <td class="p">$9</td><td class="p">$7.65</td><td></td><td class="p">$26</td><td class="p">$22.10</td></tr>
+      <tr><td class="w"><span class="vint">2025</span> <span class="wname">Love Letter</span><span class="wtype">Syrah Ros&#233;</span></td>
+          <td class="p">$9</td><td class="p">$7.65</td><td></td><td class="p">$26</td><td class="p">$22.10</td></tr>
+      <!-- WINES_WHITE:END -->
+    </table>
+
+    <div class="footnote">One bottle pours five glasses of wine.</div>
+  </div>
+  <div class="panel">
+    <div class="sec-head">Brunch Drinks<div class="rule"></div></div>
+
+    <div class="item" style="margin-top:16pt"><div class="name">Bakon Vodka Bloody Mary<span class="price">$14</span></div>
+      <div class="desc">Premium Idaho potato Bakon Vodka mixed with our spiced tomato blend, finished with classic garnishes, cracked pepper, and a wedge of lime.</div></div>
+    <div class="item"><div class="name">Espresso Martini<span class="price">$14</span></div>
+      <div class="desc">Rich, smooth, perfectly balanced.</div></div>
+    <div class="item"><div class="name">Pear Martini<span class="price">$14</span></div>
+      <div class="desc">Pear vodka, elderflower liqueur, lemon juice, prosecco.</div></div>
+    <div class="item"><div class="name">Mimosa<span class="price">$9</span></div>
+      <div class="desc">Prosecco and juice of your choice:<br>Orange &nbsp;&middot;&nbsp; Mango &nbsp;&middot;&nbsp; Guava &nbsp;&middot;&nbsp; Cranberry</div></div>
+    <div class="item"><div class="name">Build-Your-Own Mimosa Flight<span class="price">$18</span></div>
+      <div class="desc">Served with prosecco and four juices to mix your perfect blend and flavor.</div></div>
+
+    <div class="sub-head">Espresso<div class="rule"></div></div>
+    <div class="item" style="margin-top:10pt"><div class="name">Americano<span class="price">$4</span></div></div>
+    <div class="item"><div class="name">Latte Macchiato<span class="price">$4</span></div></div>
+  </div>
+</div>
+
+<!-- ===== sheet 2 front: p10 brunch plates | p3 red ===== -->
+<div class="sheet">
+  <div class="panel roomy">
+    <div class="sec-head">Brunch Plates<div class="rule"></div></div>
+    <div class="sec-sub">Sundays, 10 am &ndash; 2 pm</div>
+    <div class="item"><div class="name">Cheese Board<span class="price">$18</span></div>
+      <div class="desc">Artisan cheeses, charcuterie, and accompaniments with Gaston&rsquo;s focaccia bread. <span style="font-style:italic">Serves 2&ndash;3.</span></div></div>
+    <div class="item"><div class="name">Mini Belgian Pancake Plate<span class="price">$9</span></div>
+      <div class="desc">A stack of golden mini Belgian pancakes served with seasonal fruit, toffee nuts, whipped cream, and our signature Mama&rsquo;s Merlot wine-infused syrup.</div></div>
+    <div class="item"><div class="name">Cinnamon Roll<span class="price">$9</span></div>
+      <div class="desc">Locally made, perfectly sweet, with a delectable cream cheese frosting.</div></div>
+    <div class="item"><div class="name">BLTA Sandwich<span class="price">$12</span></div>
+      <div class="desc">Crispy bacon, butter lettuce, cherry tomato, avocado, fresh basil, mayo, and dijon on toasted sourdough, topped with an egg.</div></div>
+    <div class="orn"><img src="assets/kv_mono.png"></div>
+  </div>
+  <div class="panel">
+    <div class="sec-head">&nbsp;<div class="rule" style="visibility:hidden"></div></div>
+    <div class="sub-head" style="margin-top:26pt">Red<div class="rule"></div></div>
+    <table class="wine">
+      <tr><th class="w"></th><th class="p grp" colspan="2">By the Glass</th><th style="width:0.14in"></th><th class="p grp" colspan="2">By the Bottle</th></tr>
+      <tr><th class="w"></th><th class="p">Glass</th><th class="p">Club 77</th><th></th><th class="p">Bottle</th><th class="p">Club 77</th></tr>
+      <!-- WINES_RED:START -->
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Gypsy Soul</span><span class="wtype">Bordeaux-Style Blend</span></td>
+          <td class="p">$15</td><td class="p">$12.75</td><td></td><td class="p">$45</td><td class="p">$38.25</td></tr>
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Papa's</span><span class="wtype">Malbec</span></td>
+          <td class="p">&ndash;</td><td class="p">&ndash;</td><td></td><td class="p">$45</td><td class="p">$38.25</td></tr>
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Peacemaker</span><span class="wtype">Syrah</span></td>
+          <td class="p">$13</td><td class="p">$11.05</td><td></td><td class="p">$39</td><td class="p">$33.15</td></tr>
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Mama's</span><span class="wtype">Merlot</span></td>
+          <td class="p">$15</td><td class="p">$12.75</td><td></td><td class="p">$35</td><td class="p">$29.75</td></tr>
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Sailor's Hold</span><span class="wtype">Carm&#233;n&#232;re</span></td>
+          <td class="p">$12</td><td class="p">$10.20</td><td></td><td class="p">$35</td><td class="p">$29.75</td></tr>
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Cerceau Rivi&#232;re</span><span class="wtype">Syrah / Viognier</span></td>
+          <td class="p">&ndash;</td><td class="p">&ndash;</td><td></td><td class="p">$35</td><td class="p">$29.75</td></tr>
+      <tr><td class="w"><span class="vint">2023</span> <span class="wname">Moonlit Cello</span><span class="wtype">Cabernet Sauvignon</span></td>
+          <td class="p">$15</td><td class="p">$12.75</td><td></td><td class="p">$35</td><td class="p">$29.75</td></tr>
+      <!-- WINES_RED:END -->
+    </table>
+
+    <div class="footnote">To access club-exclusive wines, complimentary tastings,<br>discounts, and more &mdash; ask about <b>Club 77</b>.</div>
+  </div>
+</div>
+
+<!-- ===== sheet 2 back: p4 club 77 | p9 sunday brunch ===== -->
+<div class="sheet">
+  <div class="panel">
+    <div class="sec-head">Club 77<div class="rule"></div></div>
+    <div class="sec-sub">There is no charge to join our clubs. Releases occur four times a year.</div>
+
+    <div class="sub-head" style="margin-top:12pt">Our Clubs<div class="rule"></div></div>
+    <div class="club-item" style="margin-top:8pt"><div class="cname">Navigator&rsquo;s Club</div>
+      <div class="cdet" style="font-size:9.5pt">4 bottles &middot; 15% discount at release &middot; 4 releases per year</div></div>
+    <div class="club-item" style="margin-top:7pt"><div class="cname">Captain&rsquo;s Club</div>
+      <div class="cdet" style="font-size:9.5pt">6 bottles &middot; 18% discount at release &middot; 4 releases per year</div></div>
+    <div class="club-item" style="margin-top:7pt"><div class="cname">Admiral&rsquo;s Club</div>
+      <div class="cdet" style="font-size:9.5pt">12 bottles &middot; 25% discount at release &middot; 4 releases per year</div></div>
+    <div class="club-item" style="margin-top:7pt"><div class="cname">Fleet Corporate Club</div>
+      <div class="cdet" style="font-size:9.5pt">1 release per month &middot; 25% discount at release<br>
+      No rental fee for event planning up to 30 people<br>
+      20% off all wine purchases &middot; 10% off all beer purchases &middot; 20% off all beer keg purchases</div></div>
+
+    <div class="sub-head" style="margin-top:14pt">Member Benefits<div class="rule"></div></div>
+    <div style="margin-top:6pt">
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">A complimentary wine flight for four every quarter</div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">First &amp; exclusive access to specialty and library wines</div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">15% discount on all wine purchases &mdash; 20% on cases</div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">Free dessert for your birthday <span style="font-style:italic">(must show ID)</span></div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">Exclusive event invitations</div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">No cover charge for the Sunset Music Series ($10)</div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">Priority access to Harvest Party <span style="font-style:italic">(late September &amp; late October)</span></div>
+      <div class="bene" style="font-size:9.5pt;margin-top:4.5pt">Membership privileges at both locations</div>
+    </div>
+
+    <div class="qr-wrap" style="margin-top:10pt">
+      <img src="assets/crop_qr.png" style="width:0.8in">
+      <div class="scan">Scan to join Club 77</div>
+    </div>
+
+    <div class="footnote" style="bottom:0.32in">Membership requires a one-year commitment.</div>
+  </div>
+  <div class="panel roomy roomyplus">
+    <div class="sec-head">Sunday Brunch<div class="rule"></div></div>
+    <div class="sec-sub">Sundays, 10 am &ndash; 2 pm</div>
+
+    <div class="sub-head">Brunch Pizzas<div class="rule"></div></div>
+    <div class="item"><div class="name">Strawberry &amp; Fig<span class="price">$21</span></div>
+      <div class="desc">Wood-fired crust topped with creamy fontina cheese, fresh sliced strawberries, and fig jam.</div></div>
+    <div class="item"><div class="name">Diablo<span class="price">$22</span></div>
+      <div class="desc">Spicy and bold &mdash; loaded with sausage, pepperoni, jalape&ntilde;os, and chipotle over mozzarella and marinara sauce.</div></div>
+    <div class="item"><div class="name">The Caldwell Breakfast<span class="price">$22</span></div>
+      <div class="desc">Marinara, mozzarella, sausage, bacon, jalape&ntilde;os, and crispy diced potatoes, topped with an egg on a wood-fired crust.</div></div>
+    <div class="orn"><img src="assets/kv_mono.png"></div>
+  </div>
+</div>
+
+<!-- ===== sheet 3 front: p8 pizzas | p5 cocktails ===== -->
+<div class="sheet">
+  <div class="panel">
+    <div class="sec-head">Neapolitan Wood-Fired Pizzas<div class="rule"></div></div>
+    <div class="sec-sub">Our dough is crafted from scratch with 00 flour,<br>hand-tossed, and baked fresh to order</div>
+
+    <div class="item"><div class="name">Margherita<span class="price">$17</span></div>
+      <div class="desc">Historically created for Queen Margherita in Naples, Italy circa 1889. Rich marinara sauce, creamy mozzarella, and fresh basil.</div></div>
+    <div class="item"><div class="name">Fennel, Thyme &amp; Sausage<span class="price">$22</span></div>
+      <div class="desc">Topped with house-made whipped burrata, fennel sausage, leeks, and shallots for a savory delight.</div></div>
+    <div class="item"><div class="name">Peque&ntilde;o Diablo<span class="price">$22</span></div>
+      <div class="desc">A blend of marinara, mozzarella, sausage, pepperoni, fresh jalape&ntilde;os, and spicy chipotle for a fiery kick.</div></div>
+    <div class="item"><div class="name">The Isaiah<span class="price">$22</span></div>
+      <div class="desc">Marinara, mozzarella, fontina, pepperoni, salami, and jalape&ntilde;os, finished with a balsamic drizzle.</div></div>
+    <div class="item"><div class="name">Prosciutto &amp; Arugula<span class="price">$21</span></div>
+      <div class="desc">Creamy whipped burrata and thinly sliced prosciutto, finished with fresh arugula tossed in lemon vinaigrette.</div></div>
+
+    <div class="footnote"><b>Nut &amp; Gluten Advisory:</b> our kitchen prepares dishes that contain nuts and gluten. If you have a nut allergy or are gluten-sensitive, please inform your host.</div>
+  </div>
+  <div class="panel roomy">
+    <div class="sec-head">Cocktails<div class="rule"></div></div>
+
+    <div class="item"><div class="name">Espresso Martini<span class="price">$14</span></div>
+      <div class="desc">Rich, smooth, perfectly balanced.</div></div>
+    <div class="item"><div class="name">Pear Martini<span class="price">$14</span></div>
+      <div class="desc">Pear vodka, elderflower liqueur, lemon juice, prosecco.</div></div>
+    <div class="item"><div class="name">Old Fashioned<span class="price">$14</span></div>
+      <div class="desc">A timeless blend of Seven Devils Bourbon, sugar, and aromatic bitters, stirred until perfectly smooth and served over a single ice cube with an orange twist and an Amarena cherry.</div></div>
+    <div class="item"><div class="name">Whiskey Sour<span class="price">$14</span></div>
+      <div class="desc">Seven Devils Bourbon, lemon, simple syrup, egg white.<br>Add a Kindred red wine float +$1.</div></div>
+    <div class="item"><div class="name">Rotating Local Beer &amp; Cider</div>
+      <div class="desc">Ask what we have on tap!</div></div>
+    <div class="orn"><img src="assets/kv_mono.png"></div>
+  </div>
+</div>
+
+<!-- ===== sheet 3 back: p6 happy hour | p7 kitchen (center-adjacent) ===== -->
+<div class="sheet">
+  <div class="panel roomy">
+    <div class="sec-head">Happy Hour<div class="rule"></div></div>
+    <div class="sec-sub">Tuesday: all day<br>Wednesday &ndash; Saturday: 4 &ndash; 6 pm</div>
+
+    <div class="specials">
+      <div>Buy-one-get-one Sangria &amp; Aperol Spritz</div>
+      <div>$2 off wine by the glass</div>
+      <div>$1 off local beer</div>
+      <div>$12 Cheese Board</div>
+      <div>$9 Caprese Salad</div>
+    </div>
+
+    <div class="item"><div class="name">Red Sangria<span class="price">$13</span></div>
+      <div class="desc">Kindred red wine infused with fresh-cut fruit, citrus, and fruit juice. Garnished with fresh fruit.</div></div>
+    <div class="item"><div class="name">White Sangria<span class="price">$12</span></div>
+      <div class="desc">Kindred white wine infused with fresh-cut fruit, citrus, and fruit juice. Garnished with fresh fruit.</div></div>
+    <div class="item"><div class="name">Aperol Spritz<span class="price">$12</span></div>
+      <div class="desc">Aperol, prosecco, soda water.</div></div>
+    <div class="orn"><img src="assets/kv_mono.png"></div>
+  </div>
+  <div class="panel">
+    <div class="sec-head">From Our Kitchen<div class="rule"></div></div>
+
+    <div class="item" style="margin-top:18pt"><div class="name">Caprese Salad<span class="price">$13</span></div>
+      <div class="desc">Juicy cherry tomatoes, creamy mozzarella, and local basil drizzled with rich fig balsamic vinegar.</div>
+      <div class="serves">Serves 1&ndash;2</div></div>
+    <div class="item"><div class="name">Cheese Board<span class="price">$18</span></div>
+      <div class="desc">A selection of artisan cheeses, charcuterie, and a variety of artisanal accompaniments served with Gaston&rsquo;s focaccia bread.</div>
+      <div class="serves">Serves 2&ndash;3</div></div>
+    <div class="item"><div class="name">Creekside Sandwich<span class="price">$12</span></div>
+      <div class="desc">Sun-dried tomato, artichoke heart, prosciutto, pepperoni, mixed greens, and tomato, our own zesty seasoning all on Gaston&rsquo;s toasted sourdough.</div></div>
+    <div class="item"><div class="name">BLTA Sandwich<span class="price">$12</span></div>
+      <div class="desc">Crispy bacon, butter lettuce, cherry tomato, avocado, fresh basil, mayo, and dijon mustard on toasted sourdough from Gaston&rsquo;s Bakery.</div></div>
+
+    <div class="sub-head">Desserts<div class="rule"></div></div>
+    <div class="item"><div class="name">3 Chocolate Plate<span class="price">$6</span></div>
+      <div class="desc">A variety of three handmade Belgian chocolate truffles.</div></div>
+    <div class="item"><div class="name">Tiramisu<span class="price">$12</span></div>
+      <div class="desc">Coffee-soaked ladyfingers, mascarpone, whipped cream, and dusted cocoa powder.</div></div>
+
+    <div class="footnote">An automatic gratuity of 20% will be added to groups of 6 or more.</div>
+  </div>
+</div>
+
+</body>
+</html>

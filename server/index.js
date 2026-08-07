@@ -21,6 +21,7 @@ import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { menusRouter } from './routes/menus.js';
 import { loyaltyRouter, memberRouter as loyaltyMemberRouter } from './routes/loyalty.js';
 import { clubNotificationsRouter } from './routes/clubNotifications.js';
 import { kindredAppRouter } from './routes/kindredApp.js';
@@ -153,6 +154,7 @@ app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
 app.use('/api/abc', requireAuth, abcRouter);       // Idaho ABC wine report — prepares only, never submits
 app.use('/api/dashboard', requireAuth, dashboardRouter);  // manager/owner overview; role enforced in the router
+app.use('/api/menus', requireAuth, menusRouter);           // tasting-room print menus
 app.use('/api/loyalty', loyaltyRouter);           // points: staff admin + cost model
 // Club 77 push. Mounted WITHOUT requireAuth: the staff routes guard themselves,
 // and the /me/* routes authenticate as a club member, not a TeamHub user.

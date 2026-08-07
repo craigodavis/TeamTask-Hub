@@ -1,0 +1,19 @@
+{
+  "club_discount": 0.15,
+  "_comment": "Club 77 prices are computed as exactly (1 - club_discount) x list price, for both glasses and bottles. Set glass to null for bottle-only wines. Order in these arrays = order printed on the menu (reds: $45 tier first, then $35 tier).",
+  "white_rose": [
+    { "vintage": 2025, "name": "Paso a Paso", "varietal": "Albariño",           "glass": null, "bottle": 26 },
+    { "vintage": 2025, "name": "Paso a Paso", "varietal": "Wild Albariño",      "glass": 9,    "bottle": 26 },
+    { "vintage": 2025, "name": "A Souvenir",  "varietal": "French Oak Viognier",     "glass": 9,    "bottle": 26 },
+    { "vintage": 2025, "name": "Love Letter", "varietal": "Syrah Rosé",         "glass": 9,    "bottle": 26 }
+  ],
+  "red": [
+    { "vintage": 2023, "name": "Gypsy Soul",      "varietal": "Bordeaux-Style Blend", "glass": 15,   "bottle": 45 },
+    { "vintage": 2023, "name": "Papa's",          "varietal": "Malbec",               "glass": null, "bottle": 45 },
+    { "vintage": 2023, "name": "Peacemaker",      "varietal": "Syrah",                "glass": 13,   "bottle": 39 },
+    { "vintage": 2023, "name": "Mama's",          "varietal": "Merlot",               "glass": 15,   "bottle": 35 },
+    { "vintage": 2023, "name": "Sailor's Hold",   "varietal": "Carménère",  "glass": 12,   "bottle": 35 },
+    { "vintage": 2023, "name": "Cerceau Rivière", "varietal": "Syrah / Viognier", "glass": null, "bottle": 35 },
+    { "vintage": 2023, "name": "Moonlit Cello",   "varietal": "Cabernet Sauvignon",   "glass": 15,   "bottle": 35 }
+  ]
+}

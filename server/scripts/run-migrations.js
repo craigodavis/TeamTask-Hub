@@ -3637,6 +3637,26 @@ const MIGRATIONS = [
   // whatever status it last had. A deleted Voyager's Pass therefore kept
   // advertising itself as Available to every downstream app.
   `ALTER TABLE commerce7.club ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+  // Tasting-room menus. Which wines print, in what order, per menu.
+  //
+  // Membership is not stored: a wine is a candidate when it is available for
+  // sale, so the menu cannot drift out of step with the product list. Only the
+  // ordering and an explicit opt-out live here, because Creek and the Winery
+  // pour different things and the print order is a layout decision rather than
+  // a property of the wine.
+  `CREATE TABLE IF NOT EXISTS menu_wines (
+     id          SERIAL PRIMARY KEY,
+     company_id  UUID NOT NULL,
+     menu_key    VARCHAR(20) NOT NULL,
+     product_id  UUID NOT NULL,
+     section     VARCHAR(10) NOT NULL,
+     sort_order  INTEGER NOT NULL DEFAULT 0,
+     excluded    BOOLEAN NOT NULL DEFAULT false,
+     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (company_id, menu_key, product_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_menu_wines_lookup
+     ON menu_wines(company_id, menu_key, section, sort_order)`,
 ];
 
 export async function runMigrations() {

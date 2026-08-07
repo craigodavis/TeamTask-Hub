@@ -22,6 +22,10 @@ function isKitchenPath(pathname) {
 }
 
 // Any route that lives under the Wine parent menu.
+function isTastingRoomPath(pathname) {
+  return pathname.startsWith('/tasting-room');
+}
+
 function isWinePath(pathname) {
   return pathname.startsWith('/products') || pathname.startsWith('/product-lines');
 }
@@ -39,6 +43,8 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [kitchenExpanded, setKitchenExpanded] = useState(() => isKitchenPath(location.pathname));
   const [wineExpanded, setWineExpanded] = useState(() => isWinePath(location.pathname));
+  const [tastingRoomExpanded, setTastingRoomExpanded] =
+    useState(() => isTastingRoomPath(location.pathname));
   const [marketingExpanded, setMarketingExpanded] = useState(() => isMarketingPath(location.pathname));
 
   const [collapsed, setCollapsed] = useState(() => {
@@ -392,6 +398,43 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                 <span>Shopping</span>
               </Link>
             </div>
+          )}
+          {isManager && (
+            <>
+              <div className="nav-item-row">
+                <button
+                  type="button"
+                  className={`app-shell-nav-item${isTastingRoomPath(location.pathname) ? ' active' : ''}`}
+                  data-icon="🍷"
+                  title="Tasting Room"
+                  onClick={() => setTastingRoomExpanded((v) => !v)}
+                  aria-expanded={tastingRoomExpanded}
+                >
+                  <span>Tasting Room</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-sub-chevron"
+                  onClick={() => setTastingRoomExpanded((v) => !v)}
+                  aria-expanded={tastingRoomExpanded}
+                  aria-label={tastingRoomExpanded ? 'Collapse Tasting Room menu' : 'Expand Tasting Room menu'}
+                >
+                  {tastingRoomExpanded ? '−' : '+'}
+                </button>
+              </div>
+              {tastingRoomExpanded && (
+                <div className="nav-sub-group">
+                  <Link
+                    to="/tasting-room/menus"
+                    className={`nav-sub-item${location.pathname.startsWith('/tasting-room/menus') ? ' active' : ''}`}
+                    onClick={() => { if (isMobile()) setCollapsed(true); }}
+                  >
+                    <span className="nav-sub-icon">📜</span>
+                    <span>Menus</span>
+                  </Link>
+                </div>
+              )}
+            </>
           )}
           {canAccessInventory && (
             <div className="nav-item-row">
