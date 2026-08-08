@@ -18,6 +18,16 @@ import { chromium } from 'playwright';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MENU_ROOT = path.join(HERE, '..', 'assets', 'menus');
 
+/**
+ * Sheet size per menu. The booklets print landscape letter and are folded and
+ * stapled; the tasting flight is a single booklet panel — half that sheet — so
+ * it slips into the finished book.
+ */
+const PAGE_SIZE = {
+  tasting: { width: '5.5in', height: '8.5in' },
+  _default: { width: '11in', height: '8.5in' },
+};
+
 /** Club 77 is exactly this much off list, glasses and bottles alike. */
 const CLUB_DISCOUNT = 0.15;
 
@@ -121,8 +131,9 @@ export async function renderMenuPdf(menuKey, wines) {
     await page.goto(pathToFileURL(tmp).toString(), { waitUntil: 'networkidle' });
     // Landscape letter with zero margin, per the template's @page rule. The
     // sheets are booklet-imposed, so page order is not reading order.
+    const size = PAGE_SIZE[menuKey] || PAGE_SIZE._default;
     return await page.pdf({
-      width: '11in', height: '8.5in', printBackground: true,
+      width: size.width, height: size.height, printBackground: true,
       margin: { top: '0', right: '0', bottom: '0', left: '0' },
     });
   } finally {

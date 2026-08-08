@@ -17,8 +17,10 @@ const router = express.Router();
 const cid = (req) => req.companyId;
 
 export const MENUS = [
-  { key: 'creek',  name: 'Kindred by the Creek' },
-  { key: 'winery', name: 'The Winery' },
+  { key: 'creek',   name: 'Kindred by the Creek' },
+  { key: 'winery',  name: 'The Winery' },
+  // A single booklet panel listing the flight, printed to drop into the book.
+  { key: 'tasting', name: 'Tasting Flight' },
 ];
 
 /**
@@ -28,6 +30,10 @@ export const MENUS = [
  * silently printing something that overflows.
  */
 export const CAPACITY = { white: 7, red: 9 };
+
+/** The flight page is one panel with two short tables, so it holds far less. */
+const CAPACITY_BY_MENU = { tasting: { white: 3, red: 3 } };
+const capacityFor = (key) => CAPACITY_BY_MENU[key] || CAPACITY;
 
 const isMenu = (k) => MENUS.some((m) => m.key === k);
 
@@ -95,13 +101,13 @@ router.get('/:key', requireManager, async (req, res) => {
 
     const warnings = [];
     for (const s of ['white', 'red']) {
-      if (counts[s] > CAPACITY[s]) {
+      if (counts[s] > capacityFor(key)[s]) {
         warnings.push({
           section: s,
           count: counts[s],
-          capacity: CAPACITY[s],
+          capacity: capacityFor(key)[s],
           message: `${counts[s]} ${s === 'white' ? 'whites and rosés' : 'reds'} on the menu — `
-                 + `the table holds about ${CAPACITY[s]} before it crowds the footnotes. `
+                 + `the table holds about ${capacityFor(key)[s]} before it crowds the footnotes. `
                  + `Drop one, or the page needs re-laying out.`,
         });
       }
@@ -112,7 +118,7 @@ router.get('/:key', requireManager, async (req, res) => {
       menus: MENUS,
       wines,
       counts,
-      capacity: CAPACITY,
+      capacity: capacityFor(key),
       warnings,
     });
   } catch (err) {
