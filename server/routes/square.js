@@ -421,7 +421,79 @@ Vintage lives on vintly.projects.vintage. "Barrel 47" → vintly.vessels WHERE b
 
 === HOW TO RESPOND ===
 
-You have two tools: run_sql and save_fact.
+You have tools for the database (run_sql), memory (save_fact), live Square
+sales, discrepancy alerts, and the open web (web_search and web_fetch).
+
+── WHEN YOU DON'T KNOW A TABLE: describe_tables ──
+The prompt documents the tables people happened to write down; the index at the
+end lists every table that actually exists. If a question touches something not
+documented above, do NOT guess column names and do NOT tell the user you have no
+access to it. Call describe_tables on the likely tables, read the real columns,
+then write the query.
+
+── INVENTORY AND PROJECTIONS ──
+Bottle inventory lives in the 'product' schema, not in Square or Commerce7:
+  product.product_inventory      current count per product per location
+                                 (total_bottles, library_bottles, last_counted_at)
+  product.product_inventory_log  every past count -- this is the monthly count
+                                 history, one row per product per count
+  product.products / product_variants   the wines themselves; variants carry the
+                                 SKU and is_glass
+Locations are teamtask_hub.locations (Winery, Creek); its square_location_id
+joins to Square.
+
+Counts are physical, taken roughly monthly, and each row carries its own
+last_counted_at -- different wines were counted on different days, so always
+report the count date alongside the number rather than implying it is live.
+
+To project how long stock will last, subtract Square sell-through since the
+count from the counted quantity. Match Square sales to wines through the SKU
+(product_variants.sku = team_square.catalog_item_variation.sku, then
+order_line_item.catalog_object_id = that variation's id).
+
+A glass pour is not a bottle: a 5oz pour is a fifth of a 750ml bottle, so divide
+glass quantities by 5 before subtracting them from bottle counts. Variants where
+is_glass is true are pours; the rest are bottles.
+
+Worked shape -- days of stock remaining per wine per location:
+  WITH on_hand AS (
+    SELECT p.id AS product_id, p.name, l.name AS location,
+           pi.total_bottles, pi.last_counted_at::date AS counted_on
+      FROM product.product_inventory pi
+      JOIN product.products p ON p.id = pi.product_id
+      JOIN teamtask_hub.locations l ON l.id = pi.location_id
+     WHERE pi.company_id = <company>
+  ), velocity AS (
+    SELECT v.product_id,
+           SUM(CASE WHEN v.is_glass THEN li.quantity::numeric / 5.0
+                    ELSE li.quantity::numeric END) AS bottles_sold
+      FROM product.product_variants v
+      JOIN team_square.catalog_item_variation civ
+        ON LOWER(civ.sku) = LOWER(v.sku) AND civ.is_deleted = false
+      JOIN team_square.order_line_item li ON li.catalog_object_id = civ.id
+      JOIN team_square."order" o ON o.id = li.order_id
+     WHERE o.closed_at >= NOW() - INTERVAL '60 days'
+     GROUP BY v.product_id
+  )
+  SELECT oh.name, oh.location, oh.total_bottles, oh.counted_on,
+         ROUND(vel.bottles_sold / 60.0, 2) AS bottles_per_day,
+         ROUND(oh.total_bottles / NULLIF(vel.bottles_sold / 60.0, 0)) AS days_of_stock
+    FROM on_hand oh LEFT JOIN velocity vel ON vel.product_id = oh.product_id;
+
+Answer these questions with judgement, not just a table: say which wines run out
+first, roughly when, whether the rate is rising or falling, and flag anything
+that will not survive to the next release. A wine with no Square sales is not
+necessarily dead -- it may sell through the club in Commerce7, so check there
+before calling it stagnant.
+
+── WHEN TO USE web_search ──
+The database is the authority on anything about this business -- sales,
+inventory, labor, customers, winemaking. Never search the web for those; query
+them. Search the web when the answer genuinely lives outside our own records:
+current market or grape pricing, competitors' listed prices, regulations and
+filing deadlines, industry benchmarks, weather, suppliers, wine-scoring or
+press coverage. Say where a figure came from, and don't blend a searched number
+into our own reporting without labelling it as external.
 
 ── WHEN TO USE save_fact (long-term memory, shared by ALL users) ──
 save_fact is your persistent, company-wide memory: everything saved is recalled
@@ -879,8 +951,144 @@ async function logJournal({ question, generated_sql, success, error_message, row
   }
 }
 
+
+// ── Live schema discovery ────────────────────────────────────────────────────
+// Airon used to know only the tables someone had hand-written into the prompt,
+// so anything added since -- the whole `product` schema, inventory among it --
+// was invisible to it and every new area meant editing this file. These two
+// helpers replace that: the index tells it what exists, the tool tells it what
+// the columns are. New tables show up on their own.
+//
+// The split is deliberate. The full DDL for the live schemas is ~23k tokens,
+// which is a lot to carry on every question when any one question touches a
+// handful of tables; the index alone is ~1.4k. So the index is always in the
+// prompt and column detail is fetched on demand.
+//
+// deleteme_* and staging are excluded on purpose -- deleteme_square is a stale
+// copy of the Square catalog, and a model that found it would answer questions
+// about deleted data without knowing it.
+const LIVE_SCHEMAS = [
+  'teamtask_hub', 'team_square', 'commerce7', 'product',
+  'vintly', 'wine', 'kindred_web', 'club_steward', 'cellarpilot', 'public',
+];
+
+let _schemaIndexCache = null;
+async function schemaIndex() {
+  if (_schemaIndexCache) return _schemaIndexCache;
+  const r = await query(
+    `SELECT table_schema, string_agg(table_name, ', ' ORDER BY table_name) AS tbls
+       FROM information_schema.tables
+      WHERE table_schema = ANY($1::text[]) AND table_type = 'BASE TABLE'
+      GROUP BY table_schema ORDER BY table_schema`,
+    [LIVE_SCHEMAS]
+  );
+  const views = await query(
+    `SELECT table_schema, string_agg(table_name, ', ' ORDER BY table_name) AS tbls
+       FROM information_schema.views WHERE table_schema = ANY($1::text[])
+      GROUP BY table_schema ORDER BY table_schema`,
+    [LIVE_SCHEMAS]
+  );
+  const viewsBySchema = Object.fromEntries(views.rows.map((v) => [v.table_schema, v.tbls]));
+  const lines = r.rows.map((x) => {
+    const v = viewsBySchema[x.table_schema];
+    return `${x.table_schema}: ${x.tbls}${v ? `\n${x.table_schema} VIEWS: ${v}` : ''}`;
+  });
+  _schemaIndexCache = '\n=== EVERY TABLE IN THE DATABASE (live schemas) ===\n'
+    + 'This list is generated from the database itself, so it is never stale.\n'
+    + 'You do NOT know these tables\' columns -- call describe_tables before\n'
+    + 'writing SQL against anything not already documented above.\n\n'
+    + lines.join('\n') + '\n';
+  return _schemaIndexCache;
+}
+
+/** Columns, keys and comments for specific tables, for the describe_tables tool. */
+async function describeTables(names) {
+  const wanted = names
+    .map((n) => String(n).trim())
+    .filter(Boolean)
+    .map((n) => (n.includes('.') ? n : `teamtask_hub.${n}`));
+  if (!wanted.length) return 'No tables requested.';
+  if (wanted.length > 12) return 'Ask for at most 12 tables at a time.';
+
+  const out = [];
+  for (const full of wanted) {
+    const [sch, tab] = full.split('.');
+    if (!LIVE_SCHEMAS.includes(sch)) { out.push(`${full}: schema not available.`); continue; }
+    const cols = await query(
+      `SELECT c.column_name, c.data_type, c.is_nullable, c.column_default,
+              pgd.description
+         FROM information_schema.columns c
+         LEFT JOIN pg_catalog.pg_statio_all_tables st
+                ON st.schemaname = c.table_schema AND st.relname = c.table_name
+         LEFT JOIN pg_catalog.pg_description pgd
+                ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position
+        WHERE c.table_schema = $1 AND c.table_name = $2
+        ORDER BY c.ordinal_position`,
+      [sch, tab]
+    );
+    if (!cols.rows.length) { out.push(`${full}: no such table.`); continue; }
+    const keys = await query(
+      `SELECT con.contype, pg_get_constraintdef(con.oid) AS def
+         FROM pg_constraint con
+         JOIN pg_class c ON c.oid = con.conrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relname = $2 AND con.contype IN ('p','f','u')`,
+      [sch, tab]
+    );
+    const rowCount = await query(`SELECT COUNT(*)::int AS n FROM ${sch}.${tab}`).catch(() => null);
+    out.push(
+      `${full}${rowCount ? ` (${rowCount.rows[0].n} rows)` : ''}\n`
+      + cols.rows.map((c) =>
+          `  ${c.column_name} ${c.data_type}${c.is_nullable === 'NO' ? ' NOT NULL' : ''}`
+          + `${c.description ? ` -- ${c.description}` : ''}`).join('\n')
+      + (keys.rows.length ? '\n  ' + keys.rows.map((k) => k.def).join('\n  ') : '')
+    );
+  }
+  return out.join('\n\n');
+}
+
 // ── Tool definitions ──────────────────────────────────────────────────────────
+/**
+ * Anthropic-hosted tools. These are not implemented here and never appear in
+ * the tool_use branch below -- Anthropic runs the search and the fetch on its
+ * own infrastructure and returns the results inline, so there is nothing for
+ * this server to execute and no key or crawler of our own to maintain.
+ *
+ * web_fetch only retrieves URLs that are already in the conversation, so it is
+ * a follow-up to a search rather than a way to reach arbitrary addresses.
+ *
+ * The _20260209 variants filter results before they reach the context window.
+ * Every model Kindred AI offers accepts them -- checked against the live API
+ * rather than assumed, because the published support table doesn't enumerate
+ * Fable 5. Deliberately no code_execution tool alongside them: these versions
+ * run their own, and declaring a second one confuses the model about which
+ * environment it is in.
+ */
+const WEB_TOOLS = [
+  { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+  { type: 'web_fetch_20260209',  name: 'web_fetch',  max_uses: 5 },
+];
+
 const SQUARE_TOOLS = [
+  {
+    name: 'describe_tables',
+    description:
+      'Look up the real columns, types and keys of any table in the database. '
+      + 'Use this BEFORE writing SQL against a table whose columns you have not been '
+      + 'shown, instead of guessing column names. Accepts up to 12 tables per call, '
+      + 'named as schema.table (e.g. product.product_inventory).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tables: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tables to describe, as schema.table.',
+        },
+      },
+      required: ['tables'],
+    },
+  },
   {
     name: 'run_sql',
     description: 'Run a read-only SQL SELECT query against the PostgreSQL database (team_square, commerce7, and vintly winemaking schemas). Returns rows and field names.',
@@ -1008,10 +1216,15 @@ router.post('/ask', async (req, res) => {
   // Anthropic caches it for 5 min — subsequent calls within the window pay 1/10th
   // the input token cost for that block.  Facts/lessons are dynamic so they are
   // appended as a second uncached block (including today's date — changes daily).
+  // The hand-written context carries the business semantics -- which source is
+  // authoritative for what, the canonical views, the gotchas. The generated
+  // index carries the facts, so a table added tomorrow is visible without
+  // anyone editing this file. Both are static within a session, so they share
+  // the cache breakpoint.
   const systemBlocks = [
     {
       type: 'text',
-      text: SQUARE_SCHEMA_CONTEXT,
+      text: SQUARE_SCHEMA_CONTEXT + (await schemaIndex()),
       cache_control: { type: 'ephemeral' },
     },
   ];
@@ -1056,22 +1269,32 @@ router.post('/ask', async (req, res) => {
         model: kindredAiModel,
         max_tokens: 4096,
         system: systemBlocks,
-        tools: SQUARE_TOOLS,
+        tools: [...SQUARE_TOOLS, ...WEB_TOOLS],
         messages,
       }, { signal: abort.signal });
       usageIn  += response.usage?.input_tokens  || 0;
       usageOut += response.usage?.output_tokens || 0;
 
-      // Collect any text from this turn
-      const textBlock = response.content.find((b) => b.type === 'text');
-      if (textBlock?.text) accumulated.text = textBlock.text.trim();
+      // Collect any text from this turn.
+      //
+      // Join every text block rather than taking the first. A turn that used
+      // web search comes back as a dozen or more text blocks -- the model
+      // narrates ("I'll search for..."), searches, then writes the answer
+      // across several blocks because citations split it. Taking find() gave
+      // the narration and threw the answer away.
+      const turnText = response.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim();
+      if (turnText) accumulated.text = turnText;
 
       if (response.stop_reason === 'end_turn') {
         // Never let a data question end with just a result table / no prose.
         // Nudge the model once to synthesize a proper written answer.
         if (!accumulated.text && accumulated.rows && !synthNudged) {
           synthNudged = true;
-          messages.push({ role: 'assistant', content: [{ type: 'text', text: textBlock?.text?.trim() || 'Results gathered.' }] });
+          messages.push({ role: 'assistant', content: [{ type: 'text', text: turnText || 'Results gathered.' }] });
           messages.push({ role: 'user', content:
             'Now write the complete, well-formatted answer for the user based on the query results above. ' +
             'Answer every part of the original question, include the comparison/benchmark/recommendation that was asked for, ' +
@@ -1115,6 +1338,14 @@ router.post('/ask', async (req, res) => {
             } catch (err) {
               await logJournal({ question, generated_sql: block.input.sql, success: false, error_message: err.message });
               toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `SQL error: ${err.message}` });
+            }
+
+          } else if (block.name === 'describe_tables') {
+            try {
+              const ddl = await describeTables(block.input.tables || []);
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: ddl });
+            } catch (err) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Schema lookup failed: ${err.message}` });
             }
 
           } else if (block.name === 'save_fact') {
@@ -1162,6 +1393,15 @@ router.post('/ask', async (req, res) => {
         }
 
         messages.push({ role: 'user', content: toolResults });
+      } else if (response.stop_reason === 'pause_turn') {
+        // A server-side tool (web search / fetch) hit its per-turn iteration
+        // cap. Echo the assistant turn back and the server resumes where it
+        // left off -- adding a "continue" user message would corrupt it.
+        // Without this branch the catch-all below ended the answer mid-search,
+        // with no error and a half-written reply.
+        messages.push({ role: 'assistant', content: response.content });
+        continue;
+
       } else {
         break; // unexpected stop reason
       }
