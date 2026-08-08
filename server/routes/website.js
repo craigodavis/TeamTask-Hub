@@ -246,6 +246,30 @@ websiteRouter.get('/clubs', async (_req, res) => {
     if (!integration?.c7_api_key) return res.json({ clubs: [] });
     const c7 = makeC7Client(integration);
     const all = await c7.fetchAll('/club', 'clubs', 50);
+
+    // Member discount is NOT on the club record — Commerce7 models it as a
+    // promotion that is availableTo 'Club' and names the clubs it covers. So the
+    // percentages come from there rather than being retyped into the website,
+    // where they would quietly drift the first time someone changes one in C7.
+    // `discount` is in hundredths: 2500 = 25%.
+    const byClub = new Map();
+    try {
+      const promos = await c7.fetchAll('/promotion', 'promotions', 50);
+      for (const p of promos || []) {
+        if (p.status !== 'Enabled') continue;
+        if (p.availableTo !== 'Club') continue;
+        if (p.discountType !== 'Percentage Off') continue;
+        const pct = Number(p.discount) / 100;
+        if (!Number.isFinite(pct) || pct <= 0) continue;
+        for (const id of p.availableToObjectIds || []) {
+          // A club can sit in more than one promotion; show the best of them.
+          if (!byClub.has(id) || byClub.get(id) < pct) byClub.set(id, pct);
+        }
+      }
+    } catch (e) {
+      console.warn('[website/clubs] could not read promotions:', e.message);
+    }
+
     const clubs = (all || [])
       .filter((c) => c.adminStatus === 'Available' && c.webStatus !== 'Not Available' && c.slug)
       .map((c) => ({
@@ -255,6 +279,7 @@ websiteRouter.get('/clubs', async (_req, res) => {
         type: c.type,
         content: c.content || '',
         image: c.image || null,
+        discountPct: byClub.has(c.id) ? byClub.get(c.id) : null,
       }));
     res.json({ clubs });
   } catch (e) { res.status(500).json({ error: e.message }); }
