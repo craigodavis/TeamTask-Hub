@@ -21,6 +21,8 @@ export const MENUS = [
   { key: 'winery',  name: 'The Winery' },
   // A single booklet panel listing the flight, printed to drop into the book.
   { key: 'tasting', name: 'Tasting Flight' },
+  // Hand-authored food card; carries no wine tables.
+  { key: 'burgers', name: 'Hot August Nights' },
 ];
 
 /**

@@ -25,6 +25,7 @@ const MENU_ROOT = path.join(HERE, '..', 'assets', 'menus');
  */
 const PAGE_SIZE = {
   tasting: { width: '5.5in', height: '8.5in' },
+  burgers: { width: '5.5in', height: '8.5in' },
   _default: { width: '11in', height: '8.5in' },
 };
 
@@ -89,7 +90,9 @@ function splice(doc, tag, body) {
   const end = `<!-- ${tag}:END -->`;
   const i = doc.indexOf(start);
   const j = doc.indexOf(end);
-  if (i === -1 || j === -1) throw new Error(`Template is missing the ${tag} markers.`);
+  // A menu with no wine tables is legitimate — the food menus are entirely
+  // hand-authored — so absent markers mean "nothing to fill", not an error.
+  if (i === -1 || j === -1) return doc;
   return doc.slice(0, i + start.length) + '\n' + body + '\n      ' + doc.slice(j);
 }
 
