@@ -382,8 +382,24 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     const base = cfg.api_base || 'https://api.resos.com';
     const { times, closed } = await availableTimes(base, cfg.api_key, { people: party, date });
 
+    // ResOS returns nothing for two very different reasons: the venue is shut
+    // that day, or it is open and has no table big enough. Both used to surface
+    // as "closed", so a party of ten was told the Creek was shut when it was open
+    // and simply couldn't seat them — the largest table is eight.
+    //
+    // Ask again for a small party to tell them apart. Only when the first answer
+    // was empty and the party is big enough for size to be the plausible cause,
+    // so the usual path still costs one call.
+    let reason = closed ? 'closed' : null;
+    if (closed && party > 2) {
+      try {
+        const probe = await availableTimes(base, cfg.api_key, { people: 2, date });
+        if (probe.times.length) reason = 'party-too-large';
+      } catch { /* leave it as 'closed' — a failed probe shouldn't change the answer */ }
+    }
+
     res.set('Cache-Control', 'public, max-age=30');
-    res.json({ venue, date, party, bookingEnabled: true, closed, slots: times });
+    res.json({ venue, date, party, bookingEnabled: true, closed, reason, slots: times });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
