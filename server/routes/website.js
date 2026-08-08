@@ -457,6 +457,16 @@ websiteRouter.post('/reservations/book', async (req, res) => {
         notificationEmail: true, // ResOS sends the guest their confirmation
       },
       source: 'website',
+      // Without a status ResOS files the booking as `request` — pending. It shows
+      // a table against it but does not hold that table, so the next booking is
+      // offered the same one and two parties end up on it. That is what happened
+      // to Bock and Margaret Fair on 8 Aug, an hour and a half apart, so it was
+      // never a race between simultaneous bookings.
+      //
+      // Phone bookings go straight in as approved, which is why this only started
+      // when the website did. Verified against ResOS: creating with an explicit
+      // status returns `approved` with a table assigned.
+      status: 'approved',
       comment: (comment || '').trim().slice(0, 1000),
       languageCode: 'en',
     });
