@@ -116,9 +116,9 @@ export async function runOrdersSync(companyId, lastSyncedAt = null) {
               total_discount_amount, total_discount_currency,
               total_tip_amount, total_tip_currency,
               total_service_charge_amount, total_service_charge_currency,
-              net_amount_total_money_amount,
+              net_amount_total_money_amount, created_by_team_member_id,
               created_at, updated_at, closed_at, synced_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
            ON CONFLICT (id) DO UPDATE SET
              state                         = EXCLUDED.state,
              customer_id                   = EXCLUDED.customer_id,
@@ -129,6 +129,7 @@ export async function runOrdersSync(companyId, lastSyncedAt = null) {
              total_tip_amount              = EXCLUDED.total_tip_amount,
              total_service_charge_amount   = EXCLUDED.total_service_charge_amount,
              net_amount_total_money_amount = EXCLUDED.net_amount_total_money_amount,
+             created_by_team_member_id     = EXCLUDED.created_by_team_member_id,
              updated_at                    = EXCLUDED.updated_at,
              closed_at                     = EXCLUDED.closed_at,
              synced_at                     = NOW()`,
@@ -142,6 +143,11 @@ export async function runOrdersSync(companyId, lastSyncedAt = null) {
             mti.amount ?? null, mti.currency || null,
             ms.amount  ?? null, ms.currency  || null,
             mn.amount  ?? null,
+            // Who OPENED the ticket. Distinct from payment.team_member_id, which
+            // is whoever ran the card at close -- on a tasting-room shift a ticket
+            // can sit open across a shift change, so the two are regularly
+            // different people. The opener is the one who greeted the guest.
+            o.created_by_team_member_id || null,
             o.created_at || null, o.updated_at || null, o.closed_at || null,
           ]
         );

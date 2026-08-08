@@ -213,10 +213,15 @@ export async function pushProductToSquare(companyId, productId) {
     // Re-read for a current version; Square rejects a stale one.
     const item = await sq.get(existing.item.id);
     const before = {
+      name: item.item_data.name,
       archived: Boolean(item.item_data.is_archived),
       price: existing.variation.item_variation_data?.price_money?.amount,
     };
 
+    // The name has to be written on update, not only on create. Renaming a
+    // wine in TeamHub previously left Square showing the old name forever,
+    // because this branch only ever touched status, category, tax and price.
+    item.item_data.name = itemName;
     item.item_data.is_archived = !shouldBeLive;
     item.item_data.reporting_category = { id: category };
     item.item_data.tax_ids = [refs.taxId];
@@ -229,6 +234,7 @@ export async function pushProductToSquare(companyId, productId) {
     await recordIds(companyId, productId, v.id, item.id, existing.variation.id, category, isGlass);
 
     const bits = [];
+    if (before.name !== itemName) bits.push(`renamed "${before.name}" → "${itemName}"`);
     if (before.price !== price && price != null) bits.push(`price $${before.price / 100} → $${price / 100}`);
     if (before.archived !== !shouldBeLive) bits.push(!shouldBeLive ? 'archived' : 'unarchived');
     actions.push(`${v.sku}: ${bits.length ? bits.join(', ') : 'no change'}`);

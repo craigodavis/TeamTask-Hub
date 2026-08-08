@@ -3724,6 +3724,16 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS square_item_id VARCHAR(64)`,
   `CREATE INDEX IF NOT EXISTS idx_sq_variation_item
      ON product.square_variation_data(square_item_id)`,
+  // Square records both who opened a ticket and who took the payment, and they
+  // are regularly different people: a ticket opened at 5:32pm and closed at
+  // 7:00pm crosses a shift change, and the closer may simply be whoever was at
+  // the terminal. Only the payment side was ever synced, so every report
+  // credited the closer. The opener is who greeted the guest and had the
+  // chance to ask for a phone number, which is what the capture report needs.
+  `ALTER TABLE team_square."order"
+     ADD COLUMN IF NOT EXISTS created_by_team_member_id VARCHAR(64)`,
+  `CREATE INDEX IF NOT EXISTS idx_sq_order_opener
+     ON team_square."order"(created_by_team_member_id)`,
 ];
 
 export async function runMigrations() {
