@@ -365,9 +365,9 @@ websiteRouter.get('/hours', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/website/reservations/custom-fields?venue=
-// The extra questions ResOS is configured to ask at booking — the winery asks
-// about the newsletter and wine club membership; the creek asks nothing.
+// GET /api/website/reservations/custom-fields?venue=&date=&time=&party=
+// The extra questions ResOS is configured to ask for a given slot — currently
+// the newsletter opt-in and wine club membership.
 //
 // The old WordPress booking widget rendered these; the form we built did not, so
 // since go-live every booking has been missing them, including one ResOS marks
@@ -384,11 +384,18 @@ websiteRouter.get('/reservations/custom-fields', async (req, res) => {
     )).rows[0];
     if (!cfg?.api_key || cfg.active === false) return res.json({ fields: [] });
 
-    const fields = await customFields(cfg.api_base || 'https://api.resos.com', cfg.api_key);
+    // The slot matters: ResOS attaches fields to opening hours, so the questions
+    // for a Saturday evening need not be the questions for a Tuesday lunch.
+    const fields = await customFields(cfg.api_base || 'https://api.resos.com', cfg.api_key, {
+      date: /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : undefined,
+      time: /^\d{2}:\d{2}$/.test(req.query.time || '') ? req.query.time : undefined,
+      people: Math.min(Math.max(parseInt(req.query.party, 10) || 2, 1), 40),
+    });
     // Short deliberately. These change rarely, but when someone edits a label in
     // ResOS they go and look at the site immediately — a 5 minute cache meant the
     // old wording stared back and looked like the change hadn't saved.
     res.set('Cache-Control', 'public, max-age=60');
+    res.set('Vary', 'Accept-Encoding');
     res.json({ venue: req.query.venue, fields });
   } catch (e) {
     // A booking form that can't load its optional questions should still take a
@@ -522,7 +529,7 @@ websiteRouter.post('/reservations/book', async (req, res) => {
     // option's id in `value`, a checkbox carries an array of selections.
     let customFieldPayload = [];
     try {
-      const defs = await customFields(base, cfg.api_key);
+      const defs = await customFields(base, cfg.api_key, { date, time, people });
       for (const f of defs) {
         const picked = answers && answers[f.id];
         if (!picked) continue;

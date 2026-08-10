@@ -59,12 +59,40 @@ export async function ping(base, apiKey) {
  *    API gives no way to tell WHICH, so showing them year-round would ask people
  *    about a Valentine's pairing in August. Better to omit than to ask wrongly.
  */
-export async function customFields(base, apiKey) {
+export async function customFields(base, apiKey, { date, time, people = 2 } = {}) {
+  // ResOS attaches a custom field to opening hours, not to the restaurant. A
+  // field can therefore apply to Saturday brunch and not to Tuesday lunch, and
+  // the only place that mapping is exposed is `activeCustomFields` on each
+  // opening hour in the booking flow. So ask about the actual slot being booked.
+  //
+  // The /customFields list below cannot answer this: it carries
+  // `defaultOnAllOpeningHours`, which is true only when someone ticked "all
+  // opening hours" at creation. We filtered on that flag, and it silently hid
+  // every field attached to specific hours instead — which is how the Creek's
+  // two questions, correctly configured, never appeared on the site.
+  if (date) {
+    const r = await resosFetch(base, apiKey, `/bookingFlow/times?date=${date}&people=${people}`);
+    if (r.ok && Array.isArray(r.data)) {
+      // A date can run several opening hours at once. If we know the time, take
+      // the ones actually offering it; otherwise union them, since showing a
+      // question that turns out not to apply beats dropping one that does.
+      const matching = time ? r.data.filter((oh) => (oh.availableTimes || []).includes(time)) : [];
+      const hours = matching.length ? matching : r.data;
+      const byId = new Map();
+      for (const oh of hours) for (const f of oh.activeCustomFields || []) byId.set(f._id, f);
+      return shapeFields([...byId.values()]);
+    }
+    // Fall through on a failed lookup: stale questions beat none.
+  }
+
   const r = await resosFetch(base, apiKey, '/customFields');
   if (!r.ok) throw new Error(`ResOS customFields HTTP ${r.status}`);
-  const all = Array.isArray(r.data) ? r.data : [];
+  return shapeFields((Array.isArray(r.data) ? r.data : []).filter((f) => f.defaultOnAllOpeningHours));
+}
+
+function shapeFields(all) {
   return all
-    .filter((f) => (f.activeFlows || []).includes('booking') && f.defaultOnAllOpeningHours)
+    .filter((f) => (f.activeFlows || []).includes('booking'))
     .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))
     .map((f) => ({
       id: f._id,
