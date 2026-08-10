@@ -366,7 +366,10 @@ websiteRouter.get('/reservations/custom-fields', async (req, res) => {
     if (!cfg?.api_key || cfg.active === false) return res.json({ fields: [] });
 
     const fields = await customFields(cfg.api_base || 'https://api.resos.com', cfg.api_key);
-    res.set('Cache-Control', 'public, max-age=300');
+    // Short deliberately. These change rarely, but when someone edits a label in
+    // ResOS they go and look at the site immediately — a 5 minute cache meant the
+    // old wording stared back and looked like the change hadn't saved.
+    res.set('Cache-Control', 'public, max-age=60');
     res.json({ venue: req.query.venue, fields });
   } catch (e) {
     // A booking form that can't load its optional questions should still take a
