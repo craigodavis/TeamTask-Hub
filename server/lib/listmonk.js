@@ -76,6 +76,15 @@ export async function findSubscriber(email) {
 }
 
 /**
+ * Lift a blocklist and put the person on a list, for someone who has come back
+ * and asked. PUT replaces the record, so the existing name and attribs are sent
+ * back with it — attribs carry why they were suppressed, and losing that would
+ * destroy the only evidence of what happened.
+ */
+export const updateSubscriber = (id, payload) =>
+  call('PUT', `/api/subscribers/${id}`, payload);
+
+/**
  * Find the Kindred template's id. Pushing a campaign without naming a template
  * silently lands it on listmonk's default, which is the stock listmonk shell —
  * an off-brand email that looks like a mistake to five thousand people.

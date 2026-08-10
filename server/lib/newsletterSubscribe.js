@@ -33,26 +33,37 @@
 
 import {
   listmonkConfigured, getLists, createList, addSubscriber, findSubscriber,
+  updateSubscriber,
 } from './listmonk.js';
 
 const DEFAULT_LIST = 'Website Signups';
 
 /**
- * Suppression beats a fresh signup, on both platforms.
+ * Coming back is allowed. Being dragged back is not.
  *
- * There is a real argument the other way: someone who deliberately types their
- * address into a form years after unsubscribing has arguably re-consented, and
- * that is why this once sent Campaign Monitor `Resubscribe: true`. But the two
- * halves then disagreed — Campaign Monitor resubscribed while listmonk left the
- * address blocklisted — so the same submission produced different outcomes on
- * each platform, and the one that survives the migration is listmonk's.
+ * Someone who deliberately types their address into a form, years after
+ * unsubscribing, has given fresh consent — refusing it is both bad service and
+ * legally unnecessary. So a deliberate signup lifts a suppression on both
+ * platforms, and the two agree about it.
  *
- * Of the 2,212 suppressed addresses imported from Campaign Monitor, 61 are spam
- * complaints. Silently re-adding someone who reported us as spam because a form
- * was filled in is the single most expensive mistake available here. So a
- * suppressed address is reported back rather than resurrected, and restoring one
- * stays a deliberate act.
+ * What must never happen again is the bulk version. The old ResOS sync sent
+ * Campaign Monitor `Resubscribe: true` for every guest who booked a table, so
+ * unsubscribing was undone by the act of eating dinner. That is why callers
+ * declare intent rather than inheriting a default: a person acting is not the
+ * same event as a job iterating.
+ *
+ * One exception survives. Of the 2,212 addresses imported from Campaign
+ * Monitor's suppression list, 1,921 are plain unsubscribes, 230 are bounces and
+ * 61 pressed "report spam". Mailbox providers remember a complaint whatever our
+ * database says, and repeat complaints from the same address are what put a
+ * sending account under review. Those 61 are held back for a person to release
+ * deliberately.
  */
+const HARD_SUPPRESSION = /spam|complaint/i;
+
+/** Why listmonk is holding this address, from the suppression import. */
+const suppressionReason = (sub) =>
+  String(sub?.attribs?.reason || sub?.attribs?.suppressed_by || '');
 
 /**
  * Look something up once and keep it, but don't cache a failure — a lookup that
@@ -80,14 +91,15 @@ const listmonkListId = (listName) => {
   return listmonkIdCache.get(listName)();
 };
 
-async function toListmonk(email, name, listName) {
+async function toListmonk(email, name, listName, deliberate) {
   if (!listmonkConfigured()) return { skipped: true };
+  const listId = await listmonkListId(listName);
   try {
     await addSubscriber({
       email,
       name: name || email.split('@')[0],
       status: 'enabled',
-      lists: [await listmonkListId(listName)],
+      lists: [listId],
       // They opted in on our form; a confirmation email would ask twice.
       preconfirm_subscriptions: true,
     });
@@ -95,12 +107,26 @@ async function toListmonk(email, name, listName) {
   } catch (e) {
     // listmonk 409s an address it already holds, which is either the desired end
     // state or a suppression. Ask which before calling it success.
-    if (/\b409\b/.test(e.message)) {
-      const existing = await findSubscriber(email).catch(() => null);
-      if (existing?.status === 'blocklisted') return { suppressed: true };
-      return { ok: true, already: true };
-    }
-    throw e;
+    if (!/\b409\b/.test(e.message)) throw e;
+
+    const existing = await findSubscriber(email).catch(() => null);
+    if (existing?.status !== 'blocklisted') return { ok: true, already: true };
+
+    const reason = suppressionReason(existing);
+    if (!deliberate) return { suppressed: true, reason };
+    if (HARD_SUPPRESSION.test(reason)) return { suppressed: true, reason, hard: true };
+
+    // Send name and attribs back: PUT replaces the record, and attribs hold the
+    // suppression history that explains how this person got here.
+    await updateSubscriber(existing.id, {
+      email,
+      name: existing.name || name || email.split('@')[0],
+      status: 'enabled',
+      lists: [listId],
+      preconfirm_subscriptions: true,
+      attribs: { ...(existing.attribs || {}), resubscribed_at: new Date().toISOString() },
+    });
+    return { ok: true, restored: true };
   }
 }
 
@@ -162,7 +188,7 @@ const cmListId = (listName) => {
   return cmIdCache.get(listName)();
 };
 
-async function toCampaignMonitor(email, name, listName) {
+async function toCampaignMonitor(email, name, listName, deliberate) {
   if (!process.env.CAMPAIGN_MONITOR_API_KEY) return { skipped: true };
   try {
     await cm(`/subscribers/${encodeURIComponent(await cmListId(listName))}.json`, {
@@ -170,15 +196,13 @@ async function toCampaignMonitor(email, name, listName) {
       Name: name || '',
       // Required since v3.2. The form is an explicit opt-in — that's the consent.
       ConsentToTrack: 'Yes',
-      // Deliberately false: see the note at the top of this file. Campaign
-      // Monitor would otherwise reactivate an unsubscribed address, disagreeing
-      // with listmonk about the same person on the same submission.
-      Resubscribe: false,
+      // Matches listmonk's decision for this same submission, so the two
+      // platforms never disagree about one person. False for bulk syncs, which
+      // is the case that caused the damage.
+      Resubscribe: Boolean(deliberate),
     });
     return { ok: true };
   } catch (e) {
-    // With Resubscribe off, Campaign Monitor rejects a previously unsubscribed
-    // address rather than reviving it. That is the intended outcome, not a fault.
     if (/unsubscrib|suppress|inactive/i.test(e.message)) return { suppressed: true };
     throw e;
   }
@@ -194,13 +218,36 @@ async function toCampaignMonitor(email, name, listName) {
  * @param {string} [listName] destination list on both platforms. Website
  *   signups keep the default; ResOS opt-ins pass "Resos Winery" or
  *   "Resos Creek" so the list records where consent was actually given.
+ * @param {{deliberate?: boolean}} [opts] `deliberate` means a person acted just
+ *   now — filled in a form, ticked a box while booking — which is fresh consent
+ *   and lifts a previous unsubscribe. Bulk syncs and backfills must pass false:
+ *   iterating over a list is not consent, and treating it as such is what let
+ *   booking a table undo an opt-out.
  * @returns {Promise<{campaignMonitor: string, listmonk: string}>}
  */
-export async function subscribeEverywhere(email, name, listName = DEFAULT_LIST) {
+export async function subscribeEverywhere(email, name, listName = DEFAULT_LIST, opts = {}) {
+  const { deliberate = true } = opts;
+
+  // Resolve the resubscribe question once, before either platform is called.
+  // The two halves run in parallel, so if each decided for itself the same
+  // submission could restore the address on one platform and refuse it on the
+  // other -- which is exactly the divergence this file used to have.
+  let allow = Boolean(deliberate);
+  if (allow && listmonkConfigured()) {
+    const existing = await findSubscriber(email).catch(() => null);
+    if (existing?.status === 'blocklisted' && HARD_SUPPRESSION.test(suppressionReason(existing))) {
+      allow = false;
+    }
+  }
+
   const run = async (fn, label) => {
     try {
-      const r = await fn(email, name, listName);
+      const r = await fn(email, name, listName, allow);
       if (r.skipped) return 'not configured';
+      if (r.restored) {
+        console.warn(`[newsletter] ${label}: ${email} resubscribed to "${listName}" after opting out`);
+        return 'resubscribed';
+      }
       if (r.suppressed) {
         // Logged rather than silent: someone deliberately asked to join a list
         // they had previously left, and that deserves a human decision instead
