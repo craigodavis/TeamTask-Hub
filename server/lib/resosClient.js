@@ -180,6 +180,20 @@ export async function listBookings(base, apiKey, { from, to, maxPages = 30 } = {
  * a single-choice answer is the bare option id with the resolved name alongside
  * it, and a checkbox is an array of the selections that were ticked.
  */
+/**
+ * Is this the newsletter question? Matched on both names because ResOS calls it
+ * "Newsletter" internally and "Receive Newsletter/Event Notifications" on the
+ * form, and only the label is stable across venues.
+ */
+export const isNewsletter = (f) => /newsletter/i.test(`${f.name || ''} ${f.label || ''}`);
+
+/**
+ * "No" is the only answer that isn't consent; blank means they were never asked.
+ * Kept here beside answerText so the screen, the export and the sync cannot
+ * drift into three different opinions about what a guest agreed to.
+ */
+export const optedIn = (text) => Boolean(text) && !/^no$/i.test(String(text).trim());
+
 export function answerText(field) {
   const clean = (s) => String(s || '').replace(/\s*:\s*$/, '').trim();
 
