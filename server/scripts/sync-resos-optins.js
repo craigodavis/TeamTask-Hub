@@ -27,7 +27,17 @@ import { query } from '../db.js';
 import { listBookings, answerText, isNewsletter, optedIn } from '../lib/resosClient.js';
 import { subscribeEverywhere } from '../lib/newsletterSubscribe.js';
 
-const DAYS_BACK = Number(process.env.RESOS_OPTIN_DAYS || 3);
+/**
+ * The window is on the RESERVATION date, not on when the booking was made --
+ * ResOS filters by dateTime and offers no "created since" filter. So a guest
+ * who books today for a Saturday three weeks out sits outside any backward-only
+ * window, and their opt-in would never be seen. Looking back a few days catches
+ * walk-ins and amendments; looking a long way forward catches everything just
+ * booked. Re-offering the same people is free, because adding someone already
+ * subscribed is a no-op on both platforms.
+ */
+const DAYS_BACK = Number(process.env.RESOS_OPTIN_DAYS_BACK || 7);
+const DAYS_FORWARD = Number(process.env.RESOS_OPTIN_DAYS_FORWARD || 180);
 
 /** Venue -> list. Matched loosely so a rename to "Kindred by the Creek" still lands. */
 const listFor = (venueName) => (/creek/i.test(venueName || '') ? 'Resos Creek' : 'Resos Winery');
@@ -44,8 +54,9 @@ async function venues() {
 }
 
 async function main() {
-  const to = new Date();
-  const from = new Date(to.getTime() - DAYS_BACK * 86400_000);
+  const now = new Date();
+  const from = new Date(now.getTime() - DAYS_BACK * 86400_000);
+  const to = new Date(now.getTime() + DAYS_FORWARD * 86400_000);
   const vs = await venues();
   if (!vs.length) { console.log('[resos-optins] no configured venues'); return; }
 
