@@ -31,9 +31,28 @@
  *   LISTMONK_URL, LISTMONK_API_USER, LISTMONK_API_TOKEN
  */
 
-import { listmonkConfigured, getLists, createList, addSubscriber } from './listmonk.js';
+import {
+  listmonkConfigured, getLists, createList, addSubscriber, findSubscriber,
+} from './listmonk.js';
 
-const LIST_NAME = 'Website Signups';
+const DEFAULT_LIST = 'Website Signups';
+
+/**
+ * Suppression beats a fresh signup, on both platforms.
+ *
+ * There is a real argument the other way: someone who deliberately types their
+ * address into a form years after unsubscribing has arguably re-consented, and
+ * that is why this once sent Campaign Monitor `Resubscribe: true`. But the two
+ * halves then disagreed — Campaign Monitor resubscribed while listmonk left the
+ * address blocklisted — so the same submission produced different outcomes on
+ * each platform, and the one that survives the migration is listmonk's.
+ *
+ * Of the 2,212 suppressed addresses imported from Campaign Monitor, 61 are spam
+ * complaints. Silently re-adding someone who reported us as spam because a form
+ * was filled in is the single most expensive mistake available here. So a
+ * suppressed address is reported back rather than resurrected, and restoring one
+ * stays a deliberate act.
+ */
 
 /**
  * Look something up once and keep it, but don't cache a failure — a lookup that
@@ -47,28 +66,40 @@ function once(fn) {
 
 /* ------------------------------------------------------------------ listmonk */
 
-const listmonkListId = once(async () => {
-  const lists = (await getLists())?.results || [];
-  const found = lists.find((l) => l.name.trim().toLowerCase() === LIST_NAME.toLowerCase());
-  if (found) return found.id;
-  return (await createList(LIST_NAME)).id;
-});
+/** One memo per list name — several lists are now fed through here. */
+const listmonkIdCache = new Map();
+const listmonkListId = (listName) => {
+  if (!listmonkIdCache.has(listName)) {
+    listmonkIdCache.set(listName, once(async () => {
+      const lists = (await getLists())?.results || [];
+      const found = lists.find((l) => l.name.trim().toLowerCase() === listName.toLowerCase());
+      if (found) return found.id;
+      return (await createList(listName)).id;
+    }));
+  }
+  return listmonkIdCache.get(listName)();
+};
 
-async function toListmonk(email, name) {
+async function toListmonk(email, name, listName) {
   if (!listmonkConfigured()) return { skipped: true };
   try {
     await addSubscriber({
       email,
       name: name || email.split('@')[0],
       status: 'enabled',
-      lists: [await listmonkListId()],
+      lists: [await listmonkListId(listName)],
       // They opted in on our form; a confirmation email would ask twice.
       preconfirm_subscriptions: true,
     });
     return { ok: true };
   } catch (e) {
-    // listmonk 409s an address it already holds. That's the desired end state.
-    if (/\b409\b/.test(e.message)) return { ok: true, already: true };
+    // listmonk 409s an address it already holds, which is either the desired end
+    // state or a suppression. Ask which before calling it success.
+    if (/\b409\b/.test(e.message)) {
+      const existing = await findSubscriber(email).catch(() => null);
+      if (existing?.status === 'blocklisted') return { suppressed: true };
+      return { ok: true, already: true };
+    }
     throw e;
   }
 }
@@ -93,9 +124,7 @@ async function cm(path, body) {
   return text ? JSON.parse(text) : null;
 }
 
-const cmListId = once(async () => {
-  if (process.env.CAMPAIGN_MONITOR_LIST_ID) return process.env.CAMPAIGN_MONITOR_LIST_ID;
-
+const cmClientId = once(async () => {
   const clients = await cm('/clients.json');
   const clientId = process.env.CAMPAIGN_MONITOR_CLIENT_ID || (clients.length === 1 && clients[0].ClientID);
   if (!clientId) {
@@ -106,41 +135,80 @@ const cmListId = once(async () => {
     );
   }
 
-  const lists = await cm(`/clients/${clientId}/lists.json`);
-  const found = lists.find((l) => l.Name.trim().toLowerCase() === LIST_NAME.toLowerCase());
-  if (found) return found.ListID;
-  return cm(`/lists/${clientId}.json`, {
-    Title: LIST_NAME,
-    // Single opt-in: the website form is the confirmation.
-    ConfirmedOptIn: false,
-    UnsubscribeSetting: 'AllClientLists',
-  });
+  return clientId;
 });
 
-async function toCampaignMonitor(email, name) {
+/** One memo per list name, same as listmonk. */
+const cmIdCache = new Map();
+const cmListId = (listName) => {
+  if (!cmIdCache.has(listName)) {
+    cmIdCache.set(listName, once(async () => {
+      // The env override only ever named one list, so it applies to the default.
+      if (listName === DEFAULT_LIST && process.env.CAMPAIGN_MONITOR_LIST_ID) {
+        return process.env.CAMPAIGN_MONITOR_LIST_ID;
+      }
+      const clientId = await cmClientId();
+      const lists = await cm(`/clients/${clientId}/lists.json`);
+      const found = lists.find((l) => l.Name.trim().toLowerCase() === listName.toLowerCase());
+      if (found) return found.ListID;
+      return cm(`/lists/${clientId}.json`, {
+        Title: listName,
+        // Single opt-in: the form the guest filled in is the confirmation.
+        ConfirmedOptIn: false,
+        UnsubscribeSetting: 'AllClientLists',
+      });
+    }));
+  }
+  return cmIdCache.get(listName)();
+};
+
+async function toCampaignMonitor(email, name, listName) {
   if (!process.env.CAMPAIGN_MONITOR_API_KEY) return { skipped: true };
-  await cm(`/subscribers/${encodeURIComponent(await cmListId())}.json`, {
-    EmailAddress: email,
-    Name: name || '',
-    // Required since v3.2. The form is an explicit opt-in — that's the consent.
-    ConsentToTrack: 'Yes',
-    // Someone who once unsubscribed and has now signed up again means it.
-    Resubscribe: true,
-  });
-  return { ok: true };
+  try {
+    await cm(`/subscribers/${encodeURIComponent(await cmListId(listName))}.json`, {
+      EmailAddress: email,
+      Name: name || '',
+      // Required since v3.2. The form is an explicit opt-in — that's the consent.
+      ConsentToTrack: 'Yes',
+      // Deliberately false: see the note at the top of this file. Campaign
+      // Monitor would otherwise reactivate an unsubscribed address, disagreeing
+      // with listmonk about the same person on the same submission.
+      Resubscribe: false,
+    });
+    return { ok: true };
+  } catch (e) {
+    // With Resubscribe off, Campaign Monitor rejects a previously unsubscribed
+    // address rather than reviving it. That is the intended outcome, not a fault.
+    if (/unsubscrib|suppress|inactive/i.test(e.message)) return { suppressed: true };
+    throw e;
+  }
 }
 
 /* ------------------------------------------------------------------ fan-out */
 
 /**
  * Send an address to every configured platform. Never throws.
+ *
+ * @param {string} email
+ * @param {string} [name]
+ * @param {string} [listName] destination list on both platforms. Website
+ *   signups keep the default; ResOS opt-ins pass "Resos Winery" or
+ *   "Resos Creek" so the list records where consent was actually given.
  * @returns {Promise<{campaignMonitor: string, listmonk: string}>}
  */
-export async function subscribeEverywhere(email, name) {
+export async function subscribeEverywhere(email, name, listName = DEFAULT_LIST) {
   const run = async (fn, label) => {
     try {
-      const r = await fn(email, name);
-      return r.skipped ? 'not configured' : r.already ? 'already subscribed' : 'ok';
+      const r = await fn(email, name, listName);
+      if (r.skipped) return 'not configured';
+      if (r.suppressed) {
+        // Logged rather than silent: someone deliberately asked to join a list
+        // they had previously left, and that deserves a human decision instead
+        // of vanishing.
+        console.warn(`[newsletter] ${label}: ${email} is suppressed — not added to "${listName}"`);
+        return 'suppressed — not added';
+      }
+      return r.already ? 'already subscribed' : 'ok';
     } catch (e) {
       // The row is already saved, so this is recoverable by hand — say who.
       console.error(`[newsletter] ${label} failed for ${email}:`, e.message);

@@ -61,6 +61,21 @@ export const createList = (name) =>
 export const addSubscriber = (payload) => call('POST', '/api/subscribers', payload);
 
 /**
+ * Look up one subscriber by address. Returns null when absent.
+ *
+ * Needed because a 409 from addSubscriber means "we already hold this address"
+ * without saying why — and the two reasons could not be more different. Already
+ * subscribed is the desired end state; blocklisted means the person asked us to
+ * stop, and quietly reporting success for them is how a suppression gets
+ * treated as a signup.
+ */
+export async function findSubscriber(email) {
+  const sql = `subscribers.email = '${String(email).replace(/'/g, "''")}'`;
+  const d = await call('GET', `/api/subscribers?per_page=1&query=${encodeURIComponent(sql)}`);
+  return d?.results?.[0] || null;
+}
+
+/**
  * Find the Kindred template's id. Pushing a campaign without naming a template
  * silently lands it on listmonk's default, which is the stock listmonk shell —
  * an off-brand email that looks like a mistake to five thousand people.
