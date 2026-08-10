@@ -49,6 +49,34 @@ export async function ping(base, apiKey) {
  * Returns { times, closed }: `closed` distinguishes "no opening hours that day"
  * from "open but nothing left", which the picker words differently.
  */
+/**
+ * Custom booking questions configured in ResOS (e.g. "Receive Newsletter?").
+ *
+ * Only the ones that belong on a public booking form come back:
+ *  - activeFlows must include 'booking' — some exist for other ResOS flows;
+ *  - defaultOnAllOpeningHours must be true. Fields that are false are attached to
+ *    particular opening hours (the Valentine's Pairing question is one), and the
+ *    API gives no way to tell WHICH, so showing them year-round would ask people
+ *    about a Valentine's pairing in August. Better to omit than to ask wrongly.
+ */
+export async function customFields(base, apiKey) {
+  const r = await resosFetch(base, apiKey, '/customFields');
+  if (!r.ok) throw new Error(`ResOS customFields HTTP ${r.status}`);
+  const all = Array.isArray(r.data) ? r.data : [];
+  return all
+    .filter((f) => (f.activeFlows || []).includes('booking') && f.defaultOnAllOpeningHours)
+    .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))
+    .map((f) => ({
+      id: f._id,
+      name: f.name,
+      label: f.label || f.name,
+      helptext: f.helptext || null,
+      type: f.type,                       // 'radio' | 'checkbox'
+      required: !!f.isRequired,
+      options: (f.multipleChoiceSelections || []).map((o) => ({ id: o._id, name: o.name })),
+    }));
+}
+
 export async function availableTimes(base, apiKey, { people, date }) {
   const q = `/bookingFlow/times?people=${encodeURIComponent(people)}` +
     `&date=${encodeURIComponent(date)}&onlyBookableOnline=true`;

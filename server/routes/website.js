@@ -8,7 +8,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { availableTimes, createBooking } from '../lib/resosClient.js';
+import { availableTimes, createBooking, customFields } from '../lib/resosClient.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
@@ -346,6 +346,36 @@ websiteRouter.get('/hours', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/website/reservations/custom-fields?venue=
+// The extra questions ResOS is configured to ask at booking — the winery asks
+// about the newsletter and wine club membership; the creek asks nothing.
+//
+// The old WordPress booking widget rendered these; the form we built did not, so
+// since go-live every booking has been missing them, including one ResOS marks
+// REQUIRED. This is what lets the form put them back.
+websiteRouter.get('/reservations/custom-fields', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const loc = (await query(
+      `SELECT id FROM locations WHERE company_id = $1 AND web_slug = $2 LIMIT 1`, [companyId, req.query.venue]
+    )).rows[0];
+    if (!loc) return res.status(404).json({ error: 'Unknown venue' });
+    const cfg = (await query(
+      `SELECT api_key, api_base, active FROM kindred_web.resos_config WHERE location_id = $1`, [loc.id]
+    )).rows[0];
+    if (!cfg?.api_key || cfg.active === false) return res.json({ fields: [] });
+
+    const fields = await customFields(cfg.api_base || 'https://api.resos.com', cfg.api_key);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({ venue: req.query.venue, fields });
+  } catch (e) {
+    // A booking form that can't load its optional questions should still take a
+    // booking, so this degrades to none rather than failing the page.
+    console.warn('[reservations/custom-fields]', e.message);
+    res.json({ venue: req.query.venue, fields: [] });
+  }
+});
+
 // GET /api/website/reservations/availability?venue=&date=YYYY-MM-DD&party=N
 // Bookable times for a date, straight from ResOS.
 //
@@ -423,7 +453,7 @@ function rateLimited(ip, max = 5, windowMs = 15 * 60 * 1000) {
 
 websiteRouter.post('/reservations/book', async (req, res) => {
   try {
-    const { venue, date, time, party, name, email, phone, comment, website } = req.body || {};
+    const { venue, date, time, party, name, email, phone, comment, website, answers } = req.body || {};
     if (website) return res.json({ ok: true }); // honeypot: accept, don't write
 
     const people = Math.min(Math.max(parseInt(party, 10) || 0, 1), 40);
@@ -462,6 +492,39 @@ websiteRouter.post('/reservations/book', async (req, res) => {
       : digits.length === 11 && digits.startsWith('1') ? `+${digits}`
       : `+${digits}`;
 
+    // Custom field answers, rebuilt server-side from ResOS's own definitions.
+    // The browser sends {fieldId: optionId} and nothing else — every name, label
+    // and option is looked up here, so a tampered or stale form can't write
+    // arbitrary text onto a booking, and the shape always matches what ResOS
+    // stores. Shapes are copied from real bookings: a radio carries the chosen
+    // option's id in `value`, a checkbox carries an array of selections.
+    let customFieldPayload = [];
+    try {
+      const defs = await customFields(base, cfg.api_key);
+      for (const f of defs) {
+        const picked = answers && answers[f.id];
+        if (!picked) continue;
+        if (f.type === 'checkbox') {
+          const on = picked === true || picked === 'true' || picked === f.options[0]?.id;
+          if (!on) continue;
+          customFieldPayload.push({
+            _id: f.id, name: f.name, label: f.label,
+            value: (f.options.length ? [{ _id: f.options[0].id, name: f.options[0].name, value: true }] : []),
+          });
+        } else {
+          const opt = f.options.find((o) => o.id === picked);
+          if (!opt) continue;
+          customFieldPayload.push({
+            _id: f.id, name: f.name, label: f.label,
+            value: opt.id, multipleChoiceValueName: opt.name,
+          });
+        }
+      }
+    } catch (e) {
+      // Never block a booking because the questions couldn't be resolved.
+      console.warn('[reservations/book] custom fields skipped:', e.message);
+    }
+
     const booking = await createBooking(base, cfg.api_key, {
       date,
       time,
@@ -473,6 +536,7 @@ websiteRouter.post('/reservations/book', async (req, res) => {
         notificationEmail: true, // ResOS sends the guest their confirmation
       },
       source: 'website',
+      ...(customFieldPayload.length ? { customFields: customFieldPayload } : {}),
       // Without a status ResOS files the booking as `request` — pending. It shows
       // a table against it but does not hold that table, so the next booking is
       // offered the same one and two parties end up on it. That is what happened
