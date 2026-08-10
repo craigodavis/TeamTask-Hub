@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getCampaigns, createCampaign, getCampaign, saveCampaign, previewCampaign,
-  duplicateCampaign, getCampaignSource,
+  duplicateCampaign, getCampaignSource, getCampaignLists, pushCampaign,
+  testCampaign,
 } from '../api';
 import './Campaigns.css';
 
@@ -46,6 +47,11 @@ export function Campaigns() {
   const [previewHtml, setPreviewHtml] = useState('');
   const [dialog, setDialog] = useState(null);   // { name, kind } while open
   const [sources, setSources] = useState({});   // kind -> options, fetched once
+  const [send, setSend] = useState(null);       // { configured, lists, adminUrl }
+  const [pickedLists, setPickedLists] = useState([]);
+  const [testTo, setTestTo] = useState('');
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
   const saveTimer = useRef(null);
 
   const sel = c?.sections?.[selected];
@@ -97,6 +103,16 @@ export function Campaigns() {
       .catch((e) => setError(e.message));
   }, [src, sources]);
 
+  /**
+   * listmonk's lists, once a campaign is open. A failure here must not stop
+   * anyone composing — it only means the send panel explains why it can't send.
+   */
+  useEffect(() => {
+    if (!openId || send) return;
+    getCampaignLists().then(setSend)
+      .catch((e) => setSend({ configured: false, lists: [], error: e.message }));
+  }, [openId, send]);
+
   /** Copy a record's fields into the selected block, leaving the rest alone. */
   const insertFrom = (optionId) => {
     const opt = (sources[src.kind] || []).find((o) => String(o.id) === String(optionId));
@@ -136,6 +152,27 @@ export function Campaigns() {
       load();
       setOpenId(d.campaign.id);   // open the copy so it can be renamed at once
     } catch (err) { setError(err.message); }
+  };
+
+  /** Hand it to listmonk as a draft. This never sends. */
+  const doPush = async () => {
+    setBusy('push'); setNote(''); setError('');
+    try {
+      const d = await pushCampaign(c.id, pickedLists);
+      setC({ ...c, status: 'ready', listmonk_id: d.listmonkId });
+      setNote('Pushed to listmonk as a draft — nothing has been sent yet.');
+    } catch (err) { setError(err.message); } finally { setBusy(''); }
+  };
+
+  const doTest = async () => {
+    // Commas, spaces or newlines — people paste addresses in every shape.
+    const emails = testTo.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+    if (!emails.length) return;
+    setBusy('test'); setNote(''); setError('');
+    try {
+      const d = await testCampaign(c.id, emails);
+      setNote(`Test sent to ${d.sent} address${d.sent === 1 ? '' : 'es'}.`);
+    } catch (err) { setError(err.message); } finally { setBusy(''); }
   };
 
   const submitNew = async (e) => {
@@ -303,6 +340,70 @@ export function Campaigns() {
             Renders in a browser, not in Outlook. Send yourself a test before a campaign goes out.
           </p>
         </div>
+      </div>
+
+      <div className="cmp-send">
+        <p className="cmp-coltitle">Sending</p>
+
+        {!send && <p className="cmp-empty">Checking listmonk…</p>}
+        {send && !send.configured && (
+          <p className="cmp-empty">
+            Not connected to listmonk yet{send.error ? ` — ${send.error}` : ''}.
+          </p>
+        )}
+
+        {send?.configured && (
+          <>
+            {!send.lists.length
+              ? <p className="cmp-empty">No lists in listmonk yet.</p>
+              : (
+                <div className="cmp-lists">
+                  {send.lists.map((l) => (
+                    <label key={l.id}>
+                      <input
+                        type="checkbox"
+                        checked={pickedLists.includes(l.id)}
+                        onChange={(e) => setPickedLists(e.target.checked
+                          ? [...pickedLists, l.id]
+                          : pickedLists.filter((x) => x !== l.id))}
+                      />
+                      {l.name}
+                      {l.count != null && <em> · {l.count.toLocaleString()}</em>}
+                    </label>
+                  ))}
+                </div>
+              )}
+
+            <div className="cmp-sendrow">
+              <button className="cmp-primary" onClick={doPush}
+                      disabled={!pickedLists.length || busy === 'push'}>
+                {busy === 'push' ? 'Pushing…' : 'Push to listmonk'}
+              </button>
+              {c.listmonk_id && send.adminUrl && (
+                <a className="cmp-back" target="_blank" rel="noreferrer"
+                   href={`${send.adminUrl}/admin/campaigns/${c.listmonk_id}`}>
+                  Open in listmonk to send →
+                </a>
+              )}
+            </div>
+
+            <div className="cmp-sendrow">
+              <input placeholder="you@kindredvineyards.com" value={testTo}
+                     onChange={(e) => setTestTo(e.target.value)} />
+              <button className="cmp-ghost" onClick={doTest}
+                      disabled={!testTo.trim() || busy === 'test'}>
+                {busy === 'test' ? 'Sending…' : 'Send a test'}
+              </button>
+            </div>
+
+            {note && <p className="cmp-note">{note}</p>}
+            <p className="cmp-note">
+              Pushing creates a draft in listmonk — it never sends. You press send
+              there, after looking at it. A test only reaches addresses that are
+              already subscribers.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

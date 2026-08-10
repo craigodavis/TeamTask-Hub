@@ -10,6 +10,9 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { renderBody, renderEmail } from '../lib/email/render.js';
+import {
+  listmonkConfigured, getLists, kindredTemplateId, upsertCampaign, sendTest,
+} from '../lib/listmonk.js';
 
 const router = express.Router();
 const cid = (req) => req.companyId;
@@ -69,6 +72,25 @@ router.post('/', requireManager, async (req, res) => {
       [cid(req), name.trim(), kind, JSON.stringify(skeleton), req.userId || null]);
     res.status(201).json({ campaign: r.rows[0] });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/campaigns/lists ─────────────────────────────────────────────────
+// Above /:id deliberately: Express matches in order, and /:id would otherwise
+// capture "lists" as an id and 404.
+router.get('/lists', requireManager, async (req, res) => {
+  try {
+    if (!listmonkConfigured()) return res.json({ configured: false, lists: [] });
+    const lists = await getLists();
+    res.json({
+      configured: true,
+      // The client links through to listmonk to press send. The base URL comes
+      // from the server so there is one place it is configured, not two.
+      adminUrl: (process.env.LISTMONK_URL || '').replace(/\/+$/, ''),
+      lists: (lists?.results || lists || []).map((l) => ({
+        id: l.id, name: l.name, count: l.subscriber_count ?? null,
+      })),
+    });
+  } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
 // ── GET /api/campaigns/:id ───────────────────────────────────────────────────
@@ -232,6 +254,81 @@ router.post('/:id/duplicate', requireManager, async (req, res) => {
        JSON.stringify(c.sections), req.userId || null]);
     res.status(201).json({ campaign: r.rows[0] });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/campaigns/:id/push ─────────────────────────────────────────────
+/**
+ * Hand the campaign to listmonk as a DRAFT.
+ *
+ * Never sends. The composer deliberately cannot reach five thousand inboxes:
+ * pressing send is a separate act, in listmonk, after looking at the thing. An
+ * email has no recall, so the gap between "I finished writing" and "it is gone"
+ * should be a decision, not a keystroke.
+ *
+ * Only the block HTML crosses over — listmonk wraps it in the Kindred template
+ * so it, not TeamHub, writes the unsubscribe and archive URLs. TeamHub cannot
+ * honour those URLs, and a broken unsubscribe link is worse than an ugly email.
+ */
+router.post('/:id/push', requireManager, async (req, res) => {
+  try {
+    const { listIds } = req.body || {};
+    if (!Array.isArray(listIds) || !listIds.length) {
+      return res.status(400).json({ error: 'Choose at least one list to send to.' });
+    }
+
+    const r = await query(
+      `SELECT * FROM email_campaigns WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cid(req)]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    const c = r.rows[0];
+
+    // A campaign with no subject is a campaign nobody opens. Catch it here
+    // rather than letting listmonk accept an empty string.
+    if (!c.subject?.trim()) {
+      return res.status(400).json({ error: 'Give the campaign a subject before sending it.' });
+    }
+
+    const body = renderBody(c.sections);
+    const templateId = await kindredTemplateId();
+    const pushed = await upsertCampaign({
+      listmonkId: c.listmonk_id,
+      name: c.name,
+      subject: c.subject,
+      body,
+      listIds: listIds.map(Number),
+      templateId,
+    });
+
+    await query(
+      `UPDATE email_campaigns
+          SET listmonk_id = $3, sent_html = $4, status = 'ready', updated_at = NOW()
+        WHERE id = $1 AND company_id = $2`,
+      [c.id, cid(req), pushed.id, body]);
+
+    res.json({ ok: true, listmonkId: pushed.id });
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// ── POST /api/campaigns/:id/test ─────────────────────────────────────────────
+// listmonk only sends tests to addresses that already exist as subscribers,
+// which is worth surfacing plainly — otherwise a test that goes nowhere reads
+// as a broken send path rather than a missing subscriber.
+router.post('/:id/test', requireManager, async (req, res) => {
+  try {
+    const emails = (req.body?.emails || []).map((e) => String(e).trim()).filter(Boolean);
+    if (!emails.length) return res.status(400).json({ error: 'Give at least one address.' });
+
+    const r = await query(
+      `SELECT listmonk_id FROM email_campaigns WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cid(req)]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    if (!r.rows[0].listmonk_id) {
+      return res.status(400).json({ error: 'Push the campaign to listmonk before testing it.' });
+    }
+
+    await sendTest(r.rows[0].listmonk_id, emails);
+    res.json({ ok: true, sent: emails.length });
+  } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
 router.delete('/:id', requireManager, async (req, res) => {

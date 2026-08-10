@@ -1417,6 +1417,29 @@ export async function duplicateCampaign(id) {
   return d;
 }
 
+export async function getCampaignLists() {
+  const res = await fetch(`${API}/campaigns/lists`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load lists');
+  return d;
+}
+
+export async function pushCampaign(id, listIds) {
+  const res = await fetch(`${API}/campaigns/${id}/push`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ listIds }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to push to listmonk');
+  return d;
+}
+
+export async function testCampaign(id, emails) {
+  const res = await fetch(`${API}/campaigns/${id}/test`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ emails }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to send test');
+  return d;
+}
+
 export async function getDashboard() {
   const res = await fetch(`${API}/dashboard`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
@@ -2380,6 +2403,26 @@ export async function createEventEmail(eventId, b) { return pj(await fetch(`${AP
 export async function deleteEventEmail(id) { return pj(await fetch(`${API}/events/emails/${id}`, { method: 'DELETE', headers: headers() })); }
 export async function sendEventEmailNow(id) { return pj(await fetch(`${API}/events/emails/${id}/send-now`, { method: 'POST', headers: headers() })); }
 export async function getPromoOverview() { return pj(await fetch(`${API}/promo/overview`, { headers: headers() })); }
+
+// ---- Event distribution (Events → event detail → Distribution) ----
+export async function getEventDistribution(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/distribution`, { headers: headers() }));
+}
+export async function announceEvent(eventId, channelKeys) {
+  return pj(await fetch(`${API}/events/${eventId}/distribution/announce`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ channelKeys }),
+  }));
+}
+export async function scheduleEventAnnounce(eventId, leadDays, channelKeys) {
+  return pj(await fetch(`${API}/events/${eventId}/distribution/schedule`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ leadDays, channelKeys }),
+  }));
+}
+export async function markEventChannelPost(postId, body) {
+  return pj(await fetch(`${API}/events/distribution/${postId}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(body),
+  }));
+}
 
 // ---- Website media library (Marketing → Website → Media) ----
 export async function listMedia(params = {}) {

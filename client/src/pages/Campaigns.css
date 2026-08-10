@@ -97,3 +97,15 @@
 .cmp-picker select { padding: .45rem .55rem; border: 1px solid var(--border);
                      border-radius: 6px; font-size: .86rem; background: var(--card); color: var(--text); }
 .cmp-picker em { font-style: normal; font-size: .72rem; color: var(--text-muted); margin-top: .25rem; }
+
+/* Sending sits below the composer, not beside it — it is the last thing you do,
+   and putting a button that reaches five thousand people next to the editing
+   controls invites the wrong click. */
+.cmp-send { margin-top: 1.5rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
+.cmp-lists { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; margin-bottom: .9rem; }
+.cmp-lists label { display: flex; align-items: center; gap: .4rem; font-size: .86rem; cursor: pointer; }
+.cmp-lists em { font-style: normal; color: var(--text-muted); font-size: .78rem; }
+.cmp-sendrow { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .7rem; }
+.cmp-sendrow input { padding: .45rem .55rem; border: 1px solid var(--border); border-radius: 6px;
+                     font-size: .86rem; min-width: 260px; background: var(--card); color: var(--text); }
+.cmp-ready { color: #1f5673; border-color: #b9d6e5; background: #eef5f9; }
