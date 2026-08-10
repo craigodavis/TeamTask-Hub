@@ -2678,3 +2678,38 @@ export async function approveCrewProfile(squareId, approved) {
   if (!res.ok) throw new Error(data.error || 'Could not update approval');
   return data;
 }
+
+// ---- Reservations (read-only over ResOS) ---------------------------------
+export async function getReservations({ from, to, venue } = {}) {
+  const q = new URLSearchParams();
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  if (venue) q.set('venue', venue);
+  const res = await fetch(`${API}/reservations?${q}`, { headers: headers() });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load reservations');
+  return res.json(); // { from, to, venues, bookings, errors }
+}
+
+/**
+ * Download the newsletter opt-ins as a CSV.
+ *
+ * Fetched rather than linked because the export needs the auth header, which a
+ * plain <a href> can't carry — hence the object URL round-trip.
+ */
+export async function downloadOptIns({ from, to, venue } = {}) {
+  const q = new URLSearchParams();
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  if (venue) q.set('venue', venue);
+  const res = await fetch(`${API}/reservations/opt-ins.csv?${q}`, { headers: headers() });
+  if (!res.ok) throw new Error('Could not build the export');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `newsletter-opt-ins-${from || 'start'}-to-${to || 'end'}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

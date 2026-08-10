@@ -50,14 +50,12 @@ export async function ping(base, apiKey) {
  * from "open but nothing left", which the picker words differently.
  */
 /**
- * Custom booking questions configured in ResOS (e.g. "Receive Newsletter?").
+ * Custom booking questions configured in ResOS (e.g. "Receive Newsletter?"),
+ * for the slot being booked. Only fields whose activeFlows include 'booking'
+ * come back; others exist for ResOS's own flows and don't belong on our form.
  *
- * Only the ones that belong on a public booking form come back:
- *  - activeFlows must include 'booking' — some exist for other ResOS flows;
- *  - defaultOnAllOpeningHours must be true. Fields that are false are attached to
- *    particular opening hours (the Valentine's Pairing question is one), and the
- *    API gives no way to tell WHICH, so showing them year-round would ask people
- *    about a Valentine's pairing in August. Better to omit than to ask wrongly.
+ * Pass date (and time, if known) to get the questions that actually apply —
+ * see below for why the flag-based shortcut doesn't work.
  */
 export async function customFields(base, apiKey, { date, time, people = 2 } = {}) {
   // ResOS attaches a custom field to opening hours, not to the restaurant. A
@@ -145,4 +143,57 @@ export async function createBooking(base, apiKey, payload) {
     throw err;
   }
   return r.data;
+}
+
+/**
+ * Every booking in a date range, with its custom-field answers.
+ *
+ * Two quirks of the ResOS bookings endpoint are worth knowing, because both
+ * fail quietly rather than erroring:
+ *
+ *  - `fromDateTime` and `toDateTime` only take effect TOGETHER. Send one alone
+ *    and the filter is ignored entirely — you get the oldest bookings in the
+ *    account and no indication that your range was thrown away.
+ *  - `limit` is capped at 100 (that one does error), so a range wider than a
+ *    week or so has to be paged.
+ *
+ * Paging stops on a short page, and also on a page cap, so a filter that isn't
+ * doing what we think can't turn into an unbounded crawl of 4,000 bookings.
+ */
+export async function listBookings(base, apiKey, { from, to, maxPages = 30 } = {}) {
+  const out = [];
+  for (let page = 0; page < maxPages; page++) {
+    const q = `/bookings?fromDateTime=${from}T00:00:00&toDateTime=${to}T23:59:59&skip=${page * 100}&limit=100`;
+    const r = await resosFetch(base, apiKey, q);
+    if (!r.ok) throw new Error(`ResOS bookings HTTP ${r.status}`);
+    const batch = Array.isArray(r.data) ? r.data : r.data?.bookings || [];
+    out.push(...batch);
+    if (batch.length < 100) return out;
+  }
+  return out;
+}
+
+/**
+ * Render one custom-field answer as something a person can read.
+ *
+ * ResOS stores the two field types differently, and neither is display-ready:
+ * a single-choice answer is the bare option id with the resolved name alongside
+ * it, and a checkbox is an array of the selections that were ticked.
+ */
+export function answerText(field) {
+  const clean = (s) => String(s || '').replace(/\s*:\s*$/, '').trim();
+
+  if (typeof field.value === 'string') return field.multipleChoiceValueName || field.value;
+  if (typeof field.value === 'boolean') return field.value ? 'Yes' : 'No';
+
+  if (Array.isArray(field.value)) {
+    const ticked = field.value.filter((v) => v && v.value !== false);
+    if (!ticked.length) return 'No';
+    const names = ticked.map((v) => clean(v.name)).filter(Boolean);
+    // A lone selection that just restates its own question means "yes" — showing
+    // "Wine Club Member" under a heading of "Wine Club Member" reads as noise.
+    if (names.length === 1 && clean(field.label || field.name).toLowerCase() === names[0].toLowerCase()) return 'Yes';
+    return names.join(', ') || 'Yes';
+  }
+  return field.value == null ? '' : String(field.value);
 }

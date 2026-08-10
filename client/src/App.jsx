@@ -23,6 +23,7 @@ import { AbcFiling } from './pages/AbcFiling';
 import { Overview } from './pages/Overview';
 import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
+import Reservations from './pages/Reservations';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
@@ -148,6 +149,16 @@ function App() {
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
                 <Menus />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/tasting-room/reservations"
+            element={
+              user?.role === 'owner' || user?.role === 'manager' ? (
+                <Reservations />
               ) : (
                 <Navigate to="/" replace />
               )

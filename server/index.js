@@ -62,10 +62,12 @@ import { feedbackRouter } from './routes/feedback.js';
 import { eventsRouter, musiciansRouter } from './routes/events.js';
 import { promoRouter } from './routes/promo.js';
 import { startPromoEmailScheduler } from './lib/promoEmailSender.js';
+import { startDistributionScheduler } from './lib/eventDistribution.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { mediaRouter } from './routes/media.js';
 import { hoursRouter } from './routes/hours.js';
+import reservationsRouter from './routes/reservations.js';
 import { pageImagesRouter } from './routes/pageImages.js';
 import { startInstagramScheduler } from './lib/instagramSync.js';
 // Rebuilds the public website when anything it reads changes here.
@@ -149,6 +151,7 @@ app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
 app.use('/api/media', requireAuth, websiteContentWatch, mediaRouter);
 app.use('/api/hours', requireAuth, websiteContentWatch, hoursRouter);
+app.use('/api/reservations', requireAuth, reservationsRouter);
 app.use('/api/page-images', requireAuth, websiteContentWatch, pageImagesRouter);
 app.use('/api/crew', requireAuth, websiteContentWatch, crewRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
@@ -222,6 +225,7 @@ function startSchedulers() {
   startPromoReminderScheduler();
   startInstagramScheduler();
   startPromoEmailScheduler();
+  startDistributionScheduler();
   startZeroCanaryScheduler();
   startAbcPortalScheduler();
 }

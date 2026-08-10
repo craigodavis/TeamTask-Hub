@@ -1,0 +1,74 @@
+.reservations { padding: 1rem 1.25rem 3rem; max-width: 1400px; }
+
+.rv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.rv-head h2 { margin: 0 0 .25rem; }
+.rv-sub { margin: 0; color: #667; font-size: .875rem; max-width: 52ch; }
+
+.rv-export {
+  background: #2f6f4f; color: #fff; border: 0; border-radius: 6px;
+  padding: .6rem 1rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.rv-export:disabled { background: #b9c2bd; cursor: default; }
+
+.rv-filters {
+  display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-end;
+  margin: 1rem 0; padding: .85rem 1rem; background: #f6f7f6; border-radius: 8px;
+}
+.rv-filters label { display: flex; flex-direction: column; gap: .25rem; font-size: .78rem; color: #556; text-transform: uppercase; letter-spacing: .04em; }
+.rv-filters input, .rv-filters select {
+  font: inherit; padding: .4rem .5rem; border: 1px solid #ccd; border-radius: 5px; background: #fff;
+}
+.rv-search input { min-width: 15rem; }
+.rv-check { flex-direction: row !important; align-items: center; gap: .4rem !important; text-transform: none !important; font-size: .875rem !important; letter-spacing: 0 !important; }
+
+.rv-stats { margin: .5rem 0 1rem; color: #445; font-size: .9rem; }
+.rv-error { color: #a12; background: #fdeceb; padding: .6rem .8rem; border-radius: 6px; margin: .5rem 0; }
+.rv-empty { color: #778; padding: 2rem 0; }
+
+/* The table is wide and must scroll inside itself rather than pushing the page. */
+.rv-table-wrap { overflow-x: auto; border: 1px solid #e3e6e4; border-radius: 8px; }
+.rv-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.rv-table th {
+  text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+  color: #667; background: #fafbfa; padding: .55rem .7rem; border-bottom: 1px solid #e3e6e4;
+  position: sticky; top: 0; z-index: 1;
+}
+.rv-table td { padding: .55rem .7rem; border-bottom: 1px solid #f0f2f1; vertical-align: top; }
+.rv-table tr:last-child td { border-bottom: 0; }
+.rv-optin { background: #f4faf6; }
+
+.rv-when { white-space: nowrap; }
+.rv-date { display: block; font-weight: 600; }
+.rv-time { display: block; color: #778; font-size: .82rem; }
+
+.rv-guest { display: flex; flex-direction: column; gap: .1rem; min-width: 12rem; }
+.rv-name { font-weight: 600; }
+.rv-email, .rv-phone { font-size: .82rem; color: #667; }
+.rv-email { color: #2f6f4f; text-decoration: none; }
+.rv-email:hover { text-decoration: underline; }
+
+.rv-party { text-align: center; }
+.rv-source { color: #778; font-size: .82rem; }
+.rv-none { color: #aab; }
+
+.rv-answers { display: flex; flex-wrap: wrap; gap: .3rem; max-width: 30rem; }
+.rv-tag {
+  display: inline-block; padding: .15rem .5rem; border-radius: 999px;
+  background: #eef0ef; color: #556; font-size: .75rem; white-space: nowrap;
+}
+.rv-tag.yes { background: #dff0e4; color: #1f5c3a; font-weight: 600; }
+
+@media (max-width: 700px) {
+  .reservations { padding: .75rem; }
+  .rv-search input { min-width: 0; width: 100%; }
+  .rv-filters label { flex: 1 1 8rem; }
+}
+
+/* Only unusual statuses are shown, so they can afford to be loud. */
+.rv-status {
+  display: block; margin-top: .15rem; width: fit-content;
+  padding: .1rem .45rem; border-radius: 999px;
+  font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  background: #f3e3e3; color: #8a3535;
+}
+.rv-status.request, .rv-status.confirm { background: #f6eeda; color: #7a5a1a; }
