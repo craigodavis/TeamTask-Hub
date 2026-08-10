@@ -50,6 +50,16 @@ async function call(method, path, body) {
 export const getLists     = () => call('GET', '/api/lists?per_page=100');
 export const getTemplates = () => call('GET', '/api/templates');
 
+/** Create a list. `single` opt-in: we already have consent, so don't re-ask. */
+export const createList = (name) =>
+  call('POST', '/api/lists', { name, type: 'public', optin: 'single' });
+
+/**
+ * Add a subscriber. Throws on 409 (already on the list) like any other error —
+ * callers that treat that as success should match on the status in the message.
+ */
+export const addSubscriber = (payload) => call('POST', '/api/subscribers', payload);
+
 /**
  * Find the Kindred template's id. Pushing a campaign without naming a template
  * silently lands it on listmonk's default, which is the stock listmonk shell —

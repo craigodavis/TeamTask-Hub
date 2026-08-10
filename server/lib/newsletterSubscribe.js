@@ -4,8 +4,13 @@
  * Kindred is mid-move from Campaign Monitor to Listmonk, so for now a signup has
  * to land in both — Campaign Monitor because that is where the audience still
  * lives, Listmonk because that is where Team's campaign composer sends from.
- * When Campaign Monitor is retired, unset its two variables and this stops
- * talking to it; nothing else changes.
+ * When Campaign Monitor is retired, unset its API key and this stops talking to
+ * it; nothing else changes.
+ *
+ * Both sides land in a list named "Website Signups", which is looked up by name
+ * and created if it doesn't exist. Names rather than IDs because a list id is
+ * one more opaque thing to configure correctly, and because the name is what
+ * whoever sends the campaign will actually go looking for.
  *
  * Rules this follows, in order of importance:
  *
@@ -21,69 +26,111 @@
  *    somebody can add it by hand.
  *
  * Env:
- *   CAMPAIGN_MONITOR_API_KEY, CAMPAIGN_MONITOR_LIST_ID
- *   LISTMONK_URL, LISTMONK_API_USER, LISTMONK_API_TOKEN, LISTMONK_LIST_ID
+ *   CAMPAIGN_MONITOR_API_KEY   — required for the Campaign Monitor half
+ *   CAMPAIGN_MONITOR_CLIENT_ID — only needed if the key sees more than one client
+ *   LISTMONK_URL, LISTMONK_API_USER, LISTMONK_API_TOKEN
  */
 
-const timeout = () => AbortSignal.timeout(10_000);
+import { listmonkConfigured, getLists, createList, addSubscriber } from './listmonk.js';
 
-/** Campaign Monitor: POST /subscribers/{listId}.json, basic auth of apiKey:x. */
-async function toCampaignMonitor(email, name) {
+const LIST_NAME = 'Website Signups';
+
+/**
+ * Look something up once and keep it, but don't cache a failure — a lookup that
+ * failed because the platform was briefly down should be retried on the next
+ * signup, not remembered as broken until the next deploy.
+ */
+function once(fn) {
+  let pending = null;
+  return () => (pending ??= Promise.resolve().then(fn).catch((e) => { pending = null; throw e; }));
+}
+
+/* ------------------------------------------------------------------ listmonk */
+
+const listmonkListId = once(async () => {
+  const lists = (await getLists())?.results || [];
+  const found = lists.find((l) => l.name.trim().toLowerCase() === LIST_NAME.toLowerCase());
+  if (found) return found.id;
+  return (await createList(LIST_NAME)).id;
+});
+
+async function toListmonk(email, name) {
+  if (!listmonkConfigured()) return { skipped: true };
+  try {
+    await addSubscriber({
+      email,
+      name: name || email.split('@')[0],
+      status: 'enabled',
+      lists: [await listmonkListId()],
+      // They opted in on our form; a confirmation email would ask twice.
+      preconfirm_subscriptions: true,
+    });
+    return { ok: true };
+  } catch (e) {
+    // listmonk 409s an address it already holds. That's the desired end state.
+    if (/\b409\b/.test(e.message)) return { ok: true, already: true };
+    throw e;
+  }
+}
+
+/* ---------------------------------------------------------- campaign monitor */
+
+const CM = 'https://api.createsend.com/api/v3.3';
+
+async function cm(path, body) {
   const key = process.env.CAMPAIGN_MONITOR_API_KEY;
-  const list = process.env.CAMPAIGN_MONITOR_LIST_ID;
-  if (!key || !list) return { skipped: true };
-
-  const res = await fetch(`https://api.createsend.com/api/v3.3/subscribers/${encodeURIComponent(list)}.json`, {
-    method: 'POST',
+  const res = await fetch(`${CM}${path}`, {
+    method: body ? 'POST' : 'GET',
     headers: {
       Authorization: `Basic ${Buffer.from(`${key}:x`).toString('base64')}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      EmailAddress: email,
-      Name: name || '',
-      // Required since v3.2. The signup form is an explicit opt-in, which is the
-      // consent this records.
-      ConsentToTrack: 'Yes',
-      // Someone who previously unsubscribed and signs up again means it.
-      Resubscribe: true,
-    }),
-    signal: timeout(),
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`Campaign Monitor ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Campaign Monitor ${path} -> ${res.status}: ${text.slice(0, 160)}`);
+  return text ? JSON.parse(text) : null;
+}
+
+const cmListId = once(async () => {
+  if (process.env.CAMPAIGN_MONITOR_LIST_ID) return process.env.CAMPAIGN_MONITOR_LIST_ID;
+
+  const clients = await cm('/clients.json');
+  const clientId = process.env.CAMPAIGN_MONITOR_CLIENT_ID || (clients.length === 1 && clients[0].ClientID);
+  if (!clientId) {
+    // Guessing which winery account to write to is not a call this should make.
+    throw new Error(
+      `key sees ${clients.length} clients — set CAMPAIGN_MONITOR_CLIENT_ID to one of: ` +
+      clients.map((c) => `${c.Name}=${c.ClientID}`).join(', '),
+    );
+  }
+
+  const lists = await cm(`/clients/${clientId}/lists.json`);
+  const found = lists.find((l) => l.Name.trim().toLowerCase() === LIST_NAME.toLowerCase());
+  if (found) return found.ListID;
+  return cm(`/lists/${clientId}.json`, {
+    Title: LIST_NAME,
+    // Single opt-in: the website form is the confirmation.
+    ConfirmedOptIn: false,
+    UnsubscribeSetting: 'AllClientLists',
+  });
+});
+
+async function toCampaignMonitor(email, name) {
+  if (!process.env.CAMPAIGN_MONITOR_API_KEY) return { skipped: true };
+  await cm(`/subscribers/${encodeURIComponent(await cmListId())}.json`, {
+    EmailAddress: email,
+    Name: name || '',
+    // Required since v3.2. The form is an explicit opt-in — that's the consent.
+    ConsentToTrack: 'Yes',
+    // Someone who once unsubscribed and has now signed up again means it.
+    Resubscribe: true,
+  });
   return { ok: true };
 }
 
-/** Listmonk: POST /api/subscribers, basic auth of user:token. */
-async function toListmonk(email, name) {
-  const base = (process.env.LISTMONK_URL || '').replace(/\/+$/, '');
-  const user = process.env.LISTMONK_API_USER;
-  const token = process.env.LISTMONK_API_TOKEN;
-  const list = Number(process.env.LISTMONK_LIST_ID);
-  if (!base || !user || !token || !Number.isFinite(list)) return { skipped: true };
-
-  const res = await fetch(`${base}/api/subscribers`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      email,
-      name: name || email.split('@')[0],
-      status: 'enabled',
-      lists: [list],
-      // They ticked the box on our form; a second confirmation email would be
-      // asking the same question twice.
-      preconfirm_subscriptions: true,
-    }),
-    signal: timeout(),
-  });
-  // Already on the list is success, not failure.
-  if (res.status === 409) return { ok: true, already: true };
-  if (!res.ok) throw new Error(`Listmonk ${res.status}: ${(await res.text()).slice(0, 160)}`);
-  return { ok: true };
-}
+/* ------------------------------------------------------------------ fan-out */
 
 /**
  * Send an address to every configured platform. Never throws.
@@ -93,11 +140,11 @@ export async function subscribeEverywhere(email, name) {
   const run = async (fn, label) => {
     try {
       const r = await fn(email, name);
-      return r.skipped ? 'not configured' : (r.already ? 'already subscribed' : 'ok');
+      return r.skipped ? 'not configured' : r.already ? 'already subscribed' : 'ok';
     } catch (e) {
       // The row is already saved, so this is recoverable by hand — say who.
       console.error(`[newsletter] ${label} failed for ${email}:`, e.message);
-      return `failed: ${e.message.slice(0, 80)}`;
+      return `failed: ${e.message.slice(0, 120)}`;
     }
   };
   const [campaignMonitor, listmonk] = await Promise.all([
