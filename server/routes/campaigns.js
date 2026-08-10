@@ -56,7 +56,13 @@ router.get('/', requireManager, async (req, res) => {
               jsonb_array_length(sections) AS block_count
          FROM email_campaigns WHERE company_id = $1
         ORDER BY updated_at DESC LIMIT 100`, [cid(req)]);
-    res.json({ campaigns: r.rows, kinds: CAMPAIGN_KINDS });
+    // Surfaced so the page can link out to subscriber management without
+    // anyone having to remember where listmonk lives.
+    res.json({
+      campaigns: r.rows,
+      kinds: CAMPAIGN_KINDS,
+      listmonkUrl: (process.env.LISTMONK_URL || '').replace(/\/+$/, ''),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

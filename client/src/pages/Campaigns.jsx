@@ -52,14 +52,17 @@ export function Campaigns() {
   const [testTo, setTestTo] = useState('');
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
+  const [listmonkUrl, setListmonkUrl] = useState('');
   const saveTimer = useRef(null);
 
   const sel = c?.sections?.[selected];
   const spec = sel ? BLOCK_FIELDS[sel.type] : null;
 
   const load = useCallback(() => {
-    getCampaigns().then((d) => { setList(d.campaigns || []); setKinds(d.kinds || {}); })
-      .catch((e) => setError(e.message));
+    getCampaigns().then((d) => {
+      setList(d.campaigns || []); setKinds(d.kinds || {});
+      setListmonkUrl(d.listmonkUrl || '');
+    }).catch((e) => setError(e.message));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -194,8 +197,16 @@ export function Campaigns() {
             <h2 className="cmp-title">Campaigns</h2>
             <p className="cmp-sub">Emails are built from blocks. Brand comes from the tokens, not from you.</p>
           </div>
-          <button className="cmp-primary"
-                  onClick={() => setDialog({ name: '', kind: 'general' })}>New campaign</button>
+          <div className="cmp-headactions">
+            {listmonkUrl && (
+              <a className="cmp-back" target="_blank" rel="noreferrer"
+                 href={`${listmonkUrl}/admin/subscribers`}>
+                Subscribers &amp; lists ↗
+              </a>
+            )}
+            <button className="cmp-primary"
+                    onClick={() => setDialog({ name: '', kind: 'general' })}>New campaign</button>
+          </div>
         </div>
         {error && <p className="cmp-error">{error}</p>}
 
