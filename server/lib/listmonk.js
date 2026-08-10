@@ -85,6 +85,19 @@ export const updateSubscriber = (id, payload) =>
   call('PUT', `/api/subscribers/${id}`, payload);
 
 /**
+ * Put existing subscribers on a list, leaving everything else about them alone.
+ *
+ * Needed because POST /api/subscribers 409s for an address listmonk already
+ * holds, and stopping there means someone who opts in at a new venue never
+ * joins that venue's list. Most opt-ins are people we already have, so without
+ * this the venue lists stay almost empty while every counter reports success.
+ */
+export const addToLists = (ids, listIds) =>
+  call('PUT', '/api/subscribers/lists', {
+    ids, action: 'add', target_list_ids: listIds, status: 'confirmed',
+  });
+
+/**
  * Find the Kindred template's id. Pushing a campaign without naming a template
  * silently lands it on listmonk's default, which is the stock listmonk shell —
  * an off-brand email that looks like a mistake to five thousand people.

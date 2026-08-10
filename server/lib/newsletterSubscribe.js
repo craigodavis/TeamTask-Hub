@@ -33,7 +33,7 @@
 
 import {
   listmonkConfigured, getLists, createList, addSubscriber, findSubscriber,
-  updateSubscriber,
+  updateSubscriber, addToLists,
 } from './listmonk.js';
 
 const DEFAULT_LIST = 'Website Signups';
@@ -110,7 +110,13 @@ async function toListmonk(email, name, listName, deliberate) {
     if (!/\b409\b/.test(e.message)) throw e;
 
     const existing = await findSubscriber(email).catch(() => null);
-    if (existing?.status !== 'blocklisted') return { ok: true, already: true };
+    if (existing?.status !== 'blocklisted') {
+      // Already known, but not necessarily on THIS list. A 409 only says the
+      // address exists; stopping here left everyone we already had off the list
+      // they had just opted into, while every counter reported success.
+      if (existing?.id) await addToLists([existing.id], [listId]);
+      return { ok: true, already: true };
+    }
 
     const reason = suppressionReason(existing);
     if (!deliberate) return { suppressed: true, reason };
