@@ -15,6 +15,7 @@ import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
 import { notifyWebsiteContentChanged } from '../lib/websiteDeploy.js';
 import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
+import { subscribeEverywhere } from '../lib/newsletterSubscribe.js';
 
 export const websiteRouter = express.Router();
 
@@ -55,11 +56,29 @@ websiteRouter.post('/newsletter', async (req, res) => {
     const { email, website } = req.body || {};
     if (website) return res.json({ ok: true }); // honeypot: silently accept bots
     if (!isEmail(email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
-    await query(
-      `INSERT INTO kindred_web.form_submissions (kind, email, meta) VALUES ('newsletter', $1, $2)`,
-      [email.trim().toLowerCase().slice(0, 255), JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null })]
+    const addr = email.trim().toLowerCase().slice(0, 255);
+
+    // Row first: it is the record of truth, and it is what makes a failed push
+    // recoverable by hand. Then tell the mailing platforms.
+    const saved = await query(
+      `INSERT INTO kindred_web.form_submissions (kind, email, meta) VALUES ('newsletter', $1, $2) RETURNING id`,
+      [addr, JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null })]
     );
+
+    // Answer the browser regardless of what the platforms do — a signup should
+    // never appear to fail because Campaign Monitor was slow.
     res.json({ ok: true });
+
+    const result = await subscribeEverywhere(addr);
+    await query(
+      `UPDATE kindred_web.form_submissions
+          SET meta = COALESCE(meta, '{}'::jsonb) || $2::jsonb
+        WHERE id = $1`,
+      [saved.rows[0].id, JSON.stringify({ delivery: result })]
+    ).catch(() => {});
+    if (/failed/.test(result.campaignMonitor) || /failed/.test(result.listmonk)) {
+      console.error('[newsletter] signup saved but not fully delivered:', addr, result);
+    }
   } catch { res.status(500).json({ error: 'Could not sign you up right now.' }); }
 });
 
