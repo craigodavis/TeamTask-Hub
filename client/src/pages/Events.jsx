@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -51,8 +51,11 @@ function EventsTab() {
   const load = useCallback(async () => {
     try {
       const [e, m, l, u] = await Promise.all([getEvents('all'), getMusicians(), getLocations(), getAssignableUsers()]);
-      setEvents(Array.isArray(e) ? e : []); setMusicians(Array.isArray(m) ? m : []);
+      const evs = Array.isArray(e) ? e : [];
+      setEvents(evs); setMusicians(Array.isArray(m) ? m : []);
       setLocations(Array.isArray(l) ? l : (l?.locations || [])); setUsers(Array.isArray(u) ? u : []);
+      const openId = new URLSearchParams(window.location.search).get('open');
+      if (openId) { const found = evs.find((x) => x.id === openId); if (found) { setSelected(found); window.history.replaceState({}, '', '/events'); } }
     } catch (x) { setErr(x.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -81,6 +84,17 @@ function EventsTab() {
   };
 
   const remove = async (id) => { if (window.confirm('Delete this event?')) { await deleteEvent(id); load(); } };
+
+  const duplicate = async (id) => {
+    try {
+      const { id: newId } = await duplicateEvent(id);
+      const evs = await getEvents('all');
+      const arr = Array.isArray(evs) ? evs : [];
+      setEvents(arr);
+      const found = arr.find((x) => x.id === newId);
+      if (found) setSelected(found); // open the copy so the user can set its new date
+    } catch (x) { setErr(x.message); }
+  };
 
   if (selected) return <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={() => { setSelected(null); load(); }} />;
 
@@ -178,6 +192,7 @@ function EventsTab() {
               <div style={{ fontWeight: 700 }}>{e.title} {e.status === 'published' ? <span style={{ fontSize: 11, color: '#137a2f' }}>● live</span> : <span style={{ fontSize: 11, opacity: 0.5 }}>draft</span>}</div>
               <div style={{ fontSize: 13, opacity: 0.75 }}>{fmtDT(e.start_at)}{e.location_name ? ` · ${e.location_name}` : ''}{e.musician_name ? ` · 🎵 ${e.musician_name}${e.lift_pct != null ? ` (+${e.lift_pct}%)` : ''}` : ''}{e.cost != null ? ` · ${money(e.cost)}` : ''}</div>
             </div>
+            <button style={{ ...btn(false), padding: '5px 10px' }} onClick={() => duplicate(e.id)}>Copy</button>
             <button style={{ ...btn(false), padding: '5px 10px' }} onClick={() => remove(e.id)}>Delete</button>
           </div>
         ))}
@@ -325,6 +340,137 @@ function RemindersTab() {
   );
 }
 
+/**
+ * Where this event has been announced, one row per channel.
+ *
+ * Nothing here posts anything — stage 1 tracks state and prepares copy. The
+ * tier tells you why: `auto` channels will be API-driven once wired, `assisted`
+ * ones can never be (Facebook removed event creation from their API; Bandsintown
+ * listings come from the artist), and `outreach` goes out as email.
+ */
+function DistributionCard({ eventId, card }) {
+  const [dist, setDist] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [open, setOpen] = useState(null);
+  const [lead, setLead] = useState(21);
+
+  const load = useCallback(() => {
+    getEventDistribution(eventId)
+      .then((d) => { setDist(d); if (d.announce_lead_days != null) setLead(d.announce_lead_days); })
+      .catch((e) => setErr(e.message));
+  }, [eventId]);
+  useEffect(() => { load(); }, [load]);
+
+  const doAnnounce = async () => {
+    setBusy(true); setErr('');
+    try { await announceEvent(eventId); load(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const doSchedule = async () => {
+    setBusy(true); setErr('');
+    try { await scheduleEventAnnounce(eventId, Number(lead)); load(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const mark = async (postId, status, url) => {
+    setBusy(true); setErr('');
+    try { await markEventChannelPost(postId, { status, external_url: url }); load(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  if (!dist) return null;
+
+  const PILL = {
+    posted:      { bg: '#e6f4ea', fg: '#137333', label: 'Posted' },
+    scheduled:   { bg: '#e8f0fe', fg: '#1967d2', label: 'Scheduled' },
+    queued:      { bg: '#fef7e0', fg: '#b06000', label: 'To do' },
+    needs_human: { bg: '#fef7e0', fg: '#b06000', label: 'Needs setup' },
+    stale:       { bg: '#fce8e6', fg: '#c5221f', label: 'Event changed' },
+    failed:      { bg: '#fce8e6', fg: '#c5221f', label: 'Failed' },
+    skipped:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Skipped' },
+    pending:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Not started' },
+  };
+  const TIER = { auto: 'automatic', assisted: 'needs a person', outreach: 'email' };
+
+  return (
+    <div style={{ ...card, marginTop: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0 }}>Distribution <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(where this event has been announced)</span></h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12, opacity: 0.7 }}>
+            <input type="number" min="0" max="365" value={lead}
+                   onChange={(e) => setLead(e.target.value)}
+                   style={{ ...inp, width: 62, padding: 5, marginRight: 6 }} />
+            days before
+          </label>
+          <button style={{ ...btn(false), padding: '6px 12px', fontSize: 13 }} onClick={doSchedule} disabled={busy}>
+            Schedule
+          </button>
+          <button style={{ ...btn(true), padding: '6px 12px', fontSize: 13 }} onClick={doAnnounce} disabled={busy}>
+            {busy ? 'Working…' : 'Announce now'}
+          </button>
+        </div>
+      </div>
+      {err && <p style={{ color: '#b00', fontSize: 13 }}>{err}</p>}
+      <p style={{ fontSize: 12, opacity: 0.6, margin: '6px 0 0' }}>
+        Scheduling is relative to the event, so it works for anything you book at any notice.
+        App push and Google Business keep their own timing — a push weeks early is noise, and
+        Google posts age out — so they stay at 2 and 7 days regardless.
+      </p>
+
+      <div style={{ marginTop: 10 }}>
+        {dist.channels.map((c) => {
+          const p = PILL[c.status] ?? PILL.pending;
+          return (
+            <div key={c.key} style={{ borderTop: '1px solid var(--border,#eee)', padding: '10px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, minWidth: 150 }}>{c.name}</span>
+                <span style={{ background: p.bg, color: p.fg, borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>{p.label}</span>
+                <span style={{ fontSize: 12, opacity: 0.55 }}>{TIER[c.tier]}</span>
+                {c.status === 'scheduled' && c.scheduled_at && (
+                  <span style={{ fontSize: 12, opacity: 0.7 }}>
+                    {fmtDT(c.scheduled_at)} · {c.lead_days}d before
+                  </span>
+                )}
+                {c.external_url && <a href={c.external_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>view ↗</a>}
+                <span style={{ flex: 1 }} />
+                {c.link && <a href={c.link} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>open ↗</a>}
+                {c.copy && (
+                  <button style={{ ...btn(false), padding: '3px 9px', fontSize: 12 }}
+                          onClick={() => setOpen(open === c.key ? null : c.key)}>
+                    {open === c.key ? 'Hide copy' : 'Copy text'}
+                  </button>
+                )}
+                {c.post_id && c.status !== 'posted' && (
+                  <button style={{ ...btn(false), padding: '3px 9px', fontSize: 12 }}
+                          onClick={() => mark(c.post_id, 'posted', window.prompt('Link to the post (optional):') || null)}>
+                    Mark posted
+                  </button>
+                )}
+                {c.post_id && c.status === 'posted' && (
+                  <button style={{ ...btn(false), padding: '3px 9px', fontSize: 12 }}
+                          onClick={() => mark(c.post_id, 'queued')}>Undo</button>
+                )}
+              </div>
+              {c.note && <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{c.note}</div>}
+              {c.status === 'stale' && (
+                <div style={{ fontSize: 12, color: '#c5221f', marginTop: 4 }}>
+                  The event changed after this was posted — update it there, then Announce again.
+                </div>
+              )}
+              {open === c.key && c.copy && (
+                <textarea readOnly value={c.copy} rows={6}
+                          style={{ ...inp, marginTop: 8, fontFamily: 'inherit', fontSize: 13 }}
+                          onFocus={(e) => e.target.select()} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [notes, setNotes] = useState(ev.internal_notes || '');
   const [tasks, setTasks] = useState([]);
@@ -433,9 +579,11 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
       </div>
 
       <div style={{ ...card, marginBottom: 16 }}>
-        <label style={lbl}>Internal notes <span style={{ opacity: 0.5, fontWeight: 400 }}>(stays in TeamHub — never sent to the website)</span></label>
-        <textarea rows={3} style={inp} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes} />
-        {savedNotes && <span style={{ color: '#137a2f', fontSize: 12 }}>✓ saved</span>}
+        <HtmlDesc value={notes} onChange={setNotes} label="Internal notes" hint="stays in TeamHub — never sent to the website" />
+        <div style={{ marginTop: 8 }}>
+          <button style={btn(true)} onClick={saveNotes}>Save notes</button>
+          {savedNotes && <span style={{ color: '#137a2f', fontSize: 12, marginLeft: 10 }}>✓ saved</span>}
+        </div>
       </div>
 
       <div style={card}>
@@ -474,6 +622,8 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           <button style={btn(true)} onClick={addTask} disabled={!nt.title.trim()}>Add</button>
         </div>
       </div>
+
+      <DistributionCard eventId={ev.id} card={card} />
 
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

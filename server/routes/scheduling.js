@@ -72,9 +72,10 @@ router.get('/settings', async (req, res) => {
 router.patch('/settings', async (req, res) => {
   const allowed = ['target_labor_pct', 'avoid_overtime', 'forecast_w_lastweek', 'forecast_w_lastyear',
     'labor_warn_threshold', 'feedback_prompt_enabled', 'max_hours_per_week',
-    'talent_reminders_enabled', 'reminder_msg_month', 'reminder_msg_week', 'reminder_msg_day'];
+    'talent_reminders_enabled', 'reminder_msg_month', 'reminder_msg_week', 'reminder_msg_day',
+    'event_warn_user_ids', 'event_warn_days'];
   const sets = [], vals = [];
-  for (const k of allowed) if (k in req.body) { sets.push(`${k} = $${sets.length + 1}`); vals.push(req.body[k]); }
+  for (const k of allowed) if (k in req.body) { sets.push(`${k} = $${sets.length + 1}`); vals.push(k === 'event_warn_user_ids' ? JSON.stringify(Array.isArray(req.body[k]) ? req.body[k] : []) : req.body[k]); }
   if (!sets.length) return res.json(await ensureSettings(cId(req)));
   try {
     await ensureSettings(cId(req));

@@ -3734,6 +3734,72 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS created_by_team_member_id VARCHAR(64)`,
   `CREATE INDEX IF NOT EXISTS idx_sq_order_opener
      ON team_square."order"(created_by_team_member_id)`,
+  // Event distribution: announce one event to every channel and track, per
+  // channel, what actually happened. See docs/EVENT_DISTRIBUTION.md.
+  // The catalogue is seeded lazily from lib/eventDistribution.js rather than
+  // here, so adding a channel later doesn't need a migration.
+  `CREATE TABLE IF NOT EXISTS promo_channels (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    key        VARCHAR(40) NOT NULL,
+    name       VARCHAR(80) NOT NULL,
+    tier       VARCHAR(12) NOT NULL,
+    enabled    BOOLEAN NOT NULL DEFAULT true,
+    config     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    sort_order INT NOT NULL DEFAULT 100,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (company_id, key)
+  )`,
+  // payload_hash is what makes re-announcing safe: an unchanged event is a
+  // no-op, and a changed one is distinguishable from a never-posted one. We
+  // have already had five near-identical event rows and four fabricated
+  // WordPress ids, so duplicate-on-retry is a real failure mode here.
+  `CREATE TABLE IF NOT EXISTS event_channel_posts (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    event_id      UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    channel_key   VARCHAR(40) NOT NULL,
+    status        VARCHAR(16) NOT NULL DEFAULT 'pending',
+    external_id   TEXT,
+    external_url  TEXT,
+    payload_hash  TEXT,
+    attempts      INT NOT NULL DEFAULT 0,
+    last_error    TEXT,
+    posted_at     TIMESTAMPTZ,
+    posted_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+    promo_task_id UUID REFERENCES promo_tasks(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (event_id, channel_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ecp_event ON event_channel_posts(event_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ecp_status ON event_channel_posts(status)`,
+  // Scheduling. Lead time is relative to the event, not an absolute date:
+  // events are created months ahead at wildly varying notice, so "3 weeks
+  // before" applies to every event automatically while a fixed date has to be
+  // set by hand each time and silently does nothing for an event added next
+  // week. Most channels share one lead time; app push wants to be a reminder
+  // (days before, not months) and Google posts age out, so they differ.
+  `ALTER TABLE promo_channels ADD COLUMN IF NOT EXISTS lead_days INT NOT NULL DEFAULT 21`,
+  `ALTER TABLE event_channel_posts ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ`,
+  `CREATE INDEX IF NOT EXISTS idx_ecp_due ON event_channel_posts(status, scheduled_at)`,
+  // Per-event override for the batch; NULL means "use each channel's default".
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS announce_lead_days INT`,
+  // The channel rows were seeded before lead_days existed, so ADD COLUMN's
+  // DEFAULT 21 landed on all of them — including the two whose whole point is a
+  // different lead time. ensureChannels deliberately never overwrites lead_days
+  // (it's meant to be tunable), so the correction has to happen here.
+  `UPDATE promo_channels SET lead_days = 2 WHERE key = 'app_push'        AND lead_days = 21`,
+  `UPDATE promo_channels SET lead_days = 7 WHERE key = 'google_business' AND lead_days = 21`,
+  // 1xx: track the "draft within a week" publish warning so it fires once per event
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS publish_warned_at TIMESTAMPTZ`,
+  // 1xx: who to SMS when an event is a "warning condition" (draft within a week); + lead days
+  `ALTER TABLE scheduling_settings
+     ADD COLUMN IF NOT EXISTS event_warn_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+     ADD COLUMN IF NOT EXISTS event_warn_days INTEGER NOT NULL DEFAULT 7`,
+  // 1xx: allow blank date on a duplicated event (start_at was NOT NULL)
+  `ALTER TABLE events ALTER COLUMN start_at DROP NOT NULL`,
 ];
 
 export async function runMigrations() {

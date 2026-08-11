@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
 import './Settings.css';
 
-const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7', 'ai-models', 'kitchen'];
+const OWNER_TABS = ['general', 'integrations', 'square', 'commerce7', 'ai-models', 'kitchen', 'events'];
 
 // Common IANA timezone list — covers all US zones plus a broad international set
 const TIMEZONES = [
@@ -142,6 +142,39 @@ function GeneralSettingsPanel({ timezone, opsManagerName, onSave, saving }) {
           <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function EventsSettingsPanel() {
+  const [s, setS] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    getSchedulingSettings().then(setS).catch(() => {});
+    getAssignableUsers().then((u) => setUsers(Array.isArray(u) ? u : [])).catch(() => {});
+  }, []);
+  if (!s) return <p>Loading…</p>;
+  const ids = Array.isArray(s.event_warn_user_ids) ? s.event_warn_user_ids : [];
+  const save = async (patch) => { const n = await updateSchedulingSettings(patch); setS(n); setSaved(true); setTimeout(() => setSaved(false), 1500); };
+  const toggle = (uid) => { const next = ids.includes(uid) ? ids.filter((x) => x !== uid) : [...ids, uid]; save({ event_warn_user_ids: next }); };
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <h2>Events</h2>
+      <p style={{ opacity: 0.8 }}>
+        Warn these people by SMS when an event is within{' '}
+        <input type="number" min="1" max="60" defaultValue={s.event_warn_days ?? 7} onBlur={(e) => save({ event_warn_days: Number(e.target.value) || 7 })} style={{ width: 56, padding: 4 }} />{' '}
+        days of its date but is still a <b>Draft</b> (not on the calendar). The text includes a link straight to the event.
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, margin: '12px 0' }}>
+        {users.map((u) => (
+          <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={ids.includes(u.id)} onChange={() => toggle(u.id)} /> {u.display_name}
+          </label>
+        ))}
+      </div>
+      {ids.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>No one selected — the warning falls back to all owners/managers.</p>}
+      {saved && <span style={{ color: 'green', fontWeight: 600 }}>✓ saved</span>}
     </div>
   );
 }
@@ -730,11 +763,15 @@ export function Settings() {
         {isOwner && (
           <button type="button" className={tab === 'kitchen' ? 'active' : ''} onClick={() => setSettingsTab('kitchen')}>Kitchen</button>
         )}
+        {isOwner && (
+          <button type="button" className={tab === 'events' ? 'active' : ''} onClick={() => setSettingsTab('events')}>Events</button>
+        )}
       </nav>
       {error && <p className="settings-error">{error}</p>}
       {message && <p className="settings-message">{message}</p>}
 
       {tab === 'kitchen' && <KitchenSettingsPanel />}
+      {tab === 'events' && <EventsSettingsPanel />}
 
       {tab === 'general' && (
         <>

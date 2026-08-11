@@ -15,6 +15,7 @@ import { query } from '../db.js';
 // only works while someone reads it. Reading the other direction is still fine and
 // still supported: scripts/reconcile-events-from-wp.js.
 import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
+import { getDistribution, announce, markPost, scheduleAnnounce } from '../lib/eventDistribution.js';
 
 const cId = (req) => req.companyId;
 
@@ -129,6 +130,60 @@ eventsRouter.get('/assignable-users', async (req, res) => {
     const r = await query(`SELECT id, display_name FROM users WHERE company_id = $1 ORDER BY display_name`, [cId(req)]);
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Distribution: where this event has been announced ────────────────────────
+// Stage 1 posts nothing itself — it tracks state and prepares work for a human.
+// See docs/EVENT_DISTRIBUTION.md.
+eventsRouter.get('/:id/distribution', async (req, res) => {
+  try {
+    const d = await getDistribution(cId(req), req.params.id);
+    if (!d) return res.status(404).json({ error: 'Event not found' });
+    res.json(d);
+  } catch (e) { console.error('distribution get', e); res.status(500).json({ error: e.message }); }
+});
+
+// Queue channels. Body: { channelKeys?: string[] } — omit to use the enabled set.
+eventsRouter.post('/:id/distribution/announce', async (req, res) => {
+  try {
+    const r = await announce(cId(req), req.params.id, {
+      channelKeys: Array.isArray(req.body?.channelKeys) ? req.body.channelKeys : null,
+      userId: req.userId,
+    });
+    res.json(r);
+  } catch (e) { console.error('distribution announce', e); res.status(500).json({ error: e.message }); }
+});
+
+// Schedule instead of firing now. Body: { leadDays?, channelKeys? }
+// leadDays is relative to the event, so it keeps working for events created at
+// any notice. Omit it to use each channel's own default.
+eventsRouter.post('/:id/distribution/schedule', async (req, res) => {
+  const lead = req.body?.leadDays;
+  if (lead != null && (!Number.isInteger(lead) || lead < 0 || lead > 365)) {
+    return res.status(400).json({ error: 'leadDays must be a whole number of days between 0 and 365' });
+  }
+  try {
+    const r = await scheduleAnnounce(cId(req), req.params.id, {
+      leadDays: lead ?? null,
+      channelKeys: Array.isArray(req.body?.channelKeys) ? req.body.channelKeys : null,
+    });
+    res.json(r);
+  } catch (e) { console.error('distribution schedule', e); res.status(500).json({ error: e.message }); }
+});
+
+// Record that a human posted it (or undo). Body: { status, external_url? }
+eventsRouter.patch('/distribution/:postId', async (req, res) => {
+  const ALLOWED = ['pending', 'queued', 'posted', 'failed', 'skipped', 'needs_human'];
+  if (!ALLOWED.includes(req.body?.status)) {
+    return res.status(400).json({ error: `status must be one of ${ALLOWED.join(', ')}` });
+  }
+  try {
+    const row = await markPost(cId(req), req.params.postId, {
+      status: req.body.status, external_url: req.body.external_url, userId: req.userId,
+    });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { console.error('distribution mark', e); res.status(500).json({ error: e.message }); }
 });
 
 // Tasks / named checklists on an event (internal — never promoted)
@@ -302,4 +357,23 @@ eventsRouter.delete('/:id', async (req, res) => {
     await query(`DELETE FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
     res.json({ ok: true });
   } catch (e) { console.error('event delete', e); res.status(500).json({ error: e.message }); }
+});
+
+// Duplicate an event: copy fields, blank the dates, force draft, name "<base> -copyN".
+eventsRouter.post('/:id/duplicate', async (req, res) => {
+  try {
+    const src = (await query(`SELECT title FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (!src) return res.status(404).json({ error: 'Event not found' });
+    const base = String(src.title || 'Event').replace(/ -copy\d+$/i, '');
+    const existing = (await query(`SELECT title FROM events WHERE company_id = $1 AND (title = $2 OR title LIKE $3)`, [cId(req), base, base + ' -copy%'])).rows;
+    let max = 0;
+    for (const t of existing) { const m = String(t.title).match(/ -copy(\d+)$/i); if (m) max = Math.max(max, Number(m[1])); }
+    const title = `${base} -copy${max + 1}`;
+    const r = await query(
+      `INSERT INTO events (company_id, location_id, musician_id, title, description, internal_notes, cost, event_url, image_url, social_image_url, category, status, start_at, end_at, created_by)
+       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, event_url, image_url, social_image_url, category, 'draft', NULL, NULL, $3
+         FROM events WHERE id = $1
+       RETURNING id`, [req.params.id, title, req.userId || null]);
+    res.json({ id: r.rows[0].id, title });
+  } catch (e) { console.error('event duplicate', e); res.status(500).json({ error: e.message }); }
 });
