@@ -144,9 +144,9 @@ function EventsTab() {
             <label style={lbl}>Photo</label>
             <ImageField value={form.image_url} onChange={(url) => set('image_url', url)} />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
-                Best at <b>2400 × 1600</b> (landscape 3:2), JPG or PNG, under 8 MB. Keep the subject
-                centred and away from the edges — the website crops this two ways: a wide 21:9 banner
-                on the event page and a 3:2 tile on the home page.
+                Best at <b>2400 × 1000</b> (2.4:1 cinematic), JPG or PNG, under 8 MB. The event page
+                shows the full 2.4:1 frame; the home-page tile crops to a 3:2 centre — so keep the
+                subject centred and important detail away from the far edges.
               </div>
           </div>
         </div>
@@ -555,9 +555,9 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               onChange={(url) => { setField('image_url', url); updateEvent(ev.id, { image_url: url || null }); }}
             />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
-                Best at <b>2400 × 1600</b> (landscape 3:2), JPG or PNG, under 8 MB. Keep the subject
-                centred and away from the edges — the website crops this two ways: a wide 21:9 banner
-                on the event page and a 3:2 tile on the home page.
+                Best at <b>2400 × 1000</b> (2.4:1 cinematic), JPG or PNG, under 8 MB. The event page
+                shows the full 2.4:1 frame; the home-page tile crops to a 3:2 centre — so keep the
+                subject centred and important detail away from the far edges.
               </div>
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
