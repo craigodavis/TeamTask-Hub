@@ -3800,6 +3800,8 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS event_warn_days INTEGER NOT NULL DEFAULT 7`,
   // 1xx: allow blank date on a duplicated event (start_at was NOT NULL)
   `ALTER TABLE events ALTER COLUMN start_at DROP NOT NULL`,
+  // 1xx: Facebook event cover (1920×1005); also used as the link-share (OG) image
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS fb_image_url TEXT`,
 ];
 
 export async function runMigrations() {

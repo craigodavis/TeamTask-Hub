@@ -24,7 +24,7 @@
 // site quietly going relative again, which is the bug this file exists to fix.
 const origin = () => (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
 
-const FIELDS = ['url', 'image_url', 'social_image_url', 'musician_photo', 'media_url', 'thumbnail_url', 'photo_url'];
+const FIELDS = ['url', 'image_url', 'social_image_url', 'fb_image_url', 'musician_photo', 'media_url', 'thumbnail_url', 'photo_url'];
 
 export const absUrl = (u) => (typeof u === 'string' && u.startsWith('/') ? origin() + u : u);
 

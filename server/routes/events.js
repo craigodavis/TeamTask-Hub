@@ -104,7 +104,7 @@ eventsRouter.get('/', async (req, res) => {
     const where = past ? '' : `AND e.start_at >= NOW() - INTERVAL '1 day'`;
     const order = past ? 'DESC' : 'ASC';
     const r = await query(
-      `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.event_url, e.image_url, e.social_image_url,
+      `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.event_url, e.image_url, e.social_image_url, e.fb_image_url,
               e.category, e.status, e.wp_event_id, e.location_id, e.musician_id,
               l.name AS location_name, m.name AS musician_name, m.lift_pct
          FROM events e
@@ -122,7 +122,7 @@ eventsRouter.post('/upload-image', imgUpload.single('image'), (req, res) => {
 });
 
 // Internal-only fields (notes, tasks) are never included in the WordPress push.
-const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'event_url', 'image_url', 'social_image_url', 'category', 'status', 'internal_notes'];
+const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'event_url', 'image_url', 'social_image_url', 'fb_image_url', 'category', 'status', 'internal_notes'];
 
 // Employees assignable to event tasks
 eventsRouter.get('/assignable-users', async (req, res) => {
@@ -370,8 +370,8 @@ eventsRouter.post('/:id/duplicate', async (req, res) => {
     for (const t of existing) { const m = String(t.title).match(/ -copy(\d+)$/i); if (m) max = Math.max(max, Number(m[1])); }
     const title = `${base} -copy${max + 1}`;
     const r = await query(
-      `INSERT INTO events (company_id, location_id, musician_id, title, description, internal_notes, cost, event_url, image_url, social_image_url, category, status, start_at, end_at, created_by)
-       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, event_url, image_url, social_image_url, category, 'draft', NULL, NULL, $3
+      `INSERT INTO events (company_id, location_id, musician_id, title, description, internal_notes, cost, event_url, image_url, social_image_url, fb_image_url, category, status, start_at, end_at, created_by)
+       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, event_url, image_url, social_image_url, fb_image_url, category, 'draft', NULL, NULL, $3
          FROM events WHERE id = $1
        RETURNING id`, [req.params.id, title, req.userId || null]);
     res.json({ id: r.rows[0].id, title });

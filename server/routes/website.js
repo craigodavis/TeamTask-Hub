@@ -109,7 +109,7 @@ websiteRouter.post('/contact', async (req, res) => {
 
 const LIST_FIELDS = `
   e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
-  e.event_url, e.image_url, e.social_image_url, e.category,
+  e.event_url, e.image_url, e.social_image_url, e.fb_image_url, e.category,
   l.web_slug AS venue, l.name AS venue_name,
   m.name AS musician_name, m.stage_name AS musician_stage_name,
   m.photo_url AS musician_photo, m.website_url AS musician_url`;
