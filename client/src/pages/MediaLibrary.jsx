@@ -341,7 +341,9 @@ function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const fullUrl = `${window.location.origin}${item.url}`;
+  // item.url may already be absolute (the API absolutises media URLs); only
+  // prefix the origin when it's a bare "/…" path, or we double the host.
+  const fullUrl = /^https?:\/\//i.test(item.url) ? item.url : `${window.location.origin}${item.url}`;
 
   const save = async () => {
     setBusy(true);
@@ -409,7 +411,10 @@ function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
 
           <label>URL</label>
           <div className="copy-url" onClick={copy} title="Click to copy">{copied ? 'Copied!' : fullUrl}</div>
-          <div className="hint">{item.width}×{item.height} · {item.source} · {item.variants ? 'responsive variants ready' : 'original only'}</div>
+          <div className="hint">
+            {item.width}×{item.height} · {item.source} · {item.variants ? 'responsive variants ready' : 'original only'}
+            {' · '}<a href={fullUrl} download={item.original_name || item.filename} target="_blank" rel="noopener">Download original</a>
+          </div>
 
           <div className="actions">
             <button className="btn btn-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
