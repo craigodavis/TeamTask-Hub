@@ -1,4 +1,16 @@
 .media-lib { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
+
+/* Media Library hub: shared title + tabs over the Library / Page Images pages. */
+.media-hub-head { max-width: 1200px; margin: 0 auto; padding: 20px 24px 0; }
+.media-hub-head h1 { margin: 0 0 12px; font-size: 1.5rem; }
+.media-hub-tabs { display: flex; gap: 2px; border-bottom: 1px solid #e5e7eb; }
+.media-hub-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 9px 16px; font-size: 0.92rem; cursor: pointer; color: #6b7280; }
+.media-hub-tabs button:hover { color: #111827; }
+.media-hub-tabs button.on { color: #111827; border-bottom-color: #111827; font-weight: 600; }
+/* Children own their page padding; trim the top so it sits under the tabs, and
+   match the header width so the title/tabs line up with the content. */
+.media-hub > .media-lib, .media-hub > .web-images { padding-top: 12px; max-width: 1200px; }
 .media-lib h1 { margin: 0 0 4px; font-size: 1.5rem; }
 .media-lib .subtitle { color: #6b7280; margin: 0 0 20px; font-size: 0.9rem; }
 

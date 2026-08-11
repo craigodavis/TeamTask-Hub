@@ -120,7 +120,10 @@ export function MediaPicker({ open, onClose, onPick, defaultFolder = '' }) {
                       <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {m.original_name || m.filename}
                       </div>
-                      <div style={{ opacity: 0.55 }}>{m.folder}</div>
+                      <div style={{ opacity: 0.55, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.folder}</span>
+                        <span style={{ flex: '0 0 auto', fontVariantNumeric: 'tabular-nums' }}>{m.width && m.height ? `${m.width}×${m.height}` : '—'}</span>
+                      </div>
                     </div>
                   </button>
                 ))}
