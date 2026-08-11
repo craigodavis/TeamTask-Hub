@@ -9,7 +9,7 @@ const prettyFolder = (f) => (f === 'all' ? 'all' : f.replace(/-/g, ' '));
 // Smallest webp variant for a fast thumbnail; fall back to the original.
 const thumbOf = (m) => m?.variants?.webp?.[0]?.url || m?.url;
 
-export function MediaLibrary() {
+export function MediaLibrary({ embedded = false } = {}) {
   const [items, setItems] = useState([]);
   const [folders, setFolders] = useState([]); // [{ folder, n }] mirrored from the library
   const [total, setTotal] = useState(0);
@@ -153,8 +153,8 @@ export function MediaLibrary() {
 
   return (
     <div className="media-lib">
-      <h1>Website Media</h1>
-      <p className="subtitle">Marketing → Website. Images here are published to kindredvineyards.com. Add alt text and a photo credit for every image.</p>
+      {!embedded && <h1>Media Library</h1>}
+      <p className="subtitle">Images here are published to kindredvineyards.com. Add alt text and a photo credit for every image.</p>
 
       {error && <div className="media-error">{error}</div>}
 

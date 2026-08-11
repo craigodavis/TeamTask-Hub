@@ -47,9 +47,8 @@ import { RecipeDetail } from './pages/RecipeDetail';
 import { KitchenInventory } from './pages/KitchenInventory';
 import { KitchenSources } from './pages/KitchenSources';
 import { ScanReceipt } from './pages/ScanReceipt';
-import { MediaLibrary } from './pages/MediaLibrary';
+import { MediaHub } from './pages/MediaHub';
 import { HoursEditor } from './pages/HoursEditor';
-import { WebsiteImages } from './pages/WebsiteImages';
 import { WebsiteSettings } from './pages/WebsiteSettings';
 
 function LegacyWasteEntryRedirect() {
@@ -224,7 +223,7 @@ function App() {
             path="/marketing/media"
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
-                <MediaLibrary />
+                <MediaHub />
               ) : (
                 <Navigate to="/" replace />
               )
@@ -244,7 +243,7 @@ function App() {
             path="/marketing/images"
             element={
               user?.role === 'owner' || user?.role === 'manager' ? (
-                <WebsiteImages />
+                <MediaHub initialTab="pages" />
               ) : (
                 <Navigate to="/" replace />
               )

@@ -4,7 +4,7 @@ import './WebsiteImages.css';
 
 const thumbOf = (m) => m?.variants?.webp?.[0]?.url || m?.url;
 
-export function WebsiteImages() {
+export function WebsiteImages({ embedded = false } = {}) {
   const [catalog, setCatalog] = useState([]);
   const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
@@ -44,8 +44,8 @@ export function WebsiteImages() {
 
   return (
     <div className="web-images">
-      <h1>Website Images</h1>
-      <p className="subtitle">Marketing → Website. Click Replace to drop a media-library image into any spot on the site. Responsive sizes are used automatically; empty slots show the site's placeholder.</p>
+      {!embedded && <h1>Page Images</h1>}
+      <p className="subtitle">Click Replace to drop a Media Library image into any spot on the site. Responsive sizes are used automatically; empty slots show the site's placeholder.</p>
       {error && <div className="wi-error">{error}</div>}
 
       {catalog.map((group) => (
@@ -134,6 +134,7 @@ function MediaPicker({ slot, onPick, onClose }) {
               <button className="wi-pick" key={m.id} onClick={() => onPick(m)} title={m.original_name || m.filename}>
                 <img src={thumbOf(m)} alt={m.alt_text || ''} loading="lazy" />
                 {!m.alt_text && <span className="wi-pick-warn">no alt</span>}
+                {m.width && m.height && <span className="wi-pick-dim">{m.width}×{m.height}</span>}
               </button>
             ))
           )}
