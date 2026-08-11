@@ -567,9 +567,9 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               onChange={(url) => { setField('social_image_url', url); updateEvent(ev.id, { social_image_url: url || null }); }}
             />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
-              A separate 4:3 crop for Google Business posts, Facebook, and marketing emails — these
-              formats want landscape, not the tall website Photo. This does <b>not</b> change the
-              website; the event page keeps using the Photo above.
+              Best at <b>1200 × 900</b> (4:3 landscape), JPG or PNG, under 8 MB. Used for Google
+              Business posts, Facebook, and marketing emails — these formats want landscape. This
+              does <b>not</b> change the website; the event page keeps using the Photo above.
             </div>
           </div>
         </div>
