@@ -486,13 +486,13 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const toLocal = toLocalInput; // see the note on toLocalInput — stored time is wall clock
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
-    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '',
+    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
   const setField = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const saveDetails = async () => {
     const body = {};
-    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url']) body[k] = f[k] === '' ? null : f[k];
+    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url']) body[k] = f[k] === '' ? null : f[k];
     await updateEvent(ev.id, body); setSavedD(true); setTimeout(() => setSavedD(false), 1200);
   };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
@@ -570,6 +570,18 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               Best at <b>1200 × 900</b> (4:3 landscape), JPG or PNG, under 8 MB. Used for Google
               Business posts, Facebook, and marketing emails — these formats want landscape. This
               does <b>not</b> change the website; the event page keeps using the Photo above.
+            </div>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={lbl}>Facebook cover &amp; share image <span style={{ opacity: 0.5, fontWeight: 400 }}>(1920×1005 for the Facebook event cover &amp; link preview)</span></label>
+            <ImageField
+              value={f.fb_image_url}
+              onChange={(url) => { setField('fb_image_url', url); updateEvent(ev.id, { fb_image_url: url || null }); }}
+            />
+            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
+              Best at <b>1920 × 1005</b> (Facebook event cover), JPG or PNG, under 8 MB. Also used as
+              the link-share preview whenever the event URL is posted (Facebook, iMessage, etc.); it
+              is resized automatically for that — no separate upload needed.
             </div>
           </div>
         </div>
