@@ -57,6 +57,14 @@
 .media-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.08); transform: translateY(-2px); }
 .media-thumb { aspect-ratio: 4/3; background: #f1f5f9 center/cover no-repeat; position: relative; }
 .media-badges { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+.media-del { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid rgba(0,0,0,.06); background: rgba(255,255,255,.92); color: #b91c1c; font-size: 15px;
+  line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .12s, background .12s, transform .12s; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+.media-card:hover .media-del { opacity: 1; }
+.media-del:hover { background: #b91c1c; color: #fff; transform: scale(1.06); }
+/* Touch devices have no hover — keep the button visible there. */
+@media (hover: none) { .media-del { opacity: .9; } }
 .badge { font-size: 0.62rem; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
 .badge.review { background: #fde68a; color: #92400e; }
 .badge.imported { background: #dbeafe; color: #1e40af; }

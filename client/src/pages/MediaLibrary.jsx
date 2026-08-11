@@ -136,6 +136,18 @@ export function MediaLibrary() {
     loadFolders();
   };
 
+  // Quick delete straight from the grid, without opening the detail modal.
+  const removeCard = async (e, m) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete “${m.original_name || m.filename}” and all its generated sizes? This cannot be undone.`)) return;
+    try {
+      await deleteMedia(m.id);
+      onDeleted(m.id);
+    } catch (err) {
+      setError(err.message || 'Delete failed');
+    }
+  };
+
   const reviewCount = folders.find((f) => f.folder === 'needs-review')?.n || 0;
   const knownFolders = folders.map((f) => f.folder);
 
@@ -226,6 +238,13 @@ export function MediaLibrary() {
                   {m.source === 'imported' && <span className="badge imported">Imported</span>}
                   {!m.alt_text && <span className="badge noalt">No alt</span>}
                 </div>
+                <button
+                  type="button"
+                  className="media-del"
+                  title="Delete image"
+                  aria-label={`Delete ${m.original_name || m.filename}`}
+                  onClick={(e) => removeCard(e, m)}
+                >🗑</button>
               </div>
               <div className="media-meta">
                 <div className="media-name" title={m.original_name || m.filename}>{m.original_name || m.filename}</div>
