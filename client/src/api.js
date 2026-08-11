@@ -2713,3 +2713,4 @@ export async function downloadOptIns({ from, to, venue } = {}) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+export async function duplicateEvent(id) { return pj(await fetch(`${API}/events/${id}/duplicate`, { method: 'POST', headers: headers() })); }
