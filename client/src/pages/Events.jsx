@@ -561,14 +561,15 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               </div>
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lbl}>Social / Google image <span style={{ opacity: 0.5, fontWeight: 400 }}>(landscape 1200×900 for Google Business & FB posts)</span></label>
+            <label style={lbl}>Email &amp; Google image <span style={{ opacity: 0.5, fontWeight: 400 }}>(landscape 1200×900 for Google Business, Facebook &amp; marketing emails)</span></label>
             <ImageField
               value={f.social_image_url}
               onChange={(url) => { setField('social_image_url', url); updateEvent(ev.id, { social_image_url: url || null }); }}
             />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
-              Heads up: the website uses this one too when it's set, in place of the Photo. If the
-              Photo above is the better shot, leave this empty.
+              A separate 4:3 crop for Google Business posts, Facebook, and marketing emails — these
+              formats want landscape, not the tall website Photo. This does <b>not</b> change the
+              website; the event page keeps using the Photo above.
             </div>
           </div>
         </div>
@@ -980,7 +981,7 @@ function PostPackage({ ev }) {
       <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8, background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 8, lineHeight: 1.5 }}>
         <b>Google Business post check:</b><br />
         Title {ev.title.length}/58 {ev.title.length > 58 ? '⚠ trim it' : '✓'} · Caption {caption.length}/1500 {caption.length > 1500 ? '⚠ shorten' : '✓'} <span style={{ opacity: 0.6 }}>(first ~100 chars show before "Read more" — front-load the hook)</span><br />
-        Image: {ev.social_image_url ? '✓ landscape image set' : (ev.image_url ? '⚠ using the square/portrait Photo — add a 1200×900 “Social / Google image” above for a cleaner post' : 'none set')} · Suggested button: “Learn more” → event page.
+        Image: {ev.social_image_url ? '✓ landscape image set' : (ev.image_url ? '⚠ using the square/portrait Photo — add a 1200×900 “Email & Google image” above for a cleaner post' : 'none set')} · Suggested button: “Learn more” → event page.
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <a href="https://www.facebook.com/events/create/" target="_blank" rel="noreferrer" style={lnk}>Create Facebook Event ↗</a>
