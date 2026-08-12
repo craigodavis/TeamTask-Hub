@@ -31,18 +31,18 @@ const storage = multer.diskStorage({
     cb(null, `${safeBase(file.originalname)}-${Date.now()}${ext}`);
   },
 });
-// Video is allowed alongside images. The cap has to be much larger than the
-// image one -- a minute of 1080p phone footage is 60-100MB against the old
-// 25MB ceiling -- so it is set per-kind rather than raised for everything.
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+// One 500MB ceiling for images and video alike. Disk is not the constraint
+// (the host is unmetered); what needed guarding was memory, and that lives in
+// generateVariants, which skips resizing for absurd pixel counts rather than
+// trying to decode them.
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 const isVideo = (mime = '') => mime.startsWith('video/');
 const isImage = (mime = '') => mime.startsWith('image/');
 
 const upload = multer({
   storage,
-  limits: { fileSize: MAX_VIDEO_BYTES },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
     if (file.fieldname === 'poster') {
       // Poster frame for a video, grabbed in the browser at upload time.
@@ -168,13 +168,6 @@ router.post('/upload', requireManager,
   const file = req.files?.file?.[0];
   if (!file) return res.status(400).json({ error: 'No file uploaded' });
   const { filename, originalname, mimetype, size } = file;
-
-  // An image over the image ceiling is almost always a mistake; multer's own
-  // limit is set to the video ceiling because it cannot know the kind up front.
-  if (isImage(mimetype) && size > MAX_IMAGE_BYTES) {
-    fs.unlink(path.join(MEDIA_DIR, filename), () => {});
-    return res.status(413).json({ error: 'Images must be under 25MB.' });
-  }
 
   let original, variants, width, height;
   if (isVideo(mimetype)) {

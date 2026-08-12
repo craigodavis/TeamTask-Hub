@@ -42,6 +42,19 @@ export const isLikelyAI = (name = '') => AI_RE.test(name);
  * Returns { original, variants, width, height }. Degrades gracefully: if sharp
  * can't read the file (e.g. SVG/exotic format), returns the original only.
  */
+/**
+ * Above this, don't attempt to resize.
+ *
+ * Uploads are capped at 500MB, and sharp decodes to raw pixels: every variant
+ * pass allocates roughly width x height x 4 bytes, and there are eight passes
+ * (four widths, two formats). A 200-megapixel scan is ~800MB per pass, which
+ * does not fail the upload -- it exhausts memory and takes the whole process
+ * down. 100MP is far beyond any camera anyone here shoots with, so anything
+ * past it is a scan or a stitched panorama and is stored as-is: the original
+ * still works, it just has no generated sizes.
+ */
+const MAX_RESIZE_PIXELS = 100_000_000;
+
 export async function generateVariants(absPath, filename) {
   const base = filename.replace(/\.[^.]+$/, '');
   let meta;
@@ -52,6 +65,12 @@ export async function generateVariants(absPath, filename) {
   }
   const ow = meta.width || null;
   const oh = meta.height || null;
+
+  if (ow && oh && ow * oh > MAX_RESIZE_PIXELS) {
+    console.warn(`[media] ${filename} is ${ow}x${oh} (${Math.round(ow * oh / 1e6)}MP) — storing original, skipping variants`);
+    return { original: { url: publicUrl(filename), w: ow, h: oh }, variants: null, width: ow, height: oh };
+  }
+
   const variants = { webp: [], avif: [] };
 
   for (const w of WIDTHS) {
