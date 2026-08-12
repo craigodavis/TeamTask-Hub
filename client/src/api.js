@@ -2470,7 +2470,18 @@ export function posterFromVideo(file, seekSeconds = 1) {
   });
 }
 
-export async function uploadMedia(file, fields = {}) {
+/**
+ * Upload one file to the media library.
+ *
+ * Uses XMLHttpRequest rather than fetch purely for `upload.onprogress`: fetch
+ * still cannot report how much of a request body has been sent, and with a
+ * 500MB ceiling a video can take minutes. Without a percentage the screen just
+ * sits there and people re-click, which starts a second upload.
+ *
+ * @param {(pct:number)=>void} [onProgress] 0-100, or -1 when the browser
+ *        cannot measure the total (progress bar should go indeterminate).
+ */
+export async function uploadMedia(file, fields = {}, onProgress) {
   const form = new FormData();
   form.append('file', file);
   if (file.type?.startsWith('video/')) {
@@ -2478,13 +2489,24 @@ export async function uploadMedia(file, fields = {}) {
     if (poster) form.append('poster', poster);
   }
   for (const [k, v] of Object.entries(fields)) if (v != null && v !== '') form.append(k, v);
-  const res = await fetch(`${API}/media/upload`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${getToken()}` },
-    body: form,
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API}/media/upload`);
+    xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
+    xhr.upload.onprogress = (e) => {
+      onProgress?.(e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : -1);
+    };
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText || '{}'); } catch { /* non-JSON error page */ }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(body);
+      reject(new Error(body.error || `Upload failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error('Upload failed — check your connection'));
+    xhr.onabort = () => reject(new Error('Upload cancelled'));
+    xhr.send(form);
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
-  return res.json();
 }
 
 export async function updateMedia(id, fields) {

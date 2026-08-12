@@ -23,6 +23,7 @@ export function MediaLibrary({ embedded = false } = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(null);
   const [drag, setDrag] = useState(false);
   const [selected, setSelected] = useState(null);
   const [managingFolders, setManagingFolders] = useState(false);
@@ -62,13 +63,35 @@ export function MediaLibrary({ embedded = false } = {}) {
 
   const doUpload = async (files) => {
     if (!files || !files.length) return;
+    const chosen = Array.from(files);
+    const accepted = chosen.filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    const rejected = chosen.filter((f) => !accepted.includes(f));
+
+    if (!accepted.length) {
+      setError(`Not an image or video: ${rejected.map((f) => f.name).join(', ')}`);
+      if (fileInput.current) fileInput.current.value = '';
+      return;
+    }
+
     setUploading(true);
     setError('');
     try {
-      // Upload sequentially so a big drop doesn't hammer the server.
-      for (const file of Array.from(files)) {
-        if (!file.type.startsWith('image/')) continue;
-        await uploadMedia(file, { folder: folder === 'all' || folder === 'needs-review' ? 'library' : folder });
+      // Sequential, so a big drop doesn't hammer the server -- and so the
+      // progress readout refers to one file at a time.
+      for (let i = 0; i < accepted.length; i++) {
+        const file = accepted[i];
+        setProgress({ name: file.name, index: i + 1, of: accepted.length, pct: 0 });
+        await uploadMedia(
+          file,
+          { folder: folder === 'all' || folder === 'needs-review' ? 'library' : folder },
+          (pct) => setProgress((p) => (p ? { ...p, pct } : p)),
+        );
+      }
+      // Anything dropped that wasn't media is worth saying out loud rather
+      // than silently ignoring -- a skipped file used to look like a failure
+      // with no message.
+      if (rejected.length) {
+        setError(`Skipped (not an image or video): ${rejected.map((f) => f.name).join(', ')}`);
       }
       await load();
       await loadFolders();
@@ -76,6 +99,7 @@ export function MediaLibrary({ embedded = false } = {}) {
       setError(e.message);
     } finally {
       setUploading(false);
+      setProgress(null);
       if (fileInput.current) fileInput.current.value = '';
     }
   };
@@ -222,9 +246,23 @@ export function MediaLibrary({ embedded = false } = {}) {
         onDrop={onDrop}
       >
         {uploading ? (
-          <span>Uploading…</span>
+          <div className="upload-status">
+            <span>
+              {progress
+                ? `Uploading ${progress.name}${progress.of > 1 ? ` (${progress.index} of ${progress.of})` : ''}`
+                : 'Uploading…'}
+              {progress?.pct >= 0 ? ` — ${progress.pct}%` : ''}
+            </span>
+            <span className="upload-bar">
+              <i
+                className={progress?.pct >= 0 ? '' : 'indeterminate'}
+                style={progress?.pct >= 0 ? { width: `${progress.pct}%` } : undefined}
+              />
+            </span>
+            {progress?.pct === 100 && <span className="upload-note">Processing on the server…</span>}
+          </div>
         ) : (
-          <span><strong>Drop images here</strong> or click to upload — responsive webp/avif versions are generated automatically.</span>
+          <span><strong>Drop images or video here</strong> or click to upload — images get responsive webp/avif versions automatically.</span>
         )}
         <input ref={fileInput} type="file" accept="image/*,video/*" multiple onChange={(e) => doUpload(e.target.files)} />
       </div>
