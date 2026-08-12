@@ -3802,6 +3802,12 @@ const MIGRATIONS = [
   `ALTER TABLE events ALTER COLUMN start_at DROP NOT NULL`,
   // 1xx: Facebook event cover (1920×1005); also used as the link-share (OG) image
   `ALTER TABLE events ADD COLUMN IF NOT EXISTS fb_image_url TEXT`,
+  // 1xx: event task due date + daily reminder (to the assignee until done) + subtasks
+  `ALTER TABLE event_tasks
+     ADD COLUMN IF NOT EXISTS due_date DATE,
+     ADD COLUMN IF NOT EXISTS reminder_date DATE,
+     ADD COLUMN IF NOT EXISTS last_reminded_on DATE,
+     ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES event_tasks(id) ON DELETE CASCADE`,
 ];
 
 export async function runMigrations() {
