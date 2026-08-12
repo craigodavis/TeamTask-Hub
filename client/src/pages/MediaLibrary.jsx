@@ -7,7 +7,12 @@ const DEFAULT_FOLDERS = ['library', 'needs-review', 'hero', 'wines'];
 const prettyFolder = (f) => (f === 'all' ? 'all' : f.replace(/-/g, ' '));
 
 // Smallest webp variant for a fast thumbnail; fall back to the original.
-const thumbOf = (m) => m?.variants?.webp?.[0]?.url || m?.url;
+const isVideo = (m) => (m?.mime || '').startsWith('video/');
+// A video has no generated sizes; its thumbnail is the poster frame captured
+// in the browser at upload time. Falling back to m.url for a video would put
+// the whole file in a CSS background, so videos with no poster get nothing.
+const thumbOf = (m) =>
+  m?.variants?.webp?.[0]?.url || (isVideo(m) ? (m?.variants?.poster || null) : m?.url);
 
 export function MediaLibrary({ embedded = false } = {}) {
   const [items, setItems] = useState([]);
@@ -221,7 +226,7 @@ export function MediaLibrary({ embedded = false } = {}) {
         ) : (
           <span><strong>Drop images here</strong> or click to upload — responsive webp/avif versions are generated automatically.</span>
         )}
-        <input ref={fileInput} type="file" accept="image/*" multiple onChange={(e) => doUpload(e.target.files)} />
+        <input ref={fileInput} type="file" accept="image/*,video/*" multiple onChange={(e) => doUpload(e.target.files)} />
       </div>
 
       {loading ? (
@@ -234,6 +239,7 @@ export function MediaLibrary({ embedded = false } = {}) {
             <div key={m.id} className="media-card" onClick={() => setSelected(m)}>
               <div className="media-thumb" style={{ backgroundImage: `url(${thumbOf(m)})` }}>
                 <div className="media-badges">
+                  {isVideo(m) && <span className="badge video">Video</span>}
                   {m.folder === 'needs-review' && <span className="badge review">Review</span>}
                   {m.source === 'imported' && <span className="badge imported">Imported</span>}
                   {!m.alt_text && <span className="badge noalt">No alt</span>}
@@ -358,7 +364,9 @@ function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
   };
 
   const remove = async () => {
-    if (!window.confirm('Delete this image and all its generated sizes? This cannot be undone.')) return;
+    if (!window.confirm(isVideo(item)
+      ? 'Delete this video? This cannot be undone.'
+      : 'Delete this image and all its generated sizes? This cannot be undone.')) return;
     setBusy(true);
     setErr('');
     try {
@@ -380,13 +388,16 @@ function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
   return (
     <div className="media-modal-backdrop" onClick={onClose}>
       <div className="media-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="preview" style={{ backgroundImage: `url(${item.url})` }} />
+        {isVideo(item)
+          ? <video className="preview" src={item.url} poster={item.variants?.poster || undefined}
+                   controls preload="metadata" />
+          : <div className="preview" style={{ backgroundImage: `url(${item.url})` }} />}
         <div className="form">
           <h2>{item.original_name || item.filename}</h2>
           {err && <div className="media-error">{err}</div>}
 
           <label>Alt text {!alt && <span className="alt-warn">(required for accessibility &amp; SEO)</span>}</label>
-          <textarea value={alt} onChange={(e) => setAlt(e.target.value)} placeholder="Describe the image for screen readers and search engines" />
+          <textarea value={alt} onChange={(e) => setAlt(e.target.value)} placeholder={isVideo(item) ? "Describe the video for screen readers" : "Describe the image for screen readers and search engines"} />
 
           <label>Caption</label>
           <textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Optional caption shown on the site" />

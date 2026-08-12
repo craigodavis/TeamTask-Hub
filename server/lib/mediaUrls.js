@@ -33,10 +33,17 @@ export function absMedia(row) {
   if (!row || typeof row !== 'object') return row;
   for (const f of FIELDS) if (f in row) row[f] = absUrl(row[f]);
   // variants is { webp: [{url,w},…], avif: [...] } — the picker reads webp[0].
+  // A video's variants is { poster: "/api/uploads/…" } instead: a bare string,
+  // not an array. Missing that left the poster relative while the video's own
+  // url was absolute, so an announcement embedded cross-origin showed a player
+  // with no still frame.
   if (row.variants && typeof row.variants === 'object') {
     for (const fmt of Object.keys(row.variants)) {
-      if (Array.isArray(row.variants[fmt])) {
-        row.variants[fmt] = row.variants[fmt].map((v) => (v && v.url ? { ...v, url: absUrl(v.url) } : v));
+      const v = row.variants[fmt];
+      if (Array.isArray(v)) {
+        row.variants[fmt] = v.map((x) => (x && x.url ? { ...x, url: absUrl(x.url) } : x));
+      } else if (typeof v === 'string') {
+        row.variants[fmt] = absUrl(v);
       }
     }
   }

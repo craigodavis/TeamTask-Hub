@@ -2434,9 +2434,49 @@ export async function listMedia(params = {}) {
   return res.json(); // { media, total }
 }
 
+/**
+ * Grab a still from a video to use as its poster.
+ *
+ * Done in the browser because the server has no ffmpeg. Without a poster a
+ * video is a black rectangle in the library grid. Seeks a little way in --
+ * the very first frame of a phone clip is usually a blur or a lens cap.
+ * Returns null on any failure; a missing poster is a cosmetic loss, not a
+ * reason to block the upload.
+ */
+export function posterFromVideo(file, seekSeconds = 1) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    const done = (result) => { URL.revokeObjectURL(url); resolve(result); };
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      // A clip shorter than the seek point still needs a frame.
+      video.currentTime = Math.min(seekSeconds, Math.max(0, (video.duration || 0) / 2));
+    };
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => done(blob ? new File([blob], 'poster.jpg', { type: 'image/jpeg' }) : null),
+          'image/jpeg', 0.8);
+      } catch { done(null); }
+    };
+    video.onerror = () => done(null);
+    video.src = url;
+  });
+}
+
 export async function uploadMedia(file, fields = {}) {
   const form = new FormData();
   form.append('file', file);
+  if (file.type?.startsWith('video/')) {
+    const poster = await posterFromVideo(file);
+    if (poster) form.append('poster', poster);
+  }
   for (const [k, v] of Object.entries(fields)) if (v != null && v !== '') form.append(k, v);
   const res = await fetch(`${API}/media/upload`, {
     method: 'POST',

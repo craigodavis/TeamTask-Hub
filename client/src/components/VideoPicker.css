@@ -1,0 +1,116 @@
+.vp-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 16, 22, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+
+.vp-modal {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  width: min(720px, 100%);
+  max-height: 82vh;
+  overflow-y: auto;
+  padding: 20px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vp-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.vp-head h2 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+
+.vp-close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b6470;
+  padding: 0 4px;
+}
+.vp-close:hover { color: #221c24; }
+.vp-close:focus-visible { outline: 2px solid #6b2233; outline-offset: 2px; }
+
+.vp-error {
+  background: #fae8e5;
+  color: #be3a2b;
+  border-radius: 4px;
+  padding: 9px 12px;
+  font-size: 0.9rem;
+}
+
+.vp-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vp-actions button {
+  font: inherit;
+  padding: 8px 15px;
+  border-radius: 4px;
+  border: 1px solid #6b2233;
+  background: #6b2233;
+  color: #fff;
+  cursor: pointer;
+}
+.vp-actions button:disabled { opacity: 0.6; cursor: default; }
+.vp-hint { font-size: 0.82rem; color: #8c8290; }
+
+.vp-empty { color: #8c8290; font-size: 0.92rem; margin: 4px 0; }
+
+.vp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.vp-card {
+  border: 1px solid #e4dfe2;
+  border-radius: 5px;
+  background: #fff;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+}
+.vp-card:hover { border-color: #6b2233; }
+.vp-card:focus-visible { outline: 2px solid #6b2233; outline-offset: 2px; }
+
+/* The poster fills the tile. Videos without one get a play glyph on black so
+   the card is still obviously a video rather than a broken image. */
+.vp-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  background: #17141a center / cover no-repeat;
+}
+.vp-noposter { color: #fff; font-size: 1.6rem; opacity: 0.75; }
+
+.vp-name {
+  padding: 7px 9px;
+  font-size: 0.8rem;
+  color: #221c24;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .vp-modal { background: #1f1b23; color: #efeaf0; }
+  .vp-head h2 { color: #efeaf0; }
+  .vp-card { background: #17141a; border-color: #332c38; }
+  .vp-name { color: #efeaf0; }
+  .vp-close { color: #ada3b0; }
+  .vp-close:hover { color: #efeaf0; }
+}

@@ -139,3 +139,24 @@
   padding-left: 1.5em;
   margin: 0.3em 0;
 }
+
+/* Video inside an announcement. Capped so a portrait phone clip doesn't take
+   over the whole post, and centred so it doesn't sit oddly against text. */
+.rich-editor-content video,
+.announcement-body video {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+  max-height: 420px;
+  /* Reserve the space up front. A <video> has no intrinsic size until its
+     metadata loads, so without this it renders 0x0 -- and if the file is slow
+     or missing it stays invisible, poster and all, leaving a silent gap in the
+     announcement rather than something the reader can see failed. */
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  margin: 12px auto;
+  background: #000;
+  border-radius: 4px;
+}
+.rich-editor-content a,
+.announcement-body a { color: #6b2233; text-decoration: underline; }

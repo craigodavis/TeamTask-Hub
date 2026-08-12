@@ -45,6 +45,7 @@ import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
 import { AbcFiling } from './AbcFiling';
 import { RichEditor } from '../components/RichEditor';
+import { useVideoPicker } from '../components/VideoPicker';
 import './Manager.css';
 
 import { todayInTimezone } from '../utils/dateUtils';
@@ -1114,6 +1115,7 @@ function AnnouncementForm({ locations, timezone, users, onCreated }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [editorKey, setEditorKey] = useState(0);
+  const [pickVideo, videoPickerModal] = useVideoPicker();
 
   const toggleLocation = (id) => {
     setLocationIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -1170,8 +1172,10 @@ function AnnouncementForm({ locations, timezone, users, onCreated }) {
           initialContent=""
           onChange={setBody}
           onImageUpload={handleImageUpload}
-          placeholder="Optional — additional detail, formatting, or images"
+          onPickVideo={pickVideo}
+          placeholder="Optional — additional detail, formatting, images or video"
         />
+        {videoPickerModal}
       </div>
       <div className="ann-edit-dates">
         <label className="ann-edit-label-inline">
@@ -1773,6 +1777,7 @@ function TaskTemplateRow({ template, locations, wageTitles, onUpdate, onAssign, 
 
 function AnnouncementEditDelete({ announcement, locations, users, currentUserId, onUpdate }) {
   const [editing, setEditing] = useState(false);
+  const [pickVideo, videoPickerModal] = useVideoPicker();
   const [title, setTitle] = useState(announcement.title);
   const [body, setBody] = useState(announcement.body || '');
   const [from, setFrom] = useState(announcement.effective_from);
@@ -1864,8 +1869,10 @@ function AnnouncementEditDelete({ announcement, locations, users, currentUserId,
             initialContent={body}
             onChange={setBody}
             onImageUpload={uploadAnnouncementImage}
-            placeholder="Optional — additional detail, formatting, or images"
+            onPickVideo={pickVideo}
+            placeholder="Optional — additional detail, formatting, images or video"
           />
+          {videoPickerModal}
         </div>
         <div className="ann-edit-dates">
           <label className="ann-edit-label-inline">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>

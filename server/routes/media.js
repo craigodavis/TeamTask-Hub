@@ -13,7 +13,7 @@ import path from 'path';
 import fs from 'fs';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
-import { MEDIA_DIR, generateVariants, safeBase, filesFor } from '../lib/mediaVariants.js';
+import { MEDIA_DIR, generateVariants, safeBase, filesFor, publicUrl } from '../lib/mediaVariants.js';
 import { importWordpressMedia } from '../lib/importWordpressMedia.js';
 import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
 
@@ -31,11 +31,27 @@ const storage = multer.diskStorage({
     cb(null, `${safeBase(file.originalname)}-${Date.now()}${ext}`);
   },
 });
+// Video is allowed alongside images. The cap has to be much larger than the
+// image one -- a minute of 1080p phone footage is 60-100MB against the old
+// 25MB ceiling -- so it is set per-kind rather than raised for everything.
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+
+const isVideo = (mime = '') => mime.startsWith('video/');
+const isImage = (mime = '') => mime.startsWith('image/');
+
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: MAX_VIDEO_BYTES },
   fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) return cb(new Error('Only image files are allowed'));
+    if (file.fieldname === 'poster') {
+      // Poster frame for a video, grabbed in the browser at upload time.
+      if (!isImage(file.mimetype)) return cb(new Error('Poster must be an image'));
+      return cb(null, true);
+    }
+    if (!isImage(file.mimetype) && !isVideo(file.mimetype)) {
+      return cb(new Error('Only image and video files are allowed'));
+    }
     cb(null, true);
   },
 });
@@ -146,10 +162,34 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/media/upload — upload one image (field name: "file").
-router.post('/upload', requireManager, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const { filename, originalname, mimetype, size } = req.file;
-  const { original, variants, width, height } = await generateVariants(path.join(MEDIA_DIR, filename), filename);
+router.post('/upload', requireManager,
+  upload.fields([{ name: 'file', maxCount: 1 }, { name: 'poster', maxCount: 1 }]),
+  async (req, res) => {
+  const file = req.files?.file?.[0];
+  if (!file) return res.status(400).json({ error: 'No file uploaded' });
+  const { filename, originalname, mimetype, size } = file;
+
+  // An image over the image ceiling is almost always a mistake; multer's own
+  // limit is set to the video ceiling because it cannot know the kind up front.
+  if (isImage(mimetype) && size > MAX_IMAGE_BYTES) {
+    fs.unlink(path.join(MEDIA_DIR, filename), () => {});
+    return res.status(413).json({ error: 'Images must be under 25MB.' });
+  }
+
+  let original, variants, width, height;
+  if (isVideo(mimetype)) {
+    // No resizing for video: there is no ffmpeg on the server, and a poster
+    // frame captured in the browser gives the library something to show
+    // without one. Playback is served straight from disk -- express.static
+    // answers range requests, so seeking works.
+    original = { url: publicUrl(filename), w: null, h: null };
+    width = height = null;
+    const poster = req.files?.poster?.[0];
+    variants = poster ? { poster: publicUrl(poster.filename) } : null;
+  } else {
+    ({ original, variants, width, height } =
+      await generateVariants(path.join(MEDIA_DIR, filename), filename));
+  }
 
   const b = req.body || {};
   const tags = Array.isArray(b.tags)
