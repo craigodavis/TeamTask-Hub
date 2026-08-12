@@ -22,6 +22,7 @@ import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { emailMediaRouter } from './routes/emailMedia.js';
+import { emailSubscriberRouter } from './routes/emailSubscriber.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { menusRouter } from './routes/menus.js';
 import { loyaltyRouter, memberRouter as loyaltyMemberRouter } from './routes/loyalty.js';
@@ -164,6 +165,10 @@ app.use('/api/dashboard', requireAuth, dashboardRouter);  // manager/owner overv
 // Deliberately NOT behind requireAuth: mail clients fetch images with no session.
 // Reachable by anyone, so it resolves records rather than paths — see the router.
 app.use('/email-media', emailMediaRouter);
+// Email-list gateway for ClubSteward. No session — the caller is a server, so it
+// authenticates with the X-Sync-Secret shared secret inside the router, which
+// refuses everything when SYNC_SECRET is unset.
+app.use('/api/email', emailSubscriberRouter);
 app.use('/api/campaigns', requireAuth, campaignsRouter);
 app.use('/api/menus', requireAuth, menusRouter);           // tasting-room print menus
 app.use('/api/loyalty', loyaltyRouter);           // points: staff admin + cost model

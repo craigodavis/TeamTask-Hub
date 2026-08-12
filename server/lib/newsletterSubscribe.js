@@ -32,9 +32,12 @@
  */
 
 import {
-  listmonkConfigured, getLists, createList, addSubscriber, findSubscriber,
+  listmonkConfigured, listmonkListId, addSubscriber, findSubscriber,
   updateSubscriber, addToLists,
 } from './listmonk.js';
+import {
+  cmConfigured, cmListId, addCmSubscriber, isCmSuppression,
+} from './campaignMonitor.js';
 
 const DEFAULT_LIST = 'Website Signups';
 
@@ -65,31 +68,7 @@ const HARD_SUPPRESSION = /spam|complaint/i;
 const suppressionReason = (sub) =>
   String(sub?.attribs?.reason || sub?.attribs?.suppressed_by || '');
 
-/**
- * Look something up once and keep it, but don't cache a failure — a lookup that
- * failed because the platform was briefly down should be retried on the next
- * signup, not remembered as broken until the next deploy.
- */
-function once(fn) {
-  let pending = null;
-  return () => (pending ??= Promise.resolve().then(fn).catch((e) => { pending = null; throw e; }));
-}
-
 /* ------------------------------------------------------------------ listmonk */
-
-/** One memo per list name — several lists are now fed through here. */
-const listmonkIdCache = new Map();
-const listmonkListId = (listName) => {
-  if (!listmonkIdCache.has(listName)) {
-    listmonkIdCache.set(listName, once(async () => {
-      const lists = (await getLists())?.results || [];
-      const found = lists.find((l) => l.name.trim().toLowerCase() === listName.toLowerCase());
-      if (found) return found.id;
-      return (await createList(listName)).id;
-    }));
-  }
-  return listmonkIdCache.get(listName)();
-};
 
 async function toListmonk(email, name, listName, deliberate) {
   if (!listmonkConfigured()) return { skipped: true };
@@ -138,78 +117,30 @@ async function toListmonk(email, name, listName, deliberate) {
 
 /* ---------------------------------------------------------- campaign monitor */
 
-const CM = 'https://api.createsend.com/api/v3.3';
-
-async function cm(path, body) {
-  const key = process.env.CAMPAIGN_MONITOR_API_KEY;
-  const res = await fetch(`${CM}${path}`, {
-    method: body ? 'POST' : 'GET',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${key}:x`).toString('base64')}`,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(10_000),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Campaign Monitor ${path} -> ${res.status}: ${text.slice(0, 160)}`);
-  return text ? JSON.parse(text) : null;
-}
-
-const cmClientId = once(async () => {
-  const clients = await cm('/clients.json');
-  const clientId = process.env.CAMPAIGN_MONITOR_CLIENT_ID || (clients.length === 1 && clients[0].ClientID);
-  if (!clientId) {
-    // Guessing which winery account to write to is not a call this should make.
-    throw new Error(
-      `key sees ${clients.length} clients — set CAMPAIGN_MONITOR_CLIENT_ID to one of: ` +
-      clients.map((c) => `${c.Name}=${c.ClientID}`).join(', '),
-    );
-  }
-
-  return clientId;
-});
-
-/** One memo per list name, same as listmonk. */
-const cmIdCache = new Map();
-const cmListId = (listName) => {
-  if (!cmIdCache.has(listName)) {
-    cmIdCache.set(listName, once(async () => {
-      // The env override only ever named one list, so it applies to the default.
-      if (listName === DEFAULT_LIST && process.env.CAMPAIGN_MONITOR_LIST_ID) {
-        return process.env.CAMPAIGN_MONITOR_LIST_ID;
-      }
-      const clientId = await cmClientId();
-      const lists = await cm(`/clients/${clientId}/lists.json`);
-      const found = lists.find((l) => l.Name.trim().toLowerCase() === listName.toLowerCase());
-      if (found) return found.ListID;
-      return cm(`/lists/${clientId}.json`, {
-        Title: listName,
-        // Single opt-in: the form the guest filled in is the confirmation.
-        ConfirmedOptIn: false,
-        UnsubscribeSetting: 'AllClientLists',
-      });
-    }));
-  }
-  return cmIdCache.get(listName)();
-};
-
+/**
+ * The client itself lives in campaignMonitor.js — it grew a second caller (the
+ * ClubSteward subscriber gateway) and one shared client beats two copies of the
+ * same auth and list lookup drifting apart.
+ */
 async function toCampaignMonitor(email, name, listName, deliberate) {
-  if (!process.env.CAMPAIGN_MONITOR_API_KEY) return { skipped: true };
+  if (!cmConfigured()) return { skipped: true };
   try {
-    await cm(`/subscribers/${encodeURIComponent(await cmListId(listName))}.json`, {
-      EmailAddress: email,
-      Name: name || '',
-      // Required since v3.2. The form is an explicit opt-in — that's the consent.
-      ConsentToTrack: 'Yes',
+    // The env override only ever named one list, so it applies to the default.
+    const list = listName === DEFAULT_LIST && process.env.CAMPAIGN_MONITOR_LIST_ID
+      ? process.env.CAMPAIGN_MONITOR_LIST_ID
+      : listName;
+    await addCmSubscriber({
+      listId: await cmListId(list),
+      email,
+      name,
       // Matches listmonk's decision for this same submission, so the two
       // platforms never disagree about one person. False for bulk syncs, which
       // is the case that caused the damage.
-      Resubscribe: Boolean(deliberate),
+      resubscribe: Boolean(deliberate),
     });
     return { ok: true };
   } catch (e) {
-    if (/unsubscrib|suppress|inactive/i.test(e.message)) return { suppressed: true };
+    if (isCmSuppression(e)) return { suppressed: true };
     throw e;
   }
 }
