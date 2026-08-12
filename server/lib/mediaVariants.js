@@ -95,6 +95,17 @@ export async function generateVariants(absPath, filename) {
 export function filesFor(row) {
   const files = [row.filename];
   const v = row.variants || {};
-  for (const fmt of Object.keys(v)) for (const item of v[fmt] || []) files.push(path.basename(item.url));
+  for (const key of Object.keys(v)) {
+    const val = v[key];
+    if (Array.isArray(val)) {
+      // Image sizes: [{ w, url }, …]
+      for (const item of val) if (item?.url) files.push(path.basename(item.url));
+    } else if (typeof val === 'string') {
+      // Video extras: { poster: "…", web: "…" }. Iterating these as arrays
+      // walked the URL character by character, so deleting a video left its
+      // poster and its 720p copy behind on disk.
+      files.push(path.basename(val));
+    }
+  }
   return files;
 }

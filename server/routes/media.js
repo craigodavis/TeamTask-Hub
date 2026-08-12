@@ -14,6 +14,7 @@ import fs from 'fs';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { MEDIA_DIR, generateVariants, safeBase, filesFor, publicUrl } from '../lib/mediaVariants.js';
+import { transcodeToWeb, videoDimensions } from '../lib/videoTranscode.js';
 import { importWordpressMedia } from '../lib/importWordpressMedia.js';
 import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
 
@@ -171,12 +172,13 @@ router.post('/upload', requireManager,
 
   let original, variants, width, height;
   if (isVideo(mimetype)) {
-    // No resizing for video: there is no ffmpeg on the server, and a poster
-    // frame captured in the browser gives the library something to show
-    // without one. Playback is served straight from disk -- express.static
-    // answers range requests, so seeking works.
+    // The original is stored as-is and is immediately playable; express.static
+    // answers range requests, so seeking works. A 720p version is produced
+    // afterwards (see below) because that takes minutes on a large file.
     original = { url: publicUrl(filename), w: null, h: null };
-    width = height = null;
+    const dims = await videoDimensions(path.join(MEDIA_DIR, filename));
+    width = dims?.width ?? null;
+    height = dims?.height ?? null;
     const poster = req.files?.poster?.[0];
     variants = poster ? { poster: publicUrl(poster.filename) } : null;
   } else {
@@ -199,7 +201,18 @@ router.post('/upload', requireManager,
      b.alt_text || null, b.caption || null, b.credit || null, b.folder || 'library',
      tags, variants ? JSON.stringify(variants) : null, cId(req), req.userId]
   );
-  res.status(201).json(absMedia(r.rows[0]));
+  const row = r.rows[0];
+
+  // Kick the transcode off and answer straight away. Deliberately not awaited:
+  // it is minutes of CPU on a big file, and holding the response would time
+  // out the browser mid-upload. The original plays in the meantime, and the
+  // 720p version attaches itself to the row when it is done.
+  if (isVideo(mimetype)) {
+    transcodeToWeb(row.id, filename).catch((e) =>
+      console.error('[media] transcode dispatch failed:', e.message));
+  }
+
+  res.status(201).json(absMedia(row));
 });
 
 // PATCH /api/media/:id — edit metadata (alt_text, caption, credit, folder, tags).

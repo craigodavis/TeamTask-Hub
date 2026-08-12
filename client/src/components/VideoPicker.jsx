@@ -60,6 +60,9 @@ function VideoPickerModal({ onPick }) {
     setErr('');
     try {
       const created = await uploadMedia(file, { folder: 'library' });
+      // The 720p version is still transcoding at this point, so a video
+      // inserted straight after upload points at the original. That is
+      // correct -- it plays now, and the small copy only exists later.
       onPick({ url: created.url, poster: created.variants?.poster || null });
     } catch (e) {
       setErr(e.message);
@@ -103,7 +106,12 @@ function VideoPickerModal({ onPick }) {
                 type="button"
                 key={v.id}
                 className="vp-card"
-                onClick={() => onPick({ url: v.url, poster: v.variants?.poster || null })}
+                onClick={() => onPick({
+                  // Prefer the 720p copy; fall back to the original when the
+                  // transcode has not finished or was skipped.
+                  url: v.variants?.web || v.url,
+                  poster: v.variants?.poster || null,
+                })}
               >
                 <span
                   className="vp-thumb"

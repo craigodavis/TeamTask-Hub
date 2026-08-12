@@ -277,7 +277,11 @@ export function MediaLibrary({ embedded = false } = {}) {
             <div key={m.id} className="media-card" onClick={() => setSelected(m)}>
               <div className="media-thumb" style={{ backgroundImage: `url(${thumbOf(m)})` }}>
                 <div className="media-badges">
-                  {isVideo(m) && <span className="badge video">Video</span>}
+                  {isVideo(m) && (
+                    <span className={`badge video${m.variants?.web ? '' : ' pending'}`}>
+                      {m.variants?.web ? 'Video' : 'Video · optimising'}
+                    </span>
+                  )}
                   {m.folder === 'needs-review' && <span className="badge review">Review</span>}
                   {m.source === 'imported' && <span className="badge imported">Imported</span>}
                   {!m.alt_text && <span className="badge noalt">No alt</span>}
@@ -427,7 +431,8 @@ function MediaDetail({ item, folders = [], onClose, onSaved, onDeleted }) {
     <div className="media-modal-backdrop" onClick={onClose}>
       <div className="media-modal" onClick={(e) => e.stopPropagation()}>
         {isVideo(item)
-          ? <video className="preview" src={item.url} poster={item.variants?.poster || undefined}
+          ? <video className="preview" src={item.variants?.web || item.url}
+                   poster={item.variants?.poster || undefined}
                    controls preload="metadata" />
           : <div className="preview" style={{ backgroundImage: `url(${item.url})` }} />}
         <div className="form">

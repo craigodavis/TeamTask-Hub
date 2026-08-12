@@ -159,3 +159,7 @@
 /* The bar hits 100% when the bytes are sent, but the server still has to write
    the file and generate variants -- say so instead of appearing stalled. */
 .dropzone .upload-note { font-size: .8rem; opacity: .7; }
+
+/* A video with no 720p copy yet is still playable, just heavier — say which
+   state it is in rather than leaving people guessing why one is slow. */
+.media-thumb .badge.video.pending { background: #b57f14; }
