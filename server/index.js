@@ -64,6 +64,7 @@ import { eventsRouter, musiciansRouter } from './routes/events.js';
 import { promoRouter } from './routes/promo.js';
 import { startPromoEmailScheduler } from './lib/promoEmailSender.js';
 import { startPublishWarningScheduler } from './lib/eventPublishWarning.js';
+import { startEventTaskReminderScheduler } from './lib/eventTaskReminders.js';
 import { commerce7SyncRouter } from './routes/commerce7Sync.js';
 import { recipesRouter } from './routes/recipes.js';
 import { mediaRouter } from './routes/media.js';
@@ -231,6 +232,7 @@ function startSchedulers() {
   startInstagramScheduler();
   startPromoEmailScheduler();
   startPublishWarningScheduler();
+  startEventTaskReminderScheduler();
   startZeroCanaryScheduler();
   startAbcPortalScheduler();
 }

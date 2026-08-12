@@ -474,7 +474,9 @@ function DistributionCard({ eventId, card }) {
 function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [notes, setNotes] = useState(ev.internal_notes || '');
   const [tasks, setTasks] = useState([]);
-  const [nt, setNt] = useState({ checklist: 'Final Checklist', title: '', assignee_user_id: '' });
+  const [nt, setNt] = useState({ checklist: 'Final Checklist', title: '', assignee_user_id: '', due_date: '', reminder_date: '' });
+  const [editTask, setEditTask] = useState(null); // { id, title } — inline task rename
+  const [editList, setEditList] = useState(null); // { old, name } — inline checklist rename
   const [savedNotes, setSavedNotes] = useState(false);
   const [promo, setPromo] = useState([]);
   const [np, setNp] = useState({ title: 'Post to Facebook Events', channel: 'facebook_event', assignee_user_id: '', escalate_to: [] });
@@ -509,10 +511,80 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const toggleEsc = (uid) => setNp((n) => ({ ...n, escalate_to: n.escalate_to.includes(uid) ? n.escalate_to.filter((x) => x !== uid) : [...n.escalate_to, uid] }));
 
   const saveNotes = async () => { await updateEvent(ev.id, { internal_notes: notes }); setSavedNotes(true); setTimeout(() => setSavedNotes(false), 1200); };
-  const addTask = async () => { if (!nt.title.trim()) return; await createEventTask(ev.id, nt); setNt({ ...nt, title: '' }); loadTasks(); };
+  const addTask = async () => { if (!nt.title.trim()) return; await createEventTask(ev.id, { ...nt, due_date: nt.due_date || null, reminder_date: nt.reminder_date || null }); setNt({ ...nt, title: '', due_date: '', reminder_date: '' }); loadTasks(); };
   const toggle = async (t) => { await updateEventTask(t.id, { done: !t.done }); loadTasks(); };
   const assign = async (t, uid) => { await updateEventTask(t.id, { assignee_user_id: uid || null }); loadTasks(); };
-  const del = async (t) => { await deleteEventTask(t.id); loadTasks(); };
+  const del = async (t) => { if (window.confirm(`Delete “${t.title}”?`)) { await deleteEventTask(t.id); loadTasks(); } };
+  const startEdit = (t) => setEditTask({ id: t.id, title: t.title, due_date: t.due_date ? t.due_date.slice(0, 10) : '', reminder_date: t.reminder_date ? t.reminder_date.slice(0, 10) : '' });
+  const saveTaskEdit = async () => {
+    if (!editTask || !editTask.title.trim()) return;
+    await updateEventTask(editTask.id, { title: editTask.title.trim(), due_date: editTask.due_date || null, reminder_date: editTask.reminder_date || null });
+    setEditTask(null); loadTasks();
+  };
+  const renameList = async () => {
+    if (!editList) { return; }
+    const name = editList.name.trim();
+    if (name && name !== editList.old) {
+      await Promise.all(tasks.filter((t) => t.checklist === editList.old).map((t) => updateEventTask(t.id, { checklist: name })));
+    }
+    setEditList(null); loadTasks();
+  };
+  const deleteList = async (name) => {
+    const items = tasks.filter((t) => t.checklist === name);
+    if (!window.confirm(`Delete the “${name}” checklist and its ${items.length} item${items.length === 1 ? '' : 's'}?`)) return;
+    await Promise.all(items.map((t) => deleteEventTask(t.id)));
+    loadTasks();
+  };
+  const fmtDue = (d) => { if (!d) return ''; const dt = new Date(d.slice(0, 10) + 'T00:00'); return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
+  // Reorder siblings by rewriting sort_order to match the new positions.
+  const reorder = async (siblings, from, to) => {
+    if (to < 0 || to >= siblings.length) return;
+    const arr = siblings.slice();
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    await Promise.all(arr.map((t, i) => (t.sort_order !== i ? updateEventTask(t.id, { sort_order: i }) : null)).filter(Boolean));
+    loadTasks();
+  };
+  const addSub = async (parent) => {
+    const r = await createEventTask(ev.id, { checklist: parent.checklist, title: 'New subtask', parent_task_id: parent.id });
+    await loadTasks();
+    if (r?.id) setEditTask({ id: r.id, title: 'New subtask', due_date: '', reminder_date: '' });
+  };
+  const renderRow = (t, siblings, index, isChild) => (
+    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', flexWrap: 'wrap', marginLeft: isChild ? 26 : 0 }}>
+      <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 0.7 }}>
+        <button title="Move up" style={{ ...btn(false), padding: '0 5px', fontSize: 10, opacity: index === 0 ? 0.3 : 1 }} onClick={() => reorder(siblings, index, index - 1)}>▲</button>
+        <button title="Move down" style={{ ...btn(false), padding: '0 5px', fontSize: 10, opacity: index === siblings.length - 1 ? 0.3 : 1 }} onClick={() => reorder(siblings, index, index + 1)}>▼</button>
+      </span>
+      <input type="checkbox" checked={t.done} onChange={() => toggle(t)} />
+      {editTask && editTask.id === t.id ? (
+        <>
+          <input autoFocus style={{ ...inp, flex: 1, minWidth: 140, padding: '3px 6px', fontSize: 13 }} value={editTask.title}
+            onChange={(e) => setEditTask({ ...editTask, title: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveTaskEdit(); if (e.key === 'Escape') setEditTask(null); }} />
+          <label style={{ fontSize: 11, opacity: 0.6 }}>Due <input type="date" style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 12 }} value={editTask.due_date} onChange={(e) => setEditTask({ ...editTask, due_date: e.target.value })} /></label>
+          <label style={{ fontSize: 11, opacity: 0.6 }}>Remind from <input type="date" style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 12 }} value={editTask.reminder_date} onChange={(e) => setEditTask({ ...editTask, reminder_date: e.target.value })} /></label>
+          <button style={{ ...btn(true), padding: '2px 8px', fontSize: 12 }} onClick={saveTaskEdit}>Save</button>
+          <button style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }} onClick={() => setEditTask(null)}>Cancel</button>
+        </>
+      ) : (
+        <>
+          <span style={{ flex: 1, minWidth: 120, textDecoration: t.done ? 'line-through' : 'none', opacity: t.done ? 0.55 : 1 }}>
+            {t.title}
+            {t.due_date && <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 6 }}>· due {fmtDue(t.due_date)}</span>}
+            {t.reminder_date && !t.done && <span title={`Texts the assignee daily from ${fmtDue(t.reminder_date)} until checked off`} style={{ fontSize: 11, opacity: 0.7, marginLeft: 6 }}>🔔</span>}
+          </span>
+          {!isChild && <button title="Add subtask" style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }} onClick={() => addSub(t)}>+ sub</button>}
+          <button title="Edit item" style={{ ...btn(false), padding: '2px 8px' }} onClick={() => startEdit(t)}>✎</button>
+          <select value={t.assignee_user_id || ''} onChange={(e) => assign(t, e.target.value)} style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 12 }}>
+            <option value="">unassigned</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+          </select>
+          <button title="Delete item" style={{ ...btn(false), padding: '2px 8px' }} onClick={() => del(t)}>✕</button>
+        </>
+      )}
+    </div>
+  );
 
   const groups = {};
   for (const t of tasks) (groups[t.checklist] ??= []).push(t);
@@ -604,16 +676,27 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
         {Object.keys(groups).length === 0 && <p style={{ opacity: 0.6 }}>No items yet — add one below.</p>}
         {Object.entries(groups).map(([name, items]) => (
           <div key={name} style={{ marginBottom: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 4 }}>{name} <span style={{ fontWeight: 400, opacity: 0.6 }}>({items.filter((i) => i.done).length}/{items.length})</span></div>
-            {items.map((t) => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                <input type="checkbox" checked={t.done} onChange={() => toggle(t)} />
-                <span style={{ flex: 1, textDecoration: t.done ? 'line-through' : 'none', opacity: t.done ? 0.55 : 1 }}>{t.title}</span>
-                <select value={t.assignee_user_id || ''} onChange={(e) => assign(t, e.target.value)} style={{ ...inp, width: 'auto', padding: '3px 6px', fontSize: 12 }}>
-                  <option value="">unassigned</option>
-                  {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-                </select>
-                <button style={{ ...btn(false), padding: '2px 8px' }} onClick={() => del(t)}>✕</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              {editList && editList.old === name ? (
+                <>
+                  <input autoFocus style={{ ...inp, width: 180, padding: '3px 6px', fontSize: 13 }} value={editList.name}
+                    onChange={(e) => setEditList({ ...editList, name: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') renameList(); if (e.key === 'Escape') setEditList(null); }} />
+                  <button style={{ ...btn(true), padding: '2px 8px', fontSize: 12 }} onClick={renameList}>Save</button>
+                  <button style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }} onClick={() => setEditList(null)}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontWeight: 700, fontSize: 13, opacity: 0.85 }}>{name} <span style={{ fontWeight: 400, opacity: 0.6 }}>({items.filter((i) => i.done).length}/{items.length})</span></span>
+                  <button title="Rename checklist" style={{ ...btn(false), padding: '1px 7px', fontSize: 12 }} onClick={() => setEditList({ old: name, name })}>✎</button>
+                  <button title="Delete checklist" style={{ ...btn(false), padding: '1px 7px', fontSize: 12 }} onClick={() => deleteList(name)}>🗑</button>
+                </>
+              )}
+            </div>
+            {items.filter((t) => !t.parent_task_id).map((top, ti, tops) => (
+              <div key={top.id}>
+                {renderRow(top, tops, ti, false)}
+                {items.filter((c) => c.parent_task_id === top.id).map((ch, ci, kids) => renderRow(ch, kids, ci, true))}
               </div>
             ))}
           </div>
@@ -626,6 +709,12 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           <div style={{ flex: 1, minWidth: 160 }}><label style={lbl}>New item</label>
             <input style={inp} value={nt.title} onChange={(e) => setNt({ ...nt, title: e.target.value })} placeholder="e.g. Musician contacted? Tickets added?" onKeyDown={(e) => { if (e.key === 'Enter') addTask(); }} />
           </div>
+          <div><label style={lbl}>Due</label>
+            <input type="date" style={{ ...inp, width: 150 }} value={nt.due_date} onChange={(e) => setNt({ ...nt, due_date: e.target.value })} />
+          </div>
+          <div><label style={lbl}>Remind from</label>
+            <input type="date" style={{ ...inp, width: 150 }} value={nt.reminder_date} onChange={(e) => setNt({ ...nt, reminder_date: e.target.value })} />
+          </div>
           <div><label style={lbl}>Assign</label>
             <select style={{ ...inp, width: 140 }} value={nt.assignee_user_id} onChange={(e) => setNt({ ...nt, assignee_user_id: e.target.value })}>
               <option value="">unassigned</option>
@@ -634,6 +723,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           </div>
           <button style={btn(true)} onClick={addTask} disabled={!nt.title.trim()}>Add</button>
         </div>
+        <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Set a <b>Remind from</b> date and an assignee, and they get a text every day from that date until the item is checked off.</p>
       </div>
 
       <DistributionCard eventId={ev.id} card={card} />

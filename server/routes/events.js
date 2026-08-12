@@ -190,7 +190,8 @@ eventsRouter.patch('/distribution/:postId', async (req, res) => {
 eventsRouter.get('/:id/tasks', async (req, res) => {
   try {
     const r = await query(
-      `SELECT t.id, t.checklist, t.title, t.assignee_user_id, t.done, t.sort_order, u.display_name AS assignee_name
+      `SELECT t.id, t.checklist, t.title, t.assignee_user_id, t.done, t.sort_order,
+              t.due_date, t.reminder_date, t.parent_task_id, u.display_name AS assignee_name
          FROM event_tasks t LEFT JOIN users u ON u.id = t.assignee_user_id
         WHERE t.event_id = $1 AND t.company_id = $2
         ORDER BY t.checklist, t.sort_order, t.created_at`, [req.params.id, cId(req)]);
@@ -200,12 +201,15 @@ eventsRouter.get('/:id/tasks', async (req, res) => {
 
 eventsRouter.post('/:id/tasks', async (req, res) => {
   try {
-    const { checklist, title, assignee_user_id } = req.body || {};
+    const { checklist, title, assignee_user_id, due_date, reminder_date, parent_task_id } = req.body || {};
     if (!title?.trim()) return res.status(400).json({ error: 'Task title is required' });
+    const cl = (checklist || 'Checklist').slice(0, 80);
     const r = await query(
-      `INSERT INTO event_tasks (company_id, event_id, checklist, title, assignee_user_id)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [cId(req), req.params.id, (checklist || 'Checklist').slice(0, 80), title.trim(), assignee_user_id || null]);
+      `INSERT INTO event_tasks (company_id, event_id, checklist, title, assignee_user_id, due_date, reminder_date, parent_task_id, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
+         (SELECT COALESCE(MAX(sort_order),0)+1 FROM event_tasks WHERE event_id=$2 AND checklist=$3))
+       RETURNING id`,
+      [cId(req), req.params.id, cl, title.trim(), assignee_user_id || null, due_date || null, reminder_date || null, parent_task_id || null]);
     res.json({ id: r.rows[0].id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -218,6 +222,9 @@ eventsRouter.patch('/tasks/:taskId', async (req, res) => {
     if ('title' in b) add('title', b.title);
     if ('assignee_user_id' in b) add('assignee_user_id', b.assignee_user_id || null);
     if ('sort_order' in b) add('sort_order', b.sort_order);
+    if ('due_date' in b) add('due_date', b.due_date || null);
+    if ('reminder_date' in b) add('reminder_date', b.reminder_date || null);
+    if ('parent_task_id' in b) add('parent_task_id', b.parent_task_id || null);
     if ('done' in b) { add('done', !!b.done); add('done_at', b.done ? new Date() : null); }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.taskId, cId(req));
