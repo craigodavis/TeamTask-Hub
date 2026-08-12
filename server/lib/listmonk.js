@@ -55,6 +55,40 @@ export const createList = (name) =>
   call('POST', '/api/lists', { name, type: 'public', optin: 'single' });
 
 /**
+ * Look something up once and keep it, but don't cache a failure — a lookup that
+ * failed because listmonk was briefly down should be retried on the next call,
+ * not remembered as broken until the next deploy.
+ */
+function once(fn) {
+  let pending = null;
+  return () => (pending ??= Promise.resolve().then(fn).catch((e) => { pending = null; throw e; }));
+}
+
+/** One memo per list name — several callers now feed lists through here. */
+const listIdCache = new Map();
+
+/**
+ * Resolve a list to its id, creating it if it doesn't exist.
+ *
+ * Names rather than ids because an id is one more opaque thing to configure
+ * correctly, and the name is what whoever sends the campaign will actually go
+ * looking for. A numeric id is accepted and used as-is, so an audience can be
+ * pinned to an existing list without depending on its name.
+ */
+export function listmonkListId(listNameOrId) {
+  if (/^\d+$/.test(String(listNameOrId))) return Promise.resolve(Number(listNameOrId));
+  if (!listIdCache.has(listNameOrId)) {
+    listIdCache.set(listNameOrId, once(async () => {
+      const lists = (await getLists())?.results || [];
+      const found = lists.find((l) => l.name.trim().toLowerCase() === String(listNameOrId).toLowerCase());
+      if (found) return found.id;
+      return (await createList(listNameOrId)).id;
+    }));
+  }
+  return listIdCache.get(listNameOrId)();
+}
+
+/**
  * Add a subscriber. Throws on 409 (already on the list) like any other error —
  * callers that treat that as success should match on the status in the message.
  */
@@ -69,11 +103,29 @@ export const addSubscriber = (payload) => call('POST', '/api/subscribers', paylo
  * stop, and quietly reporting success for them is how a suppression gets
  * treated as a signup.
  */
+/** Single-quote a value for listmonk's SQL query expressions. */
+const sqlLiteral = (v) => `'${String(v).replace(/'/g, "''")}'`;
+
 export async function findSubscriber(email) {
-  const sql = `subscribers.email = '${String(email).replace(/'/g, "''")}'`;
-  const d = await call('GET', `/api/subscribers?per_page=1&query=${encodeURIComponent(sql)}`);
+  return findSubscriberBy(`subscribers.email = ${sqlLiteral(email)}`);
+}
+
+/**
+ * Look a subscriber up by an arbitrary listmonk SQL expression.
+ *
+ * listmonk's subscriber search takes a fragment of SQL against the subscribers
+ * table, which is how an attribute lookup is possible at all — and an attribute
+ * lookup is what lets a changed email address be recognised as the same person
+ * instead of becoming a second record.
+ */
+export async function findSubscriberBy(sqlExpr) {
+  const d = await call('GET', `/api/subscribers?per_page=1&query=${encodeURIComponent(sqlExpr)}`);
   return d?.results?.[0] || null;
 }
+
+/** Find whoever carries this Commerce7 customer id, whatever address they now use. */
+export const findSubscriberByAttrib = (key, value) =>
+  findSubscriberBy(`subscribers.attribs->>${sqlLiteral(key)} = ${sqlLiteral(value)}`);
 
 /**
  * Lift a blocklist and put the person on a list, for someone who has come back
