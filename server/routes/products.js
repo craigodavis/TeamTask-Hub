@@ -682,6 +682,14 @@ function buildC7Variant(v, ordinal) {
     hasShipping: true,
     taxType: 'Wine',
     weight: C7_DEFAULT_WEIGHT,
+    // Required on create, and rejected as a derived field on update -- the
+    // nested-variant PUT below strips both back out again. Commerce7 is not
+    // symmetric here, so don't "tidy" these away. We don't run stock through
+    // Commerce7 (its on_hand_count is null for every variant; TeamHub is the
+    // inventory master), so the wine stays orderable rather than showing sold
+    // out against a count nobody maintains.
+    hasInventory: false,
+    inventoryPolicy: 'Back Order',
   };
   // Only when we actually know it -- sending 0 would publish a wrong ABV.
   if (v.alcohol_pct != null && v.alcohol_pct !== '') {
@@ -713,10 +721,18 @@ function c7EligibleVariants(variants) {
  */
 export async function createInCommerce7({ client, c7, companyId, productId, body }) {
   const prod = (await client.query(
-    `SELECT name, vintage, sku, product_type, alcohol_pct, is_available, is_web_available
+    `SELECT name, description, vintage, varietal, wine_style, appellation, region,
+            country, sku, product_type, alcohol_pct, is_available, is_web_available
        FROM product.products WHERE id = $1`,
     [productId]
   )).rows[0];
+
+  const c7Saved = (await client.query(
+    `SELECT teaser, seo_title, seo_description, winemaker_notes, tasting_notes,
+            pairing_notes, label_story, release_date, cases_produced, origin_vineyard, awards
+       FROM product.c7_products WHERE product_id = $1`,
+    [productId]
+  )).rows[0] || {};
 
   const variants = (await client.query(
     `SELECT id, sku, price_cents, volume_format, is_glass, ordinal
@@ -744,9 +760,12 @@ export async function createInCommerce7({ client, c7, companyId, productId, body
     );
   }
 
-  const payload = buildC7Payload(body, prod);
-  // buildC7Payload only emits a field the request actually carried, but a
-  // create has to be complete, so fill from the saved row.
+  // buildC7Payload only emits fields the request actually carried -- correct
+  // for a PATCH-shaped update, wrong for a create, which has to describe the
+  // whole product. Sending the body alone published the 24 Into the Mystic
+  // with an entirely null `wine` block: no varietal, no vintage, no
+  // appellation. So the saved row is the base and the request overrides it.
+  const payload = buildC7Payload({ ...prod, ...c7Saved, ...body }, prod);
   payload.title ??= prod.name;
   payload.type = prod.product_type || 'Wine';
   payload.adminStatus ??= prod.is_available ? 'Available' : 'Not Available';
