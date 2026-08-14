@@ -9,6 +9,7 @@ import express from 'express';
 import { pool, query } from '../db.js';
 import { requireAuth, requireManager } from '../middleware/auth.js';
 import { runCatalogSync, getLastSyncJob } from '../lib/squareCatalogSync.js';
+import { defaultVariantSku, isGlassVolume } from '../lib/skuNomenclature.js';
 
 const router = express.Router();
 const appSchema = process.env.DB_SCHEMA || 'teamtask_hub';
@@ -639,6 +640,168 @@ function buildC7Payload(body, current = {}) {
   return p;
 }
 
+// ── Commerce7 variant payloads ───────────────────────────────────────────────
+const ML_BY_FORMAT = {
+  '187ml': 187, '375ml': 375, '500ml': 500, '750ml': 750,
+  '1L': 1000, '1.5L': 1500, '3L': 3000, '6L': 6000,
+};
+
+function volumeToML(format) {
+  const fmt = String(format || '').trim();
+  if (ML_BY_FORMAT[fmt]) return ML_BY_FORMAT[fmt];
+  const ml = fmt.match(/^(\d+)\s*ml$/i);
+  if (ml) return parseInt(ml[1], 10);
+  const oz = fmt.match(/^([\d.]+)\s*oz$/i);
+  if (oz) return Math.round(parseFloat(oz[1]) * 29.5735);
+  return undefined;
+}
+
+// The house default. Commerce7 wants a shipping weight on every variant and
+// our bottles all sit within a rounding error of each other, so there is no
+// per-wine value worth carrying -- the live catalogue reads 1.2, 1.25 and 1.3.
+const C7_DEFAULT_WEIGHT = 1.3;
+
+/**
+ * A whole Commerce7 variant, built from one of ours.
+ *
+ * Commerce7 rejects a partial variant with "required" on title, sku, sortOrder,
+ * costOfGood and hasShipping, so every one of those is sent even when it is
+ * just the default. `comparePrice` is set equal to `price` because Commerce7
+ * enforces comparePrice >= price and a null there reads as "no was-price".
+ */
+function buildC7Variant(v, ordinal) {
+  const price = v.price_cents != null ? parseInt(v.price_cents, 10) : 0;
+  const out = {
+    title: v.volume_format || '750ml',
+    sku: v.sku,
+    price,
+    comparePrice: price,
+    volumeInML: volumeToML(v.volume_format) ?? 750,
+    sortOrder: ordinal + 1,
+    costOfGood: 0,
+    hasShipping: true,
+    taxType: 'Wine',
+    weight: C7_DEFAULT_WEIGHT,
+  };
+  // Only when we actually know it -- sending 0 would publish a wrong ABV.
+  if (v.alcohol_pct != null && v.alcohol_pct !== '') {
+    out.alcoholPercentage = Number(v.alcohol_pct);
+  }
+  return out;
+}
+
+/**
+ * Glass pours are a tasting-room concept and have never existed in Commerce7 --
+ * every live wine there carries the bottle alone, while TeamHub and Square also
+ * carry the 5oz. Pushing them would invent products on the storefront that
+ * nobody can buy.
+ */
+function c7EligibleVariants(variants) {
+  return variants.filter((v) => !v.is_glass && v.sku);
+}
+
+/**
+ * Create the product in Commerce7 and record the link.
+ *
+ * This is the path for a wine that exists in TeamHub but has never been pushed
+ * -- the product detail page shows it as "C7 Not Linked". Until now saving such
+ * a product did nothing at all upstream: the push was gated on already having a
+ * c7_product_id, so the one case that needed creating was the one case that was
+ * skipped, silently and forever.
+ *
+ * Returns the new Commerce7 product id.
+ */
+export async function createInCommerce7({ client, c7, companyId, productId, body }) {
+  const prod = (await client.query(
+    `SELECT name, vintage, sku, product_type, alcohol_pct, is_available, is_web_available
+       FROM product.products WHERE id = $1`,
+    [productId]
+  )).rows[0];
+
+  const variants = (await client.query(
+    `SELECT id, sku, price_cents, volume_format, is_glass, ordinal
+       FROM product.product_variants WHERE product_id = $1 ORDER BY ordinal ASC`,
+    [productId]
+  )).rows;
+
+  const eligible = c7EligibleVariants(variants);
+  if (!eligible.length) {
+    throw new Error(
+      'Nothing to create in Commerce7 yet: add a bottle variant with a SKU and a price first.'
+    );
+  }
+
+  // Refuse to publish a wine nobody has priced. adminStatus is derived from
+  // is_available, so a product created with a 0 variant is one staff can ring
+  // up for nothing -- the same shape as the $0 receipts that corrupted the QBO
+  // export. Better to fail the push and say why than to invent a number.
+  const unpriced = eligible.filter((v) => !(v.price_cents > 0));
+  if (unpriced.length) {
+    throw new Error(
+      `set a price first — ${unpriced.map((v) => v.sku).join(', ')} `
+      + `${unpriced.length === 1 ? 'has' : 'have'} no price, and publishing at $0 would make `
+      + 'the wine sellable for nothing.'
+    );
+  }
+
+  const payload = buildC7Payload(body, prod);
+  // buildC7Payload only emits a field the request actually carried, but a
+  // create has to be complete, so fill from the saved row.
+  payload.title ??= prod.name;
+  payload.type = prod.product_type || 'Wine';
+  payload.adminStatus ??= prod.is_available ? 'Available' : 'Not Available';
+  payload.webStatus ??= prod.is_available && prod.is_web_available ? 'Available' : 'Not Available';
+
+  // Slug is deliberately not sent. Commerce7 derives one from the title, and
+  // the existing catalogue shows no convention worth imitating (`11-sails`,
+  // `gypsy-soul`, `25-love-letter`); an invented slug that collides is a 422.
+
+  // Put it in the same department as the rest of the wines. Looked up by name
+  // rather than hardcoded, so a re-pointed tenant does not silently file
+  // everything under the wrong one.
+  try {
+    const depts = await c7.get('/department');
+    const want = (prod.product_type || 'Wine').toLowerCase();
+    const match = (depts.departments || depts || []).find(
+      (d) => String(d.title || '').toLowerCase() === want
+    );
+    if (match?.id) payload.departmentId = match.id;
+  } catch {
+    // Not fatal -- 26 of the existing wines have no department either.
+  }
+
+  payload.variants = eligible.map((v, i) => buildC7Variant({ ...v, alcohol_pct: prod.alcohol_pct }, i));
+
+  const created = await c7.post('/product', payload);
+  const c7ProductId = created?.id ? String(created.id) : null;
+  if (!c7ProductId) throw new Error('Commerce7 create returned no product id');
+
+  await client.query(
+    `INSERT INTO product.c7_products (product_id, company_id, c7_product_id, c7_handle)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (product_id) DO UPDATE
+       SET c7_product_id = EXCLUDED.c7_product_id,
+           c7_handle = COALESCE(product.c7_products.c7_handle, EXCLUDED.c7_handle)`,
+    [productId, companyId, c7ProductId, created.slug ?? null]
+  );
+
+  // Map the variants Commerce7 just minted back onto ours, by SKU. Without
+  // this every later edit would look like an unlinked variant and be dropped.
+  const bySku = new Map((created.variants || []).map((cv) => [cv.sku, cv.id]));
+  for (const v of eligible) {
+    const c7VariantId = bySku.get(v.sku);
+    if (!c7VariantId) continue;
+    await client.query(
+      `INSERT INTO product.c7_variant_data (variant_id, company_id, c7_variant_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (variant_id) DO UPDATE SET c7_variant_id = EXCLUDED.c7_variant_id`,
+      [v.id, companyId, String(c7VariantId)]
+    );
+  }
+
+  return c7ProductId;
+}
+
 // Helper: load full product by id (same shape as GET /:id)
 async function loadFullProduct(client, productId, companyId) {
   const [prod, c7, variants, syncRows] = await Promise.all([
@@ -779,7 +942,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         `SELECT c7_product_id FROM product.c7_products WHERE product_id = $1`,
         [productId]
       );
-      const c7ProductId = c7Row.rows[0]?.c7_product_id;
+      let c7ProductId = c7Row.rows[0]?.c7_product_id;
 
       // ── Local variant edits ────────────────────────────────────────────
       // Applied before Commerce7 is touched, and outside its try: a failed
@@ -788,8 +951,48 @@ router.put('/:id', requireAuth, async (req, res) => {
       const c7VariantPatches = new Map(); // c7 variant id -> fields to change
       // Apply the edits locally and note what Commerce7 needs told.
       if (Array.isArray(b.variants)) {
+        // For defaulting the SKU of anything added in this request.
+        const prodForSku = (await client.query(
+          `SELECT name, vintage, sku FROM product.products WHERE id = $1`,
+          [productId]
+        )).rows[0] || {};
+
         for (const v of b.variants) {
-          if (!v.id) continue;
+          // ── A variant added in the browser ──────────────────────────────
+          // It arrives with id === null. This used to `continue`, so "+ Add
+          // variant" looked like it worked, saved cleanly, and lost the row --
+          // which also made it impossible to give a variant-less product the
+          // bottle it needs before it can exist in Commerce7 at all.
+          if (!v.id) {
+            const volumeFormat = v.volume_format || '750ml';
+            const glass = isGlassVolume(volumeFormat);
+            // An explicit SKU wins; otherwise apply the house nomenclature.
+            const sku = (v.sku && String(v.sku).trim())
+              ? String(v.sku).trim()
+              : defaultVariantSku(prodForSku, { volume_format: volumeFormat });
+
+            await client.query(
+              `INSERT INTO product.product_variants
+                 (product_id, company_id, sku, price_cents, volume_format,
+                  is_glass, is_available, is_default, taxable, ordinal)
+               VALUES ($1, $2, $3, $4, $5, $6, $7,
+                       NOT EXISTS (SELECT 1 FROM product.product_variants
+                                    WHERE product_id = $1 AND is_default),
+                       true,
+                       COALESCE((SELECT MAX(ordinal) + 1 FROM product.product_variants
+                                  WHERE product_id = $1), 0))`,
+              [
+                productId,
+                companyId,
+                sku,
+                v.price_cents != null ? parseInt(v.price_cents, 10) : null,
+                volumeFormat,
+                glass,
+                v.is_available !== undefined ? Boolean(v.is_available) : true,
+              ]
+            );
+            continue;
+          }
           // Get c7_variant_id
           const cvRow = await client.query(
             `SELECT cd.c7_variant_id FROM product.product_variants pv
@@ -818,13 +1021,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
           // Collect the change; the push happens once, further down.
           if (c7VariantId) {
-            const volumeML = (() => {
-              const fmt = v.volume_format || '';
-              const map = { '187ml': 187, '375ml': 375, '500ml': 500, '750ml': 750, '1L': 1000, '1.5L': 1500, '3L': 3000, '6L': 6000 };
-              if (map[fmt]) return map[fmt];
-              const m = fmt.match(/^(\d+)ml$/i);
-              return m ? parseInt(m[1], 10) : undefined;
-            })();
+            const volumeML = volumeToML(v.volume_format);
             const patch = {};
             if (v.sku !== undefined) patch.sku = v.sku;
             if (v.price_cents !== undefined) patch.price = v.price_cents != null ? parseInt(v.price_cents, 10) : null;
@@ -835,7 +1032,42 @@ router.put('/:id', requireAuth, async (req, res) => {
         }
       }
 
-      if (integration?.c7_api_key && c7ProductId) {
+      // ── Create in Commerce7 when it isn't there yet ────────────────────
+      // The product page shows these as "C7 Not Linked". Saving one used to be
+      // a no-op upstream, because every push below is gated on already having a
+      // c7_product_id. Creating it here is what makes that badge reachable --
+      // and it runs after the local variant work above, so a variant added in
+      // the same save is part of the product Commerce7 receives.
+      let justCreated = false;
+      if (integration?.c7_api_key && !c7ProductId) {
+        try {
+          const { makeC7Client } = await import('../lib/commerce7Client.js');
+          const c7 = makeC7Client(integration);
+          c7ProductId = await createInCommerce7({ client, c7, companyId, productId, body: b });
+          justCreated = true;
+          console.log(`[products] created ${productId} in Commerce7 as ${c7ProductId}`);
+          await client.query(
+            `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, last_synced_at, sync_error)
+             VALUES ($1, $2, 'commerce7', false, NOW(), NULL)
+             ON CONFLICT (product_id, system) DO UPDATE SET needs_push = false, last_synced_at = NOW(), sync_error = NULL`,
+            [companyId, productId]
+          );
+        } catch (err) {
+          const message = `Commerce7 create failed: ${err.message}`;
+          console.error('[products] PUT C7 create failed:', message);
+          c7Error = message;
+          await client.query(
+            `INSERT INTO product.sync_status (company_id, product_id, system, needs_push, sync_error)
+             VALUES ($1, $2, 'commerce7', true, $3)
+             ON CONFLICT (product_id, system) DO UPDATE SET needs_push = true, sync_error = $3`,
+            [companyId, productId, message]
+          );
+        }
+      }
+
+      // A create already carried the full product and its variants, so there is
+      // nothing left to push for one.
+      if (integration?.c7_api_key && c7ProductId && !justCreated) {
         // Which push is in flight, so a failure can say which one broke.
         let stage = 'product';
         try {

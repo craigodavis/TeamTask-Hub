@@ -4,6 +4,7 @@ import { getProduct, updateProduct, createProduct } from '../api';
 import { RichEditor } from '../components/RichEditor';
 import './ProductDetail.css';
 import './ProductLines.css';
+import { defaultVariantSku, isGlassVolume } from '../utils/skuNomenclature';
 
 const WINE_STYLES = ['Red', 'White', 'Rosé', 'Sparkling', 'Dessert', 'Fortified', 'Orange', 'Other'];
 
@@ -123,6 +124,9 @@ export function ProductDetail() {
   const [tags, setTags]               = useState([]);
   const [awards, setAwards]           = useState('');
 
+  // The product-level SKU stem, used to suggest variant SKUs.
+  const [productSku, setProductSku] = useState('');
+
   // Variants
   const [variants, setVariants] = useState([]);
 
@@ -170,6 +174,7 @@ export function ProductDetail() {
         setAwards(typeof p.c7?.awards === 'string' ? p.c7.awards : '');
         setLine(p.line || null);
         setVariants((p.variants || []).map((v) => ({ ...v, _price: v.price_cents != null ? (v.price_cents / 100).toFixed(2) : '' })));
+        setProductSku(p.sku || '');
         setProductSync(p.sync || null);
       })
       .catch((e) => setError(e.message))
@@ -258,14 +263,48 @@ export function ProductDetail() {
 
   // ── Variant helpers ─────────────────────────────────────────────────────────
   function updateVariantField(idx, field, value) {
-    setVariants((prev) => prev.map((v, i) => i === idx ? { ...v, [field]: value } : v));
+    setVariants((prev) => prev.map((v, i) => {
+      if (i !== idx) return v;
+      const next = { ...v, [field]: value };
+      // Retarget the suggested SKU when the volume changes on a row that has
+      // not been saved yet -- switching 750ml to 5oz has to pick up `-gls`, or
+      // the pour ships with the bottle's SKU and stops matching Square.
+      // Only while the SKU is still the untouched suggestion; anything typed
+      // by hand is left alone.
+      if (field === 'volume_format' && v.id == null) {
+        const previousSuggestion = defaultVariantSku(
+          { sku: productSku, vintage, name },
+          { volume_format: v.volume_format }
+        );
+        if (!v.sku || v.sku === previousSuggestion) {
+          next.sku = defaultVariantSku({ sku: productSku, vintage, name }, { volume_format: value });
+        }
+      }
+      return next;
+    }));
   }
 
   function addVariant() {
-    setVariants((prev) => [
-      ...prev,
-      { id: null, volume_format: '750ml', sku: '', _price: '', is_available: true, c7_variant_id: null, ordinal: prev.length },
-    ]);
+    setVariants((prev) => {
+      // A bottle unless there already is one, in which case the next thing
+      // anyone adds is the glass pour.
+      const volumeFormat = prev.some((v) => !isGlassVolume(v.volume_format)) ? '5oz' : '750ml';
+      return [
+        ...prev,
+        {
+          id: null,
+          volume_format: volumeFormat,
+          // Filled in rather than left blank so the house format is visible and
+          // editable before saving. The server applies the same rule to an
+          // empty one.
+          sku: defaultVariantSku({ sku: productSku, vintage, name }, { volume_format: volumeFormat }),
+          _price: '',
+          is_available: true,
+          c7_variant_id: null,
+          ordinal: prev.length,
+        },
+      ];
+    });
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
