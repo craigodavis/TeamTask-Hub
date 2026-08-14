@@ -4,8 +4,11 @@
  * The counterpart to squareCatalogSync.js, which only ever reads. This is the
  * only code in TeamHub that writes to the Square catalog.
  *
- * What drives it: `is_web_available`. Web-available means the wine is present
- * and unarchived in Square; web-off means it is archived there. Archiving
+ * What drives it: `is_web_available` -- Commerce7's Web Status. Web-available
+ * means the wine is present and unarchived in Square; web-off means it is
+ * archived there. Admin availability (`is_available`, Commerce7's Admin Status)
+ * deliberately does NOT reach Square: a club release is Admin on / Web off, and
+ * belongs in Commerce7 for fulfilment but not on the tasting-room POS. Archiving
  * rather than deleting keeps the sales history and inventory records, and is
  * reversible — an unarchive restores the item with its SKU, price, category
  * and tax intact.

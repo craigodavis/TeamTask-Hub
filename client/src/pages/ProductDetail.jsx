@@ -458,14 +458,15 @@ export function ProductDetail() {
                   onChange={(e) => {
                     const on = e.target.checked;
                     setIsAvailable(on);
-                    // Web status can't outrank admin status.
+                    // Web can't outrank Admin: nothing should be on the
+                    // storefront that staff aren't allowed to sell.
                     if (!on) setIsWebAvailable(false);
                   }}
                 />
-                <label htmlFor="pd-available">Available for sale</label>
+                <label htmlFor="pd-available">Admin available</label>
                 <span className="pd-field-hint">
                   {isActive
-                    ? 'Can be sold. Bottled but not yet released? Leave this off.'
+                    ? "Commerce7 Admin Status. Staff can sell it — club releases, phone and internal orders. Bottled but not yet released? Leave this off."
                     : 'Requires Active.'}
                 </span>
               </div>
@@ -477,11 +478,11 @@ export function ProductDetail() {
                   disabled={!isAvailable}
                   onChange={(e) => setIsWebAvailable(e.target.checked)}
                 />
-                <label htmlFor="pd-web-available">On the website</label>
+                <label htmlFor="pd-web-available">Web available</label>
                 <span className="pd-field-hint">
                   {isAvailable
-                    ? 'Shows on the Commerce7 storefront. Off keeps it sellable in the tasting room only.'
-                    : 'Requires Available for sale.'}
+                    ? "Commerce7 Web Status. On the storefront, and live in Square. Turning this off also archives it in Square, so it leaves the POS grid — that is the club-release state: Admin on, Web off."
+                    : 'Requires Admin available.'}
                 </span>
               </div>
               {!isNew && (

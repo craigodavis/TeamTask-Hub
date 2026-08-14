@@ -580,15 +580,18 @@ function buildC7Payload(body, current = {}) {
   if (body.teaser !== undefined)      p.teaser = body.teaser ?? null;
   if (body.slug !== undefined)        p.slug = body.slug || undefined;
 
-  // Commerce7's two statuses are independent, and TeamHub now models them that
-  // way: is_available drives adminStatus (can staff sell it at all), and
-  // is_web_available additionally gates webStatus (is it listed on the site).
-  // A wine that is available but not web-available goes out as
-  // adminStatus Available / webStatus Not Available — sellable in the tasting
-  // room, invisible on the website.
+  // The two Commerce7 statuses, mapped one-to-one:
   //
-  // Web status can never outrank admin status: something staff cannot sell must
-  // not be listed publicly, so webStatus is the AND of the two flags.
+  //   is_available     -> adminStatus  (UI: "Admin available")
+  //   is_web_available -> webStatus    (UI: "Web available")
+  //
+  // Admin on / Web off is the club-release state: staff can sell it for club
+  // fulfilment, phone and internal orders, but it is off the storefront and
+  // archived in Square, so it also leaves the tasting-room POS grid. That last
+  // part is deliberate -- see squareCatalogPush.js.
+  //
+  // Web can never outrank Admin: nothing should be on the storefront that staff
+  // are not allowed to sell, so webStatus is the AND of the two flags.
   // `current` carries the saved row, because the two flags have to be resolved
   // together: a request that changes only one of them still needs the other's
   // value to decide webStatus, and the body may not contain it.
