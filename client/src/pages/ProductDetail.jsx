@@ -246,6 +246,17 @@ export function ProductDetail() {
       } else {
         result = await updateProduct(id, payload);
         if (result?.product?.sync) setProductSync(result.product.sync);
+        // Re-seed the variants from what was actually saved. Without this a
+        // variant added in this session keeps id === null in the form, so the
+        // next save re-sends it as new and collides with the row it just
+        // created. It also picks up the SKU the server defaulted and the
+        // Commerce7 variant id it was just linked to.
+        if (Array.isArray(result?.product?.variants)) {
+          setVariants(result.product.variants.map((v) => ({
+            ...v,
+            _price: v.price_cents != null ? (v.price_cents / 100).toFixed(2) : '',
+          })));
+        }
       }
 
       if (result?.c7Error) {

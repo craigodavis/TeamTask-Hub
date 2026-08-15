@@ -983,6 +983,13 @@ router.put('/:id', requireAuth, async (req, res) => {
           // which also made it impossible to give a variant-less product the
           // bottle it needs before it can exist in Commerce7 at all.
           if (!v.id) {
+            // Upserted on (product_id, volume_format), which is a unique key.
+            // Saving twice used to hit that constraint and 500 the whole
+            // request: the browser did not learn the new row's id after the
+            // first save, so the second save re-sent the same variant as new.
+            // The browser side is fixed too, but a product can only have one
+            // variant per volume anyway, so treating a repeat as an edit of
+            // that variant is the right behaviour regardless of who asks.
             const volumeFormat = v.volume_format || '750ml';
             const glass = isGlassVolume(volumeFormat);
             // An explicit SKU wins; otherwise apply the house nomenclature.
@@ -999,7 +1006,13 @@ router.put('/:id', requireAuth, async (req, res) => {
                                     WHERE product_id = $1 AND is_default),
                        true,
                        COALESCE((SELECT MAX(ordinal) + 1 FROM product.product_variants
-                                  WHERE product_id = $1), 0))`,
+                                  WHERE product_id = $1), 0))
+               ON CONFLICT (product_id, volume_format) DO UPDATE SET
+                 sku = EXCLUDED.sku,
+                 -- Never let a re-send blank out a price that is already set.
+                 price_cents = COALESCE(EXCLUDED.price_cents, product.product_variants.price_cents),
+                 is_available = EXCLUDED.is_available,
+                 updated_at = NOW()`,
               [
                 productId,
                 companyId,
@@ -1122,7 +1135,20 @@ router.put('/:id', requireAuth, async (req, res) => {
               const base = Object.fromEntries(
                 Object.entries(cv).filter(([k]) => !DERIVED.has(k))
               );
-              return { ...base, ...(c7VariantPatches.get(cv.id) || {}) };
+              const patch = c7VariantPatches.get(cv.id) || {};
+
+              // comparePrice is Commerce7's "was" price, and it is what the
+              // storefront strikes through. Correcting a price while leaving it
+              // behind advertises a sale nobody agreed to -- drop $45 to $36 and
+              // the site reads "was $45, now $36".
+              //
+              // So it follows the price only when it was tracking it. If the two
+              // differ, someone has set a genuine sale and it is theirs to keep.
+              if (patch.price != null && cv.comparePrice === cv.price) {
+                patch.comparePrice = patch.price;
+              }
+
+              return { ...base, ...patch };
             });
             await c7.put(`/product/${c7ProductId}`, { variants });
           }
