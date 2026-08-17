@@ -16,6 +16,14 @@
  * This only ever supplies a DEFAULT. A SKU that is already set is left alone,
  * including the historical ones -- renaming a live SKU would orphan it from the
  * Square and Commerce7 rows that match on it.
+ *
+ * That is not hypothetical: `skuBase` used to slugify an already-set SKU, which
+ * lowercased the 2023 and 2025 vintages and orphaned 347 Commerce7 club package
+ * items from products that still existed. Members were refused at pickup.
+ * Commerce7 caches the SKU string on a package item and never refreshes it, so
+ * ANY rename of a live SKU breaks every package already built on it. Square is
+ * unaffected -- squareCatalogPush matches case-insensitively -- but Commerce7
+ * does not.
  */
 
 /** Lowercase, unaccented, hyphenated. Apostrophes vanish (Papa's -> papas). */
@@ -37,7 +45,19 @@ export function slugify(text) {
  * one from the vintage and name.
  */
 export function skuBase({ sku, vintage, name } = {}) {
-  if (sku && String(sku).trim()) return slugify(sku);
+  // An existing SKU is returned VERBATIM — never slugified.
+  //
+  // Slugifying here is what broke the September 2026 pickups: it silently
+  // lowercased live SKUs (`23-Peacemaker` -> `23-peacemaker`), and Commerce7
+  // snapshots the SKU *string* onto club_package_item when a package is built
+  // and never refreshes it. 347 package items were orphaned from products that
+  // still existed, and members were turned away at pickup with
+  // "Sku: 23-Peacemaker. Item not found."
+  //
+  // This is exactly what the header of this file warns against. Slugify only
+  // when DERIVING a new SKU below; a value someone already chose is left alone,
+  // whatever its case.
+  if (sku && String(sku).trim()) return String(sku).trim();
 
   // Names already start with the vintage ("24 Into the Mystic", "23 11 Sails"),
   // so strip that token before slugifying or it comes out doubled. Anchored to
