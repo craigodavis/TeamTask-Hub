@@ -204,12 +204,15 @@ eventsRouter.post('/:id/tasks', async (req, res) => {
     const { checklist, title, assignee_user_id, due_date, reminder_date, parent_task_id } = req.body || {};
     if (!title?.trim()) return res.status(400).json({ error: 'Task title is required' });
     const cl = (checklist || 'Checklist').slice(0, 80);
+    // Next sort_order in a separate query — reusing a param both as an INSERT
+    // value and inside a scalar subquery trips Postgres' "inconsistent types".
+    const so = (await query(
+      `SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM event_tasks WHERE event_id = $1 AND checklist = $2`,
+      [req.params.id, cl])).rows[0].n;
     const r = await query(
       `INSERT INTO event_tasks (company_id, event_id, checklist, title, assignee_user_id, due_date, reminder_date, parent_task_id, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
-         (SELECT COALESCE(MAX(sort_order),0)+1 FROM event_tasks WHERE event_id=$2 AND checklist=$3))
-       RETURNING id`,
-      [cId(req), req.params.id, cl, title.trim(), assignee_user_id || null, due_date || null, reminder_date || null, parent_task_id || null]);
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [cId(req), req.params.id, cl, title.trim(), assignee_user_id || null, due_date || null, reminder_date || null, parent_task_id || null, so]);
     res.json({ id: r.rows[0].id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
