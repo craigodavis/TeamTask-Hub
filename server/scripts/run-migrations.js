@@ -3808,6 +3808,19 @@ const MIGRATIONS = [
      ADD COLUMN IF NOT EXISTS reminder_date DATE,
      ADD COLUMN IF NOT EXISTS last_reminded_on DATE,
      ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES event_tasks(id) ON DELETE CASCADE`,
+  // 1xx: per-user capability grants — step 1 of the permissions matrix.
+  // Nothing reads this yet; the guards still run off users.role. See
+  // docs/PERMISSIONS.md. users.role stays, as the name of the preset a person
+  // was stamped from, so "Customized" can be derived by comparing the two.
+  `CREATE TABLE IF NOT EXISTS user_capabilities (
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    capability VARCHAR(64) NOT NULL,
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    PRIMARY KEY (user_id, capability)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_user_capabilities_company ON user_capabilities(company_id)`,
 ];
 
 export async function runMigrations() {
