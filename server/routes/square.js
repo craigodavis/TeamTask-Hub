@@ -1824,18 +1824,34 @@ async function sessionAccess(sessionId, req) {
 }
 
 // GET /api/square/sessions — my sessions + ones shared with me
+// Paged, newest first. The list only ever grows -- it was returning every
+// session a person had ever opened, which made the sidebar taller than the
+// screen and meant the payload grew forever.
 router.get('/sessions', async (req, res) => {
-  const r = await query(
-    `SELECT s.id, s.title, s.updated_at, (s.user_id = $1) AS is_owner, u.display_name AS owner_name
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+  // Same WHERE for the page and the count, so the pager can't disagree with
+  // the list about how many there are.
+  const where = `
      FROM ai_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.company_id = $2
        AND (s.user_id = $1 OR EXISTS (
-         SELECT 1 FROM ai_session_shares sh WHERE sh.session_id = s.id AND sh.user_id = $1))
-     ORDER BY s.updated_at DESC`,
-    [req.userId, req.companyId]
-  );
-  res.json({ sessions: r.rows });
+         SELECT 1 FROM ai_session_shares sh WHERE sh.session_id = s.id AND sh.user_id = $1))`;
+
+  const [r, countRes] = await Promise.all([
+    query(
+      `SELECT s.id, s.title, s.updated_at, (s.user_id = $1) AS is_owner, u.display_name AS owner_name
+       ${where}
+       ORDER BY s.updated_at DESC
+       LIMIT $3 OFFSET $4`,
+      [req.userId, req.companyId, limit, offset]
+    ),
+    query(`SELECT COUNT(*)::int AS total ${where}`, [req.userId, req.companyId]),
+  ]);
+
+  res.json({ sessions: r.rows, total: countRes.rows[0].total, limit, offset });
 });
 
 // POST /api/square/sessions — new (empty) session

@@ -252,6 +252,8 @@ function AskTab({ token, role }) {
   const [copiedIdx, setCopiedIdx] = useState(null);
   const [micError, setMicError] = useState('');
   const [sessions, setSessions] = useState([]);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [sessionOffset, setSessionOffset] = useState(0);
   const [sessionId, setSessionId] = useState(null);
   const [model, setModel]       = useState('claude-sonnet-5'); // every session starts on Sonnet
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -263,15 +265,28 @@ function AskTab({ token, role }) {
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } }),
   [token]);
 
-  const loadSessions = useCallback(async () => {
-    try {
-      const r = await authFetch('/api/square/sessions');
-      const d = await r.json();
-      if (r.ok) setSessions(d.sessions || []);
-    } catch { /* ignore */ }
-  }, [authFetch]);
+  // Ten at a time, newest first. Every chat ever opened used to render at once,
+  // which pushed the rest of the page off the bottom of the screen.
+  const SESSION_PAGE = 10;
 
-  useEffect(() => { loadSessions(); }, [loadSessions]);
+  const loadSessions = useCallback(async (offset = sessionOffset) => {
+    try {
+      const r = await authFetch(`/api/square/sessions?limit=${SESSION_PAGE}&offset=${offset}`);
+      const d = await r.json();
+      if (!r.ok) return;
+      // A page that has gone empty -- the last chat on it was deleted -- steps
+      // back rather than showing an empty sidebar with a live Prev button.
+      if (offset > 0 && (d.sessions || []).length === 0) {
+        setSessionOffset(Math.max(offset - SESSION_PAGE, 0));
+        return;
+      }
+      setSessions(d.sessions || []);
+      setSessionTotal(d.total || 0);
+      setSessionOffset(offset);
+    } catch { /* ignore */ }
+  }, [authFetch, sessionOffset]);
+
+  useEffect(() => { loadSessions(sessionOffset); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [authFetch, sessionOffset]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
 
   const openSession = useCallback(async (id) => {
@@ -336,7 +351,9 @@ function AskTab({ token, role }) {
         if (!content && data.rows) content = `${data.count} row${data.count !== 1 ? 's' : ''} returned`;
         setMessages((prev) => [...prev, { role: 'assistant', content, sql: data.sql, rows: data.rows, fields: data.fields, facts_saved: data.facts_saved }]);
       }
-      loadSessions();
+      // Asking bumps this chat to newest, so jump to the first page where it
+      // now lives rather than leaving the sidebar on a stale page.
+      loadSessions(0);
     } catch (err) {
       if (err.name === 'AbortError') {
         setMessages((prev) => [...prev, { role: 'assistant', content: '⏹ Canceled.' }]);
@@ -428,6 +445,28 @@ function AskTab({ token, role }) {
             </li>
           ))}
         </ul>
+
+        {sessionTotal > SESSION_PAGE && (
+          <div className="sq-session-pager">
+            <button
+              type="button"
+              disabled={sessionOffset === 0}
+              onClick={() => loadSessions(Math.max(sessionOffset - SESSION_PAGE, 0))}
+            >
+              ‹ Newer
+            </button>
+            <span className="sq-session-range">
+              {sessionOffset + 1}–{Math.min(sessionOffset + SESSION_PAGE, sessionTotal)} of {sessionTotal}
+            </span>
+            <button
+              type="button"
+              disabled={sessionOffset + SESSION_PAGE >= sessionTotal}
+              onClick={() => loadSessions(sessionOffset + SESSION_PAGE)}
+            >
+              Older ›
+            </button>
+          </div>
+        )}
       </aside>
 
       <div className="sq-ask-wrap">

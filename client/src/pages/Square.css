@@ -1293,6 +1293,13 @@
 /* Always visible — hover-only would be untappable on touch devices. */
 .sq-session-actions { display: flex; gap: 0.1rem; flex-shrink: 0; }
 .sq-session-actions button { background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 0.15rem; }
+/* Pager sits below the list, not inside it, so it stays put while the list scrolls. */
+.sq-session-pager { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem;
+  padding-top: 0.4rem; border-top: 1px solid var(--border,#e2e2e2); flex-shrink: 0; }
+.sq-session-pager button { background: none; border: 1px solid var(--border,#ccc); border-radius: 6px;
+  color: var(--text,#333); cursor: pointer; font-size: 0.75rem; padding: 0.2rem 0.45rem; }
+.sq-session-pager button:disabled { opacity: 0.35; cursor: default; }
+.sq-session-range { color: #888; font-size: 0.72rem; white-space: nowrap; }
 .sq-ask-wrap { flex: 1; min-width: 0; }
 .sq-ask-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
 .sq-sessions-toggle { display: none; padding: 0.35rem 0.6rem; border: 1px solid var(--border,#ccc);
