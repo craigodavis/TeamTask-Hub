@@ -26,7 +26,7 @@ anyone — no surprise mass-changes, and the checkboxes on screen are always the
 truth. The role name is remembered, and the person is badged **Customized** once
 their grants diverge from it.
 
-Roles: `member`, `wine_club`, `manager`, `admin`, `owner`.
+Roles: `member`, `marketing`, `manager`, `admin`, `owner`.
 
 `owner` alone may change roles and grants, billing, company settings, and
 integration credentials. `admin` gets everything operational.
@@ -95,10 +95,13 @@ Named `area.thing`. A member holds only the four marked ★.
 ## Presets
 
 - **member** — the four ★ only.
-- **wine_club** — member, plus `marketing.*` (events, campaigns, media, hours,
+- **marketing** — member, plus `marketing.*` (events, campaigns, media, hours,
   loyalty, website), `announcements.manage`, `kindredapp.manage`, `ai.use`,
   `reports.scheduled`. Deliberately excludes `reports.operational`, `betty.use`,
   `gateway.use`, `groundcontrol.use`, and everything under Wine and Kitchen.
+
+  Nobody holds this at launch. It exists to be granted when someone should own
+  wine club and marketing without the rest of a manager's reach.
 - **manager** — everything except owner-only (`kitchen.receipt_sources`,
   `users.manage`).
 - **admin** — everything operational; same exclusions as manager.
@@ -135,8 +138,8 @@ the existing `save_fact`, following the same pattern in `routes/square.js`:
 - `delete_scheduled_report(id)`
 
 Rules:
-- `owner_role` is stamped from the asking user's role. A wine_club user's
-  schedules are visible to wine_club, not to everyone.
+- `owner_role` is stamped from the asking user's role. A marketing user's
+  schedules are visible to marketing, not to everyone.
 - Delete is allowed only for a report the user could see. AiRon must never
   delete another role's schedule.
 - The SQL is whatever AiRon wrote, so it is bound by the same data scope the
@@ -148,35 +151,42 @@ Rules:
 ## OPEN — Kindred AI is currently an escalation path
 
 `ai.use` grants a natural-language reader over the whole database. AiRon builds
-its own SQL against every live schema, so a wine_club user with `ai.use` can ask
-for labor, payroll or debt figures and get them — and can now schedule that
+its own SQL against every live schema, so a `marketing` user with `ai.use` can
+ask for labor, payroll or debt figures and get them — and can now schedule that
 query to SMS itself on a cadence. The unchecked Payroll box would mean nothing.
 
-This has to be decided before the matrix is worth building:
+**Not blocking the build.** Every user at launch is member, manager, inventory
+or owner, and none of those is a scoped role, so nothing is being withheld from
+anyone yet. This becomes live the first time a person is put in `marketing` —
+decide it then, before that grant is made, not after.
 
-1. **Scope AiRon's schemas by role** — a wine_club user's schema index excludes
-   labor, payroll and debt tables. Most faithful to the matrix, most work.
-2. **Treat `ai.use` as high-trust** — only manager and above. Simplest, but
-   Elaine loses the AI, which is the opposite of the intent.
+Options:
+
+1. **Scope AiRon's schemas by role** — a `marketing` user's schema index
+   excludes labor, payroll and debt tables. Most faithful to the matrix, most
+   work.
+2. **Treat `ai.use` as high-trust** — only manager and above. Simplest, but a
+   marketing user then has no AI, which is most of the reason to grant it.
 3. **Split it** — anyone with `ai.use` may ask, but scheduling a report is
-   restricted to the data areas they hold.
+   restricted to the data areas they hold. Weakest: the data is still readable,
+   just not automated.
 
-Assumption used above, pending confirmation: **option 1**, AiRon inherits the
-asking user's data scope.
+Assumption used above: **option 1**, AiRon inherits the asking user's data
+scope.
 
 ## Migration
 
-18 users, no one locked out:
+18 users. **Nobody's access changes** — this is a pure re-plumbing, and every
+person ends up able to do exactly what they can do today:
 
 | Now | Becomes |
 |---|---|
 | `member` × 11 | `member` preset |
-| `manager` × 4 | `manager` preset |
+| `manager` × 4 (incl. Elaine) | `manager` preset |
 | `inventory` × 2 (Tristan, Zoë) | `member` + `wine.inventory` + `kitchen.inventory`, badged Customized |
 | `owner` × 1 | `owner` preset |
 
-Elaine moves from `manager` to `wine_club`, which is the one deliberate
-reduction — confirm before it ships.
+Elaine stays a manager. The `marketing` preset ships unused, ready to grant.
 
 The `schedule` and `gc` roles are retired: nobody holds them, and their
 capabilities (`scheduling.manage`, `groundcontrol.use`) become grants.
@@ -187,4 +197,4 @@ Ship order, so nothing breaks mid-deploy:
 2. Convert server guards to capability checks, each one preserving today's
    outcome. Verify no user's effective access changes.
 3. Ship the matrix UI.
-4. Only then re-scope anyone (Elaine to wine_club).
+4. Re-scope people only when you choose to — no one is re-scoped by this work.
