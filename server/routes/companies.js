@@ -1,7 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -33,7 +33,7 @@ router.get('/:companyId/users', async (req, res) => {
 });
 
 // Update user (role, display_name, password, location_ids) — manager/owner only; user must be in same company
-router.patch('/:companyId/users/:userId', requireManager, async (req, res) => {
+router.patch('/:companyId/users/:userId', requireCapability('users.assist'), async (req, res) => {
   try {
     const { companyId: paramCompanyId, userId } = req.params;
     if (req.companyId !== paramCompanyId) return res.status(403).json({ error: 'Forbidden' });
@@ -104,7 +104,7 @@ router.patch('/:companyId/users/:userId', requireManager, async (req, res) => {
 });
 
 // Delete user — manager/owner only; user must be in same company; cannot delete self
-router.delete('/:companyId/users/:userId', requireManager, async (req, res) => {
+router.delete('/:companyId/users/:userId', requireCapability('users.assist'), async (req, res) => {
   try {
     const { companyId, userId } = req.params;
     if (req.companyId !== companyId) return res.status(403).json({ error: 'Forbidden' });
@@ -124,7 +124,7 @@ router.delete('/:companyId/users/:userId', requireManager, async (req, res) => {
 });
 
 // Create company (e.g. for onboarding - or seed manually)
-router.post('/', requireManager, async (req, res) => {
+router.post('/', requireCapability('users.assist'), async (req, res) => {
   try {
     const { name, slug } = req.body;
     if (!name || !slug) {

@@ -28,7 +28,9 @@ import { MEDIA_DIR, generateVariants, safeBase } from '../lib/mediaVariants.js';
 
 export const crewRouter = express.Router();
 
-const isManager = (req) => req.role === 'manager' || req.role === 'owner';
+// Seeing the whole crew, and the canManage flag the page keys off. Everyone
+// gets their own profile; this is the extra.
+const isManager = (req) => Boolean(req.capabilities?.has('users.assist'));
 
 /** The Square team member id of whoever is making this request, if any. */
 async function myTeamMemberId(req) {

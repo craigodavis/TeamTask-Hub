@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import { requireAuth, requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -213,7 +213,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // Manager/owner: send password reset email to a user in their company
-router.post('/send-reset-email', requireAuth, requireManager, async (req, res) => {
+router.post('/send-reset-email', requireAuth, requireCapability('users.assist'), async (req, res) => {
   try {
     const { user_id } = req.body;
     if (!user_id) return res.status(400).json({ error: 'user_id required' });

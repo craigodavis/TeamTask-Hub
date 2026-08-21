@@ -78,7 +78,11 @@ export const CAPABILITIES = [
   { key: 'reports.scheduled',        label: 'Scheduled Reports',  path: '/manage?tab=reports' },
   { key: 'reports.operational',      label: 'Operational Reports (waste, tasks, debt, AI usage)', path: '/manage?tab=reports' },
   { key: 'sms.send',                 label: 'SMS Send',           path: '/manage?tab=integrations' },
-  { key: 'users.manage',             label: 'Users & Permissions', path: '/settings?tab=users' },
+  // Two levels, because they were always two things. A manager fixing a
+  // display name or sending a password reset is ordinary supervision; deciding
+  // what somebody may DO is the owner's alone.
+  { key: 'users.assist',             label: 'Users: names, passwords, locations', path: '/settings?tab=users' },
+  { key: 'users.manage',             label: 'Users: roles & permissions',         path: '/settings?tab=users' },
 ];
 
 export const ALL_CAPABILITIES = CAPABILITIES.map((c) => c.key);

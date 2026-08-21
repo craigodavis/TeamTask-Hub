@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { query } from '../db.js';
-import { requireAuth, requireOwner, requireManager } from '../middleware/auth.js';
+import { requireAuth, requireOwner, requireCapability } from '../middleware/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -200,7 +200,7 @@ router.post('/csv-import', requireAuth, requireOwner, async (req, res) => {
 // vendor website (card_last4, tax, subtotal, total, delivery_address,
 // payment_instrument). Applied after AI extraction — overrides AI-guessed values
 // with authoritative data. Only used when uploading a single PDF (Harvester flow).
-router.post('/upload', requireAuth, requireManager, upload.array('pdfs', 100), async (req, res) => {
+router.post('/upload', requireAuth, requireCapability('kitchen.receipts'), upload.array('pdfs', 100), async (req, res) => {
   const cId = req.companyId;
   if (!req.files?.length) {
     return res.status(400).json({ error: 'No files received.' });

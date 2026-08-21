@@ -938,7 +938,7 @@ router.put('/assignments/:assignmentId/tasks/:taskTemplateId/complete', async (r
     if (!status) {
       // Clear the record entirely → task returns to "null" (unchecked) state
       // Managers/owners can undo any user's completion; regular users only their own.
-      const isManager = req.role === 'manager' || req.role === 'owner';
+      const isManager = req.capabilities?.has('tasks.manage');
       if (isManager) {
         await query(
           `DELETE FROM task_completions WHERE assignment_id = $1 AND task_template_id = $2`,

@@ -70,6 +70,14 @@ const ROUTES = [
   { path: '/api/dashboard',                    was: 'manager',   allow: manager },
   { path: '/api/ground-control/zones',         was: 'gc',        allow: gc },
   { path: '/api/ground-control/schedules',     was: 'gc',        allow: gc },
+
+  // ── Batch 4: the last of them ────────────────────────────────────────────
+  { path: '/api/scheduling/settings',          was: 'schedule',  allow: schedule },
+  { path: '/api/events',                       was: 'schedule',  allow: schedule },
+  { path: '/api/square/sessions',              was: 'manager',   allow: manager },  // ai.use
+  { path: '/api/skynet/projects',              was: 'manager',   allow: manager },
+  { path: '/api/reports/scheduled',            was: 'manager',   allow: manager },
+  { path: '/api/marketing/hours',              was: 'manager',   allow: manager },
 ];
 
 // One user per distinct role, so every branch of every rule is exercised.

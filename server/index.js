@@ -16,7 +16,7 @@ import { foodWasteRouter } from './routes/foodWaste.js';
 import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } from './routes/integrations.js';
 import { scheduledReportsRouter } from './routes/scheduledReports.js';
 import { qboRouter } from './routes/qbo.js';
-import { requireAuth, requireManager, requireScheduleAccess } from './middleware/auth.js';
+import { requireAuth, requireCapability } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
 import { abcRouter } from './routes/abc.js';
@@ -130,7 +130,7 @@ app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/announcements', requireAuth, announcementsRouter);
 app.use('/api/food-waste', requireAuth, foodWasteRouter);
 app.use('/api/integrations/qbo', qboRouter);
-app.use('/api/integrations', requireAuth, requireManager, integrationsRouter);
+app.use('/api/integrations', requireAuth, requireCapability('sms.send'), integrationsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/locations', requireAuth, websiteContentWatch, locationsRouter);
 app.use('/api/debt', requireAuth, debtRouter);
@@ -139,15 +139,15 @@ app.use('/api/harvester', requireAuth, harvesterRouter);
 app.use('/api/amazon-orders', requireAuth, amazonOrdersRouter);
 app.use('/api/amazon-session', requireAuth, amazonSessionRouter);
 app.use('/api/card-mappings', requireAuth, cardMappingsRouter);
-app.use('/api/square', requireAuth, requireManager, squareRouter);
-app.use('/api/square/sync', requireAuth, requireManager, squareSyncRouter);
+app.use('/api/square', requireAuth, requireCapability('ai.use'), squareRouter);
+app.use('/api/square/sync', requireAuth, requireCapability('wine.products'), squareSyncRouter);
 // Mounted before /api/products so it isn't swallowed by that router's GET /:id.
 app.use('/api/products/inventory', requireAuth, productInventoryRouter);
-app.use('/api/scheduling', requireAuth, requireScheduleAccess, schedulingRouter);
+app.use('/api/scheduling', requireAuth, requireCapability('scheduling.manage'), schedulingRouter);
 app.use('/api/feedback', feedbackRouter);                        // public — token + PIN, no login
-app.use('/api/events', requireAuth, requireScheduleAccess, websiteContentWatch, eventsRouter);
-app.use('/api/musicians', requireAuth, requireScheduleAccess, websiteContentWatch, musiciansRouter);
-app.use('/api/promo', requireAuth, requireScheduleAccess, promoRouter);
+app.use('/api/events', requireAuth, requireCapability('marketing.events'), websiteContentWatch, eventsRouter);
+app.use('/api/musicians', requireAuth, requireCapability('marketing.events'), websiteContentWatch, musiciansRouter);
+app.use('/api/promo', requireAuth, requireCapability('marketing.events'), promoRouter);
 app.use('/api/product-lines', requireAuth, productLinesRouter);
 app.use('/api/products', requireAuth, productsRouter);
 app.use('/api/recipes', requireAuth, recipesRouter);
@@ -157,8 +157,8 @@ app.use('/api/reservations', requireAuth, reservationsRouter);
 app.use('/api/page-images', requireAuth, websiteContentWatch, pageImagesRouter);
 app.use('/api/crew', requireAuth, websiteContentWatch, crewRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
-app.use('/api/marketing', requireAuth, requireManager, websiteContentWatch, marketingRouter);
-app.use('/api/commerce7/sync', requireAuth, requireManager, commerce7SyncRouter);
+app.use('/api/marketing', requireAuth, requireCapability('marketing.website'), websiteContentWatch, marketingRouter);
+app.use('/api/commerce7/sync', requireAuth, requireCapability('wine.products'), commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);
 app.use('/api/betty', requireAuth, bettyRouter);  // owner enforced in UI; any authed user can list their own
 app.use('/api/abc', requireAuth, abcRouter);       // Idaho ABC wine report — prepares only, never submits
@@ -181,11 +181,11 @@ app.use('/api/kindred-app', kindredPerksRouter);   // perks: member reads, staff
 app.use('/api/kindred-app', loyaltyMemberRouter);  // member reads their own points balance
 app.use('/api/kindred-app', kindredAppRouter);     // members report, settings, activity beacon
 app.use('/api/team', requireAuth, teamRouter);
-app.use('/api/skynet', requireAuth, requireManager, skynetRouter);
+app.use('/api/skynet', requireAuth, requireCapability('skynet.view'), skynetRouter);
 app.use('/api/gateway', requireAuth, gatewayRouter);
 app.use('/api/ground-control', requireAuth, groundControlRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
-app.use('/api/reports/scheduled', requireAuth, requireManager, scheduledReportsRouter);
+app.use('/api/reports/scheduled', requireAuth, requireCapability('reports.scheduled'), scheduledReportsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
