@@ -44,6 +44,7 @@ import {
 import { DebtReportSection } from '../components/DebtReportSection';
 import { ScheduledReports } from './ScheduledReports';
 import { AbcFiling } from './AbcFiling';
+import { PermissionsMatrix } from '../components/PermissionsMatrix';
 import { RichEditor } from '../components/RichEditor';
 import { useVideoPicker } from '../components/VideoPicker';
 import './Manager.css';
@@ -755,6 +756,28 @@ export function Manager() {
         <section className="manager-section">
           <h2>Users &amp; roles</h2>
           <p className="hint">Manage roles and passwords. Passwords are not shown; use Set password or Send reset email.</p>
+
+          <h2 className="manager-subsection-title">Permissions</h2>
+          <p className="hint">
+            Pick a role to stamp its set of menus, then tick or untick anything below it.
+            A parent menu appears whenever someone holds any item inside it, so a submenu
+            can be granted on its own. Only the owner can change these.
+          </p>
+          <PermissionsMatrix
+            authFetch={(url, opts = {}) => fetch(url, {
+              ...opts,
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${localStorage.getItem('teamtask_token')}`,
+                ...(opts.headers || {}),
+              },
+            })}
+            currentUserId={user?.id}
+            onError={setError}
+            onMessage={setMessage}
+          />
+
+          <h2 className="manager-subsection-title">Accounts</h2>
           <ul className="user-list">
             {companyUsers.map((u) => (
               <UserRow

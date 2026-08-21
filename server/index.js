@@ -15,6 +15,7 @@ import { announcementsRouter } from './routes/announcements.js';
 import { foodWasteRouter } from './routes/foodWaste.js';
 import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } from './routes/integrations.js';
 import { scheduledReportsRouter } from './routes/scheduledReports.js';
+import { permissionsRouter } from './routes/permissions.js';
 import { qboRouter } from './routes/qbo.js';
 import { requireAuth, requireCapability } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
@@ -186,6 +187,7 @@ app.use('/api/gateway', requireAuth, gatewayRouter);
 app.use('/api/ground-control', requireAuth, groundControlRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireCapability('reports.scheduled'), scheduledReportsRouter);
+app.use('/api/permissions', requireAuth, permissionsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });

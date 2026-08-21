@@ -1,0 +1,40 @@
+.pm-users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.pm-user { border: 1px solid var(--border,#e2e2e2); border-radius: 8px; background: var(--card,#fff); }
+.pm-user.open { border-color: #1677ff; }
+.pm-user-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.7rem; flex-wrap: wrap; }
+.pm-user-name { font-weight: 600; }
+.pm-you { color: #888; font-weight: 400; font-size: 0.8rem; }
+.pm-user-role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: #666;
+  border: 1px solid var(--border,#ddd); border-radius: 999px; padding: 0.1rem 0.5rem; }
+.pm-badge { font-size: 0.7rem; background: #fff4e5; color: #ad5700; border: 1px solid #ffd8a8;
+  border-radius: 999px; padding: 0.1rem 0.45rem; }
+.pm-user-count { margin-left: auto; color: #999; font-size: 0.78rem; }
+.pm-edit { border: 1px solid var(--border,#ccc); background: none; color: var(--text,#333);
+  border-radius: 6px; padding: 0.2rem 0.6rem; cursor: pointer; font-size: 0.8rem; }
+
+.pm-editor { border-top: 1px solid var(--border,#eee); padding: 0.7rem; }
+.pm-role-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.pm-role-row select { padding: 0.3rem 0.5rem; border: 1px solid var(--border,#ccc); border-radius: 6px;
+  background: var(--card,#fff); color: var(--text,#222); text-transform: capitalize; }
+.pm-role-hint { color: #888; font-size: 0.78rem; }
+
+.pm-group { border: 1px solid var(--border,#eee); border-radius: 8px; padding: 0.4rem 0.7rem 0.6rem;
+  margin: 0 0 0.5rem; }
+.pm-group legend { padding: 0 0.3rem; font-size: 0.82rem; font-weight: 600; }
+.pm-group-toggle { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+.pm-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.15rem 0.8rem; }
+.pm-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; padding: 0.12rem 0; cursor: pointer; }
+.pm-item-label { flex: 1; min-width: 0; }
+.pm-item-key { color: #aaa; font-size: 0.7rem; }
+
+.pm-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+.pm-actions button { border: 1px solid var(--border,#ccc); background: var(--card,#fff); color: var(--text,#222);
+  border-radius: 6px; padding: 0.35rem 0.8rem; cursor: pointer; }
+.pm-save { background: #1677ff !important; color: #fff !important; border-color: #1677ff !important; font-weight: 600; }
+.pm-save:disabled { opacity: 0.6; cursor: default; }
+.pm-count { color: #888; font-size: 0.8rem; margin-left: auto; }
+
+@media (max-width: 640px) {
+  .pm-items { grid-template-columns: 1fr; }
+  .pm-user-count { margin-left: 0; width: 100%; }
+}
