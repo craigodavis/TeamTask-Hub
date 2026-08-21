@@ -10,7 +10,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { unfulfilledAsOf } from '../lib/abcFiling.js';
 
 const router = express.Router();
@@ -77,7 +77,7 @@ async function c7Sales(daysBack, yearsBack = 0) {
 }
 
 // ── GET /api/dashboard ───────────────────────────────────────────────────────
-router.get('/', requireManager, async (req, res) => {
+router.get('/', requireCapability('dashboard.view'), async (req, res) => {
   try {
     const companyId = cid(req);
     const now = new Date();

@@ -14,7 +14,7 @@
 
 import { Router } from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { loadRules, evaluateRules } from '../lib/gatewayRules.js';
 import { executeGatewayAction } from '../lib/gatewayExecutor.js';
 
@@ -116,7 +116,7 @@ gatewayRouter.post('/submit', async (req, res) => {
 
 // ── Queue (pending_approval) ─────────────────────────────────────────────────
 
-gatewayRouter.get('/queue', requireManager, async (req, res) => {
+gatewayRouter.get('/queue', requireCapability('gateway.use'), async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT ga.*,
@@ -137,7 +137,7 @@ gatewayRouter.get('/queue', requireManager, async (req, res) => {
 
 // ── Log (completed / failed / rejected) ──────────────────────────────────────
 
-gatewayRouter.get('/log', requireManager, async (req, res) => {
+gatewayRouter.get('/log', requireCapability('gateway.use'), async (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit  || '100', 10), 500);
   const offset = parseInt(req.query.offset || '0', 10);
   const { service, status } = req.query;
@@ -175,7 +175,7 @@ gatewayRouter.get('/log', requireManager, async (req, res) => {
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
-gatewayRouter.post('/:id/approve', requireManager, async (req, res) => {
+gatewayRouter.post('/:id/approve', requireCapability('gateway.use'), async (req, res) => {
   try {
     // Optimistic lock: only transition from pending_approval
     const { rows, rowCount } = await query(
@@ -204,7 +204,7 @@ gatewayRouter.post('/:id/approve', requireManager, async (req, res) => {
 
 // ── Reject ────────────────────────────────────────────────────────────────────
 
-gatewayRouter.post('/:id/reject', requireManager, async (req, res) => {
+gatewayRouter.post('/:id/reject', requireCapability('gateway.use'), async (req, res) => {
   const { note } = req.body;
   try {
     const { rows, rowCount } = await query(
@@ -226,7 +226,7 @@ gatewayRouter.post('/:id/reject', requireManager, async (req, res) => {
 
 // ── Rules CRUD ────────────────────────────────────────────────────────────────
 
-gatewayRouter.get('/rules', requireManager, async (req, res) => {
+gatewayRouter.get('/rules', requireCapability('gateway.use'), async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT * FROM gateway_approval_rules WHERE company_id = $1 ORDER BY priority ASC`,
@@ -238,7 +238,7 @@ gatewayRouter.get('/rules', requireManager, async (req, res) => {
   }
 });
 
-gatewayRouter.post('/rules', requireManager, async (req, res) => {
+gatewayRouter.post('/rules', requireCapability('gateway.use'), async (req, res) => {
   const { name, service_pattern, operation_pattern, require_approval,
           auto_approve_minutes, priority, enabled } = req.body;
 
@@ -267,7 +267,7 @@ gatewayRouter.post('/rules', requireManager, async (req, res) => {
   }
 });
 
-gatewayRouter.patch('/rules/:id', requireManager, async (req, res) => {
+gatewayRouter.patch('/rules/:id', requireCapability('gateway.use'), async (req, res) => {
   const allowed = ['name','service_pattern','operation_pattern','require_approval',
                    'auto_approve_minutes','priority','enabled'];
   const sets = [];
@@ -296,7 +296,7 @@ gatewayRouter.patch('/rules/:id', requireManager, async (req, res) => {
   }
 });
 
-gatewayRouter.delete('/rules/:id', requireManager, async (req, res) => {
+gatewayRouter.delete('/rules/:id', requireCapability('gateway.use'), async (req, res) => {
   try {
     const { rowCount } = await query(
       `DELETE FROM gateway_approval_rules WHERE id = $1 AND company_id = $2`,

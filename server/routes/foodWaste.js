@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -18,7 +18,7 @@ router.get('/ingredients', async (req, res) => {
   }
 });
 
-router.post('/ingredients', requireManager, async (req, res) => {
+router.post('/ingredients', requireCapability('kitchen.ingredients'), async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
@@ -33,7 +33,7 @@ router.post('/ingredients', requireManager, async (req, res) => {
   }
 });
 
-router.patch('/ingredients/:id', requireManager, async (req, res) => {
+router.patch('/ingredients/:id', requireCapability('kitchen.ingredients'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
@@ -49,7 +49,7 @@ router.patch('/ingredients/:id', requireManager, async (req, res) => {
   }
 });
 
-router.delete('/ingredients/:id', requireManager, async (req, res) => {
+router.delete('/ingredients/:id', requireCapability('kitchen.ingredients'), async (req, res) => {
   try {
     const { id } = req.params;
     const r = await query(
@@ -64,7 +64,7 @@ router.delete('/ingredients/:id', requireManager, async (req, res) => {
 });
 
 // ---------- Food waste report (manager): summary by ingredient for date range, optional location ----------
-router.get('/report', requireManager, async (req, res) => {
+router.get('/report', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { from, to, location_id } = req.query;
     if (!from || !to) return res.status(400).json({ error: 'from and to date required (YYYY-MM-DD)' });

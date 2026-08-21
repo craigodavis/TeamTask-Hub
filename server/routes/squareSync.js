@@ -8,7 +8,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import { requireAuth, requireCapability } from '../middleware/auth.js';
 import { runCatalogSync } from '../lib/squareCatalogSync.js';
 import { runOrdersSync } from '../lib/squareOrdersSync.js';
 import { runShiftSync } from '../lib/squareShiftSync.js';
@@ -59,7 +59,7 @@ function computeNextSync(frequency) {
 }
 
 // ── GET /api/square/sync/objects ─────────────────────────────────────────────
-router.get('/objects', requireAuth, requireManager, async (req, res) => {
+router.get('/objects', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const companyId = cid(req);
 
@@ -115,7 +115,7 @@ router.get('/objects', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── PATCH /api/square/sync/objects/:id ───────────────────────────────────────
-router.patch('/objects/:id', requireAuth, requireManager, async (req, res) => {
+router.patch('/objects/:id', requireAuth, requireCapability('wine.products'), async (req, res) => {
   const { enabled, sync_frequency } = req.body;
   const fields = [];
   const vals   = [];
@@ -155,7 +155,7 @@ router.patch('/objects/:id', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── POST /api/square/sync/objects/:id/run ────────────────────────────────────
-router.post('/objects/:id/run', requireAuth, requireManager, async (req, res) => {
+router.post('/objects/:id/run', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const r = await query(
       `SELECT * FROM square_sync_objects WHERE id = $1 AND company_id = $2`,

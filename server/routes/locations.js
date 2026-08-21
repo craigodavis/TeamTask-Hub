@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 });
 
 // List Square locations (for the location-picker UI)
-router.get('/square', requireManager, async (req, res) => {
+router.get('/square', requireCapability('marketing.hours'), async (req, res) => {
   try {
     const r = await query(
       `SELECT id, name FROM team_square.location ORDER BY name`
@@ -32,7 +32,7 @@ router.get('/square', requireManager, async (req, res) => {
 });
 
 // Create location (manager/owner only)
-router.post('/', requireManager, async (req, res) => {
+router.post('/', requireCapability('marketing.hours'), async (req, res) => {
   try {
     const { name, square_location_id } = req.body;
     if (!name || String(name).trim() === '') {
@@ -51,7 +51,7 @@ router.post('/', requireManager, async (req, res) => {
 });
 
 // Update location (manager/owner only)
-router.patch('/:id', requireManager, async (req, res) => {
+router.patch('/:id', requireCapability('marketing.hours'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, square_location_id } = req.body;
@@ -75,7 +75,7 @@ router.patch('/:id', requireManager, async (req, res) => {
 });
 
 // Delete location (manager/owner only); junction tables remove rows via ON DELETE CASCADE
-router.delete('/:id', requireManager, async (req, res) => {
+router.delete('/:id', requireCapability('marketing.hours'), async (req, res) => {
   try {
     const { id } = req.params;
     const r = await query(

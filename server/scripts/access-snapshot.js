@@ -27,15 +27,25 @@ if (diffAt !== -1) {
   const before = JSON.parse(fs.readFileSync(a, 'utf8'));
   const after  = JSON.parse(fs.readFileSync(b, 'utf8'));
   const changes = [];
+  const added = new Set();
   for (const user of Object.keys({ ...before, ...after })) {
     for (const cap of ALL_CAPABILITIES) {
       const was = before[user]?.[cap] ?? null;
       const now = after[user]?.[cap] ?? null;
-      if (was !== now) changes.push({ user, capability: cap, was, now });
+      if (was === now) continue;
+      // A capability that did not exist in the baseline reads as null for
+      // everybody, so introducing one shows up as a change for all 18 users at
+      // once. That is a new capability, not an access change -- reported
+      // separately so a real regression is never buried in that noise.
+      if (was === null) { added.add(cap); continue; }
+      changes.push({ user, capability: cap, was, now });
     }
   }
+  if (added.size) {
+    console.log(`ℹ new capabilities since the baseline: ${[...added].join(', ')}`);
+  }
   if (!changes.length) {
-    console.log('✔ no effective access changed');
+    console.log('✔ no existing access changed');
   } else {
     console.log(`✖ ${changes.length} effective access changes:`);
     console.table(changes);

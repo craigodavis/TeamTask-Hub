@@ -57,6 +57,11 @@ export const CAPABILITIES = [
   { key: 'kitchen.ingredients',      label: 'Ingredients',        path: '/recipes/ingredients', container: 'kitchen' },
   { key: 'kitchen.inventory',        label: 'Kitchen Inventory',  path: '/kitchen/inventory',   container: 'kitchen' },
   { key: 'kitchen.recipes',          label: 'Recipes',            path: '/recipes/list',        container: 'kitchen' },
+  // Par levels and kitchen settings. Separate from kitchen.inventory because
+  // the old rules let an inventory user COUNT stock but not set the targets
+  // they are counted against -- folding the two together would have quietly
+  // handed Tristan and Zoë the par levels.
+  { key: 'kitchen.settings',         label: 'Par Levels & Kitchen Settings', path: '/kitchen/inventory', container: 'kitchen' },
   { key: 'kitchen.shopping',         label: 'Shopping',           path: '/food',                container: 'kitchen' },
 
   { key: 'tastingroom.menus',        label: 'Menus',              path: '/tasting-room/menus',        container: 'tastingroom' },

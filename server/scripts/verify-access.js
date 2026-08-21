@@ -57,6 +57,19 @@ const ROUTES = [
   { path: '/api/media',                      was: 'authOnly', allow: () => true },
   { path: '/api/page-images',                was: 'authOnly', allow: () => true },
   { path: '/api/announcements',              was: 'authOnly', allow: () => true },
+
+  // ── Batch 3: Kitchen (recipes.js split four ways) and ops ────────────────
+  { path: '/api/recipes',                      was: 'manager',   allow: manager },   // kitchen.recipes
+  { path: '/api/recipes/catalog',              was: 'manager',   allow: manager },   // kitchen.catalog
+  { path: '/api/recipes/ingredients',          was: 'manager',   allow: manager },   // kitchen.ingredients
+  { path: '/api/recipes/inventory',            was: 'inventory', allow: inventory }, // kitchen.inventory
+  { path: '/api/recipes/kitchen-settings',     was: 'inventory', allow: inventory }, // read stays inventory
+  { path: '/api/recipes/shopping-list',        was: 'inventory', allow: inventory },
+  { path: '/api/food-waste/report',            was: 'manager',   allow: manager },   // reports.operational
+  { path: '/api/food-waste/ingredients',       was: 'authOnly',  allow: () => true },
+  { path: '/api/dashboard',                    was: 'manager',   allow: manager },
+  { path: '/api/ground-control/zones',         was: 'gc',        allow: gc },
+  { path: '/api/ground-control/schedules',     was: 'gc',        allow: gc },
 ];
 
 // One user per distinct role, so every branch of every rule is exercised.
@@ -74,6 +87,14 @@ for (const u of users) {
   );
   for (const r of ROUTES) {
     const res = await fetch(BASE + r.path, { headers: { Authorization: `Bearer ${token}` } });
+    // A path that does not exist answers 404, which is not 403 and so would be
+    // scored as "allowed" -- inventing two routes produced four confident false
+    // regressions. A typo in this file must fail as a typo, not as a finding.
+    if (res.status === 404) {
+      console.error(`✖ ${r.path} returned 404 — no such route; fix the entry rather than trusting the result`);
+      failures++;
+      continue;
+    }
     const allowed = res.status !== 403;
     const expected = r.allow(u.role);
     const ok = allowed === expected;

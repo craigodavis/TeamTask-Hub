@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../db.js';
-import { requireGControl } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -32,7 +32,7 @@ async function rachioFetch(path, options = {}) {
 // ── Zones ──────────────────────────────────────────────────────────────────────
 
 // GET /zones — fetch all devices+zones and return flat list
-router.get('/zones', requireGControl, async (req, res) => {
+router.get('/zones', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const personInfo = await rachioFetch('/person/info');
     const personId = personInfo.id;
@@ -62,7 +62,7 @@ router.get('/zones', requireGControl, async (req, res) => {
 });
 
 // POST /zones/:zoneId/start — start a zone for duration_minutes
-router.post('/zones/:zoneId/start', requireGControl, async (req, res) => {
+router.post('/zones/:zoneId/start', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const { zoneId } = req.params;
     const { duration_minutes } = req.body;
@@ -82,7 +82,7 @@ router.post('/zones/:zoneId/start', requireGControl, async (req, res) => {
 });
 
 // PUT /zones/stop-all — stop all watering on all devices
-router.put('/zones/stop-all', requireGControl, async (req, res) => {
+router.put('/zones/stop-all', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     // Need to know device IDs to stop each device
     const personInfo = await rachioFetch('/person/info');
@@ -112,7 +112,7 @@ router.put('/zones/stop-all', requireGControl, async (req, res) => {
 // ── Schedules ─────────────────────────────────────────────────────────────────
 
 // GET /schedules — list biweekly schedules for this company
-router.get('/schedules', requireGControl, async (req, res) => {
+router.get('/schedules', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const r = await query(
       `SELECT * FROM rachio_schedules WHERE company_id = $1 ORDER BY day_of_week, start_time`,
@@ -126,7 +126,7 @@ router.get('/schedules', requireGControl, async (req, res) => {
 });
 
 // POST /schedules — create a biweekly schedule
-router.post('/schedules', requireGControl, async (req, res) => {
+router.post('/schedules', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const { zone_id, zone_name, device_id, name, duration_minutes, day_of_week, start_time, start_date } = req.body;
     if (!zone_id || !device_id || !name || !duration_minutes || day_of_week === undefined || !start_time) {
@@ -151,7 +151,7 @@ router.post('/schedules', requireGControl, async (req, res) => {
 });
 
 // PATCH /schedules/:id — update (enable/disable, change day/time/duration)
-router.patch('/schedules/:id', requireGControl, async (req, res) => {
+router.patch('/schedules/:id', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const { id } = req.params;
     const existing = await query(
@@ -197,7 +197,7 @@ router.patch('/schedules/:id', requireGControl, async (req, res) => {
 });
 
 // DELETE /schedules/:id
-router.delete('/schedules/:id', requireGControl, async (req, res) => {
+router.delete('/schedules/:id', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const { id } = req.params;
     const r = await query(
@@ -280,7 +280,7 @@ async function haFetch(url, token, path, options = {}) {
 }
 
 // GET /ha/states — return lights, switches, and climate entities
-router.get('/ha/states', requireGControl, async (req, res) => {
+router.get('/ha/states', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const { url, token } = await getHAConfig(req.companyId);
     const states = await haFetch(url, token, '/api/states');
@@ -297,7 +297,7 @@ router.get('/ha/states', requireGControl, async (req, res) => {
 });
 
 // POST /ha/service — call a HA service { domain, service, data }
-router.post('/ha/service', requireGControl, async (req, res) => {
+router.post('/ha/service', requireCapability('groundcontrol.use'), async (req, res) => {
   try {
     const { domain, service, data = {} } = req.body;
     if (!domain || !service) {

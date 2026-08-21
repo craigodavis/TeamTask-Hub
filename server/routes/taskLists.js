@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
@@ -44,7 +44,7 @@ router.get('/wage-titles', async (req, res) => {
 // GET /square-schedule?date=YYYY-MM-DD
 // Queries Square Labor API directly (not Fivetran) for today/future shifts.
 // Returns [{ user_id, display_name, square_team_member_id, wage_title, shift_start, shift_end, status }]
-router.get('/square-schedule', requireManager, async (req, res) => {
+router.get('/square-schedule', requireCapability('tasks.manage'), async (req, res) => {
   const { date } = req.query;
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: 'date query param required (YYYY-MM-DD)' });
@@ -225,7 +225,7 @@ router.get('/templates', async (req, res) => {
   }
 });
 
-router.post('/templates', requireManager, async (req, res) => {
+router.post('/templates', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids, wage_title } = req.body;
     if (!name || !type || !period_type) {
@@ -289,7 +289,7 @@ router.post('/templates', requireManager, async (req, res) => {
   }
 });
 
-router.patch('/templates/:id', requireManager, async (req, res) => {
+router.patch('/templates/:id', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, type, period_type, day_of_week, day_of_month, recur_month, recur_day, location_ids, wage_title } = req.body;
@@ -385,7 +385,7 @@ router.patch('/templates/:id', requireManager, async (req, res) => {
   }
 });
 
-router.delete('/templates/:id', requireManager, async (req, res) => {
+router.delete('/templates/:id', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const r = await query(
@@ -416,7 +416,7 @@ router.get('/templates/:templateId/tasks', async (req, res) => {
   }
 });
 
-router.post('/templates/:templateId/tasks', requireManager, async (req, res) => {
+router.post('/templates/:templateId/tasks', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { templateId } = req.params;
     const { title, sort_order, priority } = req.body;
@@ -436,7 +436,7 @@ router.post('/templates/:templateId/tasks', requireManager, async (req, res) => 
   }
 });
 
-router.patch('/tasks/:taskId', requireManager, async (req, res) => {
+router.patch('/tasks/:taskId', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { taskId } = req.params;
     const { title, sort_order, priority } = req.body;
@@ -460,7 +460,7 @@ router.patch('/tasks/:taskId', requireManager, async (req, res) => {
 
 // Reorder tasks within a template by providing ordered task IDs.
 // Assigns sort_order 1, 2, 3... to match the given sequence.
-router.put('/templates/:templateId/tasks/reorder', requireManager, async (req, res) => {
+router.put('/templates/:templateId/tasks/reorder', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { templateId } = req.params;
     const { task_ids } = req.body;
@@ -493,7 +493,7 @@ router.put('/templates/:templateId/tasks/reorder', requireManager, async (req, r
   }
 });
 
-router.delete('/tasks/:taskId', requireManager, async (req, res) => {
+router.delete('/tasks/:taskId', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { taskId } = req.params;
     const r = await query(
@@ -780,7 +780,7 @@ router.get('/assignments', async (req, res) => {
   }
 });
 
-router.post('/assignments', requireManager, async (req, res) => {
+router.post('/assignments', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { template_id, assigned_date, assignee_id } = req.body;
     if (!template_id || !assigned_date) {
@@ -800,7 +800,7 @@ router.post('/assignments', requireManager, async (req, res) => {
   }
 });
 
-router.delete('/assignments/:id', requireManager, async (req, res) => {
+router.delete('/assignments/:id', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const r = await query(
@@ -820,7 +820,7 @@ router.delete('/assignments/:id', requireManager, async (req, res) => {
 // - If incomplete tasks remain, `note` is required.
 // - Marks remaining incomplete tasks as not_completed with the note as reason.
 // - Sets archived_at and sends SMS to managers + assignee (same as nightly job).
-router.post('/assignments/:id/close', requireManager, async (req, res) => {
+router.post('/assignments/:id/close', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { note } = req.body;
@@ -1098,7 +1098,7 @@ async function sendClosureSms(assignmentId, cId, { reason = null, triggeredBy = 
 }
 
 // ---------- Task report (manager): completions in date range ----------
-router.get('/report', requireManager, async (req, res) => {
+router.get('/report', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ error: 'from and to date required (YYYY-MM-DD)' });

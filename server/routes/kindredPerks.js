@@ -19,7 +19,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
-import {requireAuth, requireCapability} from '../middleware/auth.js';
+import { requireAuth, requireCapability } from '../middleware/auth.js';
 import { requireMemberSession } from './clubNotifications.js';
 
 const router = express.Router();

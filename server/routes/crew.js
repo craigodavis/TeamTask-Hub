@@ -23,7 +23,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { MEDIA_DIR, generateVariants, safeBase } from '../lib/mediaVariants.js';
 
 export const crewRouter = express.Router();
@@ -221,7 +221,7 @@ crewRouter.delete('/me/photo', async (req, res) => {
 // ── Manager only ────────────────────────────────────────────────────────────
 
 /** PUT /api/crew/:squareId — edit anyone's copy. */
-crewRouter.put('/:squareId', requireManager, async (req, res) => {
+crewRouter.put('/:squareId', requireCapability('tasks.manage'), async (req, res) => {
   try {
     await saveProfile(req.params.squareId, req.body || {}, req.userId);
     const r = await query(`${CREW_SELECT} WHERE t.id = $1`, [req.params.squareId]);
@@ -270,7 +270,7 @@ async function assignSlug(squareId) {
  * A manager clearing the copy for publication. Approval alone doesn't publish —
  * the person still has to have consented, and still has to be active in Square.
  */
-crewRouter.post('/:squareId/approve', requireManager, async (req, res) => {
+crewRouter.post('/:squareId/approve', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const on = req.body?.approved !== false;
     const exists = await query(`SELECT 1 FROM kindred_web.crew_profile WHERE square_team_member_id = $1`, [req.params.squareId]);
@@ -288,7 +288,7 @@ crewRouter.post('/:squareId/approve', requireManager, async (req, res) => {
 });
 
 /** PUT /api/crew/:squareId/order { order: [squareId, …] } — display order. */
-crewRouter.put('/order/all', requireManager, async (req, res) => {
+crewRouter.put('/order/all', requireCapability('tasks.manage'), async (req, res) => {
   try {
     const order = Array.isArray(req.body?.order) ? req.body.order : [];
     for (let i = 0; i < order.length; i++) {

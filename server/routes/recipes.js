@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db.js';
-import { requireManager, requireInventoryAccess } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { generateMenuDescription } from '../aiClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -209,7 +209,7 @@ async function getRecipeComponents(recipeId) {
 // POST /api/recipes/catalog/backfill
 // One-time backfill: seed shopping_item_raw from all historical receipt_items.
 // Safe to run multiple times — ON CONFLICT updates are idempotent.
-router.post('/catalog/backfill', requireManager, async (req, res) => {
+router.post('/catalog/backfill', requireCapability('kitchen.catalog'), async (req, res) => {
   try {
     const r = await query(
       `WITH grouped AS (
@@ -262,7 +262,7 @@ router.post('/catalog/backfill', requireManager, async (req, res) => {
 // Pull clean product data (name, pack, UOM) from vendor catalogs and store it on
 // shopping_item_raw. Chef Store → Algolia (public); Sysco → authenticated GraphQL.
 // Body: { ids?: [catalog row ids] }  — omit to enrich all un-enriched linked items.
-router.post('/catalog/enrich', requireManager, async (req, res) => {
+router.post('/catalog/enrich', requireCapability('kitchen.catalog'), async (req, res) => {
   const companyId = cId(req);
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
   try {
@@ -334,7 +334,7 @@ router.post('/catalog/enrich', requireManager, async (req, res) => {
 // GET /api/recipes/catalog
 // List raw receipt items for the catalog UI.
 // Query params: status=pending|linked|ignored|all (default: all except ignored)
-router.get('/catalog', requireManager, async (req, res) => {
+router.get('/catalog', requireCapability('kitchen.catalog'), async (req, res) => {
   const { status = 'unignored', search = '', page = '1', limit = '100', grocery = '1' } = req.query;
   const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
@@ -422,7 +422,7 @@ router.get('/catalog', requireManager, async (req, res) => {
 // POST /api/recipes/catalog/:id/convert — create an ingredient from a catalog
 // item, then link that item (primary source) plus any sibling rows for the same
 // product across other stores. Body: { name?, description?, base_unit? }
-router.post('/catalog/:id/convert', requireManager, async (req, res) => {
+router.post('/catalog/:id/convert', requireCapability('kitchen.catalog'), async (req, res) => {
   const company = cId(req);
   const item = await query(
     `SELECT id, product_name, description_raw FROM shopping_item_raw
@@ -470,7 +470,7 @@ router.post('/catalog/:id/convert', requireManager, async (req, res) => {
 
 // GET /api/recipes/catalog/:id/purchases
 // All receipt line items linked to a shopping_item_raw row, ordered newest first.
-router.get('/catalog/:id/purchases', requireManager, async (req, res) => {
+router.get('/catalog/:id/purchases', requireCapability('kitchen.catalog'), async (req, res) => {
   try {
     const r = await query(
       `SELECT
@@ -497,7 +497,7 @@ router.get('/catalog/:id/purchases', requireManager, async (req, res) => {
 });
 
 // PATCH /api/recipes/catalog/:id
-router.patch('/catalog/:id', requireManager, async (req, res) => {
+router.patch('/catalog/:id', requireCapability('kitchen.catalog'), async (req, res) => {
   const { ingredient_id, is_recipe_primary, ignored, unit } = req.body;
 
   if (is_recipe_primary === true && ingredient_id) {
@@ -533,7 +533,7 @@ router.patch('/catalog/:id', requireManager, async (req, res) => {
 // POST /api/recipes/catalog/bulk-unit
 // Set unit on multiple catalog items at once.
 // Body: { ids: string[], unit: string }
-router.post('/catalog/bulk-unit', requireManager, async (req, res) => {
+router.post('/catalog/bulk-unit', requireCapability('kitchen.catalog'), async (req, res) => {
   const { ids, unit } = req.body;
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required' });
   try {
@@ -553,7 +553,7 @@ router.post('/catalog/bulk-unit', requireManager, async (req, res) => {
 //   Tier 1: Sysco pack string rules (regex, no AI)
 //   Tier 2: Most recent non-'each' quantity_unit from receipt_items
 //   Tier 3: AI batch classification for anything still unresolved
-router.post('/catalog/infer-units', requireManager, async (req, res) => {
+router.post('/catalog/infer-units', requireCapability('kitchen.catalog'), async (req, res) => {
   const companyId = cId(req);
 
   // ── Pack-string heuristic ─────────────────────────────────────────────────
@@ -707,7 +707,7 @@ Return: [{"id":"...","unit":"..."},...]`,
 // ── INGREDIENTS ───────────────────────────────────────────────────────────────
 
 // GET /api/recipes/ingredients
-router.get('/ingredients', requireManager, async (req, res) => {
+router.get('/ingredients', requireCapability('kitchen.ingredients'), async (req, res) => {
   const r = await query(
     `SELECT
        i.id, i.name, i.description, i.base_unit, i.is_active,
@@ -764,7 +764,7 @@ router.get('/ingredients', requireManager, async (req, res) => {
 });
 
 // GET /api/recipes/ingredients/:id  (with linked sources)
-router.get('/ingredients/:id', requireManager, async (req, res) => {
+router.get('/ingredients/:id', requireCapability('kitchen.ingredients'), async (req, res) => {
   const ing = await query(
     `SELECT id, name, description, base_unit, is_active, created_at, updated_at
      FROM ingredients WHERE id = $1 AND company_id = $2`,
@@ -785,7 +785,7 @@ router.get('/ingredients/:id', requireManager, async (req, res) => {
 });
 
 // POST /api/recipes/ingredients
-router.post('/ingredients', requireManager, async (req, res) => {
+router.post('/ingredients', requireCapability('kitchen.ingredients'), async (req, res) => {
   const { name, description, base_unit } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
   const r = await query(
@@ -797,7 +797,7 @@ router.post('/ingredients', requireManager, async (req, res) => {
 });
 
 // PATCH /api/recipes/ingredients/:id
-router.patch('/ingredients/:id', requireManager, async (req, res) => {
+router.patch('/ingredients/:id', requireCapability('kitchen.ingredients'), async (req, res) => {
   const {
     name, description, base_unit, is_active,
     par_qty, par_unit, buy_frequency,
@@ -871,7 +871,7 @@ router.patch('/ingredients/:id', requireManager, async (req, res) => {
 });
 
 // DELETE /api/recipes/ingredients/:id
-router.delete('/ingredients/:id', requireManager, async (req, res) => {
+router.delete('/ingredients/:id', requireCapability('kitchen.ingredients'), async (req, res) => {
   const inUse = await query(
     `SELECT 1 FROM recipe_ingredients ri
      JOIN recipes r ON r.id = ri.recipe_id
@@ -895,7 +895,7 @@ router.delete('/ingredients/:id', requireManager, async (req, res) => {
 // ── INVENTORY (on-hand counts per ingredient per location) ────────────────────
 
 // GET /api/recipes/inventory?location_id=…  — ingredients stocked at a location
-router.get('/inventory', requireInventoryAccess, async (req, res) => {
+router.get('/inventory', requireCapability('kitchen.inventory'), async (req, res) => {
   const { location_id } = req.query;
   if (!location_id) return res.status(400).json({ error: 'location_id is required' });
   const r = await query(
@@ -921,7 +921,7 @@ router.get('/inventory', requireInventoryAccess, async (req, res) => {
 });
 
 // PATCH /api/recipes/inventory/:ingredientId/:locationId  — set count / sort
-router.patch('/inventory/:ingredientId/:locationId', requireInventoryAccess, async (req, res) => {
+router.patch('/inventory/:ingredientId/:locationId', requireCapability('kitchen.inventory'), async (req, res) => {
   const { current_qty, sort_order } = req.body;
   const { ingredientId, locationId } = req.params;
   const company = cId(req);
@@ -948,7 +948,7 @@ router.patch('/inventory/:ingredientId/:locationId', requireInventoryAccess, asy
 });
 
 // POST /api/recipes/inventory/reorder  — persist drag-drop order for a location
-router.post('/inventory/reorder', requireInventoryAccess, async (req, res) => {
+router.post('/inventory/reorder', requireCapability('kitchen.inventory'), async (req, res) => {
   const { location_id, order } = req.body; // order: [{ ingredient_id, sort_order }]
   if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
   const company = cId(req);
@@ -964,7 +964,7 @@ router.post('/inventory/reorder', requireInventoryAccess, async (req, res) => {
 });
 
 // PATCH /api/recipes/inventory/:ingredientId/:locationId/par — set per-location par (manager)
-router.patch('/inventory/:ingredientId/:locationId/par', requireManager, async (req, res) => {
+router.patch('/inventory/:ingredientId/:locationId/par', requireCapability('kitchen.settings'), async (req, res) => {
   const { par_qty, par_unit } = req.body;
   const { ingredientId, locationId } = req.params;
   const r = await query(
@@ -983,7 +983,7 @@ router.patch('/inventory/:ingredientId/:locationId/par', requireManager, async (
 
 // GET /api/recipes/kitchen-settings — per-store trip costs + a default, plus the
 // list of known vendors (stores) so the UI can offer a cost row for each.
-router.get('/kitchen-settings', requireInventoryAccess, async (req, res) => {
+router.get('/kitchen-settings', requireCapability('kitchen.inventory'), async (req, res) => {
   const company = cId(req);
   const def = await query(`SELECT cost_to_shop FROM kitchen_settings WHERE company_id = $1`, [company]);
   const stores = await query(
@@ -1004,7 +1004,7 @@ router.get('/kitchen-settings', requireInventoryAccess, async (req, res) => {
 
 // PATCH /api/recipes/kitchen-settings  (manager)
 // Body: { default_cost_to_shop?, stores?: [{ vendor, cost_to_shop }] }
-router.patch('/kitchen-settings', requireManager, async (req, res) => {
+router.patch('/kitchen-settings', requireCapability('kitchen.settings'), async (req, res) => {
   const company = cId(req);
   const { default_cost_to_shop, stores } = req.body || {};
   if (default_cost_to_shop != null) {
@@ -1032,7 +1032,7 @@ router.patch('/kitchen-settings', requireManager, async (req, res) => {
 // GET /api/recipes/shopping-list?location_id=…  — stocked items below (per-location) par.
 // Returns shortage qty, all fulfilling vendor sources (default first), and each
 // item's share of the single company cost-to-shop, distributed by dollar value.
-router.get('/shopping-list', requireInventoryAccess, async (req, res) => {
+router.get('/shopping-list', requireCapability('kitchen.inventory'), async (req, res) => {
   const { location_id } = req.query;
   const company = cId(req);
   const r = await query(
@@ -1135,7 +1135,7 @@ router.get('/shopping-list', requireInventoryAccess, async (req, res) => {
 // ── RECIPES ───────────────────────────────────────────────────────────────────
 
 // GET /api/recipes/meta/categories  — must be before /:id
-router.get('/meta/categories', requireManager, async (req, res) => {
+router.get('/meta/categories', requireCapability('kitchen.recipes'), async (req, res) => {
   const r = await query(
     `SELECT DISTINCT category FROM recipes WHERE company_id = $1 AND category IS NOT NULL ORDER BY category`,
     [cId(req)]
@@ -1147,7 +1147,7 @@ router.get('/meta/categories', requireManager, async (req, res) => {
 });
 
 // GET /api/recipes
-router.get('/', requireManager, async (req, res) => {
+router.get('/', requireCapability('kitchen.recipes'), async (req, res) => {
   const { category, status, location_id } = req.query;
   const params = [cId(req)];
   let p = 2;
@@ -1184,7 +1184,7 @@ router.get('/', requireManager, async (req, res) => {
 });
 
 // POST /api/recipes
-router.post('/', requireManager, async (req, res) => {
+router.post('/', requireCapability('kitchen.recipes'), async (req, res) => {
   const { name, category, description, instructions, prep_time_minutes, status, menu_price,
           location_ids, menu_title, menu_description, square_sku } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
@@ -1213,7 +1213,7 @@ router.post('/', requireManager, async (req, res) => {
 // Every sellable SKU in the Square catalog, so the recipe form offers a pick list
 // instead of a free-text box someone can typo. Declared before GET /:id on
 // purpose — otherwise "/square-skus" is matched as an :id.
-router.get('/square-skus', requireManager, async (req, res) => {
+router.get('/square-skus', requireCapability('kitchen.recipes'), async (req, res) => {
   const taken = await query(
     `SELECT square_sku, name FROM recipes WHERE company_id = $1 AND square_sku IS NOT NULL`,
     [cId(req)]
@@ -1241,7 +1241,7 @@ router.get('/square-skus', requireManager, async (req, res) => {
 });
 
 // GET /api/recipes/:id
-router.get('/:id', requireManager, async (req, res) => {
+router.get('/:id', requireCapability('kitchen.recipes'), async (req, res) => {
   const r = await query(
     `SELECT * FROM recipes WHERE id = $1 AND company_id = $2`,
     [req.params.id, cId(req)]
@@ -1260,7 +1260,7 @@ router.get('/:id', requireManager, async (req, res) => {
 });
 
 // PATCH /api/recipes/:id
-router.patch('/:id', requireManager, async (req, res) => {
+router.patch('/:id', requireCapability('kitchen.recipes'), async (req, res) => {
   const { name, category, description, instructions, prep_time_minutes, status, menu_price,
           location_ids, menu_title, menu_description, square_sku } = req.body;
   // Blanking a menu field on an existing recipe is almost always a UI slip, not
@@ -1301,7 +1301,7 @@ router.patch('/:id', requireManager, async (req, res) => {
 });
 
 // DELETE /api/recipes/:id
-router.delete('/:id', requireManager, async (req, res) => {
+router.delete('/:id', requireCapability('kitchen.recipes'), async (req, res) => {
   // Block deletion of a recipe that another recipe consumes as a component.
   const usedAsComponent = await query(
     `SELECT p.name FROM recipe_components rc
@@ -1321,7 +1321,7 @@ router.delete('/:id', requireManager, async (req, res) => {
 });
 
 // POST /api/recipes/:id/photo
-router.post('/:id/photo', requireManager, photoUpload.single('photo'), async (req, res) => {
+router.post('/:id/photo', requireCapability('kitchen.recipes'), photoUpload.single('photo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const url = `/api/uploads/recipes/${req.file.filename}`;
 
@@ -1341,7 +1341,7 @@ router.post('/:id/photo', requireManager, photoUpload.single('photo'), async (re
 
 // PUT /api/recipes/:id/ingredients
 // Replaces the full ingredient list for a recipe.
-router.put('/:id/ingredients', requireManager, async (req, res) => {
+router.put('/:id/ingredients', requireCapability('kitchen.recipes'), async (req, res) => {
   const { ingredients } = req.body;
   if (!Array.isArray(ingredients)) return res.status(400).json({ error: 'ingredients array required' });
 
@@ -1364,7 +1364,7 @@ router.put('/:id/ingredients', requireManager, async (req, res) => {
 
 // PUT /api/recipes/:id/components
 // Replaces the full sub-recipe (component) list for a recipe.
-router.put('/:id/components', requireManager, async (req, res) => {
+router.put('/:id/components', requireCapability('kitchen.recipes'), async (req, res) => {
   const { components } = req.body;
   if (!Array.isArray(components)) return res.status(400).json({ error: 'components array required' });
 
@@ -1387,7 +1387,7 @@ router.put('/:id/components', requireManager, async (req, res) => {
 });
 
 // PUT /api/recipes/:id/locations
-router.put('/:id/locations', requireManager, async (req, res) => {
+router.put('/:id/locations', requireCapability('kitchen.recipes'), async (req, res) => {
   const { location_ids } = req.body;
   const check = await query(`SELECT id FROM recipes WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Not found' });
@@ -1398,7 +1398,7 @@ router.put('/:id/locations', requireManager, async (req, res) => {
 // POST /api/recipes/:id/menu-description
 // Generates menu copy from the recipe's ingredients. Returns the text for review
 // rather than saving it — the person writing the menu decides what ships.
-router.post('/:id/menu-description', requireManager, async (req, res) => {
+router.post('/:id/menu-description', requireCapability('kitchen.recipes'), async (req, res) => {
   try {
     const r = await query(
       `SELECT name, menu_title, category FROM recipes WHERE id = $1 AND company_id = $2`,
@@ -1432,7 +1432,7 @@ router.post('/:id/menu-description', requireManager, async (req, res) => {
 });
 
 // POST /api/recipes/:id/images — attach one or more prep photos
-router.post('/:id/images', requireManager, photoUpload.array('images', 10), async (req, res) => {
+router.post('/:id/images', requireCapability('kitchen.recipes'), photoUpload.array('images', 10), async (req, res) => {
   if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
   const check = await query(`SELECT id FROM recipes WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Not found' });
@@ -1460,7 +1460,7 @@ router.post('/:id/images', requireManager, photoUpload.array('images', 10), asyn
 });
 
 // PATCH /api/recipes/:id/images/:imageId — caption only
-router.patch('/:id/images/:imageId', requireManager, async (req, res) => {
+router.patch('/:id/images/:imageId', requireCapability('kitchen.recipes'), async (req, res) => {
   const r = await query(
     `UPDATE recipe_images SET caption = $1
       WHERE id = $2 AND recipe_id = $3 AND company_id = $4
@@ -1472,7 +1472,7 @@ router.patch('/:id/images/:imageId', requireManager, async (req, res) => {
 });
 
 // PUT /api/recipes/:id/images/order — reorder the prep steps
-router.put('/:id/images/order', requireManager, async (req, res) => {
+router.put('/:id/images/order', requireCapability('kitchen.recipes'), async (req, res) => {
   const { imageIds } = req.body;
   if (!Array.isArray(imageIds)) return res.status(400).json({ error: 'imageIds array required' });
   for (let i = 0; i < imageIds.length; i++) {
@@ -1485,7 +1485,7 @@ router.put('/:id/images/order', requireManager, async (req, res) => {
 });
 
 // DELETE /api/recipes/:id/images/:imageId
-router.delete('/:id/images/:imageId', requireManager, async (req, res) => {
+router.delete('/:id/images/:imageId', requireCapability('kitchen.recipes'), async (req, res) => {
   const r = await query(
     `DELETE FROM recipe_images WHERE id = $1 AND recipe_id = $2 AND company_id = $3 RETURNING url`,
     [req.params.imageId, req.params.id, cId(req)]

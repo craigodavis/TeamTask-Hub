@@ -8,7 +8,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 const cId = (req) => req.companyId;
@@ -56,7 +56,7 @@ router.get('/', async (req, res) => {
 });
 
 // PUT /api/hours/:locationId/details — upsert a venue's address/phone/geo/push targets.
-router.put('/:locationId/details', requireManager, async (req, res) => {
+router.put('/:locationId/details', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { locationId } = req.params;
     const chk = await query(`SELECT id FROM locations WHERE id = $1 AND company_id = $2`, [locationId, cId(req)]);
@@ -81,7 +81,7 @@ router.put('/:locationId/details', requireManager, async (req, res) => {
 
 // PUT /api/hours/:locationId — replace the whole weekly schedule for a location.
 // Body: { department?, intervals: [{ day_of_week, opens:"HH:MM", closes:"HH:MM" }] }
-router.put('/:locationId', requireManager, async (req, res) => {
+router.put('/:locationId', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { locationId } = req.params;
     const department = req.body.department || DEPT;
@@ -120,7 +120,7 @@ router.put('/:locationId', requireManager, async (req, res) => {
 // POST /api/hours/:locationId/confirm-publish — record that a manager updated
 // the outside listings by hand. Not a push; a receipt. Until the Google/Apple
 // APIs are connected this is the only evidence the published hours match ours.
-router.post('/:locationId/confirm-publish', requireManager, async (req, res) => {
+router.post('/:locationId/confirm-publish', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { locationId } = req.params;
     const { google, apple, facebook } = req.body || {};
@@ -136,7 +136,7 @@ router.post('/:locationId/confirm-publish', requireManager, async (req, res) => 
 });
 
 // POST /api/hours/:locationId/special — add a holiday/closure override.
-router.post('/:locationId/special', requireManager, async (req, res) => {
+router.post('/:locationId/special', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { locationId } = req.params;
     const { on_date, is_closed = false, opens = null, closes = null, note = null, department = DEPT } = req.body || {};
@@ -156,7 +156,7 @@ router.post('/:locationId/special', requireManager, async (req, res) => {
 });
 
 // DELETE /api/hours/special/:id
-router.delete('/special/:id', requireManager, async (req, res) => {
+router.delete('/special/:id', requireCapability('reports.operational'), async (req, res) => {
   try {
     await query(`DELETE FROM kindred_web.hours_special WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
     res.json({ ok: true });

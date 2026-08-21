@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 const companyId = (req) => req.companyId;
@@ -29,7 +29,7 @@ async function persistDebtCeiling(cId, raw) {
 }
 
 /** Chart + table data: 12 months for each of two years (defaults: last year & this year). */
-router.get('/report', requireManager, async (req, res) => {
+router.get('/report', requireCapability('reports.operational'), async (req, res) => {
   try {
     const y = new Date().getFullYear();
     let priorYear = parseInt(req.query.prior_year, 10);
@@ -80,7 +80,7 @@ router.get('/report', requireManager, async (req, res) => {
  * Omit ending_balance or null to delete that month’s row.
  * Optional debt_ceiling (same rules as PUT /ceiling): set or clear ceiling in the same request.
  */
-router.post('/balances/bulk', requireManager, async (req, res) => {
+router.post('/balances/bulk', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { balances } = req.body;
     if (!Array.isArray(balances)) return res.status(400).json({ error: 'balances array required' });
@@ -143,7 +143,7 @@ async function saveDebtCeiling(req, res) {
 }
 
 // POST avoids PUT being blocked by some Apache / reverse-proxy setups (HTML 403/405 → opaque client errors).
-router.post('/ceiling', requireManager, saveDebtCeiling);
-router.put('/ceiling', requireManager, saveDebtCeiling);
+router.post('/ceiling', requireCapability('reports.operational'), saveDebtCeiling);
+router.put('/ceiling', requireCapability('reports.operational'), saveDebtCeiling);
 
 export { router as debtRouter };
