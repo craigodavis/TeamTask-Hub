@@ -116,6 +116,41 @@ router.post('/login', async (req, res) => {
   }
 });
 
+/**
+ * Start a "View as" session — owner only.
+ *
+ * Returns a short-lived token that makes every request answer as that person:
+ * their menus, their tasks, their data. Not a preview of the sidebar, the
+ * actual app, because the whole point is to see what they see.
+ *
+ * READ-ONLY, deliberately. The token carries a viewAs claim and every write is
+ * refused while it is in use. Being able to look at somebody's screen is
+ * useful; being able to acknowledge an announcement as them, complete their
+ * tasks, or post in their name is a way to corrupt data that nobody would
+ * think to look for afterwards.
+ *
+ * Thirty minutes, so a forgotten session expires on its own.
+ */
+router.post('/view-as/:userId', requireAuth, requireCapability('users.manage'), async (req, res) => {
+  const target = (
+    await query(
+      `SELECT id, display_name, email, role FROM users WHERE id = $1 AND company_id = $2`,
+      [req.params.userId, req.companyId]
+    )
+  ).rows[0];
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.id === req.userId) return res.status(400).json({ error: 'That is already you.' });
+
+  console.log(`[view-as] ${req.userId} is now viewing as ${target.id} (${target.display_name})`);
+
+  const token = jwt.sign(
+    { userId: target.id, companyId: req.companyId, email: target.email, viewAs: { by: req.userId } },
+    JWT_SECRET,
+    { expiresIn: '30m' }
+  );
+  res.json({ token, user: { id: target.id, display_name: target.display_name, role: target.role } });
+});
+
 router.get('/me', async (req, res) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -149,6 +184,9 @@ router.get('/me', async (req, res) => {
         phone: user.phone,
         has_pin: !!user.pin_hash,
         capabilities: caps.rows.map((x) => x.capability),
+        // Present only during a "View as" session, so the UI can say so
+        // loudly and offer the way out.
+        viewing_as: payload.viewAs ? { by: payload.viewAs.by, read_only: true } : null,
         company_name: companyDisplayLabel(user.company_name, user.company_slug),
         company_slug: user.company_slug,
       },

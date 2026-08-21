@@ -1,0 +1,30 @@
+.va-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex;
+  align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+.va-modal { background: var(--card,#fff); color: var(--text,#222); border-radius: 12px;
+  width: min(520px, 100%); max-height: 80vh; display: flex; flex-direction: column; padding: 1rem; }
+.va-head { display: flex; align-items: center; justify-content: space-between; }
+.va-head h2 { margin: 0; font-size: 1.05rem; }
+.va-close { background: none; border: none; font-size: 1.4rem; cursor: pointer; color: var(--text,#333); }
+.va-hint { color: #888; font-size: 0.82rem; margin: 0.3rem 0 0.7rem; }
+.va-error { color: #b42318; font-size: 0.85rem; }
+.va-empty { color: #999; font-size: 0.85rem; }
+.va-list { overflow-y: auto; display: flex; flex-direction: column; gap: 0.2rem; }
+.va-user { display: flex; align-items: center; gap: 0.6rem; text-align: left; width: 100%;
+  background: none; border: 1px solid transparent; border-radius: 8px; padding: 0.45rem 0.6rem;
+  cursor: pointer; color: var(--text,#222); }
+.va-user:hover { border-color: var(--border,#ddd); background: rgba(22,119,255,0.06); }
+.va-user:disabled { opacity: 0.5; cursor: default; }
+.va-name { font-weight: 600; flex: 1; }
+.va-role { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: #666;
+  border: 1px solid var(--border,#ddd); border-radius: 999px; padding: 0.05rem 0.45rem; }
+.va-caps { color: #aaa; font-size: 0.75rem; }
+
+/* Hard to miss on purpose — an owner who forgets they are in someone else's
+   session will read every screen wrongly. */
+.va-banner { position: sticky; top: 0; z-index: 900; display: flex; align-items: center; gap: 0.6rem;
+  background: #ad5700; color: #fff; padding: 0.35rem 0.8rem; font-size: 0.85rem; }
+.va-banner-text { flex: 1; }
+.va-banner-ro { opacity: 0.85; }
+.va-banner-exit { background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.5);
+  color: #fff; border-radius: 6px; padding: 0.15rem 0.6rem; cursor: pointer; font-weight: 600; }
+.va-banner-exit:hover { background: rgba(255,255,255,0.3); }

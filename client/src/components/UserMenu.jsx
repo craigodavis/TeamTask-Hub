@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SetPinModal } from './SetPinModal';
+import { ViewAsPicker, isViewingAs, exitViewAs } from './ViewAs';
 import './UserMenu.css';
 
 /**
@@ -12,6 +13,7 @@ import './UserMenu.css';
 export function UserMenu({ user, onLogout, compact = false }) {
   const [open, setOpen] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
+  const [showViewAs, setShowViewAs] = useState(false);
   const wrapRef = useRef(null);
   const navigate = useNavigate();
 
@@ -94,6 +96,26 @@ export function UserMenu({ user, onLogout, compact = false }) {
           >
             {user?.has_pin ? 'Change PIN' : 'Set PIN'}
           </button>
+          {isOwner && !isViewingAs() && (
+            <button
+              type="button"
+              className="user-menu-item"
+              role="menuitem"
+              onClick={() => { close(); setShowViewAs(true); }}
+            >
+              View as…
+            </button>
+          )}
+          {isViewingAs() && (
+            <button
+              type="button"
+              className="user-menu-item"
+              role="menuitem"
+              onClick={() => { close(); exitViewAs(); }}
+            >
+              Stop viewing as
+            </button>
+          )}
           <div className="user-menu-divider" />
           <button
             type="button"
@@ -108,6 +130,7 @@ export function UserMenu({ user, onLogout, compact = false }) {
           </button>
         </div>
       )}
+      {showViewAs && <ViewAsPicker onClose={() => setShowViewAs(false)} />}
       {showPinModal && (
         <SetPinModal
           onClose={() => setShowPinModal(false)}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { can, canAny } from '../utils/can';
+import { ViewAsBanner } from './ViewAs';
 import { UserMenu } from './UserMenu';
 import { appHubTitle } from '../appHubTitle';
 import './AppShell.css';
@@ -81,6 +82,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
 
   return (
     <div className={`app-shell ${collapsed ? 'app-shell-collapsed' : ''}`}>
+      <ViewAsBanner user={user} />
       <header className="app-shell-header">
         <div className="app-shell-header-left">
           <button

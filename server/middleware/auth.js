@@ -70,6 +70,25 @@ export async function requireAuth(req, res, next) {
       [payload.userId]
     );
     req.capabilities = new Set(caps.rows.map((x) => x.capability));
+
+    // A "View as" token answers as its target in every respect -- same id, same
+    // role, same grants -- so the app it renders is genuinely theirs. What it
+    // does not get is the ability to change anything: see requireNotViewingAs.
+    if (payload.viewAs?.by) {
+      req.viewAsBy = payload.viewAs.by;
+      // Enforced here rather than as its own middleware: every route reaches
+      // this function, and mounting a separate guard on /api ran it BEFORE the
+      // per-route requireAuth, so viewAsBy was not set yet and it waved
+      // everything through. A read-only rule that silently passes is worse
+      // than none.
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        return res.status(403).json({
+          error: 'Viewing as another user is read-only. Exit the session to make changes.',
+          viewing_as: true,
+        });
+      }
+    }
+
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
