@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { can } from './utils/can';
 import { Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -125,12 +126,14 @@ function App() {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AuthGate user={user} />}>
         <Route element={<AppShellLayout user={user} onLogout={onLogout} timezone={timezone} />}>
-          {/* Managers and owners land on the overview; everyone else keeps the
-              task list. Dashboard.jsx is that task list despite its name. */}
+          {/* Anyone who can see the overview lands there; everyone else keeps
+              the task list. Dashboard.jsx is that task list despite its name.
+              Keyed off the same capability that guards /dashboard, so the
+              landing page can never send someone where they are bounced out. */}
           <Route
             path="/"
             element={
-              user?.role === 'owner' || user?.role === 'manager'
+              can(user, 'dashboard.view')
                 ? <Navigate to="/dashboard" replace />
                 : <Dashboard />
             }
@@ -139,14 +142,14 @@ function App() {
           <Route
             path="/marketing/campaigns"
             element={
-              user?.role === 'owner' || user?.role === 'manager'
+              can(user, 'marketing.campaigns')
                 ? <Campaigns /> : <Navigate to="/" replace />
             }
           />
           <Route
             path="/tasting-room/menus"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'tastingroom.menus') ? (
                 <Menus />
               ) : (
                 <Navigate to="/" replace />
@@ -156,7 +159,7 @@ function App() {
           <Route
             path="/tasting-room/reservations"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'tastingroom.reservations') ? (
                 <Reservations />
               ) : (
                 <Navigate to="/" replace />
@@ -166,7 +169,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'dashboard.view') ? (
                 <Overview />
               ) : (
                 <Navigate to="/" replace />
@@ -175,10 +178,10 @@ function App() {
           />
           <Route path="/manage" element={<Manager />} />
           <Route path="/scheduling" element={
-            (user?.role === 'schedule' || user?.role === 'manager' || user?.role === 'owner')
+            can(user, 'scheduling.manage')
               ? <Scheduling /> : <Navigate to="/" replace />} />
           <Route path="/events" element={
-            (user?.role === 'schedule' || user?.role === 'manager' || user?.role === 'owner')
+            can(user, 'marketing.events')
               ? <Events /> : <Navigate to="/" replace />} />
           <Route path="/policies" element={<Policies />} />
           {/* Open to every signed-in user — the server decides what you may edit
@@ -189,7 +192,7 @@ function App() {
               index
               element={
                 <Navigate
-                  to={(user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner') ? 'lists' : 'waste'}
+                  to={can(user, 'kitchen.inventory') ? 'lists' : 'waste'}
                   replace
                 />
               }
@@ -197,7 +200,7 @@ function App() {
             <Route
               path="lists"
               element={
-                (user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner')
+                can(user, 'kitchen.inventory')
                   ? <ShoppingLists />
                   : <Navigate to="/food/waste" replace />
               }
@@ -212,7 +215,7 @@ function App() {
           <Route
             path="/settings"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'users.assist') ? (
                 <Settings />
               ) : (
                 <Navigate to="/" replace />
@@ -222,7 +225,7 @@ function App() {
           <Route
             path="/marketing/media"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'marketing.media') ? (
                 <MediaHub />
               ) : (
                 <Navigate to="/" replace />
@@ -232,7 +235,7 @@ function App() {
           <Route
             path="/marketing/hours"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'marketing.hours') ? (
                 <HoursEditor />
               ) : (
                 <Navigate to="/" replace />
@@ -242,7 +245,7 @@ function App() {
           <Route
             path="/marketing/images"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'marketing.media') ? (
                 <MediaHub initialTab="pages" />
               ) : (
                 <Navigate to="/" replace />
@@ -252,7 +255,7 @@ function App() {
           <Route
             path="/marketing/loyalty"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'marketing.loyalty') ? (
                 <Loyalty />
               ) : (
                 <Navigate to="/" replace />
@@ -262,7 +265,7 @@ function App() {
           <Route
             path="/marketing/settings"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'marketing.website') ? (
                 <WebsiteSettings />
               ) : (
                 <Navigate to="/" replace />
@@ -272,7 +275,7 @@ function App() {
           <Route
             path="/quickbooks"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'kitchen.receipts') ? (
                 <Quickbooks user={user} />
               ) : (
                 <Navigate to="/" replace />
@@ -282,7 +285,7 @@ function App() {
           <Route
             path="/square"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'ai.use') ? (
                 <Square />
               ) : (
                 <Navigate to="/" replace />
@@ -292,7 +295,7 @@ function App() {
           <Route
             path="/square/reconcile"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'ai.use') ? (
                 <SquareReconcile />
               ) : (
                 <Navigate to="/" replace />
@@ -302,7 +305,7 @@ function App() {
           <Route
             path="/product-lines"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'wine.lines') ? (
                 <ProductLines />
               ) : (
                 <Navigate to="/" replace />
@@ -312,7 +315,7 @@ function App() {
           <Route
             path="/product-lines/new"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'wine.lines') ? (
                 <ProductLineDetail />
               ) : (
                 <Navigate to="/" replace />
@@ -322,7 +325,7 @@ function App() {
           <Route
             path="/product-lines/:id"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'wine.lines') ? (
                 <ProductLineDetail />
               ) : (
                 <Navigate to="/" replace />
@@ -332,7 +335,7 @@ function App() {
           <Route
             path="/products"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'wine.products') ? (
                 <Products />
               ) : (
                 <Navigate to="/" replace />
@@ -342,7 +345,7 @@ function App() {
           <Route
             path="/products/new"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'wine.products') ? (
                 <ProductDetail />
               ) : (
                 <Navigate to="/" replace />
@@ -352,7 +355,7 @@ function App() {
           <Route
             path="/products/:id"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'wine.products') ? (
                 <ProductDetail />
               ) : (
                 <Navigate to="/" replace />
@@ -362,7 +365,7 @@ function App() {
           <Route
             path="/products/inventory"
             element={
-              user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
+              can(user, 'wine.inventory') ? (
                 <WineInventory />
               ) : (
                 <Navigate to="/" replace />
@@ -372,7 +375,7 @@ function App() {
           <Route
             path="/products/inventory/report"
             element={
-              user?.role === 'owner' || user?.role === 'manager' || user?.role === 'inventory' ? (
+              can(user, 'wine.reports') ? (
                 <WineInventoryReport />
               ) : (
                 <Navigate to="/" replace />
@@ -382,7 +385,7 @@ function App() {
           <Route
             path="/kindred-app"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'kindredapp.manage') ? (
                 <KindredApp />
               ) : (
                 <Navigate to="/" replace />
@@ -392,7 +395,7 @@ function App() {
           <Route
             path="/abc"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'reports.operational') ? (
                 <AbcFiling />
               ) : (
                 <Navigate to="/" replace />
@@ -402,7 +405,7 @@ function App() {
           <Route
             path="/betty"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'betty.use') ? (
                 <BettyComparison />
               ) : (
                 <Navigate to="/" replace />
@@ -412,7 +415,7 @@ function App() {
           <Route
             path="/gateway"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'gateway.use') ? (
                 <Gateway />
               ) : (
                 <Navigate to="/" replace />
@@ -422,7 +425,7 @@ function App() {
           <Route
             path="/skynet"
             element={
-              user?.role === 'owner' || user?.role === 'manager' ? (
+              can(user, 'skynet.view') ? (
                 <Skynet />
               ) : (
                 <Navigate to="/" replace />
@@ -432,7 +435,7 @@ function App() {
           <Route
             path="/ground-control"
             element={
-              user?.role === 'gc' || user?.role === 'manager' || user?.role === 'owner' ? (
+              can(user, 'groundcontrol.use') ? (
                 <GroundControl />
               ) : (
                 <Navigate to="/" replace />
@@ -442,7 +445,7 @@ function App() {
           <Route
             path="/recipes"
             element={
-              user?.role === 'manager' || user?.role === 'owner' ? (
+              can(user, 'kitchen.recipes') ? (
                 <RecipesLayout />
               ) : (
                 <Navigate to="/" replace />
@@ -460,7 +463,7 @@ function App() {
           <Route
             path="/kitchen/inventory"
             element={
-              (user?.role === 'inventory' || user?.role === 'manager' || user?.role === 'owner')
+              can(user, 'kitchen.inventory')
                 ? <KitchenInventory />
                 : <Navigate to="/" replace />
             }
@@ -468,7 +471,7 @@ function App() {
           <Route
             path="/kitchen/sources"
             element={
-              user?.role === 'owner'
+              can(user, 'kitchen.receipt_sources')
                 ? <KitchenSources />
                 : <Navigate to="/" replace />
             }

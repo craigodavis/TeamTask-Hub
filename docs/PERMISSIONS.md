@@ -206,5 +206,33 @@ Ship order, so nothing breaks mid-deploy:
    converted routes as one real user per role and compares against the old
    middleware rules restated by hand. Every converted route gets an entry
    there; one that does not is unverified, whatever the diff says.
-3. Ship the matrix UI.
-4. Re-scope people only when you choose to — no one is re-scoped by this work.
+   DONE. No route anywhere is gated on a role. `req.role` survives in three
+   places in `square.js`, all of them role as a *tier* rather than a gate:
+   which AI models a person may choose, how permissive AiRon's SQL policy is,
+   and the prompt restriction hiding wage data from non-managers. The 81
+   `requireOwner` sites stay as they are — one person holds it, there is nobody
+   to grant it to differently, and they do not block retiring the fallback,
+   which lives only inside `requireCapability`.
+
+3. Client reads capabilities, not roles. DONE. `/api/auth/me` returns them,
+   `utils/can.js` answers `can()` / `canAny()`, and every menu item and route
+   guard asks that instead of the role. Container headers use `canAny` over
+   their children, so a granted submenu can never be invisible for want of its
+   parent.
+
+4. Ship the matrix UI. NOT STARTED — this is what remains.
+
+5. Re-scope people only when you choose to — no one is re-scoped by this work.
+
+## Retiring the fallback
+
+The exit test, in order:
+
+- `grep -rn "requireManager\|requireInventoryAccess\|requireScheduleAccess\|requireGControl" server/index.js server/routes` returns nothing. **Already true.**
+- No client gate reads `user.role`. **Already true** — only owner-only checks remain.
+- `SELECT count(*) FROM capability_fallback_hits` stays 0 through a monthly
+  cycle. **Currently 0**, and it never fired once across the whole conversion.
+
+Then delete the fallback branch in `requireCapability`, drop
+`LEGACY_ROLE_GRANTS`, and flip the two `inventory` users to `member` — that
+column is the last thing depending on the old model meaning anything.

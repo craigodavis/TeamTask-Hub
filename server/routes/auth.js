@@ -129,6 +129,16 @@ router.get('/me', async (req, res) => {
     );
     const user = r.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
+
+    // Capabilities travel with the user so the menu and the API agree about
+    // what this person may do. Without them the sidebar would still be
+    // reasoning from the role while every route reasons from grants, and a
+    // granted submenu would simply never appear.
+    const caps = await query(
+      `SELECT capability FROM user_capabilities WHERE user_id = $1`,
+      [payload.userId]
+    );
+
     res.json({
       user: {
         id: user.id,
@@ -138,6 +148,7 @@ router.get('/me', async (req, res) => {
         role: user.role,
         phone: user.phone,
         has_pin: !!user.pin_hash,
+        capabilities: caps.rows.map((x) => x.capability),
         company_name: companyDisplayLabel(user.company_name, user.company_slug),
         company_slug: user.company_slug,
       },

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
+import { can, canAny } from '../utils/can';
 import { UserMenu } from './UserMenu';
 import { appHubTitle } from '../appHubTitle';
 import './AppShell.css';
@@ -64,17 +65,17 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
     if (isMobile()) setCollapsed(true);
   }, [location.pathname, location.search]);
 
-  const isManager = user?.role === 'manager' || user?.role === 'owner';
-  const isOwner = user?.role === 'owner';
-  const canAccessGC = user?.role === 'gc' || user?.role === 'manager' || user?.role === 'owner';
-  const canAccessInventory = user?.role === 'inventory' || isManager;
-  const canAccessSchedule = user?.role === 'schedule' || isManager;
+  // Everything the sidebar draws is decided by capabilities now, so it agrees
+  // with the API instead of guessing from a role. Container headers are derived
+  // from the children a person holds -- see docs/PERMISSIONS.md.
   const appTitle = appHubTitle(user);
 
-  const managerLinks = isManager
+  const managerLinks = can(user, 'reports.operational') || can(user, 'sms.send')
     ? [
-        { to: '/manage?tab=reports', label: 'Reports', icon: '📊', tab: 'reports' },
-        { to: '/manage?tab=integrations', label: 'SMS Send', icon: '💬', tab: 'integrations' },
+        ...(can(user, 'reports.scheduled') || can(user, 'reports.operational')
+          ? [{ to: '/manage?tab=reports', label: 'Reports', icon: '📊', tab: 'reports' }] : []),
+        ...(can(user, 'sms.send')
+          ? [{ to: '/manage?tab=integrations', label: 'SMS Send', icon: '💬', tab: 'integrations' }] : []),
       ]
     : [];
 
@@ -103,7 +104,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
         <nav className="app-shell-sidebar" id="app-sidebar" aria-label="Main navigation">
           {/* Managers land on the dashboard, so Tasks points at its own path —
               "/" redirects them away and the link would never match. */}
-          {isManager && (
+          {can(user, 'dashboard.view') && (
             <NavLink
               to="/dashboard"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -116,7 +117,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           )}
           <div className="nav-item-row">
             <NavLink
-              to={isManager ? '/tasks' : '/'}
+              to={can(user, 'tasks.manage') ? '/tasks' : '/'}
               end
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
               data-icon="🏠"
@@ -124,7 +125,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
             >
               <span>Tasks</span>
             </NavLink>
-            {isManager && (
+            {can(user, 'tasks.manage') && (
               <button
                 type="button"
                 className="nav-sub-chevron"
@@ -136,7 +137,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </button>
             )}
           </div>
-          {isManager && dashboardExpanded && (
+          {can(user, 'tasks.manage') && dashboardExpanded && (
             <div className="nav-sub-group">
               <Link
                 to="/manage?tab=tasks"
@@ -148,7 +149,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </Link>
             </div>
           )}
-          {isManager && (
+          {can(user, 'announcements.manage') && (
             <NavLink
               to="/manage?tab=announcements"
               className={() => `app-shell-nav-item${isManageTabActive(location, 'announcements') ? ' active' : ''}`}
@@ -179,7 +180,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           >
             <span>The Crew</span>
           </NavLink>
-          {canAccessSchedule && (
+          {can(user, 'scheduling.manage') && (
             <NavLink
               to="/scheduling"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -190,7 +191,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Scheduling</span>
             </NavLink>
           )}
-          {isManager && (
+          {can(user, 'ai.use') && (
             <NavLink
               to="/square"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -200,7 +201,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Kindred AI</span>
             </NavLink>
           )}
-          {isManager && (
+          {can(user, 'kindredapp.manage') && (
             <NavLink
               to="/kindred-app"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -210,7 +211,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Kindred App</span>
             </NavLink>
           )}
-          {isManager && (
+          {can(user, 'skynet.view') && (
             <NavLink
               to="/skynet"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -223,7 +224,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           {/* Kitchen — collapsible parent grouping Receipts, Item Catalog,
               Ingredients, Recipes and Shopping. Shopping is available to all
               roles; the manager-only items are gated individually below. */}
-          {(isManager || canAccessSchedule) && (
+          {canAny(user, 'marketing.events', 'marketing.campaigns', 'marketing.media', 'marketing.hours', 'marketing.loyalty', 'marketing.website') && (
             <>
               <div className="nav-item-row">
                 <button
@@ -248,7 +249,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </div>
               {marketingExpanded && (
                 <div className="nav-sub-group">
-                  {canAccessSchedule && (
+                  {can(user, 'marketing.events') && (
                     <Link
                       to="/events"
                       className={`nav-sub-item${location.pathname.startsWith('/events') ? ' active' : ''}`}
@@ -258,7 +259,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                       <span>Events</span>
                     </Link>
                   )}
-                  {isManager && (
+                  {can(user, 'marketing.campaigns') && (
                   <>
                   <Link
                     to="/marketing/campaigns"
@@ -330,7 +331,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
           </div>
           {kitchenExpanded && (
             <div className="nav-sub-group">
-              {isManager && (
+              {can(user, 'kitchen.receipts.scan') && (
                 <Link
                   to="/recipes/scan"
                   className={`nav-sub-item${location.pathname.startsWith('/recipes/scan') ? ' active' : ''}`}
@@ -340,7 +341,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Scan Receipt</span>
                 </Link>
               )}
-              {isManager && (
+              {can(user, 'kitchen.receipts') && (
                 <Link
                   to="/quickbooks"
                   className={`nav-sub-item${location.pathname === '/quickbooks' ? ' active' : ''}`}
@@ -350,7 +351,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Receipts</span>
                 </Link>
               )}
-              {isOwner && (
+              {can(user, 'kitchen.receipt_sources') && (
                 <Link
                   to="/kitchen/sources"
                   className={`nav-sub-item${location.pathname === '/kitchen/sources' ? ' active' : ''}`}
@@ -360,7 +361,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Receipt Sources</span>
                 </Link>
               )}
-              {isManager && (
+              {can(user, 'kitchen.catalog') && (
                 <Link
                   to="/recipes/catalog"
                   className={`nav-sub-item${location.pathname === '/recipes/catalog' ? ' active' : ''}`}
@@ -370,7 +371,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Item Catalog</span>
                 </Link>
               )}
-              {isManager && (
+              {can(user, 'kitchen.ingredients') && (
                 <Link
                   to="/recipes/ingredients"
                   className={`nav-sub-item${location.pathname.startsWith('/recipes/ingredients') ? ' active' : ''}`}
@@ -380,7 +381,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Ingredients</span>
                 </Link>
               )}
-              {canAccessInventory && (
+              {can(user, 'kitchen.inventory') && (
                 <Link
                   to="/kitchen/inventory"
                   className={`nav-sub-item${location.pathname.startsWith('/kitchen/inventory') ? ' active' : ''}`}
@@ -390,7 +391,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Inventory</span>
                 </Link>
               )}
-              {isManager && (
+              {can(user, 'kitchen.recipes') && (
                 <Link
                   to="/recipes/list"
                   className={`nav-sub-item${(location.pathname === '/recipes' || location.pathname === '/recipes/list' || (location.pathname.startsWith('/recipes/') && !location.pathname.startsWith('/recipes/catalog') && !location.pathname.startsWith('/recipes/ingredients') && !location.pathname.startsWith('/recipes/inventory'))) ? ' active' : ''}`}
@@ -410,7 +411,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </Link>
             </div>
           )}
-          {isManager && (
+          {canAny(user, 'tastingroom.menus', 'tastingroom.reservations') && (
             <>
               <div className="nav-item-row">
                 <button
@@ -455,7 +456,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               )}
             </>
           )}
-          {canAccessInventory && (
+          {canAny(user, 'wine.lines', 'wine.products', 'wine.inventory', 'wine.reports') && (
             <div className="nav-item-row">
               <button
                 type="button"
@@ -478,9 +479,9 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               </button>
             </div>
           )}
-          {canAccessInventory && wineExpanded && (
+          {canAny(user, 'wine.lines', 'wine.products', 'wine.inventory', 'wine.reports') && wineExpanded && (
             <div className="nav-sub-group">
-              {isManager && (
+              {can(user, 'wine.lines') && (
                 <Link
                   to="/product-lines"
                   className={`nav-sub-item${location.pathname.startsWith('/product-lines') ? ' active' : ''}`}
@@ -490,7 +491,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Product Lines</span>
                 </Link>
               )}
-              {isManager && (
+              {can(user, 'wine.products') && (
                 <Link
                   to="/products"
                   className={`nav-sub-item${location.pathname === '/products' ? ' active' : ''}`}
@@ -500,25 +501,29 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                   <span>Products</span>
                 </Link>
               )}
-              <Link
-                to="/products/inventory"
-                className={`nav-sub-item${location.pathname === '/products/inventory' ? ' active' : ''}`}
-                onClick={() => { if (isMobile()) setCollapsed(true); }}
-              >
-                <span className="nav-sub-icon">📋</span>
-                <span>Inventory</span>
-              </Link>
-              <Link
-                to="/products/inventory/report"
-                className={`nav-sub-item${location.pathname === '/products/inventory/report' ? ' active' : ''}`}
-                onClick={() => { if (isMobile()) setCollapsed(true); }}
-              >
-                <span className="nav-sub-icon">📊</span>
-                <span>Reports</span>
-              </Link>
+              {can(user, 'wine.inventory') && (
+                <Link
+                  to="/products/inventory"
+                  className={`nav-sub-item${location.pathname === '/products/inventory' ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">📋</span>
+                  <span>Inventory</span>
+                </Link>
+              )}
+              {can(user, 'wine.reports') && (
+                <Link
+                  to="/products/inventory/report"
+                  className={`nav-sub-item${location.pathname === '/products/inventory/report' ? ' active' : ''}`}
+                  onClick={() => { if (isMobile()) setCollapsed(true); }}
+                >
+                  <span className="nav-sub-icon">📊</span>
+                  <span>Reports</span>
+                </Link>
+              )}
             </div>
           )}
-          {isManager && (
+          {can(user, 'betty.use') && (
             <NavLink
               to="/betty"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -528,7 +533,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Betty Bookkeeper</span>
             </NavLink>
           )}
-          {isManager && (
+          {can(user, 'gateway.use') && (
             <NavLink
               to="/gateway"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
@@ -538,7 +543,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
               <span>Gateway</span>
             </NavLink>
           )}
-          {canAccessGC && (
+          {can(user, 'groundcontrol.use') && (
             <NavLink
               to="/ground-control"
               className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
