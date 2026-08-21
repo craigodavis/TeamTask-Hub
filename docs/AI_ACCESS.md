@@ -32,7 +32,7 @@ that substrate.
 |---|---|---|---|
 | Who | crew | managers | owner |
 | Wages, hours, tips, timeclock, per-person labour | no | **no** | yes |
-| Aggregate labour cost and labour % | no | **open — see below** | yes |
+| Aggregate labour cost and labour % | no | **yes** | yes |
 | Revenue, margin, volumes | no | yes | yes |
 | Cost of goods, vendor and invoice pricing | no | yes | yes |
 | List price of a wine | yes | yes | yes |
@@ -47,18 +47,21 @@ that substrate.
 today, where managers are unrestricted. Four people are affected: Elaine,
 Elisha, Jack and Macy. Payroll becomes the owner's alone.
 
-### The one to decide: labour % is not a wage
+### Labour % is not a wage — SETTLED
 
-Wage *per person* and *aggregate labour cost* are different questions. "What
-does Elisha earn?" is payroll. "What was labour % on Saturday?" is how a
-manager decides whether to send someone home early, and it is the number the
-emailed reports are built on (`v_labor_pct_daily`, and see
-`project_labor_pct_definition`).
+`ai.manage` keeps aggregate labour cost and labour %, and loses anything
+per-person. "What was labour % on Saturday?" is how a manager decides whether
+to send someone home, and it is what the emailed reports are built on
+(`v_labor_pct_daily`, see `project_labor_pct_definition`). "What does Elisha
+earn?" is payroll and belongs to the owner.
 
-Cutting `ai.manage` off from `v_labor*` entirely removes a tool they use to run
-shifts. The alternative is to allow the aggregate views while denying anything
-per-person — the split being *identifiable individual* rather than *topic*.
-That is more work and probably the right answer. **Needs your call.**
+The split is therefore **identifiable individual, not topic** — the same line
+drawn for customers below. In practice that means granting `ai.manage` the
+aggregate views while withholding `team_square.shift`,
+`team_member_job_assignment` and any per-person row of `v_labor_daily`. A
+grouped query that returns one row per employee is still per-person, however
+it is spelled, which is another reason the grant has to live in the database
+rather than in a pattern match.
 
 ## The three rules, expressed durably
 
@@ -72,12 +75,11 @@ unread items on the task screen.
 Open: does an archive show announcements targeted at other locations or roles?
 A feed hides that targeting; an archive reveals it.
 
-### "No pricing" is really "no revenue"
+### "No pricing" is really "no revenue" — SETTLED
 
-Retail prices are public — the menu, the website, and the POS the crew read all
-day. AiRon refusing "how much is the 24 Summer Silhouette?" reads as broken.
-The line is **list price yes, money-in-aggregate no**: revenue, margin, volumes
-sold, discounting, club economics.
+List price is fine at every tier: it is on the menu, the website, and the POS
+the crew read all day. The line is **list price yes, money-in-aggregate no** —
+revenue, margin, volumes sold, discounting, club economics.
 
 ### "No lists over 10" is a row cap, not an instruction
 
@@ -88,6 +90,59 @@ and say so plainly.
 The rule is about **identity, not topic**. "How many club members do we have?"
 is one number and fine. "List them" is not. Aggregates stay open; rows about
 named people do not.
+
+### Crew and the wine club: their own members, not the club
+
+Crew may ask about the members **they personally signed up**:
+
+- how many they have signed up, and over what period
+- which of theirs have cancelled, and when
+- when one of theirs was last in
+- that member's club tier, status, and how long they have been in
+
+Club-wide figures are declined: total membership, overall churn, club revenue
+or economics, the full roster, and anybody else's signups. The test is the same
+one used everywhere else — **your own rows yes, the aggregate no** — with the
+ten-row cap still applying to any list.
+
+This is a retention tool, and it only works if someone can see the people they
+brought in. It is also the strongest argument for getting the identity link
+right, because the failure mode is showing a crew member somebody else's book.
+
+#### The attribution is real but the join is not — BLOCKER
+
+`public.customers.salesassociate` is populated, and the useful columns are all
+there: `signupdate`, `canceldate`, `cancellationreason`, `lastactivitydate`,
+`status` (586 Cancelled, 20 On Hold), `currentclubtitle`, `daysinclub`.
+
+But it is a **free-text name typed at signup**, not an identity. Of 26 distinct
+values only 6 match a TeamHub `display_name` exactly. The rest are past staff,
+plus the kind of variation free text always produces:
+
+| In Commerce7 | Problem |
+|---|---|
+| `Amy howdyshell` | case differs from `Amy Howdyshell` — she would see none of her own |
+| `Craig Davis` **and** `Craig O Davis` | one person, two names, count silently split |
+| `Talon Sudbeck` **and** `Talon Sudbexk` | typo, 30 members orphaned from 146 |
+| `Alicia` | first name only |
+| `alicevinson13@gmail.com` | an email address in the name field |
+
+Matching on `display_name` therefore fails two ways at once: a crew member is
+told they have signed up nobody, or — if two people ever share a name — is
+shown somebody else's members. Neither is acceptable for a feature whose whole
+purpose is "these are mine".
+
+**This needs a real link before the feature can ship.** `club_steward.users`
+already has `c7_associate_number`, which is the right shape. The fix is a
+mapping from a TeamHub user to the `salesassociate` values they own — one user
+to many strings, since the historical spellings have to keep resolving — owned
+by the owner and edited in the same place as permissions. Fuzzy-matching names
+at query time is not a substitute; it makes the leak intermittent rather than
+absent.
+
+Also on that table: `email` must stay hidden per the rule below, and
+`lifetimevalue` is revenue and belongs with the aggregates crew do not see —
+even for their own member.
 
 ### Phone yes, email no
 
@@ -145,10 +200,14 @@ decision, not a side effect.
 
 ## Decisions needed
 
-1. Does `ai.manage` keep aggregate labour % while losing per-person wages?
-2. Do crew see announcements targeted at other locations or roles?
-3. May crew ask about colleagues at all, or only themselves?
-4. Does the restricted Postgres role get built now, or does crew AI wait for it?
+1. Do crew see announcements targeted at other locations or roles?
+2. May crew ask about colleagues at all, or only themselves?
+3. Does the restricted Postgres role get built now, or does crew AI wait for it?
+4. Who owns the associate-to-user mapping, and does someone reconcile the
+   historical spellings once, or do orphaned signups stay orphaned?
 
-Question 4 is the one that decides whether this is a security feature or a
-politeness. Everything else is scope.
+Question 3 decides whether this is a security feature or a politeness.
+Question 4 decides whether the club piece works at all.
+
+Settled: aggregate labour % stays with `ai.manage`; list price is fine at every
+tier; crew see their own club signups but no club aggregate.
