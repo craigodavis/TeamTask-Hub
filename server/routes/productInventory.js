@@ -5,7 +5,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireInventoryAccess } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { toTotalBottles, fromTotalBottles, parseVolumeMl, mlToLitersGallons, CASE_SIZE } from '../lib/wineInventory.js';
 import { unfulfilledAsOf } from '../lib/abcFiling.js';
 
@@ -20,7 +20,7 @@ async function getCompanyTimezone(companyId) {
 // ── GET /api/products/inventory?location_id=X ────────────────────────────────
 // Entry-list data: every available-for-sale product with its current count at
 // this location, whether it was already counted today, and who/when last counted.
-router.get('/', requireInventoryAccess, async (req, res) => {
+router.get('/', requireCapability('wine.inventory'), async (req, res) => {
   try {
     const { location_id } = req.query;
     if (!location_id) return res.status(400).json({ error: 'location_id is required' });
@@ -71,7 +71,7 @@ router.get('/', requireInventoryAccess, async (req, res) => {
 
 // ── POST /api/products/inventory ──────────────────────────────────────────────
 // Body: { product_id, location_id, cases, bottles }
-router.post('/', requireInventoryAccess, async (req, res) => {
+router.post('/', requireCapability('wine.inventory'), async (req, res) => {
   try {
     const { product_id, location_id, cases, bottles,
             library_cases, library_bottles } = req.body;
@@ -129,7 +129,7 @@ router.post('/', requireInventoryAccess, async (req, res) => {
 });
 
 // ── GET /api/products/inventory/report?as_of=YYYY-MM-DD&location_id=X&all_items=true|false ──
-router.get('/report', requireInventoryAccess, async (req, res) => {
+router.get('/report', requireCapability('wine.reports'), async (req, res) => {
   try {
     const companyId = cid(req);
     const asOf = req.query.as_of || new Date().toISOString().slice(0, 10);

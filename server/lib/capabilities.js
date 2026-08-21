@@ -116,7 +116,13 @@ export const LEGACY_ROLE_GRANTS = {
   admin:     PRESETS.admin,
   marketing: MARKETING,
   owner:     PRESETS.owner,
-  inventory: [...MEMBER, 'wine.inventory', 'kitchen.inventory'],
+  // wine.reports belongs here because the old requireInventoryAccess gated
+  // /products/inventory/report too, and Wine ▸ Reports sat behind
+  // canAccessInventory in the nav. Leaving it out silently took the report away
+  // from Tristan and Zoë -- caught by exercising the real routes as each user,
+  // which a grants-only diff could never have shown, since both sides of that
+  // comparison read this same map.
+  inventory: [...MEMBER, 'wine.inventory', 'wine.reports', 'kitchen.inventory'],
   schedule:  [...MEMBER, 'scheduling.manage', 'marketing.events'],
   gc:        [...MEMBER, 'groundcontrol.use'],
 };

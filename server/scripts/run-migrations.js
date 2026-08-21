@@ -3821,6 +3821,24 @@ const MIGRATIONS = [
     PRIMARY KEY (user_id, capability)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_user_capabilities_company ON user_capabilities(company_id)`,
+  // 1xx: evidence for retiring the legacy-role fallback — step 2 of the
+  // permissions matrix. Every time a request is allowed only because the old
+  // role permitted it, the route is recorded here. A silent fallback is how
+  // these become permanent; this one is queryable, and the exit test for
+  // deleting it is that this table stays empty through a monthly cycle while
+  // the grep count of legacy call sites is zero. Aggregated per
+  // route+capability+user so it cannot balloon.
+  `CREATE TABLE IF NOT EXISTS capability_fallback_hits (
+    route      VARCHAR(200) NOT NULL,
+    method     VARCHAR(10)  NOT NULL,
+    capability VARCHAR(64)  NOT NULL,
+    role       VARCHAR(32),
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    hits       INTEGER NOT NULL DEFAULT 1,
+    first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (route, method, capability, user_id)
+  )`,
 ];
 
 export async function runMigrations() {

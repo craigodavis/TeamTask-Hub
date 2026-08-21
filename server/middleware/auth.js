@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
+import { capabilitiesForRole, LEGACY_ROLE_GRANTS } from '../lib/capabilities.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
@@ -26,6 +27,10 @@ export async function requireAuth(req, res, next) {
       const st = r.rows[0];
       req.companyId = st.company_id;
       req.role = st.role;
+      // Service tokens have no user row and so no grants. Deriving from the
+      // token's role keeps them behaving exactly as before and keeps them out
+      // of the fallback table, which is meant to record humans on real routes.
+      req.capabilities = new Set(capabilitiesForRole(st.role));
       req.isServiceToken = true;
       req.serviceTokenId = st.id;
       req.serviceTokenName = st.name;
@@ -56,6 +61,15 @@ export async function requireAuth(req, res, next) {
     const r = await query(`SELECT role FROM users WHERE id = $1`, [payload.userId]);
     if (!r.rows.length) return res.status(401).json({ error: 'User not found' });
     req.role = r.rows[0].role;
+
+    // Grants come from the same request, for the same reason the role does:
+    // judged live, so revoking a capability takes effect now rather than
+    // whenever the token happens to expire.
+    const caps = await query(
+      `SELECT capability FROM user_capabilities WHERE user_id = $1`,
+      [payload.userId]
+    );
+    req.capabilities = new Set(caps.rows.map((x) => x.capability));
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -84,6 +98,49 @@ export function requireInventoryAccess(req, res, next) {
 export function requireScheduleAccess(req, res, next) {
   if (req.role === 'schedule' || req.role === 'manager' || req.role === 'owner') return next();
   return res.status(403).json({ error: 'Scheduling access required' });
+}
+
+/**
+ * Record that a request got through only because the old role allowed it.
+ *
+ * Deliberately loud. The danger with a fail-safe fallback is that it is silent,
+ * nobody can prove it is dead, and it lives forever -- so every hit is written
+ * down with the route that caused it. Aggregated, and never allowed to fail the
+ * request it is describing.
+ */
+function recordFallbackHit(req, capability) {
+  if (!req.userId) return; // service tokens derive their grants; nothing to learn
+  const route = (req.baseUrl || '') + (req.route?.path || req.path || '');
+  query(
+    `INSERT INTO capability_fallback_hits (route, method, capability, role, user_id)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (route, method, capability, user_id)
+     DO UPDATE SET hits = capability_fallback_hits.hits + 1, last_seen = NOW()`,
+    [route.slice(0, 200), req.method, capability, req.role, req.userId]
+  ).catch(() => {});
+}
+
+/**
+ * Gate a route on a capability.
+ *
+ * Holding the grant is the answer. Failing that, the person's old role is
+ * consulted and, if it would have allowed this, the request proceeds and the
+ * fallback is recorded -- so converting a route can never lock anyone out, and
+ * anything still leaning on the old model is visible rather than assumed gone.
+ *
+ * See docs/PERMISSIONS.md for how the fallback gets retired.
+ */
+export function requireCapability(capability) {
+  return function capabilityGate(req, res, next) {
+    if (req.capabilities?.has(capability)) return next();
+
+    if ((LEGACY_ROLE_GRANTS[req.role] || []).includes(capability)) {
+      recordFallbackHit(req, capability);
+      return next();
+    }
+
+    return res.status(403).json({ error: 'Not permitted' });
+  };
 }
 
 export function requireOwner(req, res, next) {

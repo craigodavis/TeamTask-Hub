@@ -7,7 +7,7 @@
 
 import express from 'express';
 import { pool, query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import { requireAuth, requireCapability } from '../middleware/auth.js';
 import { runCatalogSync, getLastSyncJob } from '../lib/squareCatalogSync.js';
 import { defaultVariantSku, isGlassVolume } from '../lib/skuNomenclature.js';
 
@@ -133,7 +133,7 @@ router.get('/filters', requireAuth, async (req, res) => {
 
 // ── GET /api/products/square-items ───────────────────────────────────────────
 // Must be before /:id to avoid Express treating "square-items" as an id param.
-router.get('/square-items', requireAuth, requireManager, async (req, res) => {
+router.get('/square-items', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const r = await query(
       `SELECT
@@ -155,7 +155,7 @@ router.get('/square-items', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── GET /api/products/tax-exempt ─────────────────────────────────────────────
-router.get('/tax-exempt', requireAuth, requireManager, async (req, res) => {
+router.get('/tax-exempt', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const r = await query(
       `SELECT id, item_name, created_at FROM tax_exempt_square_items
@@ -172,7 +172,7 @@ router.get('/tax-exempt', requireAuth, requireManager, async (req, res) => {
 // Catalog-based check: items with NO tax configured in Square that are not on
 // the company's tax-exempt list. These items will never charge tax at the POS
 // regardless of how they're sold. Betty calls this endpoint.
-router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
+router.get('/tax-gap', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const r = await query(
       `SELECT
@@ -203,7 +203,7 @@ router.get('/tax-gap', requireAuth, requireManager, async (req, res) => {
 // ── GET /api/products/catalog-tax-gaps ───────────────────────────────────────
 // Items in the Square catalog that have NO taxes configured (tax_ids is null/empty).
 // These were likely entered incorrectly and will never charge tax at sale time.
-router.get('/catalog-tax-gaps', requireAuth, requireManager, async (req, res) => {
+router.get('/catalog-tax-gaps', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const r = await query(
       `SELECT
@@ -234,7 +234,7 @@ router.get('/catalog-tax-gaps', requireAuth, requireManager, async (req, res) =>
 
 // ── POST /api/products/catalog-sync ──────────────────────────────────────────
 // Trigger an immediate Square catalog sync for this company.
-router.post('/catalog-sync', requireAuth, requireManager, async (req, res) => {
+router.post('/catalog-sync', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const result = await runCatalogSync(cid(req));
     res.json({ ok: true, ...result });
@@ -244,7 +244,7 @@ router.post('/catalog-sync', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── GET /api/products/catalog-sync/status ────────────────────────────────────
-router.get('/catalog-sync/status', requireAuth, requireManager, async (req, res) => {
+router.get('/catalog-sync/status', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const job = await getLastSyncJob(cid(req));
     res.json({ job: job || null });
@@ -1348,7 +1348,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // ── POST /api/products/tax-exempt ────────────────────────────────────────────
-router.post('/tax-exempt', requireAuth, requireManager, async (req, res) => {
+router.post('/tax-exempt', requireAuth, requireCapability('wine.products'), async (req, res) => {
   const { item_name } = req.body;
   if (!item_name?.trim()) return res.status(400).json({ error: 'item_name required' });
   try {
@@ -1366,7 +1366,7 @@ router.post('/tax-exempt', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── DELETE /api/products/tax-exempt/:id ──────────────────────────────────────
-router.delete('/tax-exempt/:id', requireAuth, requireManager, async (req, res) => {
+router.delete('/tax-exempt/:id', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     await query(
       `DELETE FROM tax_exempt_square_items WHERE id = $1 AND company_id = $2`,
@@ -1386,7 +1386,7 @@ router.delete('/tax-exempt/:id', requireAuth, requireManager, async (req, res) =
 // on the product. A glass is a way of selling the bottle, not a separate thing
 // to stock — the variant carries its own price and availability, and
 // product_inventory stays keyed by product so nothing here touches the count.
-router.put('/:id/glass', requireManager, async (req, res) => {
+router.put('/:id/glass', requireCapability('wine.products'), async (req, res) => {
   const { price_cents, is_available } = req.body ?? {};
   if (price_cents !== null && price_cents !== undefined
       && (!Number.isFinite(Number(price_cents)) || Number(price_cents) < 0)) {

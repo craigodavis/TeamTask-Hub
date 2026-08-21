@@ -183,7 +183,7 @@ person ends up able to do exactly what they can do today:
 |---|---|
 | `member` × 11 | `member` preset |
 | `manager` × 4 (incl. Elaine) | `manager` preset |
-| `inventory` × 2 (Tristan, Zoë) | `member` + `wine.inventory` + `kitchen.inventory`, badged Customized |
+| `inventory` × 2 (Tristan, Zoë) | `member` + `wine.inventory` + `wine.reports` + `kitchen.inventory`, badged Customized |
 | `owner` × 1 | `owner` preset |
 
 Elaine stays a manager. The `marketing` preset ships unused, ready to grant.
@@ -195,6 +195,16 @@ Ship order, so nothing breaks mid-deploy:
 
 1. Add tables, backfill grants from today's roles, change no behaviour.
 2. Convert server guards to capability checks, each one preserving today's
-   outcome. Verify no user's effective access changes.
+   outcome, in batches by menu area.
+
+   Verified two ways, because one is not enough. `scripts/access-snapshot.js`
+   diffs every user's effective access across the change and must come back
+   empty. But that diff reads the capability map, so it cannot catch an error
+   *in* the map — the first Wine batch passed it while silently removing Wine
+   Reports from the two inventory users, because the map had simply forgotten
+   the capability. `scripts/verify-access.js` is the real check: it calls the
+   converted routes as one real user per role and compares against the old
+   middleware rules restated by hand. Every converted route gets an entry
+   there; one that does not is unverified, whatever the diff says.
 3. Ship the matrix UI.
 4. Re-scope people only when you choose to — no one is re-scoped by this work.

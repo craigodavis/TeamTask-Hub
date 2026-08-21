@@ -8,7 +8,7 @@
 
 import express from 'express';
 import { pool } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import { requireAuth, requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
 const appSchema = process.env.DB_SCHEMA || 'teamtask_hub';
@@ -116,7 +116,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // ── POST /api/product-lines ───────────────────────────────────────────────────
-router.post('/', requireAuth, requireManager, async (req, res) => {
+router.post('/', requireAuth, requireCapability('wine.lines'), async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.name)     return res.status(400).json({ error: 'name is required' });
@@ -154,7 +154,7 @@ router.post('/', requireAuth, requireManager, async (req, res) => {
 });
 
 // ── PUT /api/product-lines/:id ────────────────────────────────────────────────
-router.put('/:id', requireAuth, requireManager, async (req, res) => {
+router.put('/:id', requireAuth, requireCapability('wine.lines'), async (req, res) => {
   try {
     const body = req.body || {};
     const sets = [];
@@ -191,7 +191,7 @@ router.put('/:id', requireAuth, requireManager, async (req, res) => {
 
 // ── POST /api/product-lines/:id/attach ────────────────────────────────────────
 // Attach or detach vintages. Detach is by omission, so send the full set.
-router.post('/:id/attach', requireAuth, requireManager, async (req, res) => {
+router.post('/:id/attach', requireAuth, requireCapability('wine.lines'), async (req, res) => {
   try {
     const ids = Array.isArray(req.body?.product_ids) ? req.body.product_ids : null;
     if (!ids) return res.status(400).json({ error: 'product_ids array is required' });
@@ -277,7 +277,7 @@ router.get('/lookup/options', requireAuth, async (req, res) => {
 //
 // Idempotent on vintly_project_id — bottling can be edited and re-saved, so a
 // second call updates the product it already created rather than making another.
-router.post('/bottle', requireAuth, requireManager, async (req, res) => {
+router.post('/bottle', requireAuth, requireCapability('wine.lines'), async (req, res) => {
   const {
     product_line_id, vintage, starting_case_count,
     vintly_project_id, name, bottling_date,
