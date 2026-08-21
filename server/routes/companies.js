@@ -39,6 +39,18 @@ router.patch('/:companyId/users/:userId', requireManager, async (req, res) => {
     if (req.companyId !== paramCompanyId) return res.status(403).json({ error: 'Forbidden' });
     const { role, display_name, password, location_ids } = req.body;
 
+    // Changing what someone may DO is the owner's alone. The rest of this
+    // endpoint stays with managers, because fixing a display name or resetting
+    // a password is ordinary supervision -- so the check is on the field, not
+    // the route.
+    //
+    // It rejects the whole request rather than quietly dropping the field: a
+    // silent drop would report success to a manager whose role change never
+    // happened, which is the worst of both.
+    if (role !== undefined && !req.capabilities?.has('users.manage')) {
+      return res.status(403).json({ error: 'Only the owner can change a user\'s role.' });
+    }
+
     const existing = await query(
       `SELECT id FROM users WHERE id = $1 AND company_id = $2`,
       [userId, paramCompanyId]
