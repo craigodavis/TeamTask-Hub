@@ -10,7 +10,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import {requireCapability} from '../middleware/auth.js';
 import { renderMenuPdf } from '../lib/menuPdf.js';
 
 const router = express.Router();
@@ -49,7 +49,7 @@ function sectionFor(row) {
 }
 
 // ── GET /api/menus/:key ──────────────────────────────────────────────────────
-router.get('/:key', requireManager, async (req, res) => {
+router.get('/:key', requireCapability('tastingroom.menus'), async (req, res) => {
   const key = req.params.key;
   if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
 
@@ -130,7 +130,7 @@ router.get('/:key', requireManager, async (req, res) => {
 
 // ── PUT /api/menus/:key/order ────────────────────────────────────────────────
 // Body: { items: [{ product_id, section, sort_order, excluded }] }
-router.put('/:key/order', requireManager, async (req, res) => {
+router.put('/:key/order', requireCapability('tastingroom.menus'), async (req, res) => {
   const key = req.params.key;
   if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
   const items = Array.isArray(req.body?.items) ? req.body.items : null;
@@ -160,7 +160,7 @@ router.put('/:key/order', requireManager, async (req, res) => {
 });
 
 // ── POST /api/menus/:key/print ───────────────────────────────────────────────
-router.post('/:key/print', requireManager, async (req, res) => {
+router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, res) => {
   const key = req.params.key;
   if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
   try {

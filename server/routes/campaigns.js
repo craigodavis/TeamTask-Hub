@@ -8,7 +8,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import {requireCapability} from '../middleware/auth.js';
 import { renderBody, renderEmail } from '../lib/email/render.js';
 import {
   listmonkConfigured, getLists, kindredTemplateId, upsertCampaign, sendTest,
@@ -49,7 +49,7 @@ export const CAMPAIGN_KINDS = {
 };
 
 // ── GET /api/campaigns ───────────────────────────────────────────────────────
-router.get('/', requireManager, async (req, res) => {
+router.get('/', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const r = await query(
       `SELECT id, name, subject, kind, status, sent_at, updated_at,
@@ -67,7 +67,7 @@ router.get('/', requireManager, async (req, res) => {
 });
 
 // ── POST /api/campaigns ──────────────────────────────────────────────────────
-router.post('/', requireManager, async (req, res) => {
+router.post('/', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const { name, kind = 'general' } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: 'A name is required.' });
@@ -83,7 +83,7 @@ router.post('/', requireManager, async (req, res) => {
 // ── GET /api/campaigns/lists ─────────────────────────────────────────────────
 // Above /:id deliberately: Express matches in order, and /:id would otherwise
 // capture "lists" as an id and 404.
-router.get('/lists', requireManager, async (req, res) => {
+router.get('/lists', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     if (!listmonkConfigured()) return res.json({ configured: false, lists: [] });
     const lists = await getLists();
@@ -100,7 +100,7 @@ router.get('/lists', requireManager, async (req, res) => {
 });
 
 // ── GET /api/campaigns/:id ───────────────────────────────────────────────────
-router.get('/:id', requireManager, async (req, res) => {
+router.get('/:id', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const r = await query(
       `SELECT * FROM email_campaigns WHERE id = $1 AND company_id = $2`,
@@ -111,7 +111,7 @@ router.get('/:id', requireManager, async (req, res) => {
 });
 
 // ── PUT /api/campaigns/:id ───────────────────────────────────────────────────
-router.put('/:id', requireManager, async (req, res) => {
+router.put('/:id', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const { name, subject, preheader, sections } = req.body || {};
     // Render before saving. A section list that cannot render — a missing alt,
@@ -152,7 +152,7 @@ router.put('/:id', requireManager, async (req, res) => {
  * about a dish pulled from the menu last week is the failure worth designing
  * out.
  */
-router.get('/sources/:kind', requireManager, async (req, res) => {
+router.get('/sources/:kind', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const tz = 'America/Denver';
 
@@ -212,7 +212,7 @@ router.get('/sources/:kind', requireManager, async (req, res) => {
 // ── POST /api/campaigns/preview ──────────────────────────────────────────────
 // Full document, so the preview shows the real shell and footer rather than a
 // prettier fiction of it.
-router.post('/preview', requireManager, async (req, res) => {
+router.post('/preview', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const { sections = [], subject = '', preheader = '' } = req.body || {};
     const html = renderEmail(sections, {
@@ -232,7 +232,7 @@ router.post('/preview', requireManager, async (req, res) => {
 // concept would mean two things to keep in sync and two places to look for the
 // one you half-remember; a copy is editable, disposable, and already
 // understood.
-router.post('/:id/duplicate', requireManager, async (req, res) => {
+router.post('/:id/duplicate', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const src = await query(
       `SELECT * FROM email_campaigns WHERE id = $1 AND company_id = $2`,
@@ -275,7 +275,7 @@ router.post('/:id/duplicate', requireManager, async (req, res) => {
  * so it, not TeamHub, writes the unsubscribe and archive URLs. TeamHub cannot
  * honour those URLs, and a broken unsubscribe link is worse than an ugly email.
  */
-router.post('/:id/push', requireManager, async (req, res) => {
+router.post('/:id/push', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const { listIds } = req.body || {};
     if (!Array.isArray(listIds) || !listIds.length) {
@@ -319,7 +319,7 @@ router.post('/:id/push', requireManager, async (req, res) => {
 // listmonk only sends tests to addresses that already exist as subscribers,
 // which is worth surfacing plainly — otherwise a test that goes nowhere reads
 // as a broken send path rather than a missing subscriber.
-router.post('/:id/test', requireManager, async (req, res) => {
+router.post('/:id/test', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     const emails = (req.body?.emails || []).map((e) => String(e).trim()).filter(Boolean);
     if (!emails.length) return res.status(400).json({ error: 'Give at least one address.' });
@@ -337,7 +337,7 @@ router.post('/:id/test', requireManager, async (req, res) => {
   } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
-router.delete('/:id', requireManager, async (req, res) => {
+router.delete('/:id', requireCapability('marketing.campaigns'), async (req, res) => {
   try {
     await query(`DELETE FROM email_campaigns WHERE id = $1 AND company_id = $2`,
       [req.params.id, cid(req)]);

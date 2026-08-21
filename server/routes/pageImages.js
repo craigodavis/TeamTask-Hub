@@ -5,7 +5,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import {requireCapability} from '../middleware/auth.js';
 import { IMAGE_SLOTS, ALL_SLOT_KEYS } from '../lib/imageSlots.js';
 import { publishWebsiteNow } from '../lib/websiteDeploy.js';
 import { absMediaAll } from '../lib/mediaUrls.js';
@@ -15,7 +15,7 @@ const router = express.Router();
 // POST /api/page-images/publish — force a website rebuild now. The slot writes
 // below already queue one automatically (see lib/websiteDeploy.js); this is the
 // manual "go now" for when someone doesn't want to wait out the debounce.
-router.post('/publish', requireManager, async (_req, res) => {
+router.post('/publish', requireCapability('marketing.website'), async (_req, res) => {
   const r = await publishWebsiteNow(['manual publish']);
   if (r.ok) return res.json({ ok: true });
   // "GITHUB_DEPLOY_TOKEN is not set" is true but reads like the edit was lost,
@@ -47,7 +47,7 @@ router.get('/', async (_req, res) => {
 });
 
 // PUT /api/page-images/:slot — assign a media image to a slot.
-router.put('/:slot', requireManager, async (req, res) => {
+router.put('/:slot', requireCapability('marketing.website'), async (req, res) => {
   try {
     const slot = req.params.slot;
     if (!ALL_SLOT_KEYS.has(slot)) return res.status(400).json({ error: 'Unknown slot' });
@@ -64,7 +64,7 @@ router.put('/:slot', requireManager, async (req, res) => {
 });
 
 // DELETE /api/page-images/:slot — clear a slot (site falls back to its placeholder).
-router.delete('/:slot', requireManager, async (req, res) => {
+router.delete('/:slot', requireCapability('marketing.website'), async (req, res) => {
   try {
     await query(`DELETE FROM kindred_web.page_images WHERE slot_key = $1`, [req.params.slot]);
     res.json({ ok: true });

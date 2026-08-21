@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import {requireCapability} from '../middleware/auth.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,7 +95,7 @@ async function removeApprovers(announcementId, keepIds) {
 // ─── routes ──────────────────────────────────────────────────────────────────
 
 // Upload image for announcements (managers only)
-router.post('/upload-image', requireManager, imgUpload.single('image'), (req, res) => {
+router.post('/upload-image', requireCapability('announcements.manage'), imgUpload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   res.json({ url: `/api/uploads/announcements/${req.file.filename}` });
 });
@@ -267,7 +267,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST / — create announcement (manager)
-router.post('/', requireManager, async (req, res) => {
+router.post('/', requireCapability('announcements.manage'), async (req, res) => {
   try {
     const { title, body, effective_from, effective_until, location_ids, approver_ids, status, is_policy } = req.body;
     if (!title || !effective_from || !effective_until) {
@@ -329,7 +329,7 @@ router.post('/', requireManager, async (req, res) => {
 });
 
 // PATCH /:id — edit announcement (manager)
-router.patch('/:id', requireManager, async (req, res) => {
+router.patch('/:id', requireCapability('announcements.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { title, body, effective_from, effective_until, location_ids, approver_ids, status, is_policy, policy_required } = req.body;
@@ -458,7 +458,7 @@ router.post('/:id/approve', async (req, res) => {
 });
 
 // POST /:id/publish — originator or manager publishes (even without full approval)
-router.post('/:id/publish', requireManager, async (req, res) => {
+router.post('/:id/publish', requireCapability('announcements.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const r = await query(
@@ -475,7 +475,7 @@ router.post('/:id/publish', requireManager, async (req, res) => {
 });
 
 // DELETE /:id
-router.delete('/:id', requireManager, async (req, res) => {
+router.delete('/:id', requireCapability('announcements.manage'), async (req, res) => {
   try {
     const r = await query(
       `DELETE FROM announcements WHERE id = $1 AND company_id = $2 RETURNING id`,
@@ -519,7 +519,7 @@ router.post('/:id/acknowledge', async (req, res) => {
 });
 
 // GET /:id/acknowledgments — who read (manager)
-router.get('/:id/acknowledgments', requireManager, async (req, res) => {
+router.get('/:id/acknowledgments', requireCapability('announcements.manage'), async (req, res) => {
   try {
     const r = await query(
       `SELECT aa.id, aa.user_id, aa.acknowledged_at, u.display_name, u.email

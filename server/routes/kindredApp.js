@@ -11,10 +11,10 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import {requireAuth, requireCapability} from '../middleware/auth.js';
 
 const router = express.Router();
-const admin = [requireAuth, requireManager];
+const admin = [requireAuth, requireCapability('kindredapp.manage')];
 function cid(req) { return req.companyId || req.user?.company_id; }
 
 /**

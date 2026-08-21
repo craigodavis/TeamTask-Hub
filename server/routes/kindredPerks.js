@@ -19,7 +19,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import {requireAuth, requireCapability} from '../middleware/auth.js';
 import { requireMemberSession } from './clubNotifications.js';
 
 const router = express.Router();
@@ -93,7 +93,7 @@ router.post('/me/perks/:id/redeem', requireMemberSession, async (req, res) => {
 });
 
 // ── GET /perks (staff) ───────────────────────────────────────────────────────
-router.get('/perks', requireAuth, requireManager, async (req, res) => {
+router.get('/perks', requireAuth, requireCapability('marketing.loyalty'), async (req, res) => {
   const status = req.query.status === 'redeemed' ? 'redeemed' : 'outstanding';
   try {
     const r = await query(

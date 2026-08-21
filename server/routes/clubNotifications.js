@@ -21,7 +21,7 @@
 
 import express from 'express';
 import { query } from '../db.js';
-import { requireAuth, requireManager } from '../middleware/auth.js';
+import {requireAuth, requireCapability} from '../middleware/auth.js';
 import {
   deliverSend, resolveAudience, ensureVapid, getVapid,
   RECOMMENDED_TITLE, RECOMMENDED_BODY,
@@ -31,7 +31,7 @@ const router = express.Router();
 
 // Staff-only routes guard themselves rather than the whole router, because the
 // /me/* routes below authenticate as a club member instead of a TeamHub user.
-const admin = [requireAuth, requireManager];
+const admin = [requireAuth, requireCapability('kindredapp.manage')];
 
 function cid(req) { return req.companyId || req.user?.company_id; }
 

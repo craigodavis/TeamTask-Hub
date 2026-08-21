@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import sharp from 'sharp';
 import { query } from '../db.js';
-import { requireAuth, requireManager, requireOwner } from '../middleware/auth.js';
+import {requireAuth, requireCapability, requireOwner} from '../middleware/auth.js';
 import { requireMemberSession } from './clubNotifications.js';
 import {
   getRules, getMemberSummary, getBalances, getProgramStats,
@@ -126,12 +126,12 @@ memberRouter.get('/me/photo', requireMemberSession, async (req, res) => {
 });
 
 // ── Staff / admin ────────────────────────────────────────────────────────────
-router.get('/stats', requireAuth, requireManager, async (req, res) => {
+router.get('/stats', requireAuth, requireCapability('marketing.loyalty'), async (req, res) => {
   try { res.json(await getProgramStats(cid(req))); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/rules', requireAuth, requireManager, async (req, res) => {
+router.get('/rules', requireAuth, requireCapability('marketing.loyalty'), async (req, res) => {
   try { res.json({ rules: await getRules(cid(req), { includeInactive: true }) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -159,7 +159,7 @@ router.put('/rules/:key', requireAuth, requireOwner, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/balances', requireAuth, requireManager, async (req, res) => {
+router.get('/balances', requireAuth, requireCapability('marketing.loyalty'), async (req, res) => {
   try {
     res.json({
       balances: await getBalances(cid(req), {
@@ -170,7 +170,7 @@ router.get('/balances', requireAuth, requireManager, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/ledger', requireAuth, requireManager, async (req, res) => {
+router.get('/ledger', requireAuth, requireCapability('marketing.loyalty'), async (req, res) => {
   try {
     const r = await query(
       `SELECT l.id, l.customer_id, l.points, l.rule_key, l.reason, l.batch,
@@ -202,7 +202,7 @@ router.delete('/batch/:batch', requireAuth, requireOwner, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/award', requireAuth, requireManager, async (req, res) => {
+router.post('/award', requireAuth, requireCapability('marketing.loyalty'), async (req, res) => {
   const { customerId, points, reason } = req.body ?? {};
   if (!customerId || !Number.isInteger(points) || points === 0) {
     return res.status(400).json({ error: 'customerId and a non-zero integer points are required.' });

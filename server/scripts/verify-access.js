@@ -38,6 +38,25 @@ const ROUTES = [
   { path: '/api/product-lines/lookup/options',     was: 'authOnly',  allow: () => true },
   { path: '/api/products/inventory',               was: 'inventory', allow: inventory },
   { path: '/api/products/inventory/report?days=7', was: 'inventory', allow: inventory },
+
+  // ── Batch 2: Marketing, Tasting Room, Announcements ──────────────────────
+  // Each of these was verified against `git show HEAD:<file>` to be
+  // requireManager BEFORE conversion. Picking a route by guessing put five
+  // unguarded list endpoints in here and reported ten false regressions --
+  // GET /media, /page-images and /announcements were never gated at all,
+  // because staff have to be able to read announcements.
+  { path: '/api/campaigns',                  was: 'manager',  allow: manager },
+  { path: '/api/campaigns/lists',            was: 'manager',  allow: manager },
+  { path: '/api/loyalty/stats',              was: 'manager',  allow: manager },
+  { path: '/api/loyalty/rules',              was: 'manager',  allow: manager },
+  { path: '/api/reservations',               was: 'manager',  allow: manager },
+  { path: '/api/reservations/opt-ins.csv',   was: 'manager',  allow: manager },
+
+  // And these were NEVER gated -- everyone authenticated could read them, and
+  // must still be able to.
+  { path: '/api/media',                      was: 'authOnly', allow: () => true },
+  { path: '/api/page-images',                was: 'authOnly', allow: () => true },
+  { path: '/api/announcements',              was: 'authOnly', allow: () => true },
 ];
 
 // One user per distinct role, so every branch of every rule is exercised.

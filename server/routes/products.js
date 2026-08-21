@@ -312,7 +312,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // ── POST /api/products/import/c7 ─────────────────────────────────────────────
 // Trigger a C7 product import for this company from the UI.
 // Runs inline (synchronous) — suitable for < a few hundred products.
-router.post('/import/c7', requireAuth, async (req, res) => {
+router.post('/import/c7', requireAuth, requireCapability('wine.products'), async (req, res) => {
   try {
     const companyId = cid(req);
     // Load credentials
@@ -859,7 +859,7 @@ async function loadFullProduct(client, productId, companyId) {
 }
 
 // ── PUT /api/products/:id ─────────────────────────────────────────────────────
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAuth, requireCapability('wine.products'), async (req, res) => {
   const companyId = cid(req);
   const productId = req.params.id;
 
@@ -1229,7 +1229,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 // ── POST /api/products ────────────────────────────────────────────────────────
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requireCapability('wine.products'), async (req, res) => {
   const companyId = cid(req);
   const b = req.body;
 

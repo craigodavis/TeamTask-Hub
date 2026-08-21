@@ -16,7 +16,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import {requireCapability} from '../middleware/auth.js';
 import { listBookings, answerText } from '../lib/resosClient.js';
 
 const router = express.Router();
@@ -105,7 +105,7 @@ function range(req) {
 }
 
 // GET /api/reservations?from=&to=&venue=
-router.get('/', requireManager, async (req, res) => {
+router.get('/', requireCapability('tastingroom.reservations'), async (req, res) => {
   try {
     const { from, to } = range(req);
     const data = await collect(req.companyId, from, to, req.query.venue);
@@ -118,7 +118,7 @@ router.get('/', requireManager, async (req, res) => {
 // GET /api/reservations/opt-ins.csv?from=&to=&venue=
 // The newsletter opt-ins, deduplicated by email, ready to import into a mailing
 // platform. Most recent booking wins, so the name is the one they gave last.
-router.get('/opt-ins.csv', requireManager, async (req, res) => {
+router.get('/opt-ins.csv', requireCapability('tastingroom.reservations'), async (req, res) => {
   try {
     const { from, to } = range(req);
     const { bookings } = await collect(req.companyId, from, to, req.query.venue);

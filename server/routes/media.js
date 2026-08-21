@@ -12,7 +12,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import {requireCapability} from '../middleware/auth.js';
 import { MEDIA_DIR, generateVariants, safeBase, filesFor, publicUrl } from '../lib/mediaVariants.js';
 import { transcodeToWeb, videoDimensions } from '../lib/videoTranscode.js';
 import { importWordpressMedia } from '../lib/importWordpressMedia.js';
@@ -112,7 +112,7 @@ router.get('/folders', async (_req, res) => {
 });
 
 // POST /api/media/folders {name} — create a (possibly empty) folder. Manager only.
-router.post('/folders', requireManager, async (req, res) => {
+router.post('/folders', requireCapability('marketing.media'), async (req, res) => {
   const name = (req.body?.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Folder name is required' });
   if (name.length > 280) return res.status(400).json({ error: 'Folder name is too long' });
@@ -123,7 +123,7 @@ router.post('/folders', requireManager, async (req, res) => {
 });
 
 // DELETE /api/media/folders — remove a folder; its images move to reassignTo. Manager only.
-router.delete('/folders', requireManager, async (req, res) => {
+router.delete('/folders', requireCapability('marketing.media'), async (req, res) => {
   const name = (req.body?.name || req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Folder name is required' });
   if (PROTECTED_FOLDERS.includes(name)) return res.status(400).json({ error: `"${name}" can't be removed` });
@@ -141,7 +141,7 @@ router.delete('/folders', requireManager, async (req, res) => {
 router.get('/import/status', (_req, res) => res.json(importState));
 
 // POST /api/media/import/wordpress — kick off the WordPress import in the background.
-router.post('/import/wordpress', requireManager, (req, res) => {
+router.post('/import/wordpress', requireCapability('marketing.media'), (req, res) => {
   if (importState.running) return res.status(409).json({ error: 'An import is already running.' });
   const dryRun = req.query.dryRun === '1' || req.body?.dryRun === true;
   importState = { running: true, startedAt: new Date().toISOString(), finishedAt: null, report: null, error: null };
@@ -163,7 +163,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/media/upload — upload one image (field name: "file").
-router.post('/upload', requireManager,
+router.post('/upload', requireCapability('marketing.media'),
   upload.fields([{ name: 'file', maxCount: 1 }, { name: 'poster', maxCount: 1 }]),
   async (req, res) => {
   const file = req.files?.file?.[0];
@@ -216,7 +216,7 @@ router.post('/upload', requireManager,
 });
 
 // PATCH /api/media/:id — edit metadata (alt_text, caption, credit, folder, tags).
-router.patch('/:id', requireManager, async (req, res) => {
+router.patch('/:id', requireCapability('marketing.media'), async (req, res) => {
   const editable = ['alt_text', 'caption', 'credit', 'folder', 'tags'];
   const sets = [];
   const params = [];
@@ -240,7 +240,7 @@ router.patch('/:id', requireManager, async (req, res) => {
 });
 
 // DELETE /api/media/:id — remove the row and all on-disk files (original + variants).
-router.delete('/:id', requireManager, async (req, res) => {
+router.delete('/:id', requireCapability('marketing.media'), async (req, res) => {
   const r = await query(`SELECT filename, variants FROM kindred_web.media WHERE id = $1`, [req.params.id]);
   if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
   for (const f of filesFor(r.rows[0])) fs.unlink(path.join(MEDIA_DIR, f), () => {});
