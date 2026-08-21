@@ -132,6 +132,58 @@ told they have signed up nobody, or — if two people ever share a name — is
 shown somebody else's members. Neither is acceptable for a feature whose whole
 purpose is "these are mine".
 
+#### The deeper problem: the attribution lives on stale data
+
+`public.customers` is a **one-off export, frozen at 2026-03-14** — 1,541 rows,
+five months old, and nothing refreshes it. It is also the only place
+`salesassociate` exists.
+
+The live table is `commerce7.customers`: synced today, 3,704 customers, 749
+holding clubs, with a `clubs` jsonb carrying `status`, `signupDate`,
+`cancelDate`, `clubTitle` and `clubMembershipId` — everything the feature needs
+**except who signed them up**.
+
+So the two halves are in different places:
+
+| | attribution | club status | current |
+|---|---|---|---|
+| `public.customers` | yes | yes | **no — March** |
+| `commerce7.customers` | **no** | yes | yes, daily |
+
+Tidying the spellings in the export therefore buys correctly-named answers
+drawn from five-month-old data. A crew member asks how many they have signed
+up and is told twelve when it is twenty; asks which of theirs cancelled and
+hears nothing about anyone who left since March; asks when a member was last in
+and gets a date frozen in spring. Confidently wrong is worse than absent,
+especially for a retention tool whose whole job is to prompt a follow-up.
+
+**The durable fix is to carry the associate through the live sync.** Commerce7
+records a sales associate on the club membership; `commerce7Sync.js` does not
+currently capture it. Once it does, attribution and status arrive together,
+daily, and the export can be retired rather than repaired.
+
+#### On rewriting the names in place
+
+Safe, but not what I would do.
+
+Safe because nothing writes `public.customers` back to Commerce7 — the sync
+writes `commerce7.customers`, a different table — so there is no path for a
+corrected name to reach the storefront. The concern is already structurally
+satisfied rather than resting on anyone remembering.
+
+Not what I would do because an in-place `UPDATE` destroys the original value.
+The typed string is the evidence of what actually happened at signup; once
+`Talon Sudbexk` becomes `Talon Sudbeck` there is no way to audit the merge or
+undo it if it was wrong. And it fixes only the six names that map to current
+staff, leaving the majority — Becky, Nikolette, Alicia, Erin, Josiah and the
+rest, all former staff with no username to match — exactly as they were.
+
+Prefer a **mapping table**: alias text to TeamHub user, many aliases per user,
+with an explicit "former staff, no current user" outcome so their members are
+attributed to nobody rather than silently to whoever shares a first name. It
+survives a re-import, it is reversible, it is auditable, and it cannot travel
+back to Commerce7 because it never touches a synced column.
+
 **This needs a real link before the feature can ship.** `club_steward.users`
 already has `c7_associate_number`, which is the right shape. The fix is a
 mapping from a TeamHub user to the `salesassociate` values they own — one user
