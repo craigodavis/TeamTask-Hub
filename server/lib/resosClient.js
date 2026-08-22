@@ -118,7 +118,15 @@ export async function availableTimes(base, apiKey, { people, date }) {
       return ah * 60 + am - (bh * 60 + bm);
     })
     .map((t) => (t.length === 4 ? `0${t}` : t));
-  return { times, closed: blocks.length === 0 };
+  // Special opening hours carry a title (block name) and a description (note);
+  // the regular "Wine Lounge" / "Winery Reservation" blocks leave note empty. So
+  // a non-empty note is what marks a block as a named special worth surfacing.
+  const seen = new Set();
+  const specials = blocks
+    .filter((b) => b && b.name && String(b.note || '').trim())
+    .map((b) => ({ title: String(b.name).trim(), note: String(b.note).trim() }))
+    .filter((s) => (seen.has(s.title) ? false : seen.add(s.title)));
+  return { times, closed: blocks.length === 0, specials };
 }
 
 /** Tables free for a party size within a datetime window. Returns [] on failure. */
