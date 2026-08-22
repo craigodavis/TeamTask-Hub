@@ -103,8 +103,19 @@ function shapeFields(all) {
     }));
 }
 
-// Titles that are just the default booking window, not a special worth surfacing.
-const GENERIC_HOURS = /^(wine lounge|winery(\s+(reservation|reservations|hours))?|regular\s+reservations?|reservations?|tasting room|seated tasting experience)\s*$/i;
+// HHMM integer (e.g. 1200, 1630) → "12 PM", "4:30 PM".
+function fmtHM(hhmm) {
+  const n = Number(hhmm);
+  if (!Number.isFinite(n)) return '';
+  const h = Math.floor(n / 100), m = n % 100;
+  const ap = h < 12 ? 'AM' : 'PM';
+  const hh = (h % 12) || 12;
+  return m ? `${hh}:${String(m).padStart(2, '0')} ${ap}` : `${hh} ${ap}`;
+}
+function hoursRange(def) {
+  const o = fmtHM(def?.open), c = fmtHM(def?.close);
+  return o && c ? `${o} – ${c}` : '';
+}
 
 // /openingHours defs, cached briefly per API key — carries the native `special`
 // (date-specific override) flag that /bookingFlow/times leaves off each block.
@@ -119,19 +130,18 @@ async function openingHoursDefs(base, apiKey) {
   return defs;
 }
 
-// The named special-hours that apply to the requested day: a date-specific
-// override (special=true) whose title isn't a generic booking label. Regular
-// recurring hours and the plain "Reservations" window are skipped. Craig often
-// pairs an event with a same-day "Regular Reservations" block; only the event
-// should surface.
+// Every named special-hours block that applies to the requested day — each with
+// its own hours. A day can carry several date-specific overrides (special=true),
+// e.g. a "Regular Reservations" window plus an event; the guest should see both
+// with their respective hours. Recurring regular hours (special=false) are skipped.
 async function namedSpecials(base, apiKey, blocks) {
   let defs;
   try { defs = await openingHoursDefs(base, apiKey); } catch { return []; }
   const seen = new Set();
   return blocks
     .map((b) => ({ name: String(b?.name || '').trim(), note: String(b?.note || '').trim(), def: defs.get(b?._id) }))
-    .filter((x) => x.def && x.def.special === true && x.name && !GENERIC_HOURS.test(x.name))
-    .map((x) => ({ title: x.name, note: x.note || String(x.def?.note || '').trim() }))
+    .filter((x) => x.def && x.def.special === true && x.name)
+    .map((x) => ({ title: x.name, hours: hoursRange(x.def), note: x.note || String(x.def?.note || '').trim() }))
     .filter((s) => (seen.has(s.title) ? false : seen.add(s.title)));
 }
 
