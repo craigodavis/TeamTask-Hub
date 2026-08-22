@@ -130,19 +130,14 @@ async function openingHoursDefs(base, apiKey) {
   return defs;
 }
 
-// Every named special-hours block that applies to the requested day — each with
-// its own hours. A day can carry several date-specific overrides (special=true),
-// e.g. a "Regular Reservations" window plus an event; the guest should see both
-// with their respective hours. Recurring regular hours (special=false) are skipped.
-async function namedSpecials(base, apiKey, blocks) {
-  let defs;
-  try { defs = await openingHoursDefs(base, apiKey); } catch { return []; }
-  const seen = new Set();
-  return blocks
-    .map((b) => ({ name: String(b?.name || '').trim(), note: String(b?.note || '').trim(), def: defs.get(b?._id) }))
-    .filter((x) => x.def && x.def.special === true && x.name)
-    .map((x) => ({ title: x.name, hours: hoursRange(x.def), note: x.note || String(x.def?.note || '').trim() }))
-    .filter((s) => (seen.has(s.title) ? false : seen.add(s.title)));
+function sortTimes(arr) {
+  return [...new Set((arr || []).filter((t) => /^\d{1,2}:\d{2}$/.test(t)))]
+    .sort((a, b) => {
+      const [ah, am] = a.split(':').map(Number);
+      const [bh, bm] = b.split(':').map(Number);
+      return ah * 60 + am - (bh * 60 + bm);
+    })
+    .map((t) => (t.length === 4 ? `0${t}` : t));
 }
 
 export async function availableTimes(base, apiKey, { people, date }) {
@@ -151,17 +146,33 @@ export async function availableTimes(base, apiKey, { people, date }) {
   const r = await resosFetch(base, apiKey, q);
   if (!r.ok) throw new Error(`ResOS availableTimes HTTP ${r.status}`);
   const blocks = Array.isArray(r.data) ? r.data : (r.data?.data || []);
-  // One entry per opening-hour block (lunch/dinner etc.) — flatten and dedupe.
-  const times = [...new Set(blocks.flatMap((b) => b?.availableTimes || []))]
-    .filter((t) => /^\d{1,2}:\d{2}$/.test(t))
-    .sort((a, b) => {
-      const [ah, am] = a.split(':').map(Number);
-      const [bh, bm] = b.split(':').map(Number);
-      return ah * 60 + am - (bh * 60 + bm);
+
+  // Each opening-hours block is its own section with its own bookable slots — its
+  // interval and capacity differ, so a day can offer "Regular Reservations" every
+  // 30 min AND a "Wine Club Release" at just 4:00 & 5:30. Keep them separate for
+  // display; the merged `times` is only for the "any time bookable?" checks.
+  let defs;
+  try { defs = await openingHoursDefs(base, apiKey); } catch { defs = new Map(); }
+  const sections = blocks
+    .map((b) => {
+      const def = defs.get(b?._id) || {};
+      return {
+        title: String(b?.name || '').trim(),
+        special: def.special === true,
+        hours: hoursRange(def),
+        note: String(b?.note || '').trim() || String(def.note || '').trim(),
+        slots: sortTimes(b?.availableTimes),
+      };
     })
-    .map((t) => (t.length === 4 ? `0${t}` : t));
-  const specials = await namedSpecials(base, apiKey, blocks);
-  return { times, closed: blocks.length === 0, specials };
+    .filter((s) => s.slots.length);
+
+  const times = sortTimes(sections.flatMap((s) => s.slots));
+  const seenTitle = new Set();
+  const specials = sections
+    .filter((s) => s.special && s.title && !seenTitle.has(s.title) && seenTitle.add(s.title))
+    .map((s) => ({ title: s.title, hours: s.hours, note: s.note }));
+
+  return { times, closed: blocks.length === 0, sections, specials };
 }
 
 /** Tables free for a party size within a datetime window. Returns [] on failure. */

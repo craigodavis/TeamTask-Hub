@@ -439,7 +439,7 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     }
 
     const base = cfg.api_base || 'https://api.resos.com';
-    const { times, closed, specials } = await availableTimes(base, cfg.api_key, { people: party, date });
+    const { times, closed, specials, sections } = await availableTimes(base, cfg.api_key, { people: party, date });
 
     // ResOS returns nothing for two very different reasons: the venue is shut
     // that day, or it is open and has no table big enough. Both used to surface
@@ -458,7 +458,7 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     }
 
     res.set('Cache-Control', 'public, max-age=30');
-    res.json({ venue, date, party, bookingEnabled: true, closed, reason, slots: times, specials: specials || [] });
+    res.json({ venue, date, party, bookingEnabled: true, closed, reason, slots: times, specials: specials || [], sections: sections || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
