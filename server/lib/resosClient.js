@@ -103,6 +103,38 @@ function shapeFields(all) {
     }));
 }
 
+// Titles that are just the default booking window, not a special worth surfacing.
+const GENERIC_HOURS = /^(wine lounge|winery(\s+(reservation|reservations|hours))?|regular\s+reservations?|reservations?|tasting room|seated tasting experience)\s*$/i;
+
+// /openingHours defs, cached briefly per API key — carries the native `special`
+// (date-specific override) flag that /bookingFlow/times leaves off each block.
+const _ohCache = new Map();
+async function openingHoursDefs(base, apiKey) {
+  const hit = _ohCache.get(apiKey);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.defs;
+  const r = await resosFetch(base, apiKey, '/openingHours');
+  const arr = r.ok && Array.isArray(r.data) ? r.data : (r.data?.data || []);
+  const defs = new Map(arr.map((x) => [x._id, x]));
+  _ohCache.set(apiKey, { at: Date.now(), defs });
+  return defs;
+}
+
+// The named special-hours that apply to the requested day: a date-specific
+// override (special=true) whose title isn't a generic booking label. Regular
+// recurring hours and the plain "Reservations" window are skipped. Craig often
+// pairs an event with a same-day "Regular Reservations" block; only the event
+// should surface.
+async function namedSpecials(base, apiKey, blocks) {
+  let defs;
+  try { defs = await openingHoursDefs(base, apiKey); } catch { return []; }
+  const seen = new Set();
+  return blocks
+    .map((b) => ({ name: String(b?.name || '').trim(), note: String(b?.note || '').trim(), def: defs.get(b?._id) }))
+    .filter((x) => x.def && x.def.special === true && x.name && !GENERIC_HOURS.test(x.name))
+    .map((x) => ({ title: x.name, note: x.note || String(x.def?.note || '').trim() }))
+    .filter((s) => (seen.has(s.title) ? false : seen.add(s.title)));
+}
+
 export async function availableTimes(base, apiKey, { people, date }) {
   const q = `/bookingFlow/times?people=${encodeURIComponent(people)}` +
     `&date=${encodeURIComponent(date)}&onlyBookableOnline=true`;
@@ -118,14 +150,7 @@ export async function availableTimes(base, apiKey, { people, date }) {
       return ah * 60 + am - (bh * 60 + bm);
     })
     .map((t) => (t.length === 4 ? `0${t}` : t));
-  // Special opening hours carry a title (block name) and a description (note);
-  // the regular "Wine Lounge" / "Winery Reservation" blocks leave note empty. So
-  // a non-empty note is what marks a block as a named special worth surfacing.
-  const seen = new Set();
-  const specials = blocks
-    .filter((b) => b && b.name && String(b.note || '').trim())
-    .map((b) => ({ title: String(b.name).trim(), note: String(b.note).trim() }))
-    .filter((s) => (seen.has(s.title) ? false : seen.add(s.title)));
+  const specials = await namedSpecials(base, apiKey, blocks);
   return { times, closed: blocks.length === 0, specials };
 }
 
