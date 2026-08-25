@@ -85,6 +85,59 @@ function rows(wines) {
   }).join('\n');
 }
 
+/**
+ * Render one food/drink item the way the booklet hand-writes them.
+ *
+ * `first` carries the tighter gap that sits an item under its section header.
+ * That spacing belongs to the SLOT, not the item — when the featured burger
+ * was swapped the margin had to move with the position, not travel with the
+ * burger — so it is derived here rather than stored per row.
+ */
+function foodItem(it, first) {
+  const style = first && it.firstMargin ? ` style="margin-top:${it.firstMargin}"` : '';
+  const price = it.price_cents === null || it.price_cents === undefined
+    ? '' : `<span class="price">${money(Number(it.price_cents) / 100)}</span>`;
+  let html = `    <div class="item"${style}><div class="name">${esc(it.name)}${price}</div>`;
+  // A newline inside the description is a line break within the same
+  // paragraph — the booklet uses one for "Prosecco and juice of your choice:"
+  // above its list, and again for the Whiskey Sour's float. Storing the break
+  // as a newline keeps the text readable and searchable in the database.
+  if (it.description) {
+    html += `\n      <div class="desc">${esc(it.description).replace(/\n/g, '<br>')}</div>`;
+  }
+  // `serves` and `note` are their own lines with their own type, not trailing
+  // text — folding them into the description silently restyles them.
+  if (it.serves) html += `\n      <div class="serves">${esc(it.serves)}</div>`;
+  if (it.note)   html += `\n      <div class="comes">${esc(it.note)}</div>`;
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Fill every <!-- FOOD:Section Name:START --> block with that section's items.
+ *
+ * One marker per section rather than one per menu, because Creek's sections
+ * live on different panels of a booklet — the wine list, the kitchen page and
+ * the desserts are pages apart, and the template decides where each sits.
+ */
+function spliceFood(doc, items) {
+  const bySection = new Map();
+  for (const it of items) {
+    if (!bySection.has(it.section)) bySection.set(it.section, []);
+    bySection.get(it.section).push(it);
+  }
+  for (const [section, list] of bySection) {
+    const start = `<!-- FOOD:${section}:START -->`;
+    const end = `<!-- FOOD:${section}:END -->`;
+    const i = doc.indexOf(start);
+    const j = doc.indexOf(end);
+    if (i === -1 || j === -1) continue;   // template does not print this section
+    const body = list.map((it, n) => foodItem(it, n === 0)).join('\n\n');
+    doc = doc.slice(0, i + start.length) + '\n' + body + '\n    ' + doc.slice(j);
+  }
+  return doc;
+}
+
 function splice(doc, tag, body) {
   const start = `<!-- ${tag}:START -->`;
   const end = `<!-- ${tag}:END -->`;
@@ -101,7 +154,7 @@ function splice(doc, tag, body) {
  * @param {{white: object[], red: object[]}} wines  in print order
  * @returns {Promise<Buffer>} the PDF
  */
-export async function renderMenuPdf(menuKey, wines) {
+export async function renderMenuPdf(menuKey, wines, foodItems = []) {
   const dir = path.join(MENU_ROOT, menuKey);
   const templatePath = path.join(dir, 'menu.html');
 
@@ -120,6 +173,7 @@ export async function renderMenuPdf(menuKey, wines) {
   let doc = await fs.readFile(templatePath, 'utf8');
   doc = splice(doc, 'WINES_WHITE', rows(wines.white || []));
   doc = splice(doc, 'WINES_RED', rows(wines.red || []));
+  doc = spliceFood(doc, foodItems);
 
   // Render from a temp file inside the menu directory so the template's
   // relative font and image paths still resolve.

@@ -3839,6 +3839,54 @@ const MIGRATIONS = [
     last_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (route, method, capability, user_id)
   )`,
+  // Food and drink items on the printed menus, so they stop being markup.
+  //
+  // Deliberately no styling here. Margins, rules and typefaces stay in the
+  // template: the moment a spacing value becomes a column, the database is
+  // storing layout and every renderer has to honour it. Position-dependent
+  // spacing is derived at render — the tight gap under a section header
+  // belongs to the first slot, not to whichever item is sitting in it, which
+  // is exactly the bug that appears when a featured item is swapped out.
+  //
+  // Text is plain UTF-8 — jalapeños, sautéed, Gaston's — and escaped when
+  // rendered. Storing HTML entities would make the same string unusable
+  // anywhere but a web page, and unsearchable everywhere.
+  `CREATE TABLE IF NOT EXISTS menu_items (
+     id           SERIAL PRIMARY KEY,
+     company_id   UUID NOT NULL,
+     menu_key     VARCHAR(20) NOT NULL,
+     section      VARCHAR(40) NOT NULL,
+     name         TEXT NOT NULL,
+     price_cents  INTEGER,
+     description  TEXT,
+     note         TEXT,
+     serves       TEXT,
+     featured     BOOLEAN NOT NULL DEFAULT false,
+     active       BOOLEAN NOT NULL DEFAULT true,
+     sort_order   INTEGER NOT NULL DEFAULT 0,
+     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_by   UUID
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_menu_items_lookup
+     ON menu_items(company_id, menu_key, sort_order)`,
+  // Every change, with the row as it was and as it became. A menu edit that
+  // reaches print needs to be answerable after the fact — especially once an
+  // assistant can make them.
+  `CREATE TABLE IF NOT EXISTS menu_item_changes (
+     id           SERIAL PRIMARY KEY,
+     company_id   UUID NOT NULL,
+     menu_key     VARCHAR(20) NOT NULL,
+     item_id      INTEGER,
+     action       VARCHAR(20) NOT NULL,
+     before_json  JSONB,
+     after_json   JSONB,
+     actor        VARCHAR(40) NOT NULL,
+     actor_user   UUID,
+     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_menu_item_changes_recent
+     ON menu_item_changes(company_id, menu_key, created_at DESC)`,
 ];
 
 export async function runMigrations() {
