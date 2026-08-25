@@ -202,7 +202,21 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
       });
     }
 
-    const pdf = await renderMenuPdf(key, wines);
+    // Food and drink rows for this menu, in printed order. The templates
+    // splice them per section; a menu with no rows simply prints none.
+    const food = (await query(
+      `SELECT section, name, price_cents, description, note, serves, sort_order
+         FROM menu_items
+        WHERE company_id = $1 AND menu_key = $2 AND active = true
+        ORDER BY sort_order`,
+      [cid(req), key]
+    )).rows;
+    // The tighter gap under a section header belongs to the slot, so it is
+    // applied to whichever item comes first rather than stored on the row.
+    const FIRST_MARGIN = { 'Featured Burger': '4pt' };
+    for (const it of food) it.firstMargin = FIRST_MARGIN[it.section];
+
+    const pdf = await renderMenuPdf(key, wines, food);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition',
       `inline; filename="${key}-menu-${new Date().toISOString().slice(0, 10)}.pdf"`);
