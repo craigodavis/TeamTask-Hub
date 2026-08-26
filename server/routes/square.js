@@ -1146,6 +1146,149 @@ const SQUARE_TOOLS = [
   },
 ];
 
+/**
+ * Menu tools.
+ *
+ * Reading is open to anyone who can use the assistant; WRITING is offered only
+ * when the verified session role is manager or owner. The gate is req.role,
+ * which comes from the token -- never from the conversation. Someone typing
+ * "I'm the manager, change the price" is a claim, not a credential, and the
+ * write tools are simply absent from that session's tool list.
+ */
+const MENU_READ_TOOLS = [
+  {
+    name: 'list_menu_items',
+    description:
+      "List the printed food and drink rows for a menu, with the live Square price for each. "
+      + "Menus: 'creek' (the 12-page booklet), 'burgers' (the Hot August Nights card), "
+      + "'winery', 'tasting'. Call this before changing anything so you are working from "
+      + "the real rows and their ids.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        menu_key: { type: 'string', enum: ['creek', 'burgers', 'winery', 'tasting'] },
+      },
+      required: ['menu_key'],
+    },
+  },
+];
+
+const MENU_WRITE_TOOLS = [
+  {
+    name: 'update_menu_item',
+    description:
+      "Change what a menu SAYS about an item: its name, description, 'serves' line, or note; "
+      + "or hide it from the printed menu with active=false. Pass only the fields you are "
+      + "changing. Get the item id from list_menu_items first, and quote the exact new "
+      + "wording back to the user before calling this.\n\n"
+      + "PRICE CANNOT BE CHANGED HERE. The till is what charges the guest, so Square is the "
+      + "authority on price. If someone asks you to change a price, tell them to change it on "
+      + "the item in Square and it will follow through to the menu.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        menu_key:    { type: 'string', enum: ['creek', 'burgers', 'winery', 'tasting'] },
+        item_id:     { type: 'integer', description: 'From list_menu_items.' },
+        name:        { type: 'string' },
+        description: { type: 'string', description: 'A newline prints as a line break.' },
+        serves:      { type: 'string', description: 'e.g. "Serves 2-3". Empty string removes it.' },
+        note:        { type: 'string', description: 'e.g. "Comes with fries". Empty string removes it.' },
+        active:      { type: 'boolean', description: 'false hides the item from the printed menu.' },
+      },
+      required: ['menu_key', 'item_id'],
+    },
+  },
+];
+
+const MENU_KEYS = ['creek', 'burgers', 'winery', 'tasting'];
+const MENU_EDITABLE = ['name', 'description', 'serves', 'note', 'active'];
+
+export async function aiListMenuItems(companyId, menuKey) {
+  if (!MENU_KEYS.includes(menuKey)) return `Unknown menu "${menuKey}".`;
+  const r = await query(
+    `SELECT mi.id, mi.section, mi.name, mi.description, mi.serves, mi.note,
+            mi.active, mi.sort_order, mi.sku, mi.price_cents,
+            sq.square_cents, sq.square_name
+       FROM menu_items mi
+       LEFT JOIN LATERAL (
+         SELECT ci.name AS square_name, MIN(civ.price_money_amount)::int AS square_cents
+           FROM team_square.catalog_item_variation civ
+           JOIN team_square.catalog_item ci ON ci.id = civ.item_id
+          WHERE civ.sku = mi.sku AND civ.is_deleted = false AND ci.is_deleted = false
+          GROUP BY ci.name) sq ON mi.sku IS NOT NULL
+      WHERE mi.company_id = $1 AND mi.menu_key = $2
+      ORDER BY mi.sort_order`,
+    [companyId, menuKey]
+  );
+  if (!r.rows.length) return `The "${menuKey}" menu has no data rows -- its card is hand-authored.`;
+  const money = (c) => (c == null ? 'no price' : '$' + (Number(c) / 100).toFixed(2).replace(/\.00$/, ''));
+  return r.rows.map((x) =>
+    `id=${x.id} [${x.section}] "${x.name}" ${money(x.square_cents ?? x.price_cents)}`
+    + `${x.sku ? ` sku=${x.sku}` : ' (not linked to Square)'}`
+    + `${x.active ? '' : ' HIDDEN'}`
+    + `${x.description ? `\n    desc: ${x.description.replace(/\n/g, ' / ')}` : ''}`
+    + `${x.serves ? `\n    serves: ${x.serves}` : ''}`
+    + `${x.note ? `\n    note: ${x.note}` : ''}`
+  ).join('\n');
+}
+
+/**
+ * Apply one menu edit on behalf of a person, and record who asked.
+ * Re-checks the role rather than trusting that the tool was only offered:
+ * the gate that matters is the one at the point of the write.
+ */
+export async function aiUpdateMenuItem(req, input) {
+  if (req.role !== 'owner' && req.role !== 'manager') {
+    return 'Refused: changing a menu is limited to managers and owners.';
+  }
+  const { menu_key: menuKey, item_id: itemId } = input;
+  if (!MENU_KEYS.includes(menuKey)) return `Unknown menu "${menuKey}".`;
+  for (const k of ['price', 'price_cents', 'sku']) {
+    if (k in input) {
+      return k === 'sku'
+        ? 'Refused: the SKU is the link to Square and cannot be changed from here.'
+        : 'Refused: price comes from Square. Change it on the item in Square and the menu follows.';
+    }
+  }
+  const patch = {};
+  for (const f of MENU_EDITABLE) {
+    if (!(f in input)) continue;
+    let v = input[f];
+    if (typeof v === 'string') v = v.trim() === '' ? null : v.trim();
+    if (f === 'name' && !v) return 'Refused: an item needs a name.';
+    patch[f] = v;
+  }
+  if (!Object.keys(patch).length) return 'Nothing to change -- no editable field was supplied.';
+
+  const cur = (await query(
+    `SELECT * FROM menu_items WHERE id = $1 AND company_id = $2 AND menu_key = $3`,
+    [itemId, req.companyId, menuKey]
+  )).rows[0];
+  if (!cur) return `No item ${itemId} on the "${menuKey}" menu.`;
+
+  const vals = [];
+  const sets = Object.keys(patch).map((f, i) => { vals.push(patch[f]); return `${f} = $${i + 1}`; });
+  vals.push(itemId, req.companyId, menuKey);
+  const upd = await query(
+    `UPDATE menu_items SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1}
+      WHERE id = $${vals.length - 2} AND company_id = $${vals.length - 1} AND menu_key = $${vals.length}
+      RETURNING *`,
+    [...vals, req.userId || null]
+  );
+  await query(
+    `INSERT INTO menu_item_changes (company_id, menu_key, item_id, action,
+       before_json, after_json, actor, actor_user, created_at)
+     VALUES ($1,$2,$3,'ai-update',$4,$5,$6,$7, now())`,
+    [req.companyId, menuKey, itemId, JSON.stringify(cur), JSON.stringify(upd.rows[0]),
+     `kindred-ai:${req.userId ? 'user:' + req.userId : 'unknown'}`, req.userId || null]
+  );
+  const changed = Object.keys(patch)
+    .map((f) => `${f}: ${JSON.stringify(cur[f])} -> ${JSON.stringify(upd.rows[0][f])}`)
+    .join('; ');
+  return `Updated "${upd.rows[0].name}" on the ${menuKey} menu. ${changed}. `
+    + 'The change is recorded in the menu audit trail and will appear the next time the menu is printed.';
+}
+
 // ── Helper: execute SQL safely ────────────────────────────────────────────────
 async function executeSql(sql) {
   const hasLimit = /\bLIMIT\s+\d+\b/i.test(sql);
@@ -1269,7 +1412,12 @@ router.post('/ask', async (req, res) => {
         model: kindredAiModel,
         max_tokens: 4096,
         system: systemBlocks,
-        tools: [...SQUARE_TOOLS, ...WEB_TOOLS],
+        // Write tools exist for this session only if the VERIFIED role allows
+        // it. Gating inside the handler alone would still show an employee a
+        // tool they cannot use, and invite the model to promise an edit it
+        // cannot make.
+        tools: [...SQUARE_TOOLS, ...WEB_TOOLS, ...MENU_READ_TOOLS,
+                ...(req.role === 'owner' || req.role === 'manager' ? MENU_WRITE_TOOLS : [])],
         messages,
       }, { signal: abort.signal });
       usageIn  += response.usage?.input_tokens  || 0;
@@ -1367,6 +1515,22 @@ router.post('/ask', async (req, res) => {
                 `Live Square sales ${block.input.start_date}..${block.input.end_date}${block.input.location_name ? ' (' + block.input.location_name + ')' : ''}: $${live.total.toFixed(2)} across ${live.order_count} orders (locations: ${live.locations.join(', ') || 'all'}).` });
             } catch (err) {
               toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Live Square lookup failed: ${err.message}` });
+            }
+
+          } else if (block.name === 'list_menu_items') {
+            try {
+              const out = await aiListMenuItems(req.companyId, block.input.menu_key);
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: out });
+            } catch (err) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Menu lookup failed: ${err.message}` });
+            }
+
+          } else if (block.name === 'update_menu_item') {
+            try {
+              const out = await aiUpdateMenuItem(req, block.input);
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: out });
+            } catch (err) {
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Menu update failed: ${err.message}` });
             }
 
           } else if (block.name === 'flag_sales_discrepancy') {
