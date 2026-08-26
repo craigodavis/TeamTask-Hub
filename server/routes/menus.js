@@ -213,8 +213,16 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
     )).rows;
     // The tighter gap under a section header belongs to the slot, so it is
     // applied to whichever item comes first rather than stored on the row.
-    const FIRST_MARGIN = { 'Featured Burger': '4pt' };
-    for (const it of food) it.firstMargin = FIRST_MARGIN[it.section];
+    // The tighter or looser gap under a section header belongs to the SLOT, not
+    // to the dish standing in it -- swap the first item and the spacing must
+    // stay with the header. So it is keyed by menu and section here rather than
+    // stored on the row, which is also why reordering items cannot break it.
+    const FIRST_MARGIN = {
+      burgers: { 'Featured Burger': '4pt' },
+      creek:   { 'Brunch Drinks': '16pt', Espresso: '10pt', 'From Our Kitchen': '18pt' },
+    };
+    const margins = FIRST_MARGIN[key] || {};
+    for (const it of food) it.firstMargin = margins[it.section];
 
     const pdf = await renderMenuPdf(key, wines, food);
     res.setHeader('Content-Type', 'application/pdf');

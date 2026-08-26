@@ -120,7 +120,7 @@ function foodItem(it, first) {
  * live on different panels of a booklet — the wine list, the kitchen page and
  * the desserts are pages apart, and the template decides where each sits.
  */
-function spliceFood(doc, items) {
+export function spliceFood(doc, items) {
   const bySection = new Map();
   for (const it of items) {
     if (!bySection.has(it.section)) bySection.set(it.section, []);

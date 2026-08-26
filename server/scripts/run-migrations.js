@@ -3903,6 +3903,20 @@ const MIGRATIONS = [
   `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS square_item_id TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_menu_items_square
      ON menu_items(company_id, square_item_id) WHERE square_item_id IS NOT NULL`,
+
+  // The SKU is the join Craig asked for, and it is the better key than the id:
+  // it survives an item being rebuilt in Square, it is the same key Commerce7
+  // matches on, and it is legible to a person reading either system. The id is
+  // kept alongside as a resolved cache so a lookup does not need a scan.
+  //
+  // Historical SKUs are stored VERBATIM, never regenerated. Four Creek items
+  // already carried one in the old style -- margarita_pizza,
+  // fennel_thyme_and_sausage_pizza, 3_plate_chocolates, pequeno-diablo-pizza --
+  // and rewriting those to house format is exactly the rename that orphaned 347
+  // Commerce7 package items last September.
+  `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS sku TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_menu_items_sku
+     ON menu_items(company_id, sku) WHERE sku IS NOT NULL`,
 ];
 
 export async function runMigrations() {
