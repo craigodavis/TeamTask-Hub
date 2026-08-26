@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getMenu, saveMenuOrder, printMenu } from '../api';
+import { MenuItems } from '../components/MenuItems';
 import './Menus.css';
 
 const price = (n) => (n === null || n === undefined ? '—' : `$${Number(n).toFixed(Number(n) % 1 ? 2 : 0)}`);
@@ -105,6 +106,10 @@ export function Menus() {
       {data?.warnings?.map((w) => (
         <div key={w.section} className="menus-warning">⚠ {w.message}</div>
       ))}
+
+      {/* The food and drink rows. Separate from the wine tables because a wine
+          is a product that may appear on a menu, while these ARE the menu. */}
+      {!loading && data && <MenuItems menuKey={menuKey} />}
 
       {!loading && data && (
         <div className="menus-grid">

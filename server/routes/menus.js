@@ -211,8 +211,6 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
         ORDER BY sort_order`,
       [cid(req), key]
     )).rows;
-    // The tighter gap under a section header belongs to the slot, so it is
-    // applied to whichever item comes first rather than stored on the row.
     // The tighter or looser gap under a section header belongs to the SLOT, not
     // to the dish standing in it -- swap the first item and the spacing must
     // stay with the header. So it is keyed by menu and section here rather than
@@ -231,6 +229,187 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
     res.send(pdf);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+
+// ── menu items ───────────────────────────────────────────────────────────────
+//
+// The printed food and drink rows. Price is deliberately NOT editable here:
+// the till is what actually charges the guest, so Square is the authority and
+// a second editable copy would only ever be a way to print a price nobody is
+// charged. Everything a menu says ABOUT a dish lives here, because Square has
+// no field for a note, a "serves", a section or a print order -- and its
+// description field is unused in practice (19 of 239 items, one of them the
+// word "Drink").
+
+const ITEM_FIELDS = ['name', 'section', 'description', 'note', 'serves', 'active', 'featured'];
+
+/**
+ * Who made a change, for the audit row. Taken from the verified token, never
+ * from the request body -- an actor a caller can name is not an audit trail.
+ *
+ * The auth middleware sets req.userId and does NOT populate req.user, so
+ * reading req.user?.id here would have silently recorded every edit as
+ * "unknown" and left the trail worthless at the moment it mattered.
+ */
+const actorOf = (req) => ({
+  actor: req.user?.email || req.user?.display_name
+    || (req.userId ? `user:${req.userId}` : 'service'),
+  actor_user: req.userId || null,
+});
+
+async function recordChange(client, companyId, key, itemId, action, before, after, req) {
+  const a = actorOf(req);
+  await client(
+    `INSERT INTO menu_item_changes (company_id, menu_key, item_id, action,
+       before_json, after_json, actor, actor_user, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())`,
+    [companyId, key, itemId, action,
+     before ? JSON.stringify(before) : null,
+     after ? JSON.stringify(after) : null, a.actor, a.actor_user]
+  );
+}
+
+// GET /api/menus/:key/items — rows plus the live Square price for each
+router.get('/:key/items', requireCapability('tastingroom.menus'), async (req, res) => {
+  const key = req.params.key;
+  if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
+  try {
+    // Joined on SKU, never on name: Square's names are deliberately short
+    // because the POS tile truncates them, so "Bloody Mary" IS the menu's
+    // "Bakon Vodka Bloody Mary".
+    const r = await query(
+      `SELECT mi.*,
+              sq.square_name,
+              sq.square_cents,
+              sq.variations
+         FROM menu_items mi
+         LEFT JOIN LATERAL (
+           SELECT ci.name AS square_name,
+                  MIN(civ.price_money_amount)::int AS square_cents,
+                  COUNT(*)::int AS variations
+             FROM team_square.catalog_item_variation civ
+             JOIN team_square.catalog_item ci ON ci.id = civ.item_id
+            WHERE civ.sku = mi.sku AND civ.is_deleted = false AND ci.is_deleted = false
+            GROUP BY ci.name) sq ON mi.sku IS NOT NULL
+        WHERE mi.company_id = $1 AND mi.menu_key = $2
+        ORDER BY mi.sort_order`,
+      [cid(req), key]
+    );
+    res.json({
+      menu: MENUS.find((m) => m.key === key),
+      // Named so the UI can say WHY the field is locked rather than just
+      // greying it out with no explanation.
+      priceSource: 'square',
+      priceNote: 'Prices come from Square. To change one, edit the item in Square.',
+      items: r.rows.map((row) => ({
+        ...row,
+        // What the booklet will actually print: Square when linked, otherwise
+        // the stored figure. Shown side by side so drift is visible.
+        effective_cents: row.square_cents != null ? row.square_cents : row.price_cents,
+        price_drifted: row.square_cents != null && row.price_cents != null
+          && Number(row.square_cents) !== Number(row.price_cents),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/menus/:key/items/:id
+router.patch('/:key/items/:id', requireCapability('tastingroom.menus'), async (req, res) => {
+  const key = req.params.key;
+  if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad item id' });
+
+  // Refusing loudly beats ignoring silently: a caller that thinks it just set
+  // a price should be told the price did not move.
+  for (const k of ['price_cents', 'price', 'sku']) {
+    if (k in req.body) {
+      return res.status(400).json({
+        error: k === 'sku'
+          ? 'SKU is the link to Square and is not editable here.'
+          : 'Price comes from Square. Change it on the item in Square.',
+      });
+    }
+  }
+  const patch = {};
+  for (const f of ITEM_FIELDS) if (f in req.body) patch[f] = req.body[f];
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change' });
+  if ('name' in patch && !String(patch.name || '').trim()) {
+    return res.status(400).json({ error: 'An item needs a name' });
+  }
+
+  try {
+    const cur = await query(
+      `SELECT * FROM menu_items WHERE id=$1 AND company_id=$2 AND menu_key=$3`,
+      [id, cid(req), key]
+    );
+    const before = cur.rows[0];
+    if (!before) return res.status(404).json({ error: 'No such item on this menu' });
+
+    // Empty strings mean "no note", not a note that is blank.
+    const vals = [];
+    const sets = Object.keys(patch).map((f, i) => {
+      let v = patch[f];
+      if (typeof v === 'string' && f !== 'name') v = v.trim() === '' ? null : v.trim();
+      if (typeof v === 'string' && f === 'name') v = v.trim();
+      vals.push(v);
+      return `${f} = $${i + 1}`;
+    });
+    vals.push(id, cid(req), key);
+    const upd = await query(
+      `UPDATE menu_items SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1}
+        WHERE id = $${vals.length - 2} AND company_id = $${vals.length - 1} AND menu_key = $${vals.length}
+        RETURNING *`,
+      [...vals, req.userId || null]
+    );
+    await recordChange(query, cid(req), key, id, 'update', before, upd.rows[0], req);
+    res.json({ item: upd.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/menus/:key/items/order — [{id, sort_order}, ...]
+router.put('/:key/items/order', requireCapability('tastingroom.menus'), async (req, res) => {
+  const key = req.params.key;
+  if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
+  const order = Array.isArray(req.body?.order) ? req.body.order : null;
+  if (!order) return res.status(400).json({ error: 'Expected { order: [{id, sort_order}] }' });
+  try {
+    await query('BEGIN');
+    for (const o of order) {
+      await query(
+        `UPDATE menu_items SET sort_order=$1, updated_at=now() WHERE id=$2 AND company_id=$3 AND menu_key=$4`,
+        [Number(o.sort_order), Number(o.id), cid(req), key]
+      );
+    }
+    await recordChange(query, cid(req), key, null, 'reorder', null, { order }, req);
+    await query('COMMIT');
+    res.json({ ok: true, reordered: order.length });
+  } catch (err) {
+    await query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/menus/:key/items/history — the audit trail
+router.get('/:key/items/history', requireCapability('tastingroom.menus'), async (req, res) => {
+  const key = req.params.key;
+  if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
+  try {
+    const r = await query(
+      `SELECT id, item_id, action, before_json, after_json, actor, created_at
+         FROM menu_item_changes WHERE company_id=$1 AND menu_key=$2
+        ORDER BY created_at DESC LIMIT 200`,
+      [cid(req), key]
+    );
+    res.json({ changes: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

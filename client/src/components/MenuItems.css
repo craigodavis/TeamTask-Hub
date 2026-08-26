@@ -1,0 +1,72 @@
+/* Food and drink rows on the Menus page. Mirrors the wine list's look so the
+   two halves of the page read as one screen. */
+.mi-wrap { margin-top: 28px; }
+.mi-head { display: flex; align-items: baseline; gap: 12px; }
+.mi-title { font-size: 1.05rem; font-weight: 600; color: var(--text); margin: 0; }
+.mi-saving { font-size: 0.8rem; color: var(--text-muted); }
+.mi-note { font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 12px; }
+.mi-loading, .mi-empty { font-size: 0.9rem; color: var(--text-muted); }
+.mi-error { color: var(--danger, #c0392b); font-size: 0.88rem; margin: 6px 0; }
+
+.mi-drift { background: var(--warn-bg, #fdf6e3); border: 1px solid var(--warn-border, #e6d9a8);
+            color: var(--warn-text, #7a5c00); border-radius: 6px;
+            padding: 8px 11px; font-size: 0.86rem; margin-bottom: 12px; }
+
+.mi-sec { margin-bottom: 18px; }
+.mi-sec-head { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em;
+               color: var(--text-muted); margin: 0 0 6px; font-weight: 600; }
+.mi-list { list-style: none; margin: 0; padding: 0; }
+
+.mi-row { display: flex; align-items: flex-start; gap: 10px;
+          padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px;
+          background: var(--surface); margin-bottom: 6px; }
+.mi-row.inactive { opacity: 0.5; }
+.mi-row.editing { display: block; background: var(--surface-alt, var(--surface)); }
+.mi-grip { color: var(--text-muted); cursor: grab; font-size: 0.95rem; line-height: 1.5; }
+.mi-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mi-name { font-weight: 600; color: var(--text); display: flex; align-items: baseline;
+           gap: 8px; flex-wrap: wrap; }
+.mi-price { font-weight: 500; color: var(--text-muted); }
+.mi-desc { font-size: 0.85rem; color: var(--text-muted); line-height: 1.35; white-space: pre-line; }
+.mi-serves { font-size: 0.8rem; font-style: italic; color: var(--text-muted); }
+
+.mi-badge { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+            background: var(--warn-bg, #fdf6e3); color: var(--warn-text, #7a5c00);
+            border: 1px solid var(--warn-border, #e6d9a8);
+            border-radius: 999px; padding: 1px 7px; font-weight: 600; }
+.mi-badge.unlinked { background: var(--surface-alt, #f2f2f2); color: var(--text-muted);
+                     border-color: var(--border); }
+
+.mi-btns { display: flex; gap: 6px; }
+.mi-btns button { font-size: 0.8rem; padding: 4px 10px; border: 1px solid var(--border);
+                  background: var(--surface); color: var(--text);
+                  border-radius: 5px; cursor: pointer; }
+.mi-btns button:hover { background: var(--surface-alt, #f4f4f4); }
+
+.mi-edit { display: flex; flex-direction: column; gap: 10px; }
+.mi-f { display: flex; flex-direction: column; gap: 3px; }
+.mi-f > span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+               color: var(--text-muted); font-weight: 600; }
+.mi-f input, .mi-f textarea { font: inherit; font-size: 0.9rem; padding: 6px 8px;
+                              border: 1px solid var(--border); border-radius: 5px;
+                              background: var(--input-bg, var(--surface)); color: var(--text);
+                              width: 100%; resize: vertical; }
+.mi-f small { font-size: 0.75rem; color: var(--text-muted); }
+.mi-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Price is deliberately locked: Square is the till and therefore the authority. */
+.mi-locked input { background: var(--surface-alt, #f2f2f2); color: var(--text-muted);
+                   cursor: not-allowed; }
+.mi-locked code { font-size: 0.75rem; background: var(--surface-alt, #f2f2f2);
+                  padding: 0 4px; border-radius: 3px; }
+
+.mi-actions { display: flex; gap: 8px; }
+.mi-save { font-size: 0.85rem; padding: 6px 14px; border: 0; border-radius: 5px;
+           background: var(--accent, #9b1b21); color: #fff; cursor: pointer; font-weight: 600; }
+.mi-save:disabled { opacity: 0.6; cursor: default; }
+.mi-cancel { font-size: 0.85rem; padding: 6px 14px; border: 1px solid var(--border);
+             background: var(--surface); color: var(--text); border-radius: 5px; cursor: pointer; }
+
+@media (max-width: 640px) {
+  .mi-two { grid-template-columns: 1fr; }
+  .mi-row { flex-wrap: wrap; }
+}

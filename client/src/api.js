@@ -1354,6 +1354,31 @@ export async function printMenu(key) {
   return res.blob();
 }
 
+export async function getMenuItems(key) {
+  const res = await fetch(`${API}/menus/${key}/items`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load menu items');
+  return data;
+}
+
+export async function updateMenuItem(key, id, patch) {
+  const res = await fetch(`${API}/menus/${key}/items/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save the item');
+  return data;
+}
+
+export async function saveMenuItemOrder(key, order) {
+  const res = await fetch(`${API}/menus/${key}/items/order`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ order }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save the order');
+  return data;
+}
+
 export async function setGlassPricing(productId, { price_cents, is_available }) {
   const res = await fetch(`${API}/products/${productId}/glass`, {
     method: 'PUT', headers: headers(),
