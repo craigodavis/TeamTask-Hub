@@ -3887,6 +3887,22 @@ const MIGRATIONS = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_menu_item_changes_recent
      ON menu_item_changes(company_id, menu_key, created_at DESC)`,
+
+  // The till is the authority on price. A menu row names its Square catalog
+  // item by id rather than by name, because name matching demonstrably fails
+  // both ways: ten Creek items sit in Square under a different wording
+  // ("BLTA Sandwich"/"BLTA", "Margherita"/"Margherita Pizza"), while "Diablo"
+  // matches "Pequeno Diablo pizza" as a mere substring and would have printed
+  // the small pizza's price on the large one. Four names also appear twice on
+  // the booklet -- brunch side and afternoon side -- so a name is not a key.
+  //
+  // price_cents stays as the last-known figure: it is what prints if Square is
+  // unreachable at render time, and comparing the two is how drift surfaces.
+  // A row with no link (the rotating tap, which carries no price by design)
+  // simply keeps whatever price_cents holds, including none.
+  `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS square_item_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_menu_items_square
+     ON menu_items(company_id, square_item_id) WHERE square_item_id IS NOT NULL`,
 ];
 
 export async function runMigrations() {
