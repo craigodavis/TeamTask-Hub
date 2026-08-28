@@ -803,8 +803,17 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
   const cId = req.companyId;
   const { id } = req.params;
   try {
+    // Every column EXCEPT pdf_data, which is the receipt image itself. A phone
+    // photo is a couple of megabytes, and SELECT * serialised those bytes into
+    // the JSON on every detail load -- a 3MB response that took over a minute
+    // and left the page sitting on "Loading receipt…". The image has its own
+    // endpoint (/:id/pdf) and the detail view has always fetched it from there.
+    //
+    // Subtracted from to_jsonb rather than listing columns, so a column added
+    // later still appears here without anyone remembering to update this.
     const rr = await query(
-      `SELECT * FROM receipts WHERE id = $1 AND company_id = $2`,
+      `SELECT to_jsonb(r) - 'pdf_data' AS receipt
+         FROM receipts r WHERE r.id = $1 AND r.company_id = $2`,
       [id, cId]
     );
     if (!rr.rows.length) return res.status(404).json({ error: 'Receipt not found.' });
@@ -821,7 +830,7 @@ router.get('/:id', requireAuth, requireOwner, async (req, res) => {
       [id, cId]
     );
 
-    res.json({ ...rr.rows[0], items: items.rows });
+    res.json({ ...rr.rows[0].receipt, items: items.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
