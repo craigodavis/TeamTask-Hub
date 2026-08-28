@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
+import { compressReceiptImage } from './receiptImage.js';
 import { extractReceiptData, extractReceiptDataFromImage, categorizeLineItems } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
 import { getModelForProcess } from './aiModelSettings.js';
@@ -123,9 +124,19 @@ export async function loadReceiptContext(companyId) {
 export async function processReceiptPDF(companyId, buffer, filename, ctx, opts = {}) {
   const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
           model_extraction, model_categorization } = ctx;
-  const { contentType = 'application/pdf', qboPurchaseId = null, source = 'upload', externalId = null } = opts;
+  let { contentType = 'application/pdf' } = opts;
+  const { qboPurchaseId = null, source = 'upload', externalId = null } = opts;
   let receiptSource = source;  // may be refined below (e.g. Instacart auto-detected)
   const isImage = contentType.startsWith('image/');
+
+  // Shrink photographed receipts before anything else touches them, so the
+  // smaller image is what gets read AND what gets stored. See receiptImage.js.
+  if (isImage) {
+    const shrunk = await compressReceiptImage(buffer, contentType);
+    console.log(`[receipt] ${filename}: ${shrunk.note}`);
+    buffer = shrunk.buffer;
+    contentType = shrunk.contentType;
+  }
 
   try {
     let pdfText = null;
