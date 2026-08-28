@@ -128,7 +128,7 @@ ${pdfText}`,
  * Extract structured receipt data from a receipt IMAGE (JPG/PNG/etc.).
  * Uses Claude vision instead of pdf-parse. Returns same array format as extractReceiptData.
  */
-export async function extractReceiptDataFromImage(imageBuffer, contentType, apiKey, model = 'claude-haiku-4-5') {
+export async function extractReceiptDataFromImage(imageBuffer, contentType, apiKey, model = 'claude-sonnet-5') {
   const client = getClient(apiKey);
   const mediaType = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
 
@@ -145,6 +145,30 @@ export async function extractReceiptDataFromImage(imageBuffer, contentType, apiK
         {
           type: 'text',
           text: `You are a receipt parser. Extract structured data from this receipt image and return ONLY valid JSON — no markdown, no explanation.
+
+READ THE RECEIPT. Do not infer, guess, or normalise. Every number and date you
+return must be one you can actually see printed on the image. If a field is not
+legible, return null rather than a plausible value — a null is corrected in
+seconds, a confident wrong number is found months later in the books.
+
+TAX — the most common mistake. Kindred is tax-exempt, so many receipts show tax
+of 0.00 alongside a separate "Tax Exemption Summary" / "Tax Exempt" / "Sales Tax
+Exemption" block showing what tax WOULD have been. That exemption figure is tax
+NOT paid. Never put it in "tax". Take "tax" only from the line labelled Tax /
+Sales Tax in the totals block. If that line reads 0.00, return 0.
+
+DATE — copy the year exactly as printed. Do not assume the current or previous
+year. A receipt dated 06/23/2026 is 2026-06-23. US receipts are MM/DD/YYYY.
+
+LINE ITEM PRICES — every item line ends with its extended price; capture it as
+"total". A trailing letter after the price is a tax-status flag, not part of the
+number: "27.86F" means 27.86. Where a line above an item reads like
+"7 @ 3.98 EACH" or "3.31 lb @ 2.58/ lb", that is the quantity and unit price for
+the item on the FOLLOWING line — use them for "quantity", "quantity_unit" and
+"unit_price", and do not emit it as an item of its own.
+
+SUBTOTAL and TOTAL come only from lines labelled as such. They are often equal
+when tax is 0 — that is correct, not an error to fix.
 
 Return a JSON array (one element per order — most receipts have one):
 {

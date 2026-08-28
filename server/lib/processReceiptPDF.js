@@ -92,8 +92,13 @@ export async function loadReceiptContext(companyId) {
     query(`SELECT anthropic_api_key FROM company_integrations WHERE company_id = $1`, [companyId]),
   ]);
 
-  const [modelExtraction, modelCategorization, modelAiRules] = await Promise.all([
+  // Reading a photographed receipt is a vision problem, not a parsing one, and
+  // Haiku was misreading tax-exemption blocks as tax and getting years wrong.
+  // PDFs stay on the cheap model — that path parses extracted text, which Haiku
+  // handles fine.
+  const [modelExtraction, modelExtractionImage, modelCategorization, modelAiRules] = await Promise.all([
     getModelForProcess(companyId, 'receipt_extraction', 'claude-haiku-4-5'),
+    getModelForProcess(companyId, 'receipt_extraction_image', 'claude-sonnet-5'),
     getModelForProcess(companyId, 'receipt_categorization', 'claude-haiku-4-5'),
     getModelForProcess(companyId, 'ai_rules', 'claude-haiku-4-5'),
   ]);
@@ -106,6 +111,7 @@ export async function loadReceiptContext(companyId) {
     rulesPrompt:     buildRulesPrompt(rulesRes.rows),
     anthropicApiKey: integRes.rows[0]?.anthropic_api_key || process.env.ANTHROPIC_API_KEY || null,
     model_extraction:    modelExtraction,
+    model_extraction_image: modelExtractionImage,
     model_categorization: modelCategorization,
     model_ai_rules:      modelAiRules,
   };
@@ -123,7 +129,7 @@ export async function loadReceiptContext(companyId) {
  */
 export async function processReceiptPDF(companyId, buffer, filename, ctx, opts = {}) {
   const { accounts, classes, memory, rules, rulesPrompt, anthropicApiKey,
-          model_extraction, model_categorization } = ctx;
+          model_extraction, model_extraction_image, model_categorization } = ctx;
   let { contentType = 'application/pdf' } = opts;
   const { qboPurchaseId = null, source = 'upload', externalId = null } = opts;
   let receiptSource = source;  // may be refined below (e.g. Instacart auto-detected)
@@ -165,7 +171,7 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
     let orders;
     try {
       orders = isImage
-        ? await extractReceiptDataFromImage(buffer, contentType, anthropicApiKey, model_extraction)
+        ? await extractReceiptDataFromImage(buffer, contentType, anthropicApiKey, model_extraction_image)
         : await extractReceiptData(pdfText, anthropicApiKey, model_extraction);
     } catch (aiErr) {
       return [{ filename, error: `AI extraction failed: ${aiErr.message}` }];
