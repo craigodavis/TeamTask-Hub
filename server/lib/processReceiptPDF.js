@@ -20,7 +20,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db.js';
 import { compressReceiptImage } from './receiptImage.js';
-import { extractReceiptData, extractReceiptDataFromImage, categorizeLineItems } from '../aiClient.js';
+import { extractReceiptData, extractReceiptDataFromImage, detectImageRotation, categorizeLineItems } from '../aiClient.js';
 import { applyRules, buildRulesPrompt } from '../rulesEngine.js';
 import { getModelForProcess } from './aiModelSettings.js';
 
@@ -142,6 +142,21 @@ export async function processReceiptPDF(companyId, buffer, filename, ctx, opts =
     console.log(`[receipt] ${filename}: ${shrunk.note}`);
     buffer = shrunk.buffer;
     contentType = shrunk.contentType;
+
+    // Set it upright before anything tries to read it. A receipt photographed
+    // on a counter often carries no EXIF orientation, so nothing upstream can
+    // correct it — and sideways text does not fail loudly, it extracts as
+    // nulls and a line item called "Item 1".
+    try {
+      const deg = await detectImageRotation(buffer, contentType, anthropicApiKey);
+      if (deg) {
+        buffer = await (await import('sharp')).default(buffer).rotate(deg).jpeg({ quality: 80 }).toBuffer();
+        contentType = 'image/jpeg';
+        console.log(`[receipt] ${filename}: rotated ${deg}° to upright`);
+      }
+    } catch (e) {
+      console.warn(`[receipt] ${filename}: rotation check failed, using as-is — ${e.message}`);
+    }
   }
 
   try {

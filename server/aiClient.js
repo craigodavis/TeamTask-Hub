@@ -11,6 +11,23 @@ function getClient(apiKey) {
 }
 
 /**
+ * The text of a response, however many blocks it arrives in.
+ *
+ * content[0] is not reliably the text block — a response can lead with another
+ * block type, and then `.text` is undefined and the call dies with
+ * "Cannot read properties of undefined". That is what a rotated receipt hit
+ * here. Joining every text block is correct whether there is one or several.
+ */
+function textOf(message) {
+  return (message?.content || [])
+    .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+}
+
+
+/**
  * Extract structured receipt data from raw PDF text.
  * Returns an ARRAY of orders — most receipts have one, but Amazon PDFs can have multiple.
  * Each element: { order_number, order_date, vendor, subtotal, tax, total, card_last4, payment_instrument, items[] }
@@ -106,7 +123,7 @@ ${pdfText}`,
     ],
   });
 
-  const raw = message.content[0].text.trim();
+  const raw = textOf(message);
   // Strip markdown code fences if present
   const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
   const parsed = JSON.parse(json);
@@ -128,6 +145,89 @@ ${pdfText}`,
  * Extract structured receipt data from a receipt IMAGE (JPG/PNG/etc.).
  * Uses Claude vision instead of pdf-parse. Returns same array format as extractReceiptData.
  */
+/**
+ * Which way up is this receipt?
+ *
+ * Phone photos of receipts lying on a counter often carry no EXIF orientation
+ * tag, so sharp's .rotate() has nothing to act on and the image is stored and
+ * read sideways. A Chef Store receipt came through that way and extracted as no
+ * date, no total, no order number, and one line item called "Item 1". Sideways
+ * text does not fail loudly, it fails emptily.
+ *
+ * Guess, then CHECK. Asked outright, the model reliably distinguishes upright
+ * from upside-down but confuses left from right — it called a receipt needing
+ * 270° "LEFT", and rotating by its answer turned a sideways receipt into an
+ * upside-down one. So the guess is confirmed with a yes/no look at the result,
+ * and a failed check flips 180°, which is exactly the error that mistake makes.
+ *
+ * Both questions go to a thumbnail, which keeps this cheap — orientation is
+ * obvious at low resolution and there is no reason to send the full image
+ * twice. It does NOT go to the cheap model: Haiku answered "NO, this does not
+ * read normally" to every image put in front of it, including a perfectly
+ * upright one, so it cannot tell the difference and its answer is worthless
+ * here. Sonnet got all four test orientations right.
+ *
+ * Returns degrees to rotate CLOCKWISE: 0, 90, 180 or 270. Anything uncertain
+ * returns 0 — rotating a correct receipt would break one that was working.
+ */
+export async function detectImageRotation(imageBuffer, contentType, apiKey, model = 'claude-sonnet-5') {
+  try {
+    const sharp = (await import('sharp')).default;
+    const client = getClient(apiKey);
+
+    const thumbOf = async (buf, deg) => sharp(buf)
+      .rotate(deg)
+      .resize({ width: 800, height: 800, fit: 'inside' })
+      .jpeg({ quality: 70 })
+      .toBuffer();
+
+    const ask = async (buf, text) => {
+      const m = await client.messages.create({
+        model, max_tokens: 16,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') } },
+          { type: 'text', text },
+        ] }],
+      });
+      return textOf(m).toUpperCase();
+    };
+
+    const READS_OK = 'Does the printed text on this receipt read normally — right way up and '
+      + 'left to right, not upside down or sideways? Answer YES or NO only.';
+
+    // Already fine? Most receipts are, and this is the cheapest possible answer.
+    if ((await ask(await thumbOf(imageBuffer, 0), READS_OK)).includes('YES')) return 0;
+
+    const edge = await ask(await thumbOf(imageBuffer, 0),
+      'This is a photograph of a paper receipt. Ignore the background.\n'
+      + 'Looking at the PRINTED TEXT: the tops of the letters point toward which edge '
+      + 'of the image?\nAnswer with one word only: TOP, BOTTOM, LEFT, or RIGHT.');
+
+    // Where the letter-tops point -> quarter-turns clockwise to bring them up.
+    // Matched longest-first so "BOTTOM" is not mistaken for "TOP".
+    let guess = 0;
+    for (const [word, d] of [['BOTTOM', 180], ['RIGHT', 270], ['LEFT', 90], ['TOP', 0]]) {
+      if (edge.includes(word)) { guess = d; break; }
+    }
+
+    // The guess only orders the candidates; it does not decide. Its flip comes
+    // second because confusing left for right is the mistake it actually makes,
+    // and we already know from the check above that 0 is wrong. Whichever
+    // candidate the image genuinely reads correctly at is the answer, so a bad
+    // guess costs a call rather than a wrong rotation.
+    const candidates = [...new Set([guess, (guess + 180) % 360, 90, 270, 180])]
+      .filter((d) => d !== 0);
+
+    for (const deg of candidates) {
+      if ((await ask(await thumbOf(imageBuffer, deg), READS_OK)).includes('YES')) return deg;
+    }
+
+    return 0; // none read right — leave it alone rather than guess
+  } catch {
+    return 0;
+  }
+}
+
 export async function extractReceiptDataFromImage(imageBuffer, contentType, apiKey, model = 'claude-sonnet-5') {
   const client = getClient(apiKey);
   const mediaType = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
@@ -196,7 +296,7 @@ Return a JSON array (one element per order — most receipts have one):
     }],
   });
 
-  const raw = message.content[0].text.trim();
+  const raw = textOf(message);
   const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
   const parsed = JSON.parse(json);
   return Array.isArray(parsed) ? parsed : [parsed];
@@ -259,7 +359,7 @@ Return [] if no clear category pattern can be inferred.`,
     }],
   });
 
-  const raw = message.content[0].text.trim();
+  const raw = textOf(message);
   const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
   try { return JSON.parse(json); } catch { return []; }
 }
@@ -341,7 +441,7 @@ Return ONLY a JSON array (no markdown) with one object per line item in the same
     ],
   });
 
-  const raw = message.content[0].text.trim();
+  const raw = textOf(message);
   const json = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
   const suggestions = JSON.parse(json);
 

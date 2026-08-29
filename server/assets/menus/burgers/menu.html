@@ -21,14 +21,19 @@
   .sec-sub { text-align: center; font-style: italic; font-size: 10.5pt; color: #555; margin-top: 5pt; }
 
   .sub-head { text-align: center; font-variant: small-caps; letter-spacing: 0.12em;
-              font-size: 14pt; font-weight: 500; margin-top: 20pt; }
+              font-size: 14pt; font-weight: 500; margin-top: 14pt; }
   .sub-head .rule { width: 0.4in; height: 0; border-top: 0.8pt solid #b7893c; margin: 4pt auto 0; }
 
-  .item { text-align: center; margin-top: 13pt; }
-  .item .name { font-size: 12.5pt; font-weight: 500; letter-spacing: 0.02em; }
+  /* Four burgers plus three "Also Tonight" rows overrun a 5.5x8.5in panel at
+     the booklet's spacing -- measured at 43pt into the footnote. Tightening
+     the gaps alone still overlapped by 3pt, so the type comes down a little
+     too. This pairing clears the footnote by 29pt and is the smallest change
+     that fits, which keeps the card as readable as the page allows. */
+  .item { text-align: center; margin-top: 8pt; }
+  .item .name { font-size: 12pt; font-weight: 500; letter-spacing: 0.02em; }
   .item .name .price { font-weight: 500; }
   .item .name .price::before { content: "\00a0\00a0·\00a0\00a0"; color: #9b1b21; }
-  .item .desc { font-size: 10pt; color: #444; line-height: 1.32; margin: 2pt auto 0; max-width: 4.1in; }
+  .item .desc { font-size: 9.5pt; color: #444; line-height: 1.28; margin: 2pt auto 0; max-width: 4.1in; }
   .item .serves { font-size: 9pt; font-style: italic; color: #777; margin-top: 1.5pt; }
 
   .footnote { position: absolute; bottom: 0.45in; left: 0.5in; right: 0.5in;
@@ -92,7 +97,7 @@
   /* The "comes with" line repeats under every burger at Craig's request. Set
      smaller and grey so three repetitions read as a footnote rather than as
      three more menu items competing with the descriptions. */
-  .comes { font-size: 9pt; font-style: italic; color: #666; text-align: center; margin-top: 2.5pt; }
+  .comes { font-size: 8.5pt; font-style: italic; color: #666; text-align: center; margin-top: 2pt; }
   .featured { text-align: center; font-variant: small-caps; letter-spacing: 0.16em; font-size: 11pt;
               font-weight: 600; color: #9b1b21; }
 </style>
