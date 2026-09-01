@@ -9,6 +9,11 @@
 import express from 'express';
 import { query } from '../db.js';
 import { availableTimes, createBooking, customFields } from '../lib/resosClient.js';
+import {
+  KEYS as EVENT_KEYS, tierForGuests, newToken, money,
+  alertRecipients, newRequestSms,
+} from '../lib/eventRequests.js';
+import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
@@ -106,6 +111,99 @@ websiteRouter.post('/contact', async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not send your message right now.' }); }
 });
 
+
+/* ------------------------------------------- special event requests (public) */
+
+// GET /api/website/event-tiers — what an event of N people costs and requires.
+// Public on purpose: it is the price list, and the form shows it before anyone
+// hands over their details. Only the guest-facing fields; nothing internal.
+websiteRouter.get('/event-tiers', async (_req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT min_guests, max_guests, title, base_price_cents, min_alcohol_cents, rules,
+              deposit_required, deposit_cents, deposit_description,
+              insurance_required, insurance_description
+         FROM kindred_web.event_tiers ORDER BY min_guests`);
+    const intro = await getSetting(EVENT_KEYS.intro, '');
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({
+      intro: typeof intro === 'string' ? intro : '',
+      tiers: rows.map((t) => ({
+        minGuests: t.min_guests,
+        maxGuests: t.max_guests,
+        title: t.title,
+        basePrice: money(t.base_price_cents),
+        minAlcohol: money(t.min_alcohol_cents),
+        rules: t.rules,
+        depositRequired: t.deposit_required,
+        deposit: t.deposit_required ? money(t.deposit_cents) : null,
+        depositDescription: t.deposit_required ? t.deposit_description : null,
+        insuranceRequired: t.insurance_required,
+        insuranceDescription: t.insurance_required ? t.insurance_description : null,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/website/event-request — the public form.
+websiteRouter.post('/event-request', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (b.website) return res.json({ ok: true });            // honeypot
+
+    const first = (b.firstName || '').trim();
+    const last = (b.lastName || '').trim();
+    const guests = parseInt(b.guests, 10);
+    const date = String(b.eventDate || '').slice(0, 10);
+
+    if (!first || !last) return res.status(400).json({ error: 'Please give us your first and last name.' });
+    if (!isEmail(b.email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Please choose a date for your event.' });
+    // A date in the past is a typo, not a booking.
+    if (date < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'Please choose a date in the future.' });
+    if (!Number.isFinite(guests) || guests < 1) return res.status(400).json({ error: 'How many people are you expecting?' });
+    if (guests > 2000) return res.status(400).json({ error: 'Please call us — that is larger than we can quote online.' });
+
+    // The quote is taken NOW and stored by value: tiers get edited, and what we
+    // told this guest must not change under them afterwards.
+    const tier = await tierForGuests(guests);
+
+    const { rows } = await query(
+      `INSERT INTO kindred_web.event_requests
+         (first_name, last_name, email, phone, address, event_date, guests, notes,
+          tier_id, quoted_base_cents, quoted_min_alcohol_cents, quoted_deposit_cents,
+          deposit_required, insurance_required, token, meta)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [first.slice(0, 120), last.slice(0, 120), b.email.trim().toLowerCase().slice(0, 255),
+       (b.phone || '').trim().slice(0, 40) || null, (b.address || '').trim().slice(0, 2000) || null,
+       date, guests, (b.notes || '').trim().slice(0, 5000) || null,
+       tier?.id || null, tier?.base_price_cents ?? null, tier?.min_alcohol_cents ?? null,
+       tier?.deposit_required ? tier.deposit_cents : null,
+       !!tier?.deposit_required, !!tier?.insurance_required, newToken(),
+       JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null })],
+    );
+    const saved = rows[0];
+
+    // Alert after the row is committed, and never allowed to fail the submit —
+    // a guest who filled in the form has done their part whatever Twilio does.
+    try {
+      const companyId = await kindredCompanyId();
+      const people = await alertRecipients(companyId);
+      if (people.length) {
+        await sendSmsToUsers(companyId, people.map((p) => p.id), newRequestSms(saved), null);
+      } else {
+        console.warn('[event-request] saved but nobody has a phone number to alert');
+      }
+    } catch (e) {
+      console.error('[event-request] alert failed for', saved.email, e.message);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[event-request]', e.message);
+    res.status(500).json({ error: 'Could not send your request right now. Please call us.' });
+  }
+});
 
 const LIST_FIELDS = `
   e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
