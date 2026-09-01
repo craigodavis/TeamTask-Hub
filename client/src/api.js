@@ -2801,3 +2801,48 @@ export async function downloadOptIns({ from, to, venue } = {}) {
   URL.revokeObjectURL(url);
 }
 export async function duplicateEvent(id) { return pj(await fetch(`${API}/events/${id}/duplicate`, { method: 'POST', headers: headers() })); }
+
+// ---- Special Event Requests (Marketing → Event Requests) ------------------
+export async function getEventRequests(status) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await fetch(`${API}/event-requests${q}`, { headers: headers() });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load requests');
+  return res.json();
+}
+export async function updateEventRequest(id, patch) {
+  const res = await fetch(`${API}/event-requests/${id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not update');
+  return res.json();
+}
+export async function getEventTiers() {
+  const res = await fetch(`${API}/event-requests/tiers`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load tiers');
+  return res.json();
+}
+export async function saveEventTier(tier) {
+  const isNew = !tier.id;
+  const res = await fetch(`${API}/event-requests/tiers${isNew ? '' : `/${tier.id}`}`, {
+    method: isNew ? 'POST' : 'PUT', headers: headers(), body: JSON.stringify(tier),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save the tier');
+  return res.json();
+}
+export async function deleteEventTier(id) {
+  const res = await fetch(`${API}/event-requests/tiers/${id}`, { method: 'DELETE', headers: headers() });
+  if (!res.ok) throw new Error('Could not delete the tier');
+  return res.json();
+}
+export async function getEventRequestSettings() {
+  const res = await fetch(`${API}/event-requests/settings`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load settings');
+  return res.json();
+}
+export async function saveEventRequestSettings(body) {
+  const res = await fetch(`${API}/event-requests/settings`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('Could not save');
+  return res.json();
+}

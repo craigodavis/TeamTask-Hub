@@ -25,6 +25,7 @@ import { Overview } from './pages/Overview';
 import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
 import Reservations from './pages/Reservations';
+import EventRequests from './pages/EventRequests';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
@@ -183,6 +184,13 @@ function App() {
           <Route path="/events" element={
             can(user, 'marketing.events')
               ? <Events /> : <Navigate to="/" replace />} />
+          <Route
+            path="/marketing/event-requests"
+            element={
+              user?.role === 'owner' || user?.role === 'manager'
+                ? <EventRequests /> : <Navigate to="/" replace />
+            }
+          />
           <Route path="/policies" element={<Policies />} />
           {/* Open to every signed-in user — the server decides what you may edit
               by whose profile it is, not by role. No ternary here on purpose. */}
