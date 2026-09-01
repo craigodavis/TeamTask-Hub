@@ -215,6 +215,7 @@ const STATEMENTS = [
     deposit_description   TEXT,
     insurance_required    BOOLEAN NOT NULL DEFAULT FALSE,
     insurance_description TEXT,
+    planning_meeting_days INTEGER,
     sort_order            INTEGER NOT NULL DEFAULT 0,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -252,12 +253,19 @@ const STATEMENTS = [
     insurance_ok           BOOLEAN NOT NULL DEFAULT FALSE,
     insurance_ok_at        TIMESTAMPTZ,
     insurance_ok_by        UUID,
+    planning_meeting_due    DATE,
+    planning_meeting_booked BOOLEAN NOT NULL DEFAULT FALSE,
+    planning_meeting_at     TIMESTAMPTZ,
     meta               JSONB,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_kw_event_requests_status ON kindred_web.event_requests(status, event_date)`,
   `CREATE INDEX IF NOT EXISTS idx_kw_event_requests_created ON kindred_web.event_requests(created_at DESC)`,
+  `ALTER TABLE kindred_web.event_tiers    ADD COLUMN IF NOT EXISTS planning_meeting_days INTEGER`,
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS planning_meeting_due DATE`,
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS planning_meeting_booked BOOLEAN NOT NULL DEFAULT FALSE`,
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS planning_meeting_at TIMESTAMPTZ`,
 
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN

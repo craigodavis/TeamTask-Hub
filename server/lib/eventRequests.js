@@ -16,6 +16,7 @@ import crypto from 'crypto';
 export const KEYS = {
   intro: 'event_request_intro',              // copy at the top of the public form
   approvedEmail: 'event_request_approved_email', // body of the "you're approved" email
+  alertUsers: 'event_request_alert_users',   // user ids to text — see alertRecipients()
 };
 
 /**
@@ -82,3 +83,64 @@ export const allSatisfied = (reqRow) =>
 /** Money in, readable out. Cents are stored; dollars are never stored. */
 export const money = (cents) =>
   typeof cents === 'number' ? `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}` : '';
+
+/* ------------------------------------------------------- staff notification */
+
+/**
+ * Who gets texted about event requests.
+ *
+ * An explicit list, not "everyone with a manager role". The role query returns
+ * five people here, and texting the whole management team about every enquiry is
+ * how a useful alert becomes one nobody reads. The list is a setting so it can
+ * be changed in Team without a deploy.
+ *
+ * Falls back to owners only if nothing is configured — quieter is the safer
+ * default for a notification nobody asked for.
+ */
+export async function alertRecipients(companyId) {
+  let ids = null;
+  try {
+    const r = await query(`SELECT value FROM kindred_web.settings WHERE key = $1`, [KEYS.alertUsers]);
+    const v = r.rows[0]?.value;
+    if (Array.isArray(v) && v.length) ids = v;
+  } catch { /* fall through to the default */ }
+
+  const { rows } = ids
+    ? await query(
+        `SELECT id, display_name, phone FROM teamtask_hub.users
+          WHERE company_id = $1 AND id = ANY($2::uuid[]) AND phone IS NOT NULL AND phone <> ''
+          ORDER BY display_name`, [companyId, ids])
+    : await query(
+        `SELECT id, display_name, phone FROM teamtask_hub.users
+          WHERE company_id = $1 AND role = 'owner' AND phone IS NOT NULL AND phone <> ''
+          ORDER BY display_name`, [companyId]);
+  return rows;
+}
+
+/** 'YYYY-MM-DD' → 'Sat, Oct 12'. Dates are stored as DATE, so no timezone games. */
+export function shortDate(d) {
+  if (!d) return '';
+  const s = typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10);
+  const [y, m, day] = s.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/**
+ * The "book the planning meeting" alert.
+ *
+ * Deliberately short: it is an SMS, and its whole job is to get someone to open
+ * Team. The date we must have met BY is the one piece that has to be in the
+ * message, because that is what makes it urgent or not.
+ */
+export function planningMeetingSms(reqRow) {
+  const who = `${reqRow.first_name} ${reqRow.last_name}`.trim();
+  const when = shortDate(reqRow.event_date);
+  const by = reqRow.planning_meeting_due ? ` Book the pre-event planning meeting by ${shortDate(reqRow.planning_meeting_due)}.` : '';
+  return `Kindred: event approved — ${who}, ${reqRow.guests} guests, ${when}.${by}`;
+}
+
+/** The alert when a new request arrives, before anyone has approved anything. */
+export function newRequestSms(reqRow) {
+  const who = `${reqRow.first_name} ${reqRow.last_name}`.trim();
+  return `Kindred: new event request — ${who}, ${reqRow.guests} guests, ${shortDate(reqRow.event_date)}. Review in Team.`;
+}

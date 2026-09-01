@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS kindred_web.event_tiers (
   deposit_description   TEXT,
   insurance_required    BOOLEAN NOT NULL DEFAULT FALSE,
   insurance_description TEXT,
+  -- How long before the event we want the pre-event planning meeting. Bigger
+  -- events need more lead time, so it is banded like everything else here.
+  planning_meeting_days INTEGER,
   sort_order            INTEGER NOT NULL DEFAULT 0,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -77,6 +80,12 @@ CREATE TABLE IF NOT EXISTS kindred_web.event_requests (
   insurance_ok        BOOLEAN NOT NULL DEFAULT FALSE,
   insurance_ok_at     TIMESTAMPTZ,
   insurance_ok_by     UUID,
+
+  -- Pre-event planning meeting: the date we should have met by, fixed at
+  -- approval from the tier's lead time, and whether someone has booked it.
+  planning_meeting_due    DATE,
+  planning_meeting_booked BOOLEAN NOT NULL DEFAULT FALSE,
+  planning_meeting_at     TIMESTAMPTZ,
 
   meta               JSONB,                                -- ip, user-agent, referer
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),

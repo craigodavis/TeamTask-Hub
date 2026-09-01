@@ -10,7 +10,11 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
-import { KEYS, money, outstanding, allSatisfied } from '../lib/eventRequests.js';
+import {
+  KEYS, money, outstanding, allSatisfied,
+  alertRecipients, planningMeetingSms, shortDate,
+} from '../lib/eventRequests.js';
+import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
 
@@ -44,11 +48,13 @@ router.post('/tiers', requireManager, async (req, res) => {
       `INSERT INTO kindred_web.event_tiers
          (min_guests, max_guests, title, base_price_cents, min_alcohol_cents, rules,
           deposit_required, deposit_cents, deposit_description,
-          insurance_required, insurance_description, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          insurance_required, insurance_description, planning_meeting_days, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [min, max, b.title || null, centsFrom(b.base_price), centsFrom(b.min_alcohol), b.rules || null,
        !!b.deposit_required, centsFrom(b.deposit), b.deposit_description || null,
-       !!b.insurance_required, b.insurance_description || null, parseInt(b.sort_order, 10) || 0],
+       !!b.insurance_required, b.insurance_description || null,
+       Number.isFinite(parseInt(b.planning_meeting_days, 10)) ? parseInt(b.planning_meeting_days, 10) : null,
+       parseInt(b.sort_order, 10) || 0],
     );
     res.json({ tier: rows[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -67,12 +73,14 @@ router.put('/tiers/:id', requireManager, async (req, res) => {
       `UPDATE kindred_web.event_tiers SET
          min_guests=$1, max_guests=$2, title=$3, base_price_cents=$4, min_alcohol_cents=$5, rules=$6,
          deposit_required=$7, deposit_cents=$8, deposit_description=$9,
-         insurance_required=$10, insurance_description=$11, sort_order=$12, updated_at=NOW()
-       WHERE id=$13 RETURNING *`,
+         insurance_required=$10, insurance_description=$11, planning_meeting_days=$12,
+         sort_order=$13, updated_at=NOW()
+       WHERE id=$14 RETURNING *`,
       [min, max, b.title || null, centsFrom(b.base_price), centsFrom(b.min_alcohol), b.rules || null,
        !!b.deposit_required, centsFrom(b.deposit), b.deposit_description || null,
-       !!b.insurance_required, b.insurance_description || null, parseInt(b.sort_order, 10) || 0,
-       req.params.id],
+       !!b.insurance_required, b.insurance_description || null,
+       Number.isFinite(parseInt(b.planning_meeting_days, 10)) ? parseInt(b.planning_meeting_days, 10) : null,
+       parseInt(b.sort_order, 10) || 0, req.params.id],
     );
     if (!rows[0]) return res.status(404).json({ error: 'Tier not found' });
     res.json({ tier: rows[0] });
@@ -128,6 +136,7 @@ const shape = (r) => ({
   quotedDeposit: money(r.quoted_deposit_cents),
   steps: outstanding(r),
   ready: allSatisfied(r),
+  planningMeetingDue: r.planning_meeting_due ? shortDate(r.planning_meeting_due) : null,
 });
 
 // GET /api/event-requests?status=
@@ -140,6 +149,90 @@ router.get('/', requireManager, async (req, res) => {
         ORDER BY created_at DESC LIMIT 500`,
       status ? [status] : []);
     res.json({ requests: rows.map(shape) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/**
+ * PATCH /api/event-requests/:id — the staff actions.
+ *
+ * Approving is the hinge: it fixes the planning-meeting deadline from the tier's
+ * lead time and tells us to go and book it. Everything downstream (the deposit
+ * invoice, the guest's return link) keys off this flag.
+ */
+router.patch('/:id', requireManager, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = (await query(`SELECT * FROM kindred_web.event_requests WHERE id = $1`, [req.params.id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Request not found' });
+
+    const sets = [];
+    const vals = [];
+    const set = (frag, v) => { vals.push(v); sets.push(`${frag}=$${vals.length}`); };
+
+    let justApproved = false;
+    if (b.status && b.status !== cur.status) {
+      if (!['new', 'approved', 'declined', 'complete'].includes(b.status)) {
+        return res.status(400).json({ error: 'Unknown status' });
+      }
+      set('status', b.status);
+      if (b.status === 'approved') {
+        // Approving only counts once. Re-approving an already-approved request
+        // must not move a deadline someone has already worked to.
+        justApproved = !cur.approved_at;
+        if (justApproved) {
+          set('approved_at', new Date());
+          set('approved_by', req.userId || null);
+          // The lead time is read from the tier NOW rather than at submission,
+          // because it is our operational deadline, not part of the guest's
+          // quote — if we decide big events need three weeks, that should apply.
+          const tier = cur.tier_id
+            ? (await query(`SELECT planning_meeting_days FROM kindred_web.event_tiers WHERE id = $1`, [cur.tier_id])).rows[0]
+            : null;
+          const days = tier?.planning_meeting_days;
+          if (Number.isFinite(days) && days > 0) {
+            set('planning_meeting_due', new Date(new Date(cur.event_date).getTime() - days * 86400000)
+              .toISOString().slice(0, 10));
+          }
+        }
+      }
+      if (b.status === 'declined') set('declined_reason', b.declined_reason || null);
+    }
+
+    if (b.planning_meeting_booked !== undefined) {
+      set('planning_meeting_booked', !!b.planning_meeting_booked);
+      set('planning_meeting_at', b.planning_meeting_booked ? new Date() : null);
+    }
+    if (b.insurance_ok !== undefined) {
+      set('insurance_ok', !!b.insurance_ok);
+      set('insurance_ok_at', b.insurance_ok ? new Date() : null);
+      set('insurance_ok_by', b.insurance_ok ? (req.userId || null) : null);
+    }
+
+    if (!sets.length) return res.json({ request: shape(cur) });
+    vals.push(req.params.id);
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests SET ${sets.join(', ')}, updated_at=NOW()
+        WHERE id=$${vals.length} RETURNING *`, vals);
+    const updated = rows[0];
+
+    // Tell us to book the planning meeting. After the row is saved, and never
+    // allowed to fail the request: the approval is the thing that matters, and a
+    // Twilio outage must not leave staff unable to approve an event.
+    if (justApproved) {
+      try {
+        const people = await alertRecipients(req.companyId);
+        if (people.length) {
+          await sendSmsToUsers(req.companyId, people.map((p) => p.id),
+            planningMeetingSms(updated), req.userId || null);
+        } else {
+          console.warn('[event-requests] approved but nobody has a phone number to alert');
+        }
+      } catch (e) {
+        console.error('[event-requests] approval SMS failed:', e.message);
+      }
+    }
+
+    res.json({ request: shape(updated) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
