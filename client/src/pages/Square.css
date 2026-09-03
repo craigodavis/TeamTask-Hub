@@ -1330,3 +1330,31 @@
 .sq-copy-btn { margin-top: 0.45rem; background: none; border: 1px solid var(--border,#ccc);
   border-radius: 6px; font-size: 0.72rem; padding: 0.15rem 0.55rem; cursor: pointer; color: var(--text-muted,#888); }
 .sq-copy-btn:hover { color: var(--text,#333); border-color: var(--text-muted,#999); }
+
+/* ── Attachments ─────────────────────────────────────────────────────────── */
+.sq-attach-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 2px 0; }
+.sq-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+           padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px;
+           background: var(--surface); font-size: 0.8rem; color: var(--text);
+           text-decoration: none; }
+.sq-chip-icon { flex: none; }
+.sq-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sq-chip-x { border: 0; background: none; color: var(--text-muted); cursor: pointer;
+             font-size: 1rem; line-height: 1; padding: 0 0 0 2px; }
+.sq-chip-x:hover { color: var(--danger, #c0392b); }
+.sq-chip-busy { color: var(--text-muted); font-style: italic; }
+.sq-chip-sent { background: var(--surface-alt, rgba(0,0,0,0.04)); }
+
+.sq-attach-btn { flex: none; border: 1px solid var(--border); background: var(--surface);
+                 border-radius: 8px; cursor: pointer; font-size: 1.05rem;
+                 padding: 0 10px; align-self: stretch; color: var(--text); }
+.sq-attach-btn:hover:not(:disabled) { background: var(--surface-alt, #f3f3f3); }
+.sq-attach-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Whole input row is the drop target, so an aimed drop isn't required. */
+.sq-input-row.sq-dropping { outline: 2px dashed var(--accent, #9b1b21); outline-offset: 3px;
+                            border-radius: 10px; }
+
+.sq-msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.sq-msg-thumb { max-width: 180px; max-height: 180px; border-radius: 8px;
+                border: 1px solid var(--border); display: block; }

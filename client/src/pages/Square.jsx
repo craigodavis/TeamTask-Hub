@@ -258,6 +258,10 @@ function AskTab({ token, role }) {
   const [model, setModel]       = useState('claude-sonnet-5'); // every session starts on Sonnet
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice]     = useState('');
+  const [attachments, setAttachments] = useState([]);  // uploaded, awaiting a question
+  const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging]   = useState(false);
+  const fileRef   = useRef(null);
   const bottomRef = useRef(null);
   const abortRef  = useRef(null);
 
@@ -316,9 +320,66 @@ function AskTab({ token, role }) {
 
   const newChat = () => { setSessionId(null); setMessages([]); setInput(''); setSidebarOpen(false); setModel('claude-sonnet-5'); };
 
+  /**
+   * Upload one file and show it as a pending chip.
+   *
+   * A session is created first when there isn't one, so the file belongs to the
+   * conversation from the start -- otherwise a follow-up question would arrive
+   * with nothing attached and Claude would be answering about a file it can no
+   * longer see.
+   */
+  const uploadFiles = useCallback(async (files) => {
+    const list = [...files];
+    if (!list.length) return;
+    setNotice('');
+    setUploading(true);
+    let sid = sessionId;
+    if (!sid) {
+      try {
+        const r = await authFetch('/api/square/sessions', { method: 'POST', body: JSON.stringify({}) });
+        const d = await r.json();
+        if (r.ok) { sid = d.session.id; setSessionId(sid); }
+      } catch { /* fall through — upload still works, just unattached */ }
+    }
+    for (const file of list) {
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        if (sid) fd.append('session_id', sid);
+        // No Content-Type header: the browser must set the multipart boundary.
+        const r = await fetch('/api/square/attachments', {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+        });
+        const d = await r.json();
+        if (!r.ok) { setNotice(d.error || `Could not upload ${file.name}`); continue; }
+        setAttachments((prev) => [...prev, d.attachment]);
+      } catch (err) {
+        setNotice(`Could not upload ${file.name}: ${err.message}`);
+      }
+    }
+    setUploading(false);
+  }, [sessionId, token, authFetch]);
+
+  const removeAttachment = useCallback(async (id) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    try { await authFetch(`/api/square/attachments/${id}`, { method: 'DELETE' }); } catch { /* chip is gone either way */ }
+  }, [authFetch]);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault(); setDragging(false);
+    if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+  }, [uploadFiles]);
+
+  // Pasting a screenshot straight into the box is how people actually share one.
+  const onPaste = useCallback((e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); uploadFiles(files); }
+  }, [uploadFiles]);
+
   const handleAsk = useCallback(async (question) => {
     const q = (question || input).trim();
-    if (!q || loading) return;
+    // A file by itself is a question. Only block when there is neither.
+    if ((!q && !attachments.length) || loading) return;
     setInput('');
     setLoading(true);
 
@@ -332,7 +393,9 @@ function AskTab({ token, role }) {
       } catch { /* ignore — ask without persistence */ }
     }
 
-    setMessages((prev) => [...prev, { role: 'user', content: q }]);
+    const sent = attachments;
+    setAttachments([]);
+    setMessages((prev) => [...prev, { role: 'user', content: q, attachments: sent }]);
     const history = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
 
     const controller = new AbortController();
@@ -340,7 +403,8 @@ function AskTab({ token, role }) {
     try {
       const r = await authFetch('/api/square/ask', {
         method: 'POST',
-        body: JSON.stringify({ question: q, history, session_id: sid, model: model || null }),
+        body: JSON.stringify({ question: q, history, session_id: sid, model: model || null,
+                                attachment_ids: sent.map((a) => a.id) }),
         signal: controller.signal,
       });
       const data = await r.json();
@@ -494,6 +558,25 @@ function AskTab({ token, role }) {
         {messages.map((msg, i) => (
           <div key={i} className={`sq-msg sq-msg-${msg.role}`}>
             <div className="sq-msg-bubble">
+              {/* What was handed over with this question. Images show; anything
+                  else is a link, so a PDF can be reopened from the transcript. */}
+              {msg.attachments?.length > 0 && (
+                <div className="sq-msg-files">
+                  {msg.attachments.map((a) => (
+                    a.kind === 'image' ? (
+                      <a key={a.id} href={`/api/square/attachments/${a.id}`} target="_blank" rel="noreferrer">
+                        <img className="sq-msg-thumb" src={`/api/square/attachments/${a.id}`} alt={a.filename} />
+                      </a>
+                    ) : (
+                      <a key={a.id} className="sq-chip sq-chip-sent"
+                         href={`/api/square/attachments/${a.id}`} target="_blank" rel="noreferrer">
+                        <span aria-hidden>{a.kind === 'document' ? '📄' : '📃'}</span>
+                        <span className="sq-chip-name">{a.filename}</span>
+                      </a>
+                    )
+                  ))}
+                </div>
+              )}
               {msg.content && (msg.role === 'assistant' ? (
                 <div className="sq-msg-text sq-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
               ) : (
@@ -551,17 +634,53 @@ function AskTab({ token, role }) {
       {/* Mic error */}
       {micError && <p className="sq-mic-error">{micError}</p>}
 
+      {/* Files waiting to be sent with the next question */}
+      {attachments.length > 0 && (
+        <div className="sq-attach-tray">
+          {attachments.map((a) => (
+            <span key={a.id} className="sq-chip" title={`${a.filename} · ${(a.size_bytes/1024).toFixed(0)}KB`}>
+              <span className="sq-chip-icon" aria-hidden>
+                {a.kind === 'image' ? '🖼' : a.kind === 'document' ? '📄' : '📃'}
+              </span>
+              <span className="sq-chip-name">{a.filename}</span>
+              <button type="button" className="sq-chip-x" onClick={() => removeAttachment(a.id)}
+                      title="Remove">×</button>
+            </span>
+          ))}
+          {uploading && <span className="sq-chip sq-chip-busy">Uploading…</span>}
+        </div>
+      )}
+
       {/* Input */}
-      <div className="sq-input-row">
+      <div className={`sq-input-row${dragging ? ' sq-dropping' : ''}`}
+           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+           onDragLeave={() => setDragging(false)}
+           onDrop={onDrop}>
         <textarea
           className={`sq-input${listening ? ' sq-input-listening' : ''}`}
           rows={2}
-          placeholder={listening ? 'Listening…' : 'Ask AiRon anything about Kindred…'}
+          placeholder={dragging ? 'Drop the file here…'
+            : listening ? 'Listening…' : 'Ask AiRon anything about Kindred…'}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
+          onPaste={onPaste}
           disabled={loading}
         />
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,text/markdown,application/json"
+          style={{ display: 'none' }}
+          onChange={(e) => { uploadFiles(e.target.files); e.target.value = ''; }}
+        />
+        <button
+          className="sq-attach-btn"
+          onClick={() => fileRef.current?.click()}
+          disabled={loading || uploading}
+          title="Attach an image, PDF or text file"
+        >📎</button>
         {micSupported && (
           <button
             className={`sq-mic-btn${listening ? ' sq-mic-btn-active' : ''}`}
@@ -575,7 +694,8 @@ function AskTab({ token, role }) {
         {loading ? (
           <button className="sq-send-btn sq-cancel-btn" onClick={cancel} title="Cancel query">■</button>
         ) : (
-          <button className="sq-send-btn" onClick={() => handleAsk()} disabled={!input.trim()}>↑</button>
+          <button className="sq-send-btn" onClick={() => handleAsk()}
+                  disabled={!input.trim() && !attachments.length}>↑</button>
         )}
       </div>
       </div>

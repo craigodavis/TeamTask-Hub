@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import Anthropic from '@anthropic-ai/sdk';
 import { pool, query } from '../db.js';
 import { getModelForProcess } from '../lib/aiModelSettings.js';
@@ -1315,9 +1316,138 @@ async function executeSql(sql) {
 }
 
 // ── POST /api/square/ask ─────────────────────────────────────────────────────
+// ── Attachments ──────────────────────────────────────────────────────────────
+//
+// No per-route capability guard here: index.js mounts this whole router behind
+// requireAuth + requireCapability('ai.use'), so every path below is already
+// gated. Repeating it would only invite it to drift.
+//
+// What Claude can actually read, and how each has to be framed in the request.
+// Anything not on this list is refused at upload rather than accepted and then
+// quietly ignored -- a file that uploads but is never looked at is the worst
+// outcome, because the person believes it was considered.
+const ATTACH_KIND = {
+  'image/png': 'image', 'image/jpeg': 'image', 'image/gif': 'image', 'image/webp': 'image',
+  'application/pdf': 'document',
+  'text/plain': 'text', 'text/csv': 'text', 'text/markdown': 'text', 'application/json': 'text',
+};
+const MAX_ATTACH_BYTES = 10 * 1024 * 1024;   // per file
+const MAX_SESSION_ATTACH = 5;                // per conversation
+const MAX_TOTAL_BYTES = 24 * 1024 * 1024;    // the API caps a request at 32MB
+
+const attachUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ATTACH_BYTES, files: 1 },
+});
+
+/** Human-readable size, for error messages people have to act on. */
+const mb = (b) => `${(b / 1024 / 1024).toFixed(1)}MB`;
+
+// POST /api/square/attachments — one file, tied to a session when there is one
+router.post('/attachments', attachUpload.single('file'), async (req, res) => {
+  try {
+    const f = req.file;
+    if (!f) return res.status(400).json({ error: 'No file received' });
+    const kind = ATTACH_KIND[f.mimetype];
+    if (!kind) {
+      return res.status(415).json({
+        error: `Kindred AI can't read ${f.mimetype || 'that file type'}. `
+             + 'It handles images (PNG, JPEG, GIF, WebP), PDFs, and text files (TXT, CSV, Markdown, JSON).',
+      });
+    }
+    const sessionId = req.body.session_id || null;
+    if (sessionId) {
+      const own = await sessionAccess(sessionId, req);
+      if (!own) return res.status(404).json({ error: 'Session not found' });
+      const existing = await query(
+        `SELECT COUNT(*)::int n, COALESCE(SUM(size_bytes),0)::int total
+           FROM ai_attachments WHERE company_id=$1 AND session_id=$2`,
+        [req.companyId, sessionId]
+      );
+      const { n, total } = existing.rows[0];
+      if (n >= MAX_SESSION_ATTACH) {
+        return res.status(409).json({ error: `A conversation can hold ${MAX_SESSION_ATTACH} files. Start a new chat for more.` });
+      }
+      if (total + f.size > MAX_TOTAL_BYTES) {
+        return res.status(409).json({ error: `That would put this conversation over ${mb(MAX_TOTAL_BYTES)} of attachments.` });
+      }
+    }
+    const r = await query(
+      `INSERT INTO ai_attachments (company_id, session_id, user_id, filename, media_type, kind, size_bytes, bytes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, filename, media_type, kind, size_bytes, created_at`,
+      [req.companyId, sessionId, req.userId || null,
+       f.originalname || 'file', f.mimetype, kind, f.size, f.buffer]
+    );
+    res.json({ attachment: r.rows[0] });
+  } catch (err) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: `Files are limited to ${mb(MAX_ATTACH_BYTES)}.` });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/square/attachments/:id — serve the bytes back for preview
+router.get('/attachments/:id', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT filename, media_type, bytes FROM ai_attachments WHERE id=$1 AND company_id=$2`,
+      [req.params.id, req.companyId]
+    );
+    const a = r.rows[0];
+    if (!a) return res.status(404).json({ error: 'Not found' });
+    res.setHeader('Content-Type', a.media_type);
+    res.setHeader('Content-Disposition', `inline; filename="${a.filename.replace(/"/g, '')}"`);
+    res.send(a.bytes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/square/attachments/:id
+router.delete('/attachments/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM ai_attachments WHERE id=$1 AND company_id=$2`, [req.params.id, req.companyId]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Turn stored attachments into content blocks for the user turn.
+ *
+ * Text files are inlined as text rather than sent as documents: they are small,
+ * and a labelled block reads better in the transcript than an opaque document.
+ * The last block carries cache_control so a follow-up question about the same
+ * invoice does not pay full price to re-send it.
+ */
+export function attachmentBlocks(rows) {
+  const blocks = [];
+  for (const a of rows) {
+    const b64 = a.bytes.toString('base64');
+    if (a.kind === 'image') {
+      blocks.push({ type: 'image', source: { type: 'base64', media_type: a.media_type, data: b64 } });
+    } else if (a.kind === 'document') {
+      blocks.push({ type: 'document', source: { type: 'base64', media_type: a.media_type, data: b64 },
+                    title: a.filename, citations: { enabled: true } });
+    } else {
+      blocks.push({ type: 'text', text: `--- Attached file: ${a.filename} ---\n${a.bytes.toString('utf8')}` });
+    }
+  }
+  if (blocks.length) blocks[blocks.length - 1].cache_control = { type: 'ephemeral' };
+  return blocks;
+}
+
 router.post('/ask', async (req, res) => {
-  const { question, history = [], session_id = null, model: requestedModel = null } = req.body;
-  if (!question?.trim()) return res.status(400).json({ error: 'Question is required' });
+  const { question, history = [], session_id = null, model: requestedModel = null,
+          attachment_ids = [] } = req.body;
+  // A file on its own is a question -- "what is this?" -- so an empty prompt is
+  // only an error when nothing was attached either.
+  if (!question?.trim() && !attachment_ids.length) {
+    return res.status(400).json({ error: 'Question is required' });
+  }
 
   // If a session was supplied, verify access and use its stored history.
   let session = null;
@@ -1396,9 +1526,32 @@ router.post('/ask', async (req, res) => {
     );
     priorHistory = past.rows.reverse();
   }
+  // Files for this turn. Everything already attached to the session comes along,
+  // not just what was picked this minute: a follow-up question about the same
+  // invoice has to see the invoice, and the person should not have to re-upload
+  // it to ask a second question.
+  let attachments = [];
+  if (session_id || attachment_ids.length) {
+    const r = await query(
+      `SELECT id, filename, media_type, kind, size_bytes, bytes
+         FROM ai_attachments
+        WHERE company_id = $1
+          AND (($2::uuid IS NOT NULL AND session_id = $2) OR id = ANY($3::uuid[]))
+        ORDER BY created_at
+        LIMIT $4`,
+      [req.companyId, session_id, attachment_ids, MAX_SESSION_ATTACH]
+    );
+    attachments = r.rows;
+  }
+
+  const userContent = attachments.length
+    ? [...attachmentBlocks(attachments),
+       { type: 'text', text: question?.trim() || 'Have a look at the attached file(s).' }]
+    : question;
+
   const messages = [
     ...priorHistory.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: question },
+    { role: 'user', content: userContent },
   ];
 
   // Agentic tool-use loop
@@ -1579,7 +1732,14 @@ router.post('/ask', async (req, res) => {
   // Persist the exchange to the session (auto-title from the first question).
   if (session && !clientClosed) {
     try {
-      await query(`INSERT INTO ai_messages (session_id, role, content) VALUES ($1,'user',$2)`, [session_id, question]);
+      // The transcript records WHICH files were in play, so a conversation read
+      // back later still makes sense. The bytes are not re-stored here -- they
+      // live once in ai_attachments and are re-attached from there each turn.
+      const askedWith = attachments.length
+        ? `${question?.trim() || 'Have a look at the attached file(s).'}\n\n[attached: `
+          + attachments.map((a) => a.filename).join(', ') + ']'
+        : question;
+      await query(`INSERT INTO ai_messages (session_id, role, content) VALUES ($1,'user',$2)`, [session_id, askedWith]);
       await query(
         `INSERT INTO ai_messages (session_id, role, content, sql, rows, fields) VALUES ($1,'assistant',$2,$3,$4,$5)`,
         [session_id, accumulated.text || null, accumulated.sql || null,

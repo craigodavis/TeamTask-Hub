@@ -3917,6 +3917,30 @@ const MIGRATIONS = [
   `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS sku TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_menu_items_sku
      ON menu_items(company_id, sku) WHERE sku IS NOT NULL`,
+
+  // Files a person hands to Kindred AI.
+  //
+  // Bytes live in Postgres rather than on disk because the app is redeployed
+  // constantly and a container's filesystem does not survive that -- an
+  // attachment that vanished mid-conversation would be worse than one that was
+  // never accepted. Sizes are capped at the route, so this stays small.
+  //
+  // An attachment belongs to a SESSION, not to a single question. "What's the
+  // total on that invoice?" and then "who was the vendor?" both have to work,
+  // and the second question does not re-upload the file.
+  `CREATE TABLE IF NOT EXISTS ai_attachments (
+     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id   uuid NOT NULL,
+     session_id   uuid REFERENCES ai_sessions(id) ON DELETE CASCADE,
+     user_id      uuid,
+     filename     text NOT NULL,
+     media_type   text NOT NULL,
+     kind         text NOT NULL CHECK (kind IN ('image','document','text')),
+     size_bytes   integer NOT NULL,
+     bytes        bytea NOT NULL,
+     created_at   timestamptz NOT NULL DEFAULT now())`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_attachments_session
+     ON ai_attachments(company_id, session_id, created_at)`,
 ];
 
 export async function runMigrations() {
