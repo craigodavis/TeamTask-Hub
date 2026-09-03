@@ -1358,3 +1358,13 @@
 .sq-msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .sq-msg-thumb { max-width: 180px; max-height: 180px; border-radius: 8px;
                 border: 1px solid var(--border); display: block; }
+
+/* ── Voice output ────────────────────────────────────────────────────────── */
+.sq-speak-btn { flex: none; border: 1px solid var(--border); background: var(--surface);
+                border-radius: 8px; cursor: pointer; font-size: 1.05rem;
+                padding: 0 10px; align-self: stretch; color: var(--text); }
+.sq-speak-btn:hover { background: var(--surface-alt, #f3f3f3); }
+.sq-speak-btn-on { border-color: var(--accent, #9b1b21); }
+.sq-replay-btn { border: 0; background: none; cursor: pointer; opacity: 0.45;
+                 font-size: 0.85rem; padding: 2px 4px; float: right; }
+.sq-replay-btn:hover { opacity: 1; }

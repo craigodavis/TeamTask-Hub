@@ -197,6 +197,109 @@ function useSpeech({ onResult, onError }) {
   return { supported, listening, start, stop };
 }
 
+// ── Voice output hook ────────────────────────────────────────────────────────
+//
+// speechSynthesis is built into the browser, so this costs nothing and adds no
+// vendor. Two long-standing quirks are worked around here:
+//
+//  1. Chrome cuts an utterance off after roughly 15 seconds. The fix is to
+//     speak in sentence-sized chunks and queue them, never one long string.
+//  2. iOS Safari refuses to speak unless the FIRST speak() call came from a
+//     user gesture. Turning the toggle on is that gesture, so a silent priming
+//     utterance goes out there -- without it the first answer is simply mute
+//     and nothing explains why.
+const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
+
+/** Markdown and tabular output are for reading, not for saying out loud. */
+function speakableText(md) {
+  return String(md || '')
+    .replace(/```[\s\S]*?```/g, ' (code omitted) ')   // never read SQL aloud
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s*\|.*\|\s*$/gm, '')                  // table rows
+    .replace(/^#{1,6}\s*/gm, '')
+    // Emphasis only. A bare `_` strip would turn v_square_net_sales_daily into
+    // "vsquarenetsalesdaily" -- and snake_case table names are half of what
+    // this assistant talks about, so underscores are removed only where they
+    // actually wrap a word.
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/(^|\s)__([^_]+)__(?=\s|[.,!?;:]|$)/g, '$1$2')
+    .replace(/(^|\s)_([^_]+)_(?=\s|[.,!?;:]|$)/g, '$1$2')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Split on sentence ends, then hard-wrap anything still too long for Chrome. */
+function speechChunks(text, max = 180) {
+  const out = [];
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    let rest = sentence;
+    while (rest.length > max) {
+      const cut = rest.lastIndexOf(' ', max);
+      out.push(rest.slice(0, cut > 40 ? cut : max));
+      rest = rest.slice(cut > 40 ? cut + 1 : max);
+    }
+    if (rest.trim()) out.push(rest.trim());
+  }
+  return out;
+}
+
+function useVoiceOut() {
+  const supported = !!synth;
+  const [enabled, setEnabled] = useState(() => {
+    try { return localStorage.getItem('kindredAiSpeak') === '1'; } catch { return false; }
+  });
+  const [speaking, setSpeaking] = useState(false);
+
+  const stop = useCallback(() => {
+    try { synth?.cancel(); } catch { /* nothing to cancel */ }
+    setSpeaking(false);
+  }, []);
+
+  const speak = useCallback((md) => {
+    if (!supported || !enabled) return;
+    const text = speakableText(md);
+    if (!text) return;
+    synth.cancel();
+    const chunks = speechChunks(text);
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.lang = 'en-US';
+      u.rate = 1.02;
+      if (i === 0) u.onstart = () => setSpeaking(true);
+      if (i === chunks.length - 1) {
+        u.onend = () => setSpeaking(false);
+        u.onerror = () => setSpeaking(false);
+      }
+      synth.speak(u);
+    });
+  }, [supported, enabled]);
+
+  const toggle = useCallback(() => {
+    setEnabled((was) => {
+      const now = !was;
+      try { localStorage.setItem('kindredAiSpeak', now ? '1' : '0'); } catch { /* private mode */ }
+      if (now && synth) {
+        // The priming gesture iOS requires. Silent, so nobody hears it.
+        const u = new SpeechSynthesisUtterance(' ');
+        u.volume = 0;
+        synth.speak(u);
+      } else {
+        stop();
+      }
+      return now;
+    });
+  }, [stop]);
+
+  // Leaving the page mid-sentence should not keep talking.
+  useEffect(() => () => { try { synth?.cancel(); } catch { /* ignore */ } }, []);
+
+  return { supported, enabled, speaking, speak, stop, toggle };
+}
+
 // Minimal, safe Markdown → HTML for AI answers. HTML is escaped first, then only
 // our own tags are injected (no raw model HTML survives), so it's XSS-safe.
 function mdEscape(s) {
@@ -393,6 +496,7 @@ function AskTab({ token, role }) {
       } catch { /* ignore — ask without persistence */ }
     }
 
+    voice.stop();   // never let a previous answer talk over a new question
     const sent = attachments;
     setAttachments([]);
     setMessages((prev) => [...prev, { role: 'user', content: q, attachments: sent }]);
@@ -414,6 +518,8 @@ function AskTab({ token, role }) {
         let content = data.text || '';
         if (!content && data.rows) content = `${data.count} row${data.count !== 1 ? 's' : ''} returned`;
         setMessages((prev) => [...prev, { role: 'assistant', content, sql: data.sql, rows: data.rows, fields: data.fields, facts_saved: data.facts_saved }]);
+        // Read it out only when the toggle is on; the hook no-ops otherwise.
+        voice.speak(content);
       }
       // Asking bumps this chat to newest, so jump to the first page where it
       // now lives rather than leaving the sidebar on a stale page.
@@ -476,6 +582,7 @@ function AskTab({ token, role }) {
     }
   }, []);
 
+  const voice = useVoiceOut();
   const { supported: micSupported, listening, start: startListening, stop: stopListening } = useSpeech({
     onResult: onSpeechResult,
     onError: onSpeechError,
@@ -582,6 +689,10 @@ function AskTab({ token, role }) {
               ) : (
                 <p className="sq-msg-text">{msg.content}</p>
               ))}
+              {msg.role === 'assistant' && msg.content && voice.supported && (
+                <button className="sq-replay-btn" title="Read this aloud"
+                        onClick={() => { voice.stop(); voice.speak(msg.content); }}>🔊</button>
+              )}
               {msg.role === 'assistant' && msg.content && (
                 <button
                   className="sq-copy-btn"
@@ -681,6 +792,14 @@ function AskTab({ token, role }) {
           disabled={loading || uploading}
           title="Attach an image, PDF or text file"
         >📎</button>
+        {voice.supported && (
+          <button
+            className={`sq-speak-btn${voice.enabled ? ' sq-speak-btn-on' : ''}`}
+            onClick={voice.speaking ? voice.stop : voice.toggle}
+            title={voice.speaking ? 'Stop speaking'
+              : voice.enabled ? 'Answers are read aloud — turn off' : 'Read answers aloud'}
+          >{voice.speaking ? '⏹' : voice.enabled ? '🔊' : '🔈'}</button>
+        )}
         {micSupported && (
           <button
             className={`sq-mic-btn${listening ? ' sq-mic-btn-active' : ''}`}
