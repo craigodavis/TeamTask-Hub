@@ -35,17 +35,36 @@ export async function syncInstagram() {
     throw new Error(`Instagram API HTTP ${res.status}: ${body.slice(0, 180)}`);
   }
   const { data } = await res.json();
+  // `count` must mean "something actually changed", not "rows processed".
+  //
+  // It used to increment once per post fetched, so with 24 posts coming back
+  // every hour it was never zero, and the website was told its content had
+  // changed on the hour, every hour, forever. Each of those fired two GitHub
+  // Actions runs — ~48 a day — whether Instagram had posted anything or not.
+  // That, not the scheduled builds, is what exhausted the monthly allowance.
+  //
+  // So the upsert only writes when a field a visitor would notice differs, and
+  // the count comes from what Postgres actually wrote. An unchanged post updates
+  // nothing and returns no row. fetched_at stops refreshing for untouched posts
+  // as a result, which is fine — it is bookkeeping, not content.
   let count = 0;
   for (const m of data || []) {
-    await query(
+    const r = await query(
       `INSERT INTO kindred_web.instagram_media
          (id, media_type, media_url, thumbnail_url, permalink, caption, posted_at, fetched_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
        ON CONFLICT (id) DO UPDATE SET
-         media_type=$2, media_url=$3, thumbnail_url=$4, permalink=$5, caption=$6, posted_at=$7, fetched_at=NOW()`,
+         media_type=$2, media_url=$3, thumbnail_url=$4, permalink=$5, caption=$6, posted_at=$7, fetched_at=NOW()
+       WHERE kindred_web.instagram_media.media_type    IS DISTINCT FROM EXCLUDED.media_type
+          OR kindred_web.instagram_media.media_url     IS DISTINCT FROM EXCLUDED.media_url
+          OR kindred_web.instagram_media.thumbnail_url IS DISTINCT FROM EXCLUDED.thumbnail_url
+          OR kindred_web.instagram_media.permalink     IS DISTINCT FROM EXCLUDED.permalink
+          OR kindred_web.instagram_media.caption       IS DISTINCT FROM EXCLUDED.caption
+          OR kindred_web.instagram_media.posted_at     IS DISTINCT FROM EXCLUDED.posted_at
+       RETURNING id`,
       [m.id, m.media_type, m.media_url, m.thumbnail_url || null, m.permalink, m.caption || null, m.timestamp]
     );
-    count++;
+    count += r.rowCount;
   }
   // Keep only the latest ~48.
   await query(
