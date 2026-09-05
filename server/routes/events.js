@@ -362,11 +362,50 @@ eventsRouter.patch('/:id', async (req, res) => {
   } catch (e) { console.error('event patch', e); res.status(500).json({ error: e.message }); }
 });
 
+// Marks the event deleted; the row is kept. A plain DELETE would also be
+// converted by the INSTEAD OF trigger on the events view, but writing the
+// UPDATE here is what records WHO removed it -- a trigger cannot see the
+// request. `deleted` events disappear from every read, because `events` is a
+// view over the undeleted rows.
 eventsRouter.delete('/:id', async (req, res) => {
   try {
-    await query(`DELETE FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
-    res.json({ ok: true });
+    const r = await query(
+      `UPDATE events_all SET deleted_at = NOW(), deleted_by = $3, updated_at = NOW()
+        WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL
+        RETURNING id, title`,
+      [req.params.id, cId(req), req.userId || null]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'No such event' });
+    res.json({ ok: true, deleted: r.rows[0] });
   } catch (e) { console.error('event delete', e); res.status(500).json({ error: e.message }); }
+});
+
+// What has been removed, and by whom. This is the question that could not be
+// answered before: "was there ever a fire department booking on the 11th?"
+eventsRouter.get('/deleted/list', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT e.id, e.title, e.start_at, e.status, e.deleted_at,
+              u.display_name AS deleted_by_name, l.name AS location
+         FROM events_all e
+         LEFT JOIN users u ON u.id = e.deleted_by
+         LEFT JOIN locations l ON l.id = e.location_id
+        WHERE e.company_id = $1 AND e.deleted_at IS NOT NULL
+        ORDER BY e.deleted_at DESC LIMIT 200`, [cId(req)]);
+    res.json({ events: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Put one back.
+eventsRouter.post('/:id/restore', async (req, res) => {
+  try {
+    const r = await query(
+      `UPDATE events_all SET deleted_at = NULL, deleted_by = NULL, updated_at = NOW()
+        WHERE id = $1 AND company_id = $2 AND deleted_at IS NOT NULL
+        RETURNING id, title`, [req.params.id, cId(req)]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Not a deleted event' });
+    res.json({ ok: true, restored: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Duplicate an event: copy fields, blank the dates, force draft, name "<base> -copyN".

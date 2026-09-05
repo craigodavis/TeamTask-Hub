@@ -3941,6 +3941,145 @@ const MIGRATIONS = [
      created_at   timestamptz NOT NULL DEFAULT now())`,
   `CREATE INDEX IF NOT EXISTS idx_ai_attachments_session
      ON ai_attachments(company_id, session_id, created_at)`,
+
+  // ── Soft delete ────────────────────────────────────────────────────────────
+  //
+  // Nothing a person created is destroyed. A DELETE is converted, in the
+  // database, into "mark it deleted" -- so it holds for every code path that
+  // exists today and every one written later, including scripts and psql, not
+  // just the routes someone remembered to change.
+  //
+  // A BEFORE DELETE trigger returning NULL suppresses the delete. It must
+  // therefore do the UPDATE itself, and must not recurse.
+  `CREATE OR REPLACE FUNCTION soft_delete() RETURNS trigger
+     LANGUAGE plpgsql AS $fn$
+   BEGIN
+     EXECUTE format('UPDATE %I.%I SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL',
+                    TG_TABLE_SCHEMA, TG_TABLE_NAME)
+       USING OLD.id;
+     RETURN NULL;   -- swallow the DELETE
+   END $fn$`,
+
+  // Applied to records a person creates and would miss. DELIBERATELY NOT
+  // applied to:
+  //   * password_reset_tokens and other credentials -- a "deleted" token that
+  //     still exists is a live token the moment one query forgets the filter.
+  //   * user_capabilities / user_locations and other permission joins -- taking
+  //     an access away has to actually take it away. Same reasoning, worse
+  //     consequence.
+  //   * team_square.*, commerce7.*, kindred_web.* -- mirrors of somebody else's
+  //     system, rebuilt by sync; they already carry their own is_deleted.
+  //   * ai_attachments -- holds file bytes, and is cascade-cleaned with its
+  //     session on purpose.
+  `DO $do$
+   DECLARE t text;
+   BEGIN
+     FOREACH t IN ARRAY ARRAY[
+       'announcements','recipes','ingredients','receipts','locations','users',
+       'task_templates','task_list_templates','promo_templates','promo_contacts',
+       'email_campaigns','scheduled_reports','query_actions','categorization_rules',
+       'harvester_sources','club_notification_groups','skynet_schedules',
+       'gateway_approval_rules','card_account_mappings','square_ai_facts',
+       'square_ai_lessons','ai_sessions','event_tasks','promo_tasks','promo_emails',
+       'menu_items','musicians','rachio_schedules','food_waste_entry_items'
+     ] LOOP
+       IF to_regclass('teamtask_hub.' || t) IS NULL THEN CONTINUE; END IF;
+       -- Needs an id column to address the row from the trigger.
+       IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='teamtask_hub' AND table_name=t AND column_name='id')
+       THEN CONTINUE; END IF;
+       EXECUTE format('ALTER TABLE teamtask_hub.%I ADD COLUMN IF NOT EXISTS deleted_at timestamptz', t);
+       EXECUTE format('ALTER TABLE teamtask_hub.%I ADD COLUMN IF NOT EXISTS deleted_by uuid', t);
+       EXECUTE format('DROP TRIGGER IF EXISTS trg_soft_delete ON teamtask_hub.%I', t);
+       EXECUTE format('CREATE TRIGGER trg_soft_delete BEFORE DELETE ON teamtask_hub.%I
+                       FOR EACH ROW EXECUTE FUNCTION soft_delete()', t);
+     END LOOP;
+   END $do$`,
+
+  // A soft-deleted row still occupies its unique key, which would stop the same
+  // email, name or order number being used again. These become partial.
+  //
+  // A unique index that BACKS A CONSTRAINT cannot be dropped as an index -- it
+  // has to go as a constraint, which is what the first attempt at this missed.
+  `DO $do$
+   DECLARE r record; cols text; base text; pred text; newpred text;
+   BEGIN
+     FOR r IN
+       SELECT c.relname AS tbl, i.relname AS idx,
+              pg_get_indexdef(x.indexrelid) AS def,
+              con.conname AS constraint_name
+         FROM pg_index x
+         JOIN pg_class c ON c.oid = x.indrelid
+         JOIN pg_class i ON i.oid = x.indexrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         LEFT JOIN pg_constraint con ON con.conindid = x.indexrelid AND con.contype IN ('u','p')
+        WHERE n.nspname = 'teamtask_hub' AND x.indisunique AND NOT x.indisprimary
+          AND pg_get_indexdef(x.indexrelid) NOT LIKE '%deleted_at%'
+          AND EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='teamtask_hub' AND table_name=c.relname
+                         AND column_name='deleted_at')
+     LOOP
+       -- Some of these are ALREADY partial (receipts.qbo_purchase_id,
+       -- recipes.square_sku). Their predicate has to be kept and ANDed, not
+       -- swallowed into the column list.
+       IF r.def LIKE '% WHERE %' THEN
+         base := substring(r.def from '^(.*) WHERE ');
+         pred := substring(r.def from ' WHERE (.*)$');
+       ELSE
+         base := r.def;
+         pred := NULL;
+       END IF;
+       cols := substring(base from 'btree \\((.*)\\)$');
+       IF cols IS NULL THEN CONTINUE; END IF;
+       newpred := CASE WHEN pred IS NULL THEN 'deleted_at IS NULL'
+                       ELSE '(' || pred || ') AND deleted_at IS NULL' END;
+       IF r.constraint_name IS NOT NULL THEN
+         EXECUTE format('ALTER TABLE teamtask_hub.%I DROP CONSTRAINT %I', r.tbl, r.constraint_name);
+       ELSE
+         EXECUTE format('DROP INDEX IF EXISTS teamtask_hub.%I', r.idx);
+       END IF;
+       EXECUTE format('CREATE UNIQUE INDEX %I ON teamtask_hub.%I (%s) WHERE %s',
+                      r.idx, r.tbl, cols, newpred);
+     END LOOP;
+   END $do$`,
+
+  // ── events: soft delete AND hidden from every existing read ───────────────
+  //
+  // The other 29 tables get the trigger, which guarantees nothing is
+  // destroyed. events additionally has ~20 places that read it across routes,
+  // lib and scripts, and adding "AND deleted_at IS NULL" to each is a filter
+  // someone will forget the first time they write a new query.
+  //
+  // So the table is renamed and `events` becomes a view over the live rows.
+  // Every existing SELECT and JOIN is correct with no edit, and so is every
+  // one written later. INSERT and UPDATE still work -- the view is a simple
+  // single-table projection, so Postgres makes it auto-updatable -- and an
+  // INSTEAD OF DELETE trigger turns a delete into a mark.
+  //
+  // Safe here specifically because nothing does INSERT ... ON CONFLICT against
+  // events; ON CONFLICT is not supported on a view, so a table that used it
+  // could not take this treatment.
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS deleted_at timestamptz`,
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS deleted_by uuid`,
+  `DO $do$
+   BEGIN
+     IF to_regclass('teamtask_hub.events_all') IS NULL THEN
+       ALTER TABLE teamtask_hub.events RENAME TO events_all;
+       CREATE VIEW teamtask_hub.events AS
+         SELECT * FROM teamtask_hub.events_all WHERE deleted_at IS NULL;
+     END IF;
+   END $do$`,
+  `CREATE OR REPLACE FUNCTION events_soft_delete() RETURNS trigger
+     LANGUAGE plpgsql AS $fn$
+   BEGIN
+     UPDATE teamtask_hub.events_all SET deleted_at = now() WHERE id = OLD.id;
+     RETURN OLD;
+   END $fn$`,
+  `DROP TRIGGER IF EXISTS trg_events_soft_delete ON teamtask_hub.events`,
+  `CREATE TRIGGER trg_events_soft_delete INSTEAD OF DELETE ON teamtask_hub.events
+     FOR EACH ROW EXECUTE FUNCTION events_soft_delete()`,
+  `CREATE INDEX IF NOT EXISTS idx_events_all_live
+     ON events_all(company_id, start_at) WHERE deleted_at IS NULL`,
 ];
 
 export async function runMigrations() {
