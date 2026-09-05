@@ -30,6 +30,10 @@
   .item .name .price::before { content: "\00a0\00a0·\00a0\00a0"; color: #9b1b21; }
   .item .desc { font-size: 10pt; color: #444; line-height: 1.32; margin: 2pt auto 0; max-width: 4.1in; }
   .item .serves { font-size: 9pt; font-style: italic; color: #777; margin-top: 1.5pt; }
+  /* Same treatment as .serves. Used for a qualifier that is not a serving
+     size -- the dates on the September pizza swap. Without this rule a
+     note rendered at body size and read as another line of description. */
+  .item .comes { font-size: 9pt; font-style: italic; color: #777; margin-top: 1.5pt; }
 
   .footnote { position: absolute; bottom: 0.45in; left: 0.5in; right: 0.5in;
               text-align: center; font-size: 8.5pt; font-style: italic; color: #666; line-height: 1.4; }
