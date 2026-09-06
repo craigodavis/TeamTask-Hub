@@ -79,6 +79,7 @@ import { websiteContentWatch } from './lib/websiteDeploy.js';
 import { crewRouter } from './routes/crew.js';
 import { websiteRouter } from './routes/website.js';
 import { marketingRouter } from './routes/marketing.js';
+import { mcpDbRouter } from './routes/mcpDb.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
 import { ensureKindredWebTables } from './ensureKindredWebTables.js';
 import { runMigrations } from './scripts/run-migrations.js';
@@ -190,6 +191,17 @@ app.use('/api/ground-control', requireAuth, groundControlRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
 app.use('/api/reports/scheduled', requireAuth, requireCapability('reports.scheduled'), scheduledReportsRouter);
 app.use('/api/permissions', requireAuth, permissionsRouter);
+
+// Read-only Postgres over MCP. Mounted at the site root rather than under
+// /api because PassengerBaseURI is '/' — Apache hands the whole path space
+// to this app, so /api is only a convention here, not a requirement.
+//
+// Must sit ABOVE the static handler and the app.get('*') SPA fallback below,
+// or the catch-all answers it with index.html.
+//
+// The path segment is the only thing guarding this endpoint: it carries no
+// requireAuth, by design, because MCP clients cannot present a TeamHub JWT.
+app.use(`/mcp/${process.env.MCP_PATH_SECRET}`, mcpDbRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
