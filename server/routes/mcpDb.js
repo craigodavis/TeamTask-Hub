@@ -319,6 +319,126 @@ function buildServer() {
 // enableJsonResponse avoids SSE, which Passenger/LiteSpeed on cPanel buffers.
 const router = express.Router();
 
+
+// ── Who may reach this endpoint ───────────────────────────────────────────
+//
+// team.kindredvineyards.com is DNS-only, so requests hit Apache directly and
+// a Cloudflare WAF rule never sees them. This is the gate instead.
+//
+// Getting the client IP right, empirically rather than by assumption:
+//   req.ip                     -> 127.0.0.1   (the Passenger socket — useless)
+//   req.socket.remoteAddress   -> 127.0.0.1   (same)
+//   x-forwarded-for            -> the real chain
+//
+// Apache APPENDS the address it observed, so the LAST entry is the one it
+// vouches for and everything before it is caller-supplied. Verified by
+// spoofing: sending "X-Forwarded-For: 160.79.104.5" arrived as
+// "160.79.104.5, 86.38.59.254" — the lie kept, the truth appended after it.
+// Reading the FIRST entry (the usual convention) would let anyone claim to be
+// Anthropic with one header.
+//
+// Deliberately NOT using Express `trust proxy`: it is app-wide state that also
+// changes req.protocol and secure-cookie behaviour for every other route, and
+// with one proxy hop it resolves to the same address this does. Parsing the
+// header here keeps the blast radius to this router.
+//
+// CAVEAT: this assumes exactly one proxy in front. Putting the domain behind
+// Cloudflare's proxy would make the last entry Cloudflare's edge rather than
+// the caller, and this check would then allow everyone. If the orange cloud
+// goes on, switch to cf-connecting-ip and re-verify by spoofing it.
+
+const DEFAULT_ALLOWED_IPS = '160.79.104.0/21,2607:6bc0::/48';
+
+/** An address as a big-endian integer, or null if it is not an address. */
+export function parseIp(raw) {
+  let ip = String(raw || '').trim();
+  if (!ip) return null;
+  if (ip.startsWith('[')) ip = ip.slice(1, ip.indexOf(']'));          // [::1]:port
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);       // ::ffff:1.2.3.4
+  if (mapped) ip = mapped[1];
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) {
+    const parts = ip.split('.').map(Number);
+    if (parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    let v = 0n;
+    for (const p of parts) v = (v << 8n) | BigInt(p);
+    return { bits: 32, value: v };
+  }
+
+  if (ip.includes(':')) {
+    if ((ip.match(/::/g) || []).length > 1) return null;
+    const [head, tail] = ip.split('::');
+    const h = head ? head.split(':').filter(Boolean) : [];
+    let groups;
+    if (tail === undefined) {
+      groups = h;
+    } else {
+      const t = tail ? tail.split(':').filter(Boolean) : [];
+      const fill = 8 - h.length - t.length;
+      if (fill < 0) return null;
+      groups = [...h, ...Array(fill).fill('0'), ...t];
+    }
+    if (groups.length !== 8) return null;
+    let v = 0n;
+    for (const g of groups) {
+      if (!/^[0-9a-f]{1,4}$/i.test(g)) return null;
+      v = (v << 16n) | BigInt(parseInt(g, 16));
+    }
+    return { bits: 128, value: v };
+  }
+  return null;
+}
+
+/** "160.79.104.0/21" -> a comparable network, or null. */
+export function parseCidr(text) {
+  const [addr, lenRaw] = String(text || '').trim().split('/');
+  const ip = parseIp(addr);
+  if (!ip) return null;
+  const len = lenRaw === undefined ? ip.bits : Number(lenRaw);
+  if (!Number.isInteger(len) || len < 0 || len > ip.bits) return null;
+  const shift = BigInt(ip.bits - len);
+  return { bits: ip.bits, shift, network: (ip.value >> shift) << shift };
+}
+
+/** Is this address inside that network? Families never match across each other. */
+export function ipInCidr(ip, cidr) {
+  if (!ip || !cidr || ip.bits !== cidr.bits) return false;
+  return ((ip.value >> cidr.shift) << cidr.shift) === cidr.network;
+}
+
+/**
+ * The address Apache observed: the last x-forwarded-for entry, falling back to
+ * the socket when the header is absent (direct connection, e.g. localhost).
+ */
+export function clientIpOf(req) {
+  const xff = req.headers?.['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const hops = xff.split(',').map((s) => s.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return req.socket?.remoteAddress || '';
+}
+
+const ALLOWED = (process.env.MCP_ALLOWED_IPS || DEFAULT_ALLOWED_IPS)
+  .split(',').map((s) => s.trim()).filter(Boolean)
+  .map((text) => { const c = parseCidr(text); if (!c) console.warn(`[mcp] ignoring unparseable MCP_ALLOWED_IPS entry: ${text}`); return c; })
+  .filter(Boolean);
+
+if (!ALLOWED.length) console.warn('[mcp] MCP_ALLOWED_IPS parsed to nothing — every request will be refused');
+
+router.use((req, res, next) => {
+  const raw = clientIpOf(req);
+  const ip = parseIp(raw);
+  if (ip && ALLOWED.some((c) => ipInCidr(ip, c))) return next();
+
+  // next('router') leaves this router entirely, so the response is whatever a
+  // wrong secret would have produced. Answering 403 here would confirm the
+  // path exists to anyone who found it.
+  console.warn(`[mcp] refused ${raw || 'unknown-ip'} ${req.method} ${(req.originalUrl || '').split('?')[0]}`);
+  return next('router');
+});
+
+
 router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
   const server = buildServer();
   const transport = new StreamableHTTPServerTransport({
