@@ -9,10 +9,26 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireCapability } from '../middleware/auth.js';
+import { pushHoursToGoogle } from '../lib/googleBusinessClient.js';
 
 const router = express.Router();
 const cId = (req) => req.companyId;
 const DEPT = 'main';
+
+// Push a venue's hours to Google after a change. Best-effort: a venue that isn't
+// connected/mapped is "nothing to do", and a real Google error must not fail the
+// save (the hours are already stored — Google is a downstream mirror). Returns a
+// small status the client can surface.
+async function pushGoogleBestEffort(companyId, locationId, userId) {
+  try {
+    const r = await pushHoursToGoogle(companyId, locationId, userId);
+    return { ok: true, ...r };
+  } catch (e) {
+    if (e.code === 'not_connected' || e.code === 'not_mapped') return { ok: false, skipped: e.code };
+    console.error('[hours] google push failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
 
 // GET /api/hours — web venues with their weekly schedule + upcoming specials.
 router.get('/', async (req, res) => {
@@ -113,8 +129,24 @@ router.put('/:locationId', requireCapability('reports.operational'), async (req,
          from, to, (iv.label || '').trim().slice(0, 80) || null]
       );
     }
-    res.json({ ok: true });
+    // Only the public 'main' hours are mirrored to Google.
+    const google_push = department === DEPT
+      ? await pushGoogleBestEffort(cId(req), locationId, req.userId) : null;
+    res.json({ ok: true, google_push });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/hours/:locationId/push-google — manually re-push this venue's hours.
+router.post('/:locationId/push-google', requireCapability('reports.operational'), async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    const chk = await query(`SELECT id FROM locations WHERE id = $1 AND company_id = $2`, [locationId, cId(req)]);
+    if (!chk.rows.length) return res.status(404).json({ error: 'Location not found' });
+    const r = await pushHoursToGoogle(cId(req), locationId, req.userId);
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
 });
 
 // POST /api/hours/:locationId/confirm-publish — record that a manager updated
@@ -151,15 +183,24 @@ router.post('/:locationId/special', requireCapability('reports.operational'), as
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [cId(req), locationId, department, on_date, !!is_closed, is_closed ? null : opens, is_closed ? null : closes, note]
     );
-    res.status(201).json({ id: r.rows[0].id });
+    const google_push = department === DEPT
+      ? await pushGoogleBestEffort(cId(req), locationId, req.userId) : null;
+    res.status(201).json({ id: r.rows[0].id, google_push });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // DELETE /api/hours/special/:id
 router.delete('/special/:id', requireCapability('reports.operational'), async (req, res) => {
   try {
+    // Resolve the venue first so we can re-push its hours after removing the override.
+    const row = (await query(
+      `SELECT location_id, department FROM kindred_web.hours_special WHERE id = $1 AND company_id = $2`,
+      [req.params.id, cId(req)]
+    )).rows[0];
     await query(`DELETE FROM kindred_web.hours_special WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
-    res.json({ ok: true });
+    const google_push = (row && row.department === DEPT)
+      ? await pushGoogleBestEffort(cId(req), row.location_id, req.userId) : null;
+    res.json({ ok: true, google_push });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

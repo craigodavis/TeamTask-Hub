@@ -2672,6 +2672,12 @@ export async function deleteSpecialHours(id) {
   if (!res.ok) throw new Error('Delete failed');
   return res.json();
 }
+export async function pushHoursToGoogle(locationId) {
+  const res = await fetch(`${API}/hours/${locationId}/push-google`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Push to Google failed');
+  return data;
+}
 
 export async function getWebsiteSettings() {
   const res = await fetch(`${API}/marketing/settings`, { headers: headers() });

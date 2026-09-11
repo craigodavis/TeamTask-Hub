@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getHours, saveHours, saveVenueDetails, addSpecialHours, deleteSpecialHours, confirmHoursPublished } from '../api';
+import { getHours, saveHours, saveVenueDetails, addSpecialHours, deleteSpecialHours, confirmHoursPublished, pushHoursToGoogle } from '../api';
+
+// Human-readable status for an auto/manual Google hours push result.
+function googlePushText(g) {
+  if (!g) return null;
+  if (g.ok) return `Google updated ✓ (${g.regular_periods} regular, ${g.special_periods} special)`;
+  if (g.skipped === 'not_connected') return 'Google not connected — connect it in Settings → Integrations';
+  if (g.skipped === 'not_mapped') return 'Not mapped to a Google location — map it in Settings → Integrations';
+  return `Google update failed: ${g.error || 'unknown error'}`;
+}
 import './HoursEditor.css';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -178,6 +187,8 @@ export function HoursEditor() {
   const [savedId, setSavedId] = useState(null);
   const [publishFor, setPublishFor] = useState(null);
   const [seasonErrs, setSeasonErrs] = useState({}); // locId -> { rowIndex: message }
+  const [gpush, setGpush] = useState({});   // locId -> last Google push result
+  const [pushingId, setPushingId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -250,10 +261,12 @@ export function HoursEditor() {
         list.forEach((iv) => { if (iv.opens && iv.closes) intervals.push({ day_of_week: dow, opens: iv.opens, closes: iv.closes }); })
       );
       (seasons[locId] || []).forEach((r) => intervals.push({ ...r }));
-      await saveHours(locId, intervals);
+      const res = await saveHours(locId, intervals);
+      setGpush((p) => ({ ...p, [locId]: res.google_push || null }));
       setSavedId(locId);
       setTimeout(() => setSavedId((s) => (s === locId ? null : s)), 1800);
-      setPublishFor(locId); // hours changed here — now nudge the outside listings
+      // Google is pushed automatically; only nudge for the listings we can't push yet.
+      setPublishFor(locId);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -261,8 +274,25 @@ export function HoursEditor() {
     }
   };
 
-  const delSpecial = async (id) => {
-    try { await deleteSpecialHours(id); await load(); } catch (e) { setError(e.message); }
+  const delSpecial = async (id, locId) => {
+    try {
+      const res = await deleteSpecialHours(id);
+      if (locId) setGpush((p) => ({ ...p, [locId]: res.google_push || null }));
+      await load();
+    } catch (e) { setError(e.message); }
+  };
+
+  const pushGoogleNow = async (locId) => {
+    setPushingId(locId);
+    setError('');
+    try {
+      const r = await pushHoursToGoogle(locId);
+      setGpush((p) => ({ ...p, [locId]: { ok: true, ...r } }));
+    } catch (e) {
+      setGpush((p) => ({ ...p, [locId]: { ok: false, error: e.message } }));
+    } finally {
+      setPushingId(null);
+    }
   };
 
   if (loading) return <div className="hours-editor"><h1>Store Hours</h1><p className="hint">Loading…</p></div>;
@@ -292,10 +322,20 @@ export function HoursEditor() {
         <div className="venue-card" key={loc.id}>
           <div className="venue-head">
             <h2>{loc.name} <span className="venue-key">{loc.venue}</span></h2>
-            <button className="btn btn-primary" onClick={() => save(loc.id)} disabled={savingId === loc.id}>
-              {savingId === loc.id ? 'Saving…' : savedId === loc.id ? 'Saved ✓' : 'Save hours'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="btn btn-ghost" onClick={() => pushGoogleNow(loc.id)} disabled={pushingId === loc.id}>
+                {pushingId === loc.id ? 'Pushing…' : 'Push to Google'}
+              </button>
+              <button className="btn btn-primary" onClick={() => save(loc.id)} disabled={savingId === loc.id}>
+                {savingId === loc.id ? 'Saving…' : savedId === loc.id ? 'Saved ✓' : 'Save hours'}
+              </button>
+            </div>
           </div>
+          {gpush[loc.id] && (
+            <p className="hint" style={{ color: gpush[loc.id].ok ? '#137333' : '#b06000', marginTop: 4 }}>
+              {googlePushText(gpush[loc.id])}
+            </p>
+          )}
 
           <VenueDetails locId={loc.id} initial={loc.details} onError={setError} />
 
@@ -383,10 +423,10 @@ export function HoursEditor() {
                 <span className="sp-date">{sp.on_date}</span>
                 <span className="sp-hours">{sp.is_closed ? 'Closed' : `${fmt(sp.opens)} – ${fmt(sp.closes)}`}</span>
                 <span className="sp-note">{sp.note}</span>
-                <button className="mini" onClick={() => delSpecial(sp.id)}>✕</button>
+                <button className="mini" onClick={() => delSpecial(sp.id, loc.id)}>✕</button>
               </div>
             ))}
-            <SpecialAdd locId={loc.id} onAdded={load} onError={setError} />
+            <SpecialAdd locId={loc.id} onAdded={(g) => { load(); if (g) setGpush((p) => ({ ...p, [loc.id]: g })); }} onError={setError} />
           </div>
         </div>
       ))}
@@ -444,9 +484,9 @@ function SpecialAdd({ locId, onAdded, onError }) {
     if (!date) return;
     setBusy(true);
     try {
-      await addSpecialHours(locId, { on_date: date, is_closed: closed, opens, closes, note });
+      const res = await addSpecialHours(locId, { on_date: date, is_closed: closed, opens, closes, note });
       setDate(''); setNote(''); setClosed(true);
-      onAdded();
+      onAdded(res?.google_push || null);
     } catch (e) { onError(e.message); } finally { setBusy(false); }
   };
 
