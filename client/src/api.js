@@ -792,6 +792,26 @@ export async function saveGBPLocations(mapping) {
   return data;
 }
 
+// ── Eventbrite ─────────────────────────────────────────────────────────────────
+export async function getEventbriteStatus() {
+  const res = await fetch(`${API}/integrations/eventbrite/status`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Eventbrite status');
+  return data;
+}
+export async function getEventbriteConnectUrl() {
+  const res = await fetch(`${API}/integrations/eventbrite/connect-url`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to get Eventbrite connect URL');
+  return data;
+}
+export async function disconnectEventbrite() {
+  const res = await fetch(`${API}/integrations/eventbrite/disconnect`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to disconnect Eventbrite');
+  return data;
+}
+
 export async function postEventToGBP(eventId) {
   const res = await fetch(`${API}/integrations/gbp/events/${eventId}/post`, { method: 'POST', headers: headers() });
   const data = await res.json().catch(() => ({}));

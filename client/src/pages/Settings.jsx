@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGBPStatus, getGBPConnectUrl, disconnectGBP, getGBPLocations, saveGBPLocations, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGBPStatus, getGBPConnectUrl, disconnectGBP, getGBPLocations, saveGBPLocations, getEventbriteStatus, getEventbriteConnectUrl, disconnectEventbrite, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
@@ -341,6 +341,9 @@ export function Settings() {
   const [gbpDisconnecting, setGbpDisconnecting] = useState(false);
   const [gbpLoc, setGbpLoc] = useState(null); // { venues, google, mapping }
   const [gbpSaving, setGbpSaving] = useState(false);
+  const [ebStatus, setEbStatus] = useState(null);
+  const [ebConnecting, setEbConnecting] = useState(false);
+  const [ebDisconnecting, setEbDisconnecting] = useState(false);
 
   const [mailHost, setMailHost] = useState('');
   const [mailPort, setMailPort] = useState('');
@@ -430,6 +433,12 @@ export function Settings() {
       window.history.replaceState({}, '', '/settings');
     } else if (params.get('gbp_error')) {
       setError(`Google Business Profile connection failed: ${params.get('gbp_error')}`);
+      window.history.replaceState({}, '', '/settings');
+    } else if (params.get('eventbrite_connected')) {
+      setMessage('Eventbrite connected successfully.');
+      window.history.replaceState({}, '', '/settings');
+    } else if (params.get('eventbrite_error')) {
+      setError(`Eventbrite connection failed: ${params.get('eventbrite_error')}`);
       window.history.replaceState({}, '', '/settings');
     }
   }, []);
@@ -645,6 +654,40 @@ export function Settings() {
       setError(e.message);
     } finally {
       setGbpSaving(false);
+    }
+  };
+
+  // ── Eventbrite handlers ───────────────────────────────────────────────────
+  const loadEventbrite = async () => {
+    try { setEbStatus(await getEventbriteStatus()); } catch (_) { /* owner-only */ }
+  };
+  useEffect(() => { if (isOwner && tab === 'integrations') loadEventbrite(); }, [tab, isOwner]);
+
+  const handleEventbriteConnect = async () => {
+    setEbConnecting(true);
+    setError('');
+    try {
+      const { url } = await getEventbriteConnectUrl();
+      window.location.href = url;
+    } catch (e) {
+      setError(e.message);
+      setEbConnecting(false);
+    }
+  };
+
+  const handleEventbriteDisconnect = async () => {
+    if (!window.confirm('Disconnect Eventbrite? Stored tokens for this company will be removed.')) return;
+    setEbDisconnecting(true);
+    setError('');
+    try {
+      await disconnectEventbrite();
+      setEbStatus(null);
+      setMessage('Eventbrite disconnected.');
+      loadEventbrite();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setEbDisconnecting(false);
     }
   };
 
@@ -1247,6 +1290,38 @@ export function Settings() {
                 )}
                 <button type="button" className="btn-test" onClick={handleGBPConnect} disabled={gbpConnecting || (gbpStatus && !gbpStatus.configured)}>
                   {gbpConnecting ? 'Connecting…' : 'Connect Google'}
+                </button>
+              </div>
+            )}
+          </fieldset>
+
+          {/* ── Eventbrite ────────────────────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Eventbrite</legend>
+            {ebStatus?.connected ? (
+              <div>
+                <p className="test-result success">
+                  Connected{ebStatus.name ? ` as ${ebStatus.name}` : ''}
+                </p>
+                <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+                  Events announced in Marketing → Events are created and published on Eventbrite automatically.
+                </p>
+                <button type="button" className="btn-test" onClick={handleEventbriteDisconnect} disabled={ebDisconnecting}>
+                  {ebDisconnecting ? 'Disconnecting…' : 'Disconnect Eventbrite'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+                  Connect Eventbrite to auto-create and publish an Eventbrite event when a Kindred event is announced.
+                </p>
+                {ebStatus && !ebStatus.configured && (
+                  <p className="test-result" style={{ color: '#a33' }}>
+                    Not configured on the server — set EVENTBRITE_CLIENT_ID and EVENTBRITE_CLIENT_SECRET.
+                  </p>
+                )}
+                <button type="button" className="btn-test" onClick={handleEventbriteConnect} disabled={ebConnecting || (ebStatus && !ebStatus.configured)}>
+                  {ebConnecting ? 'Connecting…' : 'Connect Eventbrite'}
                 </button>
               </div>
             )}

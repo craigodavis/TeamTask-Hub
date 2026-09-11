@@ -4119,6 +4119,34 @@ const MIGRATIONS = [
   // tier on conflict but never its enabled flag, so an already-seeded (disabled)
   // eventbrite row needs this to switch on and move to the assisted tier.
   `UPDATE promo_channels SET enabled = true, tier = 'assisted', updated_at = NOW() WHERE key = 'eventbrite'`,
+  // Eventbrite integration credentials on company_integrations. Eventbrite OAuth
+  // access tokens do not expire and there is no refresh token, so a single stored
+  // token is the whole credential. eventbrite_org_id is the organization events
+  // are created under (resolved from the connected account at connect time).
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS eventbrite_token          TEXT,
+     ADD COLUMN IF NOT EXISTS eventbrite_pending_state  VARCHAR(200),
+     ADD COLUMN IF NOT EXISTS eventbrite_connected_name TEXT,
+     ADD COLUMN IF NOT EXISTS eventbrite_org_id         TEXT`,
+  // One row per (event) push to Eventbrite. Lets us show state, avoid creating a
+  // second event on re-announce, and keep the public/edit URL.
+  `CREATE TABLE IF NOT EXISTS eventbrite_event_posts (
+     id                  BIGSERIAL PRIMARY KEY,
+     company_id          UUID NOT NULL,
+     event_id            UUID NOT NULL,
+     eventbrite_event_id TEXT,
+     url                 TEXT,
+     state               VARCHAR(20) NOT NULL DEFAULT 'pending',
+     error               TEXT,
+     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by          UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_eventbrite_event_posts_unique
+     ON eventbrite_event_posts(company_id, event_id)`,
+  // Eventbrite channel gets a real API now — put it back on the 'auto' tier so
+  // announce() posts it for real (falling back to a person only when unconnected).
+  `UPDATE promo_channels SET tier = 'auto', updated_at = NOW() WHERE key = 'eventbrite'`,
 ];
 
 export async function runMigrations() {

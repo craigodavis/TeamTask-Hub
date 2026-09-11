@@ -122,6 +122,9 @@ const STATEMENTS = [
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_by    UUID
   )`,
+  // Eventbrite venue id for this location, created once from the address above and
+  // reused so each event push doesn't spawn a duplicate venue on Eventbrite.
+  `ALTER TABLE kindred_web.venue_details ADD COLUMN IF NOT EXISTS eventbrite_venue_id VARCHAR(40)`,
 
   // Page image slots: which library image fills each named spot on the website.
   `CREATE TABLE IF NOT EXISTS kindred_web.page_images (
