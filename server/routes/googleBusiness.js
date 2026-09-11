@@ -35,7 +35,7 @@ function getSettingsUrl() {
 
 // The v4 localPosts endpoint needs "accounts/{acct}/locations/{loc}". The
 // Business Information API returns location.name as "locations/{loc}", so we
-// stitch the two together and store the full v4 resource in gbp_locations.
+// stitch the two together and store the full v4 resource in venue_details.gbp_location.
 function v4Resource(accountName, location) {
   const locName = location.name || '';
   if (locName.startsWith('accounts/')) return locName;
