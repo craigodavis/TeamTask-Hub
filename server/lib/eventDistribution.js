@@ -25,6 +25,7 @@
 import crypto from 'crypto';
 import { query } from '../db.js';
 import { postEventToGoogleBusiness } from './googleBusinessClient.js';
+import { postEventToEventbrite } from './eventbriteClient.js';
 
 // The catalogue. Seeded per company on first use, so adding one here is all it
 // takes — no migration. `enabled` here is only the default for a new company.
@@ -41,8 +42,8 @@ export const CHANNELS = [
     note: 'Web push to members — a reminder, so it goes 2 days out, not weeks. Infrastructure exists (Club 77 notifications); not wired to events yet.' },
   { key: 'google_business', name: 'Google Business',    tier: 'auto',     sort: 30, enabled: true,  lead: 7,
     note: 'Event post on the Google listing; posts age out, so 1 week out. Posts automatically once Google Business Profile is connected in Settings and the venue is mapped to a Google location; until then it falls back to a person.' },
-  { key: 'eventbrite',      name: 'Eventbrite',         tier: 'assisted', sort: 40, enabled: true,  lead: 21,
-    note: 'Free listings for free events. Manual for now via the create page; a candidate for REST API v3 automation later.',
+  { key: 'eventbrite',      name: 'Eventbrite',         tier: 'auto',     sort: 40, enabled: true,  lead: 21,
+    note: 'Creates + publishes a real Eventbrite event via the API once connected in Settings. Free RSVP ticket; falls back to a person if Eventbrite refuses to publish (incomplete listing).',
     link: 'https://www.eventbrite.com/create' },
 
   { key: 'facebook_event',  name: 'Facebook Event',     tier: 'assisted', sort: 50, enabled: true,  lead: 21,
@@ -327,6 +328,41 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
       } catch (e) {
         // not_connected / not_mapped → let a person handle it; otherwise it failed.
         const soft = e.code === 'not_connected' || e.code === 'not_mapped';
+        const status = soft ? 'needs_human' : 'failed';
+        await query(
+          `INSERT INTO event_channel_posts
+             (company_id, event_id, channel_key, status, last_error, payload_hash)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (event_id, channel_key) DO UPDATE
+             SET status=EXCLUDED.status, last_error=EXCLUDED.last_error,
+                 payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+          [companyId, eventId, ch.key, status, e.message, dist.payload_hash]);
+        touched.push({ key: ch.key, action: status, error: e.message });
+        continue;
+      }
+    }
+
+    // Eventbrite: create + publish a real event. A draft that Eventbrite won't
+    // publish becomes a person's task to finish (with the draft URL); a hard
+    // error is Failed; not-connected falls back to the human path.
+    if (ch.key === 'eventbrite') {
+      try {
+        const r = await postEventToEventbrite(companyId, eventId, userId);
+        const status = r.published ? 'posted' : 'needs_human';
+        await query(
+          `INSERT INTO event_channel_posts
+             (company_id, event_id, channel_key, status, external_url, posted_at, posted_by, last_error, payload_hash)
+           VALUES ($1,$2,$3,$4,$5, CASE WHEN $4='posted' THEN NOW() END, $6,
+                   CASE WHEN $4='posted' THEN NULL ELSE 'Created as an Eventbrite draft — finish & publish it' END, $7)
+           ON CONFLICT (event_id, channel_key) DO UPDATE
+             SET status=EXCLUDED.status, external_url=EXCLUDED.external_url,
+                 posted_at=EXCLUDED.posted_at, posted_by=EXCLUDED.posted_by,
+                 last_error=EXCLUDED.last_error, payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+          [companyId, eventId, ch.key, status, r.url || null, userId || null, dist.payload_hash]);
+        touched.push({ key: ch.key, action: status });
+        continue;
+      } catch (e) {
+        const soft = e.code === 'not_connected';
         const status = soft ? 'needs_human' : 'failed';
         await query(
           `INSERT INTO event_channel_posts
