@@ -199,23 +199,22 @@ export async function deleteLocalPost(companyId, localPostName) {
 }
 
 // ── High-level: post one event to its venue's Google Business Profile ─────────
-const EVENT_TZ = process.env.GBP_EVENT_TZ || 'America/Los_Angeles';
 function publicSiteBase() {
   return (process.env.PUBLIC_SITE_BASE || 'https://kindredvineyards.com').replace(/\/$/, '');
 }
 
-// Break a JS Date into Google's {year,month,day} / {hours,minutes} in EVENT_TZ.
+// Break a JS Date into Google's {year,month,day} / {hours,minutes}.
+//
+// TeamHub stores event times as wall-clock labelled UTC: 18:00Z *means* 6 PM at
+// the venue, not 6 PM UTC. (eventDistribution.whenText formats with timeZone
+// 'UTC' for exactly this reason.) Google's Event schedule carries no offset —
+// startTime is bare hours/minutes shown in the venue's local time — so we read
+// the UTC clock face straight through. Shifting into a real zone would move
+// 6 PM to 11 AM, which is the bug this fixes.
 function googleDateParts(date) {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: EVENT_TZ, year: 'numeric', month: 'numeric', day: 'numeric',
-    hour: 'numeric', minute: 'numeric', hour12: false,
-  });
-  const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
-  let hours = parseInt(parts.hour, 10);
-  if (hours === 24) hours = 0; // some ICU builds emit 24 for midnight
   return {
-    date: { year: +parts.year, month: +parts.month, day: +parts.day },
-    time: { hours, minutes: parseInt(parts.minute, 10) },
+    date: { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() },
+    time: { hours: date.getUTCHours(), minutes: date.getUTCMinutes() },
   };
 }
 
