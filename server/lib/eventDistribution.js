@@ -51,9 +51,6 @@ export const CHANNELS = [
     link: 'https://www.facebook.com/events/create/' },
   { key: 'instagram',       name: 'Instagram post',     tier: 'assisted', sort: 60, enabled: true,  lead: 21,
     note: 'Feed post. Image-first — use the social image if one is set.' },
-  { key: 'bandsintown',     name: 'Bandsintown',        tier: 'assisted', sort: 70, enabled: true,  lead: 21,
-    note: 'Artist-side. Ask the performer to add the Kindred date — it reaches their followers.',
-    link: 'https://www.bandsintown.com/' },
 
   // Local listing/tourism outlets — each a manual submit form (no public API),
   // so 'assisted': the panel prepares copy + a deep link and tracks whether it
@@ -74,12 +71,6 @@ export const CHANNELS = [
   { key: 'boise_weekly',    name: 'Boise Weekly',       tier: 'assisted', sort: 85, enabled: true,  lead: 21,
     note: 'Calendar submission (now under Idaho Press). Free listing; questions to calendar@boiseweekly.com.',
     link: 'https://www.idahopress.com/boiseweekly/local-events/' },
-  { key: 'city_caldwell',   name: 'City of Caldwell',   tier: 'assisted', sort: 86, enabled: true,  lead: 21,
-    note: 'City "Share Your Local Event" form. Community events only — the city won\'t list events that primarily sell a business\'s goods/services, so frame it as a public happening.',
-    link: 'https://www.cityofcaldwell.org/Visitors/Share-Your-Local-Event' },
-  { key: 'caldwell_chamber', name: 'Caldwell Chamber',  tier: 'assisted', sort: 87, enabled: false, lead: 21,
-    note: 'Member events calendar (ChamberMaster). Off by default — enable if Kindred is a chamber member.',
-    link: 'https://business.caldwellchamber.org/events' },
 
   { key: 'press',           name: 'Wine trade & regional press', tier: 'outreach', sort: 90, enabled: true, lead: 21,
     note: 'The remaining outreach contacts: Idaho Wine Commission, Sunnyslope Wine Trail, Visit SW Idaho, Idaho Statesman. Uses the existing promo_emails flow.' },
@@ -140,9 +131,6 @@ export function suggestedCopy(payload, channelKey) {
   const when = whenText(payload);
   const where = payload.venue === 'creek' ? 'Kindred by the Creek' : 'Kindred Vineyards';
   const base = `${payload.title}\n${when} · ${where}`;
-  if (channelKey === 'bandsintown') {
-    return `${base}\n\nAsk the performer to add this date to their Bandsintown profile — it notifies their followers.`;
-  }
   const blurb = (payload.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   return `${base}\n\n${blurb.slice(0, 300)}${blurb.length > 300 ? '…' : ''}\n\n${payload.url}`.trim();
 }

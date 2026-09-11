@@ -4147,6 +4147,9 @@ const MIGRATIONS = [
   // Eventbrite channel gets a real API now — put it back on the 'auto' tier so
   // announce() posts it for real (falling back to a person only when unconnected).
   `UPDATE promo_channels SET tier = 'auto', updated_at = NOW() WHERE key = 'eventbrite'`,
+  // Retired distribution channels — removed from the catalogue, so also drop the
+  // seeded rows or they'd linger in each event's Distribution panel.
+  `DELETE FROM promo_channels WHERE key IN ('bandsintown', 'city_caldwell', 'caldwell_chamber')`,
 ];
 
 export async function runMigrations() {
