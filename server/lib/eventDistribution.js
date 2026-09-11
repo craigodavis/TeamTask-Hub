@@ -26,6 +26,7 @@ import crypto from 'crypto';
 import { query } from '../db.js';
 import { postEventToGoogleBusiness } from './googleBusinessClient.js';
 import { postEventToEventbrite } from './eventbriteClient.js';
+import { createEventPush } from './clubPush.js';
 
 // The catalogue. Seeded per company on first use, so adding one here is all it
 // takes — no migration. `enabled` here is only the default for a new company.
@@ -38,8 +39,8 @@ export const DEFAULT_LEAD_DAYS = 21;
 export const CHANNELS = [
   { key: 'website',         name: 'Kindred website',    tier: 'auto',     sort: 10, enabled: true,  lead: 21,
     note: 'Already automatic — the site rebuilds from /api/website when content changes.' },
-  { key: 'app_push',        name: 'Kindred App push',   tier: 'auto',     sort: 20, enabled: false, lead: 2,
-    note: 'Web push to members — a reminder, so it goes 2 days out, not weeks. Infrastructure exists (Club 77 notifications); not wired to events yet.' },
+  { key: 'app_push',        name: 'Kindred App push',   tier: 'auto',     sort: 20, enabled: true,  lead: 2,
+    note: 'Web push to the app\'s "Events & music" members. Announce now sends immediately; Schedule sends 2 days before (a push weeks early is noise). Deep-links into the reserve screen.' },
   { key: 'google_business', name: 'Google Business',    tier: 'auto',     sort: 30, enabled: true,  lead: 7,
     note: 'Event post on the Google listing; posts age out, so 1 week out. Posts automatically once Google Business Profile is connected in Settings and the venue is mapped to a Google location; until then it falls back to a person.' },
   { key: 'eventbrite',      name: 'Eventbrite',         tier: 'auto',     sort: 40, enabled: true,  lead: 21,
@@ -147,13 +148,17 @@ export async function getDistribution(companyId, eventId) {
   const payload = buildPayload(ev);
   const hash = hashPayload(payload);
 
+  // pe.enabled overrides the company default for this one event.
   const rows = (await query(
-    `SELECT c.key, c.name, c.tier, c.enabled, c.sort_order, c.lead_days,
+    `SELECT c.key, c.name, c.tier, c.enabled AS default_enabled, c.sort_order, c.lead_days,
+            COALESCE(pe.enabled, c.enabled) AS enabled,
             p.id AS post_id, p.status, p.external_url, p.payload_hash,
             p.posted_at, p.scheduled_at, p.last_error, p.promo_task_id
        FROM promo_channels c
        LEFT JOIN event_channel_posts p
          ON p.channel_key = c.key AND p.event_id = $2
+       LEFT JOIN event_channel_prefs pe
+         ON pe.channel_key = c.key AND pe.event_id = $2
       WHERE c.company_id = $1
       ORDER BY c.sort_order`, [companyId, eventId])).rows;
 
@@ -162,7 +167,7 @@ export async function getDistribution(companyId, eventId) {
     // Posted against an older payload — the event changed underneath it.
     const stale = r.status === 'posted' && r.payload_hash && r.payload_hash !== hash;
     return {
-      key: r.key, name: r.name, tier: r.tier, enabled: r.enabled,
+      key: r.key, name: r.name, tier: r.tier, enabled: r.enabled, default_enabled: r.default_enabled,
       status: stale ? 'stale' : (r.status ?? 'pending'),
       external_url: r.external_url, posted_at: r.posted_at, last_error: r.last_error,
       post_id: r.post_id, promo_task_id: r.promo_task_id,
@@ -361,6 +366,40 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
                  payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
           [companyId, eventId, ch.key, status, e.message, dist.payload_hash]);
         touched.push({ key: ch.key, action: status, error: e.message });
+        continue;
+      }
+    }
+
+    // App push: send a real web push to the "Events & music" members now.
+    if (ch.key === 'app_push') {
+      try {
+        const r = await createEventPush(companyId, eventId, { userId, sendNow: true });
+        // no_vapid is the only "can't" that a person should fix; everything else
+        // (no subscribers, already pushed) is a legitimate done/skip.
+        const status = r.skipped === 'no_vapid' ? 'needs_human' : 'posted';
+        const note = r.skipped === 'no_vapid'
+          ? 'Web push isn\'t set up (no VAPID keys) — configure push first'
+          : (r.skipped === 'already_pushed' ? 'A push for this event was already sent' : null);
+        await query(
+          `INSERT INTO event_channel_posts
+             (company_id, event_id, channel_key, status, external_url, posted_at, posted_by, last_error, payload_hash)
+           VALUES ($1,$2,$3,$4,$5, CASE WHEN $4='posted' THEN NOW() END, $6, $7, $8)
+           ON CONFLICT (event_id, channel_key) DO UPDATE
+             SET status=EXCLUDED.status, external_url=EXCLUDED.external_url,
+                 posted_at=EXCLUDED.posted_at, posted_by=EXCLUDED.posted_by,
+                 last_error=EXCLUDED.last_error, payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+          [companyId, eventId, ch.key, status, r.url || null, userId || null, note, dist.payload_hash]);
+        touched.push({ key: ch.key, action: status });
+        continue;
+      } catch (e) {
+        await query(
+          `INSERT INTO event_channel_posts
+             (company_id, event_id, channel_key, status, last_error, payload_hash)
+           VALUES ($1,$2,$3,'failed',$4,$5)
+           ON CONFLICT (event_id, channel_key) DO UPDATE
+             SET status='failed', last_error=EXCLUDED.last_error, payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+          [companyId, eventId, ch.key, e.message, dist.payload_hash]);
+        touched.push({ key: ch.key, action: 'failed', error: e.message });
         continue;
       }
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -377,6 +377,13 @@ function DistributionCard({ eventId, card }) {
     try { await markEventChannelPost(postId, { status, external_url: url }); load(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  const toggleChannel = async (key, enabled) => {
+    setErr('');
+    // Optimistic — flip locally, then persist.
+    setDist((d) => d && ({ ...d, channels: d.channels.map((c) => c.key === key ? { ...c, enabled } : c) }));
+    try { await setEventChannelEnabled(eventId, key, enabled); }
+    catch (e) { setErr(e.message); load(); }
+  };
 
   if (!dist) return null;
 
@@ -413,18 +420,21 @@ function DistributionCard({ eventId, card }) {
       </div>
       {err && <p style={{ color: '#b00', fontSize: 13 }}>{err}</p>}
       <p style={{ fontSize: 12, opacity: 0.6, margin: '6px 0 0' }}>
-        Scheduling is relative to the event, so it works for anything you book at any notice.
-        App push and Google Business keep their own timing — a push weeks early is noise, and
-        Google posts age out — so they stay at 2 and 7 days regardless.
+        Uncheck a channel to skip it for this event (remembered per event). Scheduling is relative
+        to the event, so it works at any notice. App push and Google Business keep their own timing —
+        a push weeks early is noise and Google posts age out — so they stay at 2 and 7 days regardless.
       </p>
 
       <div style={{ marginTop: 10 }}>
         {dist.channels.map((c) => {
           const p = PILL[c.status] ?? PILL.pending;
           return (
-            <div key={c.key} style={{ borderTop: '1px solid var(--border,#eee)', padding: '10px 0' }}>
+            <div key={c.key} style={{ borderTop: '1px solid var(--border,#eee)', padding: '10px 0', opacity: c.enabled ? 1 : 0.5 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, minWidth: 150 }}>{c.name}</span>
+                <input type="checkbox" checked={!!c.enabled} onChange={(e) => toggleChannel(c.key, e.target.checked)}
+                       title={c.enabled ? 'On for this event — uncheck to skip it' : 'Skipped for this event — check to include'}
+                       style={{ cursor: 'pointer' }} />
+                <span style={{ fontWeight: 600, minWidth: 140 }}>{c.name}</span>
                 <span style={{ background: p.bg, color: p.fg, borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>{p.label}</span>
                 <span style={{ fontSize: 12, opacity: 0.55 }}>{TIER[c.tier]}</span>
                 {c.status === 'scheduled' && c.scheduled_at && (

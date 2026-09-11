@@ -217,6 +217,77 @@ export async function runDueSends() {
   return results;
 }
 
+/**
+ * Create (and optionally send now) an app push about an event, to the
+ * "Events & music" group. Reusable by the event distribution flow so an
+ * announce fires a real member push. Idempotent per event: if the event already
+ * has a scheduled/sent push it returns that rather than notifying twice.
+ *
+ * Returns { skipped } for a no-op (cancelled event, no group, already pushed,
+ * no VAPID) or { sendId, url, delivered, recipients } on a send. Never throws
+ * for the "nothing to do" cases — the caller treats those as a soft skip.
+ */
+export async function createEventPush(companyId, eventId, { userId = null, sendNow = true, scheduledFor = null } = {}) {
+  const group = (await query(
+    `SELECT id FROM club_notification_groups WHERE company_id = $1 AND key = 'events_music' AND active = true`,
+    [companyId]
+  )).rows[0];
+  if (!group) return { skipped: 'no_events_group' };
+
+  const ev = (await query(
+    `SELECT e.title, e.slug, e.start_at, e.status, l.web_slug AS venue
+       FROM events e LEFT JOIN locations l ON l.id = e.location_id
+      WHERE e.id = $1 AND e.company_id = $2`,
+    [eventId, companyId]
+  )).rows[0];
+  if (!ev) return { skipped: 'event_not_found' };
+  if (String(ev.status || '').toLowerCase() === 'cancelled') return { skipped: 'event_cancelled' };
+
+  // Don't double-notify: one push per event unless a person explicitly adds more.
+  const dupe = (await query(
+    `SELECT id, url FROM club_notification_sends
+      WHERE event_id = $1 AND status IN ('scheduled','sending','sent') LIMIT 1`, [eventId]
+  )).rows[0];
+  if (dupe) return { skipped: 'already_pushed', sendId: dupe.id, url: dupe.url };
+
+  // Deep link into the PWA's reserve screen, pre-filled (matches the manual flow).
+  let url = null;
+  if (ev.slug) {
+    const p = new URLSearchParams({ event: ev.slug });
+    if (ev.title) p.set('eventLabel', ev.title);
+    if (ev.venue) p.set('venue', ev.venue);
+    if (ev.start_at) {
+      const d = new Date(ev.start_at);
+      p.set('date', d.toISOString().slice(0, 10));
+      p.set('time', d.toISOString().slice(11, 16));
+    }
+    url = `https://friend.kindredvineyards.com/reserve?${p.toString()}`;
+  }
+
+  // Wall-clock-labelled-UTC → readable "Friday, September 12 · 6:00 PM".
+  const when = ev.start_at ? new Date(ev.start_at).toLocaleString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC',
+  }) : '';
+  const where = ev.venue === 'creek' ? 'Kindred by the Creek' : 'Kindred Vineyards';
+  const title = (ev.title || 'Event').slice(0, 80);
+  const body = `${when}${when ? ' · ' : ''}${where}`.slice(0, 160);
+
+  const scheduled = sendNow ? new Date() : (scheduledFor ? new Date(scheduledFor) : new Date());
+  const ins = await query(
+    `INSERT INTO club_notification_sends
+       (company_id, group_id, event_id, title, body, url, scheduled_for, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [companyId, group.id, eventId, title, body, url, scheduled, userId]
+  );
+  const sendId = ins.rows[0].id;
+  if (!sendNow) return { sendId, url, scheduled: scheduled.toISOString() };
+
+  const vapid = await getVapid(companyId);
+  if (!vapid) return { sendId, url, skipped: 'no_vapid' };
+  const result = await deliverSend(sendId);
+  return { sendId, url, delivered: result.delivered ?? 0, recipients: result.recipients ?? 0 };
+}
+
 let started = false;
 export function startClubPushScheduler() {
   if (started) return;
