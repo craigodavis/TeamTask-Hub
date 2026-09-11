@@ -4115,6 +4115,10 @@ const MIGRATIONS = [
   // external calls). Harmless when Google isn't connected yet — announce() falls
   // back to the human-task path until the profile is connected and mapped.
   `UPDATE promo_channels SET enabled = true, updated_at = NOW() WHERE key = 'google_business'`,
+  // Turn Eventbrite on for existing companies. ensureChannels updates a channel's
+  // tier on conflict but never its enabled flag, so an already-seeded (disabled)
+  // eventbrite row needs this to switch on and move to the assisted tier.
+  `UPDATE promo_channels SET enabled = true, tier = 'assisted', updated_at = NOW() WHERE key = 'eventbrite'`,
 ];
 
 export async function runMigrations() {
