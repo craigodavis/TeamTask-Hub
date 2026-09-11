@@ -17,6 +17,7 @@ import { integrationsRouter, startDailySquareAutoSync, startReportScheduler } fr
 import { scheduledReportsRouter } from './routes/scheduledReports.js';
 import { permissionsRouter } from './routes/permissions.js';
 import { qboRouter } from './routes/qbo.js';
+import { googleBusinessRouter } from './routes/googleBusiness.js';
 import { requireAuth, requireCapability } from './middleware/auth.js';
 import { serviceTokensRouter } from './routes/serviceTokens.js';
 import { bettyRouter } from './routes/betty.js';
@@ -133,6 +134,7 @@ app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/announcements', requireAuth, announcementsRouter);
 app.use('/api/food-waste', requireAuth, foodWasteRouter);
 app.use('/api/integrations/qbo', qboRouter);
+app.use('/api/integrations/gbp', googleBusinessRouter);
 app.use('/api/integrations', requireAuth, requireCapability('sms.send'), integrationsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/locations', requireAuth, websiteContentWatch, locationsRouter);

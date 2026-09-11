@@ -24,6 +24,7 @@
  */
 import crypto from 'crypto';
 import { query } from '../db.js';
+import { postEventToGoogleBusiness } from './googleBusinessClient.js';
 
 // The catalogue. Seeded per company on first use, so adding one here is all it
 // takes — no migration. `enabled` here is only the default for a new company.
@@ -38,8 +39,8 @@ export const CHANNELS = [
     note: 'Already automatic — the site rebuilds from /api/website when content changes.' },
   { key: 'app_push',        name: 'Kindred App push',   tier: 'auto',     sort: 20, enabled: false, lead: 2,
     note: 'Web push to members — a reminder, so it goes 2 days out, not weeks. Infrastructure exists (Club 77 notifications); not wired to events yet.' },
-  { key: 'google_business', name: 'Google Business',    tier: 'auto',     sort: 30, enabled: false, lead: 7,
-    note: 'Event post on the Google listing; posts age out, so 1 week out. Needs Business Profile API access (quota > 0). Posts live on the legacy v4.9 localPosts endpoint, not the newer split APIs.' },
+  { key: 'google_business', name: 'Google Business',    tier: 'auto',     sort: 30, enabled: true,  lead: 7,
+    note: 'Event post on the Google listing; posts age out, so 1 week out. Posts automatically once Google Business Profile is connected in Settings and the venue is mapped to a Google location; until then it falls back to a person.' },
   { key: 'eventbrite',      name: 'Eventbrite',         tier: 'auto',     sort: 40, enabled: false, lead: 21,
     note: 'REST API v3. Free listings for free events.' },
 
@@ -278,6 +279,40 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
   for (const ch of wanted) {
     // Already posted against this exact payload — nothing to do.
     if (ch.status === 'posted') { touched.push({ key: ch.key, action: 'skipped (already posted)' }); continue; }
+
+    // Google Business is the one auto channel with a real API. Post it for real;
+    // fall back to the human-task path only if it isn't connected/mapped, and
+    // record a hard failure so it shows as Failed rather than silently pending.
+    if (ch.key === 'google_business') {
+      try {
+        const r = await postEventToGoogleBusiness(companyId, eventId, userId);
+        await query(
+          `INSERT INTO event_channel_posts
+             (company_id, event_id, channel_key, status, external_url, posted_at, posted_by, payload_hash)
+           VALUES ($1,$2,$3,'posted',$4,NOW(),$5,$6)
+           ON CONFLICT (event_id, channel_key) DO UPDATE
+             SET status='posted', external_url=EXCLUDED.external_url, posted_at=NOW(),
+                 posted_by=EXCLUDED.posted_by, last_error=NULL,
+                 payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+          [companyId, eventId, ch.key, r.searchUrl || null, userId || null, dist.payload_hash]);
+        touched.push({ key: ch.key, action: 'posted' });
+        continue;
+      } catch (e) {
+        // not_connected / not_mapped → let a person handle it; otherwise it failed.
+        const soft = e.code === 'not_connected' || e.code === 'not_mapped';
+        const status = soft ? 'needs_human' : 'failed';
+        await query(
+          `INSERT INTO event_channel_posts
+             (company_id, event_id, channel_key, status, last_error, payload_hash)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (event_id, channel_key) DO UPDATE
+             SET status=EXCLUDED.status, last_error=EXCLUDED.last_error,
+                 payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+          [companyId, eventId, ch.key, status, e.message, dist.payload_hash]);
+        touched.push({ key: ch.key, action: status, error: e.message });
+        continue;
+      }
+    }
 
     let taskId = ch.promo_task_id;
     if (ch.tier === 'assisted' && !taskId) {
