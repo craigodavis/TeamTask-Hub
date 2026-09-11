@@ -15,6 +15,7 @@
  *                                              posts as of 2026)
  */
 import { query } from '../db.js';
+import { toGoogle, addDays } from './hoursResolver.js';
 
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo';
@@ -198,6 +199,20 @@ export async function deleteLocalPost(companyId, localPostName) {
   return apiFetch(companyId, url, { method: 'DELETE' });
 }
 
+/**
+ * Patch a location's opening hours via the Business Information API v1.
+ * locationName is "locations/{id}" (no account prefix). hours is
+ * { regularHours, specialHours } in BI-API v1 shape (TimeOfDay objects).
+ */
+export async function updateLocationHours(companyId, locationName, { regularHours, specialHours }) {
+  const url = new URL(`${BIZ_INFO_BASE}/${locationName}`);
+  url.searchParams.set('updateMask', 'regularHours,specialHours');
+  return apiFetch(companyId, url.toString(), {
+    method: 'PATCH',
+    body: { regularHours, specialHours },
+  });
+}
+
 // ── High-level: post one event to its venue's Google Business Profile ─────────
 function publicSiteBase() {
   return (process.env.PUBLIC_SITE_BASE || 'https://kindredvineyards.com').replace(/\/$/, '');
@@ -309,4 +324,114 @@ export async function postEventToGoogleBusiness(companyId, eventId, userId = nul
   );
 
   return { name: created?.name || null, searchUrl: created?.searchUrl || null, resource };
+}
+
+// ── High-level: push a venue's opening hours to its Google Business Profile ────
+const HOURS_DEPT = 'main';           // the venue's public-facing hours
+const SPECIAL_WINDOW_DAYS = 120;     // how far ahead to send dated exceptions
+
+// venue_details.gbp_location is the v4 form "accounts/{a}/locations/{l}"; the
+// Business Information API addresses the same place as "locations/{l}".
+function biLocationName(gbpLocation) {
+  const m = String(gbpLocation || '').match(/locations\/[^/]+/);
+  return m ? m[0] : null;
+}
+
+// Today's date 'YYYY-MM-DD' in the venue's timezone (Kindred is America/Boise).
+function todayLocal(tz = 'America/Boise') {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+// "HH:MM" -> Business Information API TimeOfDay { hours, minutes }.
+const toTimeOfDay = (s) => {
+  const [h, m] = String(s).split(':').map(Number);
+  return { hours: h || 0, minutes: m || 0 };
+};
+
+// hoursResolver.toGoogle emits string times (its legacy v4 shape); the BI API v1
+// wants TimeOfDay objects and an explicit endDate on every special period.
+function toBusinessInfoHours(g) {
+  return {
+    regularHours: {
+      periods: (g.regularHours?.periods || []).map((p) => ({
+        openDay: p.openDay, openTime: toTimeOfDay(p.openTime),
+        closeDay: p.closeDay, closeTime: toTimeOfDay(p.closeTime),
+      })),
+    },
+    specialHours: {
+      specialHourPeriods: (g.specialHours?.specialHourPeriods || []).map((sp) =>
+        sp.closed
+          ? { startDate: sp.startDate, endDate: sp.endDate || sp.startDate, closed: true }
+          : {
+              startDate: sp.startDate, endDate: sp.endDate || sp.startDate,
+              openTime: toTimeOfDay(sp.openTime), closeTime: toTimeOfDay(sp.closeTime), closed: false,
+            }
+      ),
+    },
+  };
+}
+
+/**
+ * Push regular + special hours for one venue to Google.
+ *
+ * Reads the same kindred_web.hours / hours_special rows the website and the
+ * "Open now" badge read, resolves them through hoursResolver.toGoogle (weekly
+ * pattern + dated exceptions, seasonal rules expanded to dates because Google
+ * has no season concept), converts to BI-API v1 shape, and PATCHes the location.
+ * Records the push in hours_publish_log.
+ *
+ * Throws with `.code` 'not_connected' or 'not_mapped' so callers can treat those
+ * as "nothing to do yet" rather than errors.
+ */
+export async function pushHoursToGoogle(companyId, locationId, userId = null) {
+  const connected = (await query(
+    `SELECT gbp_refresh_token IS NOT NULL AS connected FROM company_integrations WHERE company_id = $1`,
+    [companyId]
+  )).rows[0]?.connected;
+  if (!connected) { const e = new Error('Google Business Profile is not connected.'); e.code = 'not_connected'; e.statusCode = 409; throw e; }
+
+  const gbpLocation = (await query(
+    `SELECT gbp_location FROM kindred_web.venue_details WHERE location_id = $1`,
+    [locationId]
+  )).rows[0]?.gbp_location;
+  const locationName = biLocationName(gbpLocation);
+  if (!locationName) {
+    const e = new Error('This venue is not mapped to a Google location.'); e.code = 'not_mapped'; e.statusCode = 400; throw e;
+  }
+
+  const rules = (await query(
+    `SELECT day_of_week,
+            to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes,
+            to_char(from_date,'YYYY-MM-DD') AS from_date,
+            to_char(to_date,'YYYY-MM-DD')   AS to_date, label
+       FROM kindred_web.hours WHERE location_id = $1 AND department = $2`,
+    [locationId, HOURS_DEPT]
+  )).rows;
+  const specials = (await query(
+    `SELECT to_char(on_date,'YYYY-MM-DD') AS on_date, is_closed,
+            to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes, note
+       FROM kindred_web.hours_special WHERE location_id = $1 AND department = $2`,
+    [locationId, HOURS_DEPT]
+  )).rows;
+
+  const from = todayLocal();
+  const to = addDays(from, SPECIAL_WINDOW_DAYS);
+  const g = toBusinessInfoHours(toGoogle(rules, specials, from, to));
+
+  await updateLocationHours(companyId, locationName, g);
+
+  await query(
+    `INSERT INTO kindred_web.hours_publish_log (company_id, location_id, google, confirmed_by)
+     VALUES ($1, $2, true, $3)`,
+    [companyId, locationId, userId]
+  );
+
+  return {
+    location: locationName,
+    regular_periods: g.regularHours.periods.length,
+    special_periods: g.specialHours.specialHourPeriods.length,
+  };
 }
