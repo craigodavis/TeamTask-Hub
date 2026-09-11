@@ -41,8 +41,9 @@ export const CHANNELS = [
     note: 'Web push to members — a reminder, so it goes 2 days out, not weeks. Infrastructure exists (Club 77 notifications); not wired to events yet.' },
   { key: 'google_business', name: 'Google Business',    tier: 'auto',     sort: 30, enabled: true,  lead: 7,
     note: 'Event post on the Google listing; posts age out, so 1 week out. Posts automatically once Google Business Profile is connected in Settings and the venue is mapped to a Google location; until then it falls back to a person.' },
-  { key: 'eventbrite',      name: 'Eventbrite',         tier: 'auto',     sort: 40, enabled: false, lead: 21,
-    note: 'REST API v3. Free listings for free events.' },
+  { key: 'eventbrite',      name: 'Eventbrite',         tier: 'assisted', sort: 40, enabled: true,  lead: 21,
+    note: 'Free listings for free events. Manual for now via the create page; a candidate for REST API v3 automation later.',
+    link: 'https://www.eventbrite.com/create' },
 
   { key: 'facebook_event',  name: 'Facebook Event',     tier: 'assisted', sort: 50, enabled: true,  lead: 21,
     note: 'Human-only — Meta removed event creation from the API. We prepare the copy.',
