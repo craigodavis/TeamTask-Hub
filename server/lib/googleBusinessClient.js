@@ -42,7 +42,7 @@ function clientCreds() {
 async function loadTokens(companyId) {
   const r = await query(
     `SELECT gbp_access_token, gbp_refresh_token, gbp_token_expires_at,
-            gbp_account_name, gbp_connected_email, gbp_locations
+            gbp_account_name, gbp_connected_email
        FROM company_integrations WHERE company_id = $1`,
     [companyId]
   );
