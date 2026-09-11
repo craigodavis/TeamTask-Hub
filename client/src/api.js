@@ -2520,6 +2520,11 @@ export async function markEventChannelPost(postId, body) {
     method: 'PATCH', headers: headers(), body: JSON.stringify(body),
   }));
 }
+export async function setEventChannelEnabled(eventId, key, enabled) {
+  return pj(await fetch(`${API}/events/${eventId}/distribution/channels/${encodeURIComponent(key)}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ enabled }),
+  }));
+}
 
 // ---- Website media library (Marketing → Website → Media) ----
 export async function listMedia(params = {}) {

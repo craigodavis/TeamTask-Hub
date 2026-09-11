@@ -171,6 +171,24 @@ eventsRouter.post('/:id/distribution/schedule', async (req, res) => {
   } catch (e) { console.error('distribution schedule', e); res.status(500).json({ error: e.message }); }
 });
 
+// Per-event channel on/off. Body: { enabled: bool }. Writes an override row so
+// this event skips (or re-includes) a channel; announce/schedule respect it.
+eventsRouter.put('/:id/distribution/channels/:key', async (req, res) => {
+  const enabled = req.body?.enabled;
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) required' });
+  try {
+    const ok = await query(`SELECT 1 FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
+    if (!ok.rows.length) return res.status(404).json({ error: 'Event not found' });
+    await query(
+      `INSERT INTO event_channel_prefs (company_id, event_id, channel_key, enabled, updated_by)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (event_id, channel_key) DO UPDATE
+         SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [cId(req), req.params.id, req.params.key, enabled, req.userId || null]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Record that a human posted it (or undo). Body: { status, external_url? }
 eventsRouter.patch('/distribution/:postId', async (req, res) => {
   const ALLOWED = ['pending', 'queued', 'posted', 'failed', 'skipped', 'needs_human'];

@@ -4150,6 +4150,21 @@ const MIGRATIONS = [
   // Retired distribution channels — removed from the catalogue, so also drop the
   // seeded rows or they'd linger in each event's Distribution panel.
   `DELETE FROM promo_channels WHERE key IN ('bandsintown', 'city_caldwell', 'caldwell_chamber')`,
+  // Per-event channel on/off override. A row overrides the company-level default
+  // (promo_channels.enabled) for one event, so an event can skip specific
+  // channels. No row = use the company default.
+  `CREATE TABLE IF NOT EXISTS event_channel_prefs (
+     company_id  UUID NOT NULL,
+     event_id    UUID NOT NULL,
+     channel_key VARCHAR(40) NOT NULL,
+     enabled     BOOLEAN NOT NULL,
+     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_by  UUID,
+     PRIMARY KEY (event_id, channel_key)
+   )`,
+  // App push is wired to the real member push now — turn it on (ensureChannels
+  // never flips enabled on an existing row).
+  `UPDATE promo_channels SET enabled = true, updated_at = NOW() WHERE key = 'app_push'`,
 ];
 
 export async function runMigrations() {
