@@ -53,8 +53,34 @@ export const CHANNELS = [
     note: 'Artist-side. Ask the performer to add the Kindred date — it reaches their followers.',
     link: 'https://www.bandsintown.com/' },
 
-  { key: 'press',           name: 'Press & tourism',    tier: 'outreach', sort: 80, enabled: true,  lead: 21,
-    note: 'Idaho Press, Idaho Wine Commission, Destination Caldwell, Sunnyslope, Visit SW Idaho, BoiseDev. Uses the existing promo_emails flow.' },
+  // Local listing/tourism outlets — each a manual submit form (no public API),
+  // so 'assisted': the panel prepares copy + a deep link and tracks whether it
+  // was submitted, with the escalating promo-task reminders. Verified submit
+  // links, 2026-09.
+  { key: 'destination_caldwell', name: 'Destination Caldwell', tier: 'assisted', sort: 81, enabled: true, lead: 21,
+    note: 'Tourism arm for Caldwell (Indian Creek Plaza). Highest-value local listing for a winery. No self-serve form — submit via the events page or email info@destinationcaldwell.com.',
+    link: 'https://www.destinationcaldwell.com/events-agenda/' },
+  { key: 'boisedev',        name: 'BoiseDev',           tier: 'assisted', sort: 82, enabled: true,  lead: 21,
+    note: 'Submit-your-event form on their calendar. Good reach with locals.',
+    link: 'https://boisedev.com/calendar/' },
+  { key: 'seek_idaho',      name: 'SeekIdaho',          tier: 'assisted', sort: 83, enabled: true,  lead: 21,
+    note: 'Free for small businesses; Treasure Valley calendar. Reviewed & published within a couple of days.',
+    link: 'https://seekidaho.com/calendar/submit' },
+  { key: 'idaho_press',     name: 'Idaho Press',        tier: 'assisted', sort: 84, enabled: true,  lead: 21,
+    note: 'Submit News form — faster than email for a recurring series.',
+    link: 'https://www.idahopress.com/site/forms/online_services/submit_news/' },
+  { key: 'boise_weekly',    name: 'Boise Weekly',       tier: 'assisted', sort: 85, enabled: true,  lead: 21,
+    note: 'Calendar submission (now under Idaho Press). Free listing; questions to calendar@boiseweekly.com.',
+    link: 'https://www.idahopress.com/boiseweekly/local-events/' },
+  { key: 'city_caldwell',   name: 'City of Caldwell',   tier: 'assisted', sort: 86, enabled: true,  lead: 21,
+    note: 'City "Share Your Local Event" form. Community events only — the city won\'t list events that primarily sell a business\'s goods/services, so frame it as a public happening.',
+    link: 'https://www.cityofcaldwell.org/Visitors/Share-Your-Local-Event' },
+  { key: 'caldwell_chamber', name: 'Caldwell Chamber',  tier: 'assisted', sort: 87, enabled: false, lead: 21,
+    note: 'Member events calendar (ChamberMaster). Off by default — enable if Kindred is a chamber member.',
+    link: 'https://business.caldwellchamber.org/events' },
+
+  { key: 'press',           name: 'Wine trade & regional press', tier: 'outreach', sort: 90, enabled: true, lead: 21,
+    note: 'The remaining outreach contacts: Idaho Wine Commission, Sunnyslope Wine Trail, Visit SW Idaho, Idaho Statesman. Uses the existing promo_emails flow.' },
 ];
 
 export const CHANNEL_BY_KEY = Object.fromEntries(CHANNELS.map((c) => [c.key, c]));
