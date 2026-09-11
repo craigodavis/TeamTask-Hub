@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers } from '../api';
+import { getIntegrationSettings, putIntegrationSettings, testSquareConnection, testTwilioConnection, testMail, getLocations, createLocation, updateLocation, deleteLocation, getQBOConnectUrl, disconnectQBO, getGBPStatus, getGBPConnectUrl, disconnectGBP, getGBPLocations, saveGBPLocations, getGeneralSettings, patchGeneralSettings, getC7Settings, putC7Settings, testC7Connection, getSquareEmployees, getAmazonSettings, putAmazonSettings, testAmazonLogin, getIspSettings, putIspSettings, getSyscoSettings, putSyscoSettings, testSyscoLogin, getAiModelSettings, saveAiModelSettings, getKitchenSettings, updateKitchenSettings, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers } from '../api';
 import { SquareUsersPanel } from '../components/SquareUsersPanel';
 import { SquareSyncPanel } from '../components/SquareSyncPanel';
 import { Commerce7SyncPanel } from '../components/Commerce7SyncPanel';
@@ -336,6 +336,11 @@ export function Settings() {
   const [mailTestResult, setMailTestResult] = useState(null);
   const [qboConnecting, setQboConnecting] = useState(false);
   const [qboDisconnecting, setQboDisconnecting] = useState(false);
+  const [gbpStatus, setGbpStatus] = useState(null);
+  const [gbpConnecting, setGbpConnecting] = useState(false);
+  const [gbpDisconnecting, setGbpDisconnecting] = useState(false);
+  const [gbpLoc, setGbpLoc] = useState(null); // { venues, google, mapping }
+  const [gbpSaving, setGbpSaving] = useState(false);
 
   const [mailHost, setMailHost] = useState('');
   const [mailPort, setMailPort] = useState('');
@@ -419,6 +424,12 @@ export function Settings() {
       window.history.replaceState({}, '', '/settings');
     } else if (params.get('qbo_error')) {
       setError(`QuickBooks connection failed: ${params.get('qbo_error')}`);
+      window.history.replaceState({}, '', '/settings');
+    } else if (params.get('gbp_connected')) {
+      setMessage('Google Business Profile connected successfully.');
+      window.history.replaceState({}, '', '/settings');
+    } else if (params.get('gbp_error')) {
+      setError(`Google Business Profile connection failed: ${params.get('gbp_error')}`);
       window.history.replaceState({}, '', '/settings');
     }
   }, []);
@@ -563,6 +574,77 @@ export function Settings() {
       setError(e.message);
     } finally {
       setQboDisconnecting(false);
+    }
+  };
+
+  // ── Google Business Profile handlers ──────────────────────────────────────
+  const loadGBP = async () => {
+    try {
+      const s = await getGBPStatus();
+      setGbpStatus(s);
+      if (s.connected) {
+        try { setGbpLoc(await getGBPLocations()); } catch (_) { /* keep card usable */ }
+      }
+    } catch (_) { /* owner-only; ignore for non-owners */ }
+  };
+
+  useEffect(() => { if (isOwner && tab === 'integrations') loadGBP(); }, [tab, isOwner]);
+
+  const handleGBPConnect = async () => {
+    setGbpConnecting(true);
+    setError('');
+    try {
+      const { url } = await getGBPConnectUrl();
+      window.location.href = url;
+    } catch (e) {
+      setError(e.message);
+      setGbpConnecting(false);
+    }
+  };
+
+  const handleGBPDisconnect = async () => {
+    if (!window.confirm('Disconnect Google Business Profile? Stored tokens and the venue→location mapping for this company will be removed.')) return;
+    setGbpDisconnecting(true);
+    setError('');
+    try {
+      await disconnectGBP();
+      setGbpStatus(null);
+      setGbpLoc(null);
+      setMessage('Google Business Profile disconnected.');
+      loadGBP();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGbpDisconnecting(false);
+    }
+  };
+
+  const setGBPMap = (venueId, resource) => {
+    setGbpLoc((prev) => {
+      if (!prev) return prev;
+      const mapping = { ...(prev.mapping || {}) };
+      if (!resource) {
+        delete mapping[venueId];
+      } else {
+        const g = (prev.google || []).find((x) => x.resource === resource);
+        mapping[venueId] = { resource, title: g?.title || '' };
+      }
+      return { ...prev, mapping };
+    });
+  };
+
+  const handleGBPSaveMapping = async () => {
+    if (!gbpLoc) return;
+    setGbpSaving(true);
+    setError('');
+    try {
+      await saveGBPLocations(gbpLoc.mapping || {});
+      setMessage('Google location mapping saved.');
+      loadGBP();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGbpSaving(false);
     }
   };
 
@@ -1109,6 +1191,62 @@ export function Settings() {
                 <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>Connect this company to QuickBooks Online to enable accounting data access.</p>
                 <button type="button" className="btn-test" onClick={handleQBOConnect} disabled={qboConnecting}>
                   {qboConnecting ? 'Connecting…' : 'Connect QuickBooks'}
+                </button>
+              </div>
+            )}
+          </fieldset>
+
+          {/* ── Google Business Profile ───────────────────────────── */}
+          <fieldset style={{ marginTop: '1.5rem' }}>
+            <legend>Google Business Profile</legend>
+            {gbpStatus?.connected ? (
+              <div>
+                <p className="test-result success">
+                  Connected as {gbpStatus.email || 'Google account'}
+                  {gbpStatus.account_name ? ` — ${gbpStatus.account_name}` : ''}
+                </p>
+                <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+                  Map each venue to its Google Business Profile location. Events post to the profile of their venue.
+                </p>
+                {gbpLoc?.venues?.length ? (
+                  <div className="settings-form" style={{ marginBottom: '0.75rem' }}>
+                    {gbpLoc.venues.map((v) => (
+                      <label key={v.id} style={{ display: 'block', marginBottom: '0.5rem' }}>
+                        {v.name}
+                        <select
+                          value={gbpLoc.mapping?.[v.id]?.resource || ''}
+                          onChange={(e) => setGBPMap(v.id, e.target.value)}
+                        >
+                          <option value="">— not posted to Google —</option>
+                          {(gbpLoc.google || []).map((g) => (
+                            <option key={g.resource} value={g.resource}>{g.title || g.resource}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    <button type="button" className="btn-test" onClick={handleGBPSaveMapping} disabled={gbpSaving}>
+                      {gbpSaving ? 'Saving…' : 'Save location mapping'}
+                    </button>
+                  </div>
+                ) : (
+                  <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>Loading locations…</p>
+                )}
+                <button type="button" className="btn-test" onClick={handleGBPDisconnect} disabled={gbpDisconnecting}>
+                  {gbpDisconnecting ? 'Disconnecting…' : 'Disconnect Google'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ margin: '0 0 0.75rem', color: '#666', fontSize: '0.9em' }}>
+                  Connect this company's Google Business Profile to auto-post events as Google "What's new / Event" posts for each venue.
+                </p>
+                {gbpStatus && !gbpStatus.configured && (
+                  <p className="test-result" style={{ color: '#a33' }}>
+                    Not configured on the server — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.
+                  </p>
+                )}
+                <button type="button" className="btn-test" onClick={handleGBPConnect} disabled={gbpConnecting || (gbpStatus && !gbpStatus.configured)}>
+                  {gbpConnecting ? 'Connecting…' : 'Connect Google'}
                 </button>
               </div>
             )}

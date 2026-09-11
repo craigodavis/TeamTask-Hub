@@ -754,6 +754,58 @@ export async function disconnectQBO() {
   return data;
 }
 
+// ── Google Business Profile ────────────────────────────────────────────────────
+export async function getGBPStatus() {
+  const res = await fetch(`${API}/integrations/gbp/status`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Google Business status');
+  return data;
+}
+
+export async function getGBPConnectUrl() {
+  const res = await fetch(`${API}/integrations/gbp/connect-url`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to get Google connect URL');
+  return data;
+}
+
+export async function disconnectGBP() {
+  const res = await fetch(`${API}/integrations/gbp/disconnect`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to disconnect Google Business');
+  return data;
+}
+
+export async function getGBPLocations() {
+  const res = await fetch(`${API}/integrations/gbp/locations`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Google locations');
+  return data;
+}
+
+export async function saveGBPLocations(mapping) {
+  const res = await fetch(`${API}/integrations/gbp/locations`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ mapping }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to save location mapping');
+  return data;
+}
+
+export async function postEventToGBP(eventId) {
+  const res = await fetch(`${API}/integrations/gbp/events/${eventId}/post`, { method: 'POST', headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to post event to Google');
+  return data;
+}
+
+export async function getEventGBPStatus(eventId) {
+  const res = await fetch(`${API}/integrations/gbp/events/${eventId}/post`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load Google post status');
+  return data;
+}
+
 // ── Receipts ──────────────────────────────────────────────────────────────────
 
 // ── Harvester ────────────────────────────────────────────────────────────────

@@ -4080,6 +4080,41 @@ const MIGRATIONS = [
      FOR EACH ROW EXECUTE FUNCTION events_soft_delete()`,
   `CREATE INDEX IF NOT EXISTS idx_events_all_live
      ON events_all(company_id, start_at) WHERE deleted_at IS NULL`,
+  // Google Business Profile (GBP) integration credentials on company_integrations.
+  // Mirrors the qbo_* OAuth columns: an offline refresh_token is the durable
+  // credential; the access_token is short-lived and refreshed on demand. These
+  // are company-level (the connected Google account + its Business account).
+  // The per-venue push target lives on kindred_web.venue_details.gbp_location,
+  // which already exists for the hours push and is keyed by location_id.
+  `ALTER TABLE company_integrations
+     ADD COLUMN IF NOT EXISTS gbp_refresh_token    TEXT,
+     ADD COLUMN IF NOT EXISTS gbp_access_token     TEXT,
+     ADD COLUMN IF NOT EXISTS gbp_token_expires_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS gbp_pending_state    VARCHAR(200),
+     ADD COLUMN IF NOT EXISTS gbp_connected_email  TEXT,
+     ADD COLUMN IF NOT EXISTS gbp_account_name     TEXT`,
+  // One row per (event, Google location) push. Lets us show "posted" state on an
+  // event, avoid double-posting, and delete/refresh the local post later by name.
+  `CREATE TABLE IF NOT EXISTS gbp_event_posts (
+     id                BIGSERIAL PRIMARY KEY,
+     company_id        UUID NOT NULL,
+     event_id          UUID NOT NULL,
+     location_resource TEXT NOT NULL,
+     local_post_name   TEXT,
+     state             VARCHAR(20) NOT NULL DEFAULT 'pending',
+     search_url        TEXT,
+     error             TEXT,
+     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by        UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_gbp_event_posts_unique
+     ON gbp_event_posts(company_id, event_id, location_resource)`,
+  // The google_business distribution channel now posts via the real API, so turn
+  // it on for existing companies (it was seeded disabled while stage 1 had no
+  // external calls). Harmless when Google isn't connected yet — announce() falls
+  // back to the human-task path until the profile is connected and mapped.
+  `UPDATE promo_channels SET enabled = true, updated_at = NOW() WHERE key = 'google_business'`,
 ];
 
 export async function runMigrations() {
