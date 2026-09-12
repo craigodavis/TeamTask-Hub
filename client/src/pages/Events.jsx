@@ -384,6 +384,15 @@ function DistributionCard({ eventId, card }) {
     try { await setEventChannelEnabled(eventId, key, enabled); }
     catch (e) { setErr(e.message); load(); }
   };
+  const setAllChannels = async (enabled) => {
+    if (!dist) return;
+    const keys = dist.channels.filter((c) => !!c.enabled !== enabled).map((c) => c.key);
+    if (!keys.length) return;
+    setErr('');
+    setDist((d) => d && ({ ...d, channels: d.channels.map((c) => ({ ...c, enabled })) }));
+    try { await Promise.all(keys.map((k) => setEventChannelEnabled(eventId, k, enabled))); }
+    catch (e) { setErr(e.message); } finally { load(); }
+  };
 
   if (!dist) return null;
 
@@ -424,6 +433,17 @@ function DistributionCard({ eventId, card }) {
         to the event, so it works at any notice. App push and Google Business keep their own timing —
         a push weeks early is noise and Google posts age out — so they stay at 2 and 7 days regardless.
       </p>
+
+      <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12 }}>
+        <button type="button" onClick={() => setAllChannels(true)}
+                style={{ background: 'none', border: 'none', color: '#7c2d3a', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+          Select all
+        </button>
+        <button type="button" onClick={() => setAllChannels(false)}
+                style={{ background: 'none', border: 'none', color: '#7c2d3a', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+          Unselect all
+        </button>
+      </div>
 
       <div style={{ marginTop: 10 }}>
         {dist.channels.map((c) => {
