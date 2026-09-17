@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -457,6 +457,31 @@ function ChannelsSettings() {
  * ones can never be (Facebook removed event creation from their API; Bandsintown
  * listings come from the artist), and `outreach` goes out as email.
  */
+const ACT_ICON = { created: '＋', edited: '✎', published: '●', unpublished: '○', announced: '◎', scheduled: '🕒',
+  task_added: '☑', task_deleted: '🗑', task_restored: '↩', deleted: '🗑', restored: '↩', duplicated: '⧉',
+  submitted: '➤', approved: '✓', changes_requested: '⚠' };
+function ActivityCard({ eventId }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => { getEventActivity(eventId).then((d) => setRows(d.activity || [])).catch(() => setRows([])); }, [eventId]);
+  if (!rows) return null;
+  return (
+    <div style={{ ...card, marginTop: 16 }}>
+      <h3 style={{ margin: '0 0 6px' }}>Activity &amp; audit log</h3>
+      {rows.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>No activity yet.</p>}
+      {rows.map((a) => (
+        <div key={a.id} style={{ display: 'flex', gap: 11, padding: '9px 0', borderTop: '1px solid var(--border,#eee)' }}>
+          <span style={{ width: 26, height: 26, borderRadius: 8, background: a.action.includes('delet') ? '#f6ddd7' : 'var(--surface-3,#f0eeeb)', display: 'grid', placeItems: 'center', fontSize: 13, flex: '0 0 auto' }}>{ACT_ICON[a.action] || '•'}</span>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}>
+            <div><b>{a.actor_name || 'System'}</b> {a.action.replace(/_/g, ' ')}{a.detail ? <span style={{ opacity: 0.7 }}> — {a.detail}</span> : ''}</div>
+            <div style={{ fontSize: 11.5, opacity: 0.5, marginTop: 2 }}>{fmtDT(a.created_at)}</div>
+          </div>
+        </div>
+      ))}
+      <div style={{ fontSize: 11.5, opacity: 0.55, marginTop: 10 }}>Every edit, publish, push, reminder and deletion is recorded. Deletions stay logged even after the item is restored.</div>
+    </div>
+  );
+}
+
 function PromoScoreCard({ eventId }) {
   const [sc, setSc] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -749,6 +774,40 @@ const STAGE_META = {
 };
 const STAGE_ORDER = ['draft', 'review', 'approved', 'published'];
 
+function ReadinessStrip({ ev }) {
+  const [tasks, setTasks] = useState(null);
+  const [score, setScore] = useState(null);
+  useEffect(() => {
+    getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => setTasks([]));
+    getPromoScore(ev.id).then(setScore).catch(() => {});
+  }, [ev.id]);
+
+  const st = STAGE_META[stageOf(ev)] || STAGE_META.draft;
+  const done = (tasks || []).filter((t) => t.done).length;
+  const total = (tasks || []).length;
+  const FLAG = { gold: { t: '★ Full reach', c: '#3f8f5b', bg: '#e0f0e4' }, ok: { t: '✓ Baseline', c: '#b0631f', bg: '#f6e7d6' }, red: { t: '🚩 Under-promoted', c: '#b83a2b', bg: '#f6ddd7' } };
+  const gcol = (s) => s == null ? '#9a8f88' : s >= 80 ? '#3f8f5b' : s >= 60 ? '#b0631f' : '#b83a2b';
+
+  const pill = (k, val, colBg, colFg) => (
+    <div style={{ flex: '0 0 auto', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: '7px 11px', display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--card-bg,#fff)' }}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', opacity: 0.5 }}>{k}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 700, color: colFg }}>{val}</span>
+    </div>
+  );
+  const flag = score?.coverage?.flag ? FLAG[score.coverage.flag] : null;
+
+  return (
+    <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 16, paddingBottom: 4 }}>
+      {pill('Stage', st.label, null, st.fg)}
+      {pill('Image', ev.image_url ? 'Set ✓' : 'Missing', null, ev.image_url ? '#3f8f5b' : '#b83a2b')}
+      {pill('Talent', ev.musician_name || 'None', null, ev.musician_name ? '#3f8f5b' : '#847771')}
+      {pill('Tasks', total ? `${done}/${total}` : '—', null, total && done === total ? '#3f8f5b' : total ? '#b0631f' : '#847771')}
+      {pill('Reach', flag ? flag.t : '—', null, flag ? flag.c : '#847771')}
+      {pill('Promo grade', score ? `${score.grade} · ${score.composite}` : '—', null, gcol(score?.composite))}
+    </div>
+  );
+}
+
 function ApprovalBar({ ev }) {
   const [stage, setStage] = useState(ev.stage || (ev.status === 'published' ? 'published' : 'draft'));
   const [reviewNotes, setReviewNotes] = useState(ev.review_notes || '');
@@ -945,6 +1004,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   return (
     <div>
       <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>← Back to events</button>
+      <ReadinessStrip ev={ev} />
       <ApprovalBar ev={ev} />
       <div style={{ ...card, marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>Event details</h3>
@@ -1084,6 +1144,8 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
       <DistributionCard eventId={ev.id} card={card} />
 
       <PromoScoreCard eventId={ev.id} />
+
+      <ActivityCard eventId={ev.id} />
 
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

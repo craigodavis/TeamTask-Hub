@@ -2525,6 +2525,15 @@ export async function setEventChannelEnabled(eventId, key, enabled) {
     method: 'PUT', headers: headers(), body: JSON.stringify({ enabled }),
   }));
 }
+// ── Event activity / audit log ───────────────────────────────────────────────────
+export async function getEventActivity(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/activity`, { headers: headers() }));
+}
+export async function getCompanyActivity(params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+  return pj(await fetch(`${API}/events/activity/feed${qs ? `?${qs}` : ''}`, { headers: headers() }));
+}
+
 // ── Distribution channel config ──────────────────────────────────────────────────
 export async function getChannelConfig() {
   return pj(await fetch(`${API}/events/distribution/channels`, { headers: headers() }));
