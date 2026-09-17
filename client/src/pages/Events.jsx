@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, getPromoScore, refreshPromoScore } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -354,6 +354,43 @@ function RemindersTab() {
         </div>
       </div>
       {saved && <span style={{ color: '#137a2f', fontWeight: 600, display: 'inline-block', marginTop: 12 }}>✓ saved</span>}
+      <ChannelsSettings />
+    </div>
+  );
+}
+
+function ChannelsSettings() {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { getChannelConfig().then((d) => setRows(d.channels)).catch((e) => setErr(e.message)); }, []);
+  const patch = async (key, p) => {
+    setRows((rs) => rs.map((c) => c.key === key ? { ...c, ...p } : c));
+    try { await updateChannelConfig(key, p); } catch (e) { setErr(e.message); }
+  };
+  if (err) return <p style={{ color: 'crimson' }}>{err}</p>;
+  if (!rows) return null;
+  const MODES = [['on_publish', '⚡ On publish'], ['scheduled', '🕒 Days before'], ['manual', '✋ Manual']];
+  return (
+    <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border,#eee)' }}>
+      <h3 style={{ margin: '0 0 4px' }}>Distribution channels</h3>
+      <p style={{ fontSize: 12.5, color: 'var(--muted,#777)', margin: '0 0 12px' }}>
+        How each channel fires. <b>On publish</b> = the moment an event goes live · <b>Days before</b> = auto, on its own lead · <b>Manual</b> = only when you hit “Push manual now.”
+      </p>
+      {rows.map((c) => (
+        <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid var(--border,#eee)' }}>
+          <input type="checkbox" checked={c.enabled} onChange={(e) => patch(c.key, { enabled: e.target.checked })} />
+          <span style={{ fontWeight: 600, flex: 1, minWidth: 0, opacity: c.enabled ? 1 : 0.5 }}>{c.name}</span>
+          <select value={c.push_mode} onChange={(e) => patch(c.key, { push_mode: e.target.value })} style={{ ...inp, width: 'auto', padding: '6px 8px', fontSize: 13 }}>
+            {MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          {c.push_mode === 'scheduled' && (
+            <span style={{ fontSize: 12.5, color: 'var(--muted,#777)', whiteSpace: 'nowrap' }}>
+              <input type="number" min="0" max="365" value={c.lead_days ?? 0} onChange={(e) => patch(c.key, { lead_days: e.target.value })}
+                     style={{ ...inp, width: 56, padding: '5px 6px', display: 'inline-block' }} /> d before
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -555,6 +592,7 @@ function DistributionCard({ eventId, card }) {
     pending:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Not started' },
   };
   const TIER = { auto: 'automatic', assisted: 'needs a person', outreach: 'email' };
+  const MODE = { on_publish: '⚡ on publish', scheduled: '🕒 scheduled', manual: '✋ manual' };
 
   return (
     <div style={{ ...card, marginTop: 16 }}>
@@ -571,15 +609,15 @@ function DistributionCard({ eventId, card }) {
             Schedule
           </button>
           <button style={{ ...btn(true), padding: '6px 12px', fontSize: 13 }} onClick={doAnnounce} disabled={busy}>
-            {busy ? 'Working…' : 'Announce now'}
+            {busy ? 'Working…' : 'Push manual now'}
           </button>
         </div>
       </div>
       {err && <p style={{ color: '#b00', fontSize: 13 }}>{err}</p>}
       <p style={{ fontSize: 12, opacity: 0.6, margin: '6px 0 0' }}>
-        Uncheck a channel to skip it for this event (remembered per event). Scheduling is relative
-        to the event, so it works at any notice. App push and Google Business keep their own timing —
-        a push weeks early is noise and Google posts age out — so they stay at 2 and 7 days regardless.
+        <b>Push manual now</b> fires only the ✋ manual channels — ⚡ on-publish and 🕒 scheduled ones
+        fire themselves when the event goes live. Uncheck a channel to skip it for this event
+        (remembered per event); set each channel’s mode in the settings tab.
       </p>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12 }}>
@@ -604,7 +642,7 @@ function DistributionCard({ eventId, card }) {
                        style={{ cursor: 'pointer' }} />
                 <span style={{ fontWeight: 600, minWidth: 140 }}>{c.name}</span>
                 <span style={{ background: p.bg, color: p.fg, borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>{p.label}</span>
-                <span style={{ fontSize: 12, opacity: 0.55 }}>{TIER[c.tier]}</span>
+                <span style={{ fontSize: 12, opacity: 0.55 }}>{MODE[c.mode] || TIER[c.tier]}</span>
                 {c.status === 'scheduled' && c.scheduled_at && (
                   <span style={{ fontSize: 12, opacity: 0.7 }}>
                     {fmtDT(c.scheduled_at)} · {c.lead_days}d before
