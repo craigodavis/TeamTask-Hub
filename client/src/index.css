@@ -44,6 +44,46 @@
   --error: #b3261e;
   --danger: #b3261e;
   --success: #1b6b32;
+
+  /* Extra surface/neutral tokens the newer screens (Events) reach for. Defined
+     in both themes so those pages follow the theme instead of falling back to a
+     hard-coded light value. */
+  --surface-2: #faf8f6;
+  --surface-3: #f0eeeb;
+  --muted: #7a7069;
+  --faint: #a89f98;
+  --accent-soft: #f4e4e5;
+  --border-strong: #d5d0cb;
+}
+
+/* Dark palette. Redefines the base tokens only — every alias above resolves
+   through var() at use time, so it picks these up automatically. color-scheme
+   flips too, so UA-rendered controls (inputs, scrollbars, selection) go dark
+   instead of leaving light chrome on a dark ground. System default (no explicit
+   choice) follows the OS; an explicit data-theme wins in both directions. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #14161a; --card: #1e2127; --card-done: #16301f;
+    --primary: #6aa6f2; --primary-soft: #24374d;
+    --text: #e8e8ea; --text-muted: #9aa0a8; --border: #2e323a;
+    --bg-subtle: #191c21; --bg-muted: #23262c; --table-head-bg: #1a1d22;
+    --hover: #24272e; --hover-bg: #24272e;
+    --success: #5cbd7c; --color-error: #e26a58; --error: #e26a58; --danger: #e26a58;
+    --surface-2: #23262c; --surface-3: #2a2e35; --muted: #9aa0a8; --faint: #6b727c;
+    --accent-soft: #3a2226; --border-strong: #3a3f48;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14161a; --card: #1e2127; --card-done: #16301f;
+  --primary: #6aa6f2; --primary-soft: #24374d;
+  --text: #e8e8ea; --text-muted: #9aa0a8; --border: #2e323a;
+  --bg-subtle: #191c21; --bg-muted: #23262c; --table-head-bg: #1a1d22;
+  --hover: #24272e; --hover-bg: #24272e;
+  --success: #5cbd7c; --color-error: #e26a58; --error: #e26a58; --danger: #e26a58;
+  --surface-2: #23262c; --surface-3: #2a2e35; --muted: #9aa0a8; --faint: #6b727c;
+  --accent-soft: #3a2226; --border-strong: #3a3f48;
 }
 
 /* Never leave the highlight to the browser: the default pairs an OS-chosen
