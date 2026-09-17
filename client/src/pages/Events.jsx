@@ -44,7 +44,10 @@ function EventsTab() {
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState(null);
   const [users, setUsers] = useState([]);
-  const [view, setView] = useState('list');
+  const [view, setView] = useState('calendar');
+  const [segment, setSegment] = useState('upcoming');
+  const [venueOff, setVenueOff] = useState({});
+  const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState({ location_id: '', musician_id: '', status: '', from: '', to: '' });
   const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
 
@@ -106,13 +109,43 @@ function EventsTab() {
     if (filter.to && new Date(e.start_at) > new Date(filter.to + 'T23:59:59')) return false;
     return true;
   });
-  const filtered = applyF(events);
-  const upcoming = [...filtered].filter((e) => new Date(e.start_at) >= Date.now() - 864e5).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
-  const anyFilter = filter.location_id || filter.musician_id || filter.status || filter.from || filter.to;
+  const shown = events.filter((e) => (SEGMENTS.find((s) => s.key === segment) || SEGMENTS[0]).test(e) && !venueOff[e.location_id])
+    .sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
   const fsel = { padding: '5px 7px', borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 13, background: 'transparent', color: 'inherit' };
+  const segStyle = (on) => ({ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 9, border: 'none', cursor: 'pointer', fontWeight: on ? 700 : 500, fontSize: 13.5, background: on ? 'var(--accent-soft,#f4e4e5)' : 'transparent', color: on ? '#7c2d3a' : 'inherit' });
 
   return (
-    <div>
+    <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {/* Left rail */}
+      <aside style={{ flex: '0 0 210px', minWidth: 180, position: 'sticky', top: 12 }}>
+        <button style={{ ...btn(true), width: '100%', borderRadius: 10, marginBottom: 14 }} onClick={() => setShowNew((v) => !v)}>
+          {showNew ? '× Close' : '＋ New event'}
+        </button>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', opacity: 0.5, margin: '0 4px 6px' }}>Views</div>
+        {SEGMENTS.map((s) => {
+          const n = events.filter((e) => s.test(e) && !venueOff[e.location_id]).length;
+          return (
+            <button key={s.key} style={segStyle(segment === s.key)} onClick={() => setSegment(s.key)}>
+              {s.label}<span style={{ marginLeft: 'auto', opacity: 0.55, fontSize: 12, fontWeight: 600 }}>{n}</span>
+            </button>
+          );
+        })}
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', opacity: 0.5, margin: '16px 4px 6px' }}>Venues</div>
+        {locations.map((l) => {
+          const on = !venueOff[l.id];
+          return (
+            <div key={l.id} onClick={() => setVenueOff((v) => ({ ...v, [l.id]: on }))}
+                 style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 9, cursor: 'pointer', fontSize: 13.5, opacity: on ? 1 : 0.5 }}>
+              <span style={{ width: 11, height: 11, borderRadius: 3, background: venueColor(l.name), opacity: on ? 1 : 0.3 }} />
+              {l.name}<span style={{ marginLeft: 'auto', color: '#3f8f5b', visibility: on ? 'visible' : 'hidden' }}>✓</span>
+            </div>
+          );
+        })}
+      </aside>
+
+      {/* Main */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+      {showNew && (
       <div style={{ ...card, marginBottom: 20 }}>
         <h3 style={{ marginTop: 0 }}>Add event</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12 }}>
@@ -156,49 +189,70 @@ function EventsTab() {
           <span style={{ marginLeft: 10, opacity: 0.6, fontSize: 12 }}>Website publishing goes live in the next step; for now events are saved in TeamHub.</span>
         </div>
       </div>
+      )}
 
-      <div style={{ display: 'flex', gap: 8, margin: '4px 0 14px' }}>
-        {[['list', 'List'], ['grid', 'Spreadsheet'], ['calendar', 'Calendar']].map(([k, l]) => (
-          <button key={k} onClick={() => setView(k)} style={{ ...btn(view === k), borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>{l}</button>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0 }}>{(SEGMENTS.find((s) => s.key === segment) || SEGMENTS[0]).label}
+          <span style={{ fontWeight: 400, opacity: 0.5, fontSize: 13, marginLeft: 8 }}>{shown.length} event{shown.length === 1 ? '' : 's'}</span></h3>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, background: 'var(--surface-3,#f0eeeb)', borderRadius: 9, padding: 3 }}>
+          {[['calendar', 'Calendar'], ['list', 'List'], ['grid', 'Table']].map(([k, l]) => (
+            <button key={k} onClick={() => setView(k)} style={{ border: 'none', padding: '6px 13px', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: 'pointer', background: view === k ? 'var(--card-bg,#fff)' : 'transparent', color: view === k ? 'inherit' : 'var(--muted,#888)', boxShadow: view === k ? '0 1px 3px rgba(0,0,0,.1)' : 'none' }}>{l}</button>
+          ))}
+        </div>
       </div>
+      {err && <p style={{ color: 'crimson' }}>{err}</p>}
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-        <select style={fsel} value={filter.location_id} onChange={(e) => setFilter({ ...filter, location_id: e.target.value })}>
-          <option value="">All locations</option>
-          {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
-        <select style={fsel} value={filter.musician_id} onChange={(e) => setFilter({ ...filter, musician_id: e.target.value })}>
-          <option value="">All musicians</option>
-          {musicians.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-        <select style={fsel} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
-          <option value="">Any status</option>
-          <option value="published">Published</option>
-          <option value="draft">Draft</option>
-        </select>
-        <label style={{ fontSize: 12, opacity: 0.6 }}>from <input type="date" style={fsel} value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} /></label>
-        <label style={{ fontSize: 12, opacity: 0.6 }}>to <input type="date" style={fsel} value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} /></label>
-        {anyFilter && <button style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }} onClick={() => setFilter({ location_id: '', musician_id: '', status: '', from: '', to: '' })}>Clear</button>}
-        <span style={{ fontSize: 12, opacity: 0.5 }}>{filtered.length} event{filtered.length === 1 ? '' : 's'}</span>
+      {view === 'list' && (
+        <div>
+          {shown.length === 0 && <p style={{ opacity: 0.6 }}>No events in this view.</p>}
+          {shown.map((e) => <EventRow key={e.id} e={e} onOpen={() => setSelected(e)} onCopy={() => duplicate(e.id)} onDelete={() => remove(e.id)} />)}
+        </div>
+      )}
+      {view === 'grid' && <SpreadsheetView events={shown} musicians={musicians} locations={locations} onOpen={setSelected} onChanged={load} />}
+      {view === 'calendar' && <CalendarView events={shown} onOpen={setSelected} />}
       </div>
+    </div>
+  );
+}
 
-      {view === 'list' && <>
-        <h3 style={{ marginTop: 0 }}>{anyFilter ? 'Filtered' : 'Upcoming'} ({upcoming.length})</h3>
-        {upcoming.length === 0 && <p style={{ opacity: 0.6 }}>No upcoming events.</p>}
-        {upcoming.map((e) => (
-          <div key={e.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div onClick={() => setSelected(e)} style={{ cursor: 'pointer', flex: 1 }}>
-              <div style={{ fontWeight: 700 }}>{e.title} {e.status === 'published' ? <span style={{ fontSize: 11, color: '#137a2f' }}>● live</span> : <span style={{ fontSize: 11, opacity: 0.5 }}>draft</span>}</div>
-              <div style={{ fontSize: 13, opacity: 0.75 }}>{fmtDT(e.start_at)}{e.location_name ? ` · ${e.location_name}` : ''}{e.musician_name ? ` · 🎵 ${e.musician_name}${e.lift_pct != null ? ` (+${e.lift_pct}%)` : ''}` : ''}{e.cost != null ? ` · ${money(e.cost)}` : ''}</div>
-            </div>
-            <button style={{ ...btn(false), padding: '5px 10px' }} onClick={() => duplicate(e.id)}>Copy</button>
-            <button style={{ ...btn(false), padding: '5px 10px' }} onClick={() => remove(e.id)}>Delete</button>
-          </div>
-        ))}
-      </>}
-      {view === 'grid' && <SpreadsheetView events={filtered} musicians={musicians} locations={locations} onOpen={setSelected} onChanged={load} />}
-      {view === 'calendar' && <CalendarView events={filtered} onOpen={setSelected} />}
+// Venue accent: the Creek runs teal, the estate/winery burgundy.
+function venueColor(name) {
+  if (!name) return '#9a8f88';
+  return /creek/i.test(name) ? '#2c7671' : '#7c2d3a';
+}
+function stageOf(e) { return e.stage || (e.status === 'published' ? 'published' : 'draft'); }
+const SEGMENTS = [
+  { key: 'upcoming', label: 'Upcoming', test: (e) => new Date(e.start_at) >= Date.now() - 864e5 },
+  { key: 'week', label: 'This week', test: (e) => { const d = new Date(e.start_at); return d >= Date.now() - 864e5 && d <= Date.now() + 7 * 864e5; } },
+  { key: 'all', label: 'All events', test: () => true },
+  { key: 'draft', label: 'Drafts', test: (e) => stageOf(e) === 'draft' },
+  { key: 'review', label: 'In review', test: (e) => stageOf(e) === 'review' },
+  { key: 'approved', label: 'Approved', test: (e) => stageOf(e) === 'approved' },
+  { key: 'published', label: 'Live', test: (e) => stageOf(e) === 'published' },
+];
+
+function EventRow({ e, onOpen, onCopy, onDelete }) {
+  const st = STAGE_META[stageOf(e)] || STAGE_META.draft;
+  const vc = venueColor(e.location_name);
+  const d = new Date(e.start_at);
+  return (
+    <div style={{ ...card, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 14, borderLeft: `4px solid ${vc}` }}>
+      <div style={{ textAlign: 'center', flex: '0 0 44px' }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: vc }}>{isNaN(d) ? '' : d.toLocaleString(undefined, { month: 'short' })}</div>
+        <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1 }}>{isNaN(d) ? '—' : d.getDate()}</div>
+        <div style={{ fontSize: 10.5, opacity: 0.5 }}>{isNaN(d) ? '' : d.toLocaleString(undefined, { weekday: 'short' })}</div>
+      </div>
+      <div onClick={onOpen} style={{ cursor: 'pointer', flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</div>
+        <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, padding: '1px 9px', borderRadius: 20, background: st.bg, color: st.fg }}>{st.label}</span>
+          {e.location_name && <span>{e.location_name}</span>}
+          {e.musician_name && <span>· 🎵 {e.musician_name}{e.lift_pct != null ? ` (+${e.lift_pct}%)` : ''}</span>}
+          {!isNaN(d) && <span>· {fmtDT(e.start_at)}</span>}
+        </div>
+      </div>
+      <button style={{ ...btn(false), padding: '5px 10px' }} onClick={onCopy}>Copy</button>
+      <button style={{ ...btn(false), padding: '5px 10px' }} onClick={onDelete}>Delete</button>
     </div>
   );
 }
@@ -1164,8 +1218,11 @@ function CalendarView({ events, onOpen }) {
           return (
             <div key={i} style={{ minHeight: 80, border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 4, fontSize: 11 }}>
               <div style={{ opacity: 0.5, textAlign: 'right' }}>{d}</div>
-              {evs.slice(0, 3).map((e) => <div key={e.id} onClick={() => onOpen(e)} title={e.title} style={{ cursor: 'pointer', background: e.status === 'published' ? '#e2f7e6' : '#eef0f4', color: '#333', borderRadius: 4, padding: '1px 4px', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.musician_name || e.title}</div>)}
-              {evs.length > 3 && <div style={{ opacity: 0.5, marginTop: 2 }}>+{evs.length - 3} more</div>}
+              {evs.slice(0, 4).map((e) => {
+                const vc = venueColor(e.location_name); const live = stageOf(e) === 'published';
+                return <div key={e.id} onClick={() => onOpen(e)} title={e.title} style={{ cursor: 'pointer', borderLeft: `3px solid ${vc}`, background: live ? `${vc}22` : 'var(--surface-3,#eef0f4)', color: 'inherit', opacity: live ? 1 : 0.72, borderRadius: 4, padding: '1px 5px', marginTop: 2, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.musician_name || e.title}</div>;
+              })}
+              {evs.length > 4 && <div style={{ opacity: 0.5, marginTop: 2 }}>+{evs.length - 4} more</div>}
             </div>
           );
         })}
