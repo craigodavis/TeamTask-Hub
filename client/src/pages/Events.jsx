@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, getPromoScore, refreshPromoScore } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -366,6 +366,62 @@ function RemindersTab() {
  * ones can never be (Facebook removed event creation from their API; Bandsintown
  * listings come from the artist), and `outreach` goes out as email.
  */
+function PromoScoreCard({ eventId }) {
+  const [sc, setSc] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { getPromoScore(eventId).then(setSc).catch((e) => setErr(e.message)); }, [eventId]);
+
+  const rescore = async () => {
+    setBusy(true); setErr('');
+    try { setSc(await refreshPromoScore(eventId)); } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  if (err) return <div style={{ ...card, marginTop: 16, color: '#b00' }}>{err}</div>;
+  if (!sc) return <div style={{ ...card, marginTop: 16, opacity: 0.7 }}>Loading promotion score…</div>;
+
+  const col = (v) => v == null ? '#9a8f88' : v >= 80 ? '#3f8f5b' : v >= 60 ? '#b0631f' : '#b83a2b';
+  const compC = col(sc.composite);
+  const FLAG = { gold: { t: '★ Full reach', c: '#3f8f5b' }, ok: { t: '✓ Baseline', c: '#b0631f' }, red: { t: '🚩 Under-promoted', c: '#b83a2b' } }[sc.coverage?.flag] || {};
+  const dim = (label, v, note) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+        <b>{label}</b><span style={{ fontWeight: 800, color: col(v) }}>{v == null ? '—' : v}</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 4, background: 'var(--surface-3,#eee)', marginTop: 3, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${v || 0}%`, background: col(v), borderRadius: 4 }} />
+      </div>
+      {note && <div style={{ fontSize: 11.5, color: 'var(--muted,#777)', marginTop: 3 }}>{note}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ ...card, marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0 }}>Promotion score</h3>
+        {FLAG.t && <span style={{ fontSize: 12.5, fontWeight: 700, color: FLAG.c }}>{FLAG.t}</span>}
+        <span style={{ flex: 1 }} />
+        <button style={{ ...btn(false), padding: '6px 12px', fontSize: 13 }} disabled={busy} onClick={rescore}>
+          {busy ? 'Scoring…' : sc.ai_scored ? 'Re-score with AI' : 'Score with AI'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', flexWrap: 'wrap' }}>
+        <div style={{ flex: '0 0 108px', borderRadius: 10, background: compC, color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '14px 8px' }}>
+          <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>{sc.grade}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.9 }}>{sc.composite}/100</div>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', opacity: 0.85, marginTop: 4 }}>Composite</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          {dim('Reach', sc.reach, `${sc.coverage?.basicHit}/${sc.coverage?.basicTot} basic · ${sc.coverage?.premiumHit}/${sc.coverage?.premiumTot} premium`)}
+          {dim('Timing', sc.timing, sc.timing_note)}
+          {dim('Image', sc.image, sc.image_note)}
+          {dim('Message', sc.message, sc.message_note)}
+        </div>
+      </div>
+      {!sc.ai_scored && <div style={{ fontSize: 12, color: 'var(--muted,#777)', marginTop: 8 }}>Image & Message are AI-judged — click “Score with AI” to fill them in.</div>}
+    </div>
+  );
+}
+
 function MessageTalentCard({ eventId }) {
   const [ctx, setCtx] = useState(null);
   const [body, setBody] = useState('');
@@ -934,6 +990,8 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
       <MessageTalentCard eventId={ev.id} />
 
       <DistributionCard eventId={ev.id} card={card} />
+
+      <PromoScoreCard eventId={ev.id} />
 
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

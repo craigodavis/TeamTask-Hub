@@ -20,6 +20,7 @@ import { sendSmsToPhone } from '../lib/smsHelper.js';
 import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
 import { logEventActivity, getEventActivity, getCompanyActivity } from '../lib/eventActivity.js';
 import { getApprovalConfig, notifyApprover, notifyCreatorApproved, notifyCreatorChanges } from '../lib/eventApproval.js';
+import { getScore, scoreEvent } from '../lib/promoScore.js';
 
 const cId = (req) => req.companyId;
 
@@ -273,6 +274,22 @@ eventsRouter.post('/:id/publish', async (req, res) => {
     logEventActivity(cId(req), req.userId, 'published', { eventId: ev.id, eventTitle: ev.title });
     res.json({ ok: true, stage: 'published' });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Promotion score — cheap read (formulas fresh, cached AI dimensions).
+eventsRouter.get('/:id/promo-score', async (req, res) => {
+  try {
+    const s = await getScore(cId(req), req.params.id);
+    if (!s) return res.status(404).json({ error: 'Event not found' });
+    res.json(s);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Re-score, running the AI image + copy judges. Caches the AI dimensions.
+eventsRouter.post('/:id/promo-score/refresh', async (req, res) => {
+  try {
+    res.json(await scoreEvent(cId(req), req.params.id));
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 // Per-event audit history, newest first.
