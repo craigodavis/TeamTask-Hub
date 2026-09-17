@@ -4165,6 +4165,28 @@ const MIGRATIONS = [
   // App push is wired to the real member push now — turn it on (ensureChannels
   // never flips enabled on an existing row).
   `UPDATE promo_channels SET enabled = true, updated_at = NOW() WHERE key = 'app_push'`,
+  // Append-only audit log for events. One row per change — create, edit, publish,
+  // announce, task add/delete, event delete/restore, duplicate. event_title is a
+  // snapshot so a removed event's history still reads; meta carries {field,from,to}
+  // or {channels:[...]}. Never updated or deleted (deletions are just more rows).
+  `CREATE TABLE IF NOT EXISTS event_activity (
+     id          BIGSERIAL PRIMARY KEY,
+     company_id  UUID NOT NULL,
+     event_id    UUID,
+     event_title TEXT,
+     actor_id    UUID,
+     actor_name  TEXT,
+     action      VARCHAR(60) NOT NULL,
+     detail      TEXT,
+     meta        JSONB,
+     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_event_activity_company ON event_activity(company_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_event_activity_event ON event_activity(event_id, created_at DESC)`,
+  // Soft-delete for checklist tasks — deleting a task moves it to Trash rather
+  // than destroying it (mirrors events). Listings filter deleted_at IS NULL.
+  `ALTER TABLE event_tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+  `ALTER TABLE event_tasks ADD COLUMN IF NOT EXISTS deleted_by UUID`,
 ];
 
 export async function runMigrations() {
