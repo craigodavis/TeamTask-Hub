@@ -84,26 +84,76 @@ async function aiScoreMessage(apiKey, ev) {
   } catch (e) { return { score: null, note: `AI copy scoring failed: ${e.message}` }; }
 }
 
-async function aiScoreImage(apiKey, ev) {
-  const url = abs(ev.social_image_url || ev.image_url || ev.fb_image_url);
-  if (!url) return { score: 0, note: 'No hero image set. Add a 2400×1000 landscape.' };
-  if (!apiKey) return { score: null, note: 'Add an Anthropic key in Settings to AI-score images.' };
-  let jpeg;
+// Fetch + downscale the hero image once, and compute a 16×16 average-hash for
+// near-duplicate detection. Returns { jpeg, hash } or null.
+async function prepImage(url) {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = Buffer.from(await res.arrayBuffer());
-    // Downscale to Claude's optimal max edge — keeps any hero image under the
-    // vision size limit and cheaper to score.
-    jpeg = await sharp(raw).rotate().resize(1568, 1568, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
-  } catch (e) { return { score: null, note: `Could not load the image to score it (${e.message}).` }; }
+    const base = sharp(raw).rotate();
+    // Vision copy: Claude's optimal max edge, cheaper.
+    const jpeg = await base.clone().resize(1568, 1568, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
+    // aHash: 16×16 grayscale, bit per pixel above the mean → 64-char hex.
+    const { data } = await sharp(raw).rotate().grayscale().resize(16, 16, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true });
+    let sum = 0; for (const v of data) sum += v;
+    const avg = sum / data.length;
+    let hex = '';
+    for (let i = 0; i < data.length; i += 4) {
+      let nib = 0; for (let b = 0; b < 4; b++) nib = (nib << 1) | (data[i + b] > avg ? 1 : 0);
+      hex += nib.toString(16);
+    }
+    return { jpeg, hash: hex };
+  } catch { return null; }
+}
+function hamming(a, b) {
+  if (!a || !b || a.length !== b.length) return 999;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) { let x = parseInt(a[i], 16) ^ parseInt(b[i], 16); while (x) { d += x & 1; x >>= 1; } }
+  return d;
+}
+// "Sunset Music Series: Reid McIntire" → "sunset music series". Falls back to
+// category + venue so any recurring pattern groups.
+function seriesKey(ev) {
+  const t = String(ev.title || '').split(':')[0].trim().toLowerCase();
+  return t.length >= 4 ? t : `${(ev.category || '').toLowerCase()}|${ev.location_id || ''}`;
+}
+
+/**
+ * Freshness: dock the image when a recurring series reuses the same artwork.
+ * Compares this event's hash to recent same-series events' cached hashes.
+ */
+async function imageFreshness(companyId, ev, hash) {
+  if (!hash) return { freshness: 100, reuse: 0, note: null };
+  const key = seriesKey(ev);
+  const rows = (await query(
+    `SELECT e.title, e.category, e.location_id, s.image_hash
+       FROM events e JOIN event_promo_scores s ON s.event_id = e.id
+      WHERE e.company_id = $1 AND e.id <> $2 AND s.image_hash IS NOT NULL
+      ORDER BY e.start_at DESC LIMIT 40`,
+    [companyId, ev.id]
+  )).rows;
+  const recent = rows.filter((r) => seriesKey(r) === key).slice(0, 6);
+  const reuse = recent.filter((r) => hamming(hash, r.image_hash) <= 12).length;
+  const freshness = Math.max(25, 100 - 22 * reuse);
+  if (!reuse) return { freshness, reuse, note: null };
+  const label = ev.title ? String(ev.title).split(':')[0].trim() : 'this series';
+  const feature = ev.musician_name
+    ? ` — rotate it or feature ${ev.musician_name}${ev.musician_photo ? ' (their photo is on file)' : ''}.`
+    : ' — rotate the artwork so the feed stays fresh.';
+  return { freshness, reuse, note: `Same image as ${reuse} recent ${label} show${reuse === 1 ? '' : 's'}${feature}` };
+}
+
+async function aiImageQuality(apiKey, jpeg, ev) {
+  if (!apiKey) return { score: null, note: 'Add an Anthropic key in Settings to AI-score images.' };
   try {
     const client = new Anthropic({ apiKey });
+    const who = ev.musician_name ? ` The event features ${ev.musician_name}.` : '';
     const m = await client.messages.create({
-      model: 'claude-sonnet-5', max_tokens: 200,
+      model: 'claude-sonnet-5', max_tokens: 220,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64') } },
-        { type: 'text', text: `Score this event promo image 0-100 for use on a winery's website and social feeds: resolution/sharpness, composition, on-brand feel, and whether any overlaid text stays legible on a phone. Return ONLY JSON: {"score": <int 0-100>, "note": "<one short sentence of feedback>"}` },
+        { type: 'text', text: `Score this event promo image 0-100 for a winery's website and social feeds: resolution/sharpness, composition, on-brand feel, and whether any overlaid text stays legible on a phone. Also weigh whether the event's specific performer/subject is the focus versus a generic reusable backdrop — for a recurring series a performer-forward image is worth more than a repeated scenic background.${who} Return ONLY JSON: {"score": <int 0-100>, "note": "<one short sentence of feedback>"}` },
       ] }],
     });
     return parseScore(textOf(m), 'Scored.');
@@ -121,8 +171,11 @@ export const grade = (s) => s >= 90 ? 'A' : s >= 80 ? 'B' : s >= 70 ? 'C' : s >=
 
 async function loadEvent(companyId, eventId) {
   return (await query(
-    `SELECT id, title, description, start_at, created_at, image_url, social_image_url, fb_image_url
-       FROM events WHERE id = $1 AND company_id = $2`, [eventId, companyId]
+    `SELECT e.id, e.title, e.description, e.start_at, e.created_at, e.category, e.location_id,
+            e.image_url, e.social_image_url, e.fb_image_url,
+            m.name AS musician_name, m.photo_url AS musician_photo
+       FROM events e LEFT JOIN musicians m ON m.id = e.musician_id
+      WHERE e.id = $1 AND e.company_id = $2`, [eventId, companyId]
   )).rows[0];
 }
 
@@ -152,16 +205,35 @@ export async function scoreEvent(companyId, eventId) {
   const rc = await reachAndCoverage(companyId, eventId);
   const wk = leadWeeks(ev);
   const timing = timingScore(wk);
-  const [img, msg] = await Promise.all([aiScoreImage(apiKey, ev), aiScoreMessage(apiKey, ev)]);
+
+  // Image: quality (AI) capped by freshness (repetition penalty). A gorgeous but
+  // recycled series image can't score high.
+  const imgUrl = abs(ev.social_image_url || ev.image_url || ev.fb_image_url);
+  let img = { score: 0, note: 'No hero image set. Add a 2400×1000 landscape.' };
+  let imageHash = null;
+  const [prepped, msg] = await Promise.all([imgUrl ? prepImage(imgUrl) : null, aiScoreMessage(apiKey, ev)]);
+  if (imgUrl && !prepped) {
+    img = { score: null, note: 'Could not load the image to score it.' };
+  } else if (prepped) {
+    imageHash = prepped.hash;
+    const [ai, fresh] = await Promise.all([aiImageQuality(apiKey, prepped.jpeg, ev), imageFreshness(companyId, ev, imageHash)]);
+    if (ai.score == null) {
+      img = ai; // no key / error — surface as-is
+    } else {
+      const score = Math.min(ai.score, fresh.freshness);
+      img = { score, note: (fresh.reuse && fresh.freshness <= ai.score) ? fresh.note : ai.note };
+    }
+  }
+
   const parts = { reach: rc.reach, timing, image: img.score, message: msg.score };
   const comp = composite(parts);
 
   await query(
-    `INSERT INTO event_promo_scores (event_id, company_id, reach, timing, image, message, composite, coverage_flag, image_note, message_note, scored_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+    `INSERT INTO event_promo_scores (event_id, company_id, reach, timing, image, message, composite, coverage_flag, image_note, message_note, image_hash, scored_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
      ON CONFLICT (event_id) DO UPDATE SET
-       reach=$3, timing=$4, image=$5, message=$6, composite=$7, coverage_flag=$8, image_note=$9, message_note=$10, scored_at=NOW()`,
-    [eventId, companyId, rc.reach, timing, img.score, msg.score, comp, rc.flag, img.note, msg.note]
+       reach=$3, timing=$4, image=$5, message=$6, composite=$7, coverage_flag=$8, image_note=$9, message_note=$10, image_hash=$11, scored_at=NOW()`,
+    [eventId, companyId, rc.reach, timing, img.score, msg.score, comp, rc.flag, img.note, msg.note, imageHash]
   );
   return {
     ...parts, composite: comp, grade: grade(comp), coverage: rc, timing_note: timingNote(wk),

@@ -4236,6 +4236,10 @@ const MIGRATIONS = [
       WHEN key IN ('app_push','google_business')  THEN 'scheduled'
       ELSE 'manual' END
     WHERE push_mode IS NULL`,
+  // Perceptual hash of the scored hero image, so the promo scorer can spot a
+  // recurring series reusing the same artwork week after week and dock the
+  // Image dimension for it. (Append-only — add at the very end.)
+  `ALTER TABLE event_promo_scores ADD COLUMN IF NOT EXISTS image_hash TEXT`,
 ];
 
 export async function runMigrations() {
