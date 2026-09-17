@@ -371,6 +371,18 @@ function MessageTalentCard({ eventId }) {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
+  const sendAllReminders = async () => {
+    const tpls = ['month', 'week', 'day'].map((k) => ctx?.templates?.[k]).filter(Boolean);
+    if (!tpls.length || !to.trim()) return;
+    if (!window.confirm(`Send all ${tpls.length} reminder texts now to ${to}?`)) return;
+    setBusy(true); setErr(''); setMsg('');
+    let n = 0;
+    try {
+      for (const t of tpls) { await sendEventMessage(eventId, t, to || undefined); n++; }
+      setMsg(`Sent ${n} reminder text${n === 1 ? '' : 's'} ✓`);
+    } catch (e) { setErr(`Sent ${n} of ${tpls.length}. ${e.message}`); } finally { setBusy(false); }
+  };
+
   const TPL = [['month', '1 month'], ['week', '1 week'], ['day', 'Day-before']];
 
   return (
@@ -388,6 +400,10 @@ function MessageTalentCard({ eventId }) {
           <button key={k} style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }}
                   disabled={!ctx?.templates?.[k]} onClick={() => setBody(ctx.templates[k])}>{label}</button>
         ))}
+        <button style={{ ...btn(false), padding: '4px 10px', fontSize: 12, borderColor: '#7c2d3a', color: '#7c2d3a' }}
+                disabled={busy || !to.trim() || !ctx?.templates?.month} onClick={sendAllReminders}>
+          Send all 3 now →
+        </button>
       </div>
       <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4}
                 placeholder="Type a message, or prefill a reminder above…"
