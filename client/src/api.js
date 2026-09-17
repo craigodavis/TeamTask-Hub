@@ -2525,6 +2525,20 @@ export async function setEventChannelEnabled(eventId, key, enabled) {
     method: 'PUT', headers: headers(), body: JSON.stringify({ enabled }),
   }));
 }
+// ── Approval workflow ──────────────────────────────────────────────────────────
+export async function submitEventForReview(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/submit`, { method: 'POST', headers: headers() }));
+}
+export async function approveEvent(eventId, notes) {
+  return pj(await fetch(`${API}/events/${eventId}/approve`, { method: 'POST', headers: headers(), body: JSON.stringify({ notes }) }));
+}
+export async function requestEventChanges(eventId, notes) {
+  return pj(await fetch(`${API}/events/${eventId}/request-changes`, { method: 'POST', headers: headers(), body: JSON.stringify({ notes }) }));
+}
+export async function publishEvent(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/publish`, { method: 'POST', headers: headers() }));
+}
+
 export async function getEventMessageContext(eventId) {
   return pj(await fetch(`${API}/events/${eventId}/message`, { headers: headers() }));
 }

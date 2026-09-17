@@ -19,6 +19,7 @@ import { getDistribution, announce, markPost, scheduleAnnounce } from '../lib/ev
 import { sendSmsToPhone } from '../lib/smsHelper.js';
 import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
 import { logEventActivity, getEventActivity, getCompanyActivity } from '../lib/eventActivity.js';
+import { getApprovalConfig, notifyApprover, notifyCreatorApproved, notifyCreatorChanges } from '../lib/eventApproval.js';
 
 const cId = (req) => req.companyId;
 
@@ -108,7 +109,7 @@ eventsRouter.get('/', async (req, res) => {
     const order = past ? 'DESC' : 'ASC';
     const r = await query(
       `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.event_url, e.image_url, e.social_image_url, e.fb_image_url,
-              e.category, e.status, e.wp_event_id, e.location_id, e.musician_id,
+              e.category, e.status, e.stage, e.review_notes, e.review_by, e.review_at, e.submitted_by, e.wp_event_id, e.location_id, e.musician_id,
               l.name AS location_name, m.name AS musician_name, m.lift_pct
          FROM events e
          LEFT JOIN locations l ON l.id = e.location_id
@@ -221,6 +222,56 @@ eventsRouter.post('/:id/message', async (req, res) => {
     const r = await sendSmsToPhone(cId(req), to, body, req.userId || null);
     if (!r.ok) return res.status(502).json({ error: r.reason || 'Send failed' });
     res.json({ ok: true, sid: r.sid });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Approval workflow: draft → review → approved → published ─────────────────
+eventsRouter.post('/:id/submit', async (req, res) => {
+  try {
+    const ev = (await query(`SELECT id, title, stage FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (!ev) return res.status(404).json({ error: 'Event not found' });
+    await query(`UPDATE events SET stage = 'review', submitted_at = NOW(), submitted_by = $3, review_notes = NULL, review_notified_at = NULL, updated_at = NOW() WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req), req.userId || null]);
+    logEventActivity(cId(req), req.userId, 'submitted', { eventId: ev.id, eventTitle: ev.title, detail: 'for review' });
+    notifyApprover(cId(req), ev, req.userId).catch(() => {});
+    res.json({ ok: true, stage: 'review' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/:id/approve', async (req, res) => {
+  try {
+    const ev = (await query(`SELECT id, title, created_by FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (!ev) return res.status(404).json({ error: 'Event not found' });
+    const notes = (req.body?.notes || '').toString().slice(0, 2000) || null;
+    await query(`UPDATE events SET stage = 'approved', review_by = $3, review_at = NOW(), review_notes = $4, approved_notified_at = NULL, updated_at = NOW() WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req), req.userId || null, notes]);
+    logEventActivity(cId(req), req.userId, 'approved', { eventId: ev.id, eventTitle: ev.title, detail: notes ? `with notes: ${notes}` : null });
+    notifyCreatorApproved(cId(req), ev, req.userId).catch(() => {});
+    res.json({ ok: true, stage: 'approved' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/:id/request-changes', async (req, res) => {
+  try {
+    const ev = (await query(`SELECT id, title, created_by FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (!ev) return res.status(404).json({ error: 'Event not found' });
+    const notes = (req.body?.notes || '').toString().slice(0, 2000) || null;
+    await query(`UPDATE events SET stage = 'draft', review_by = $3, review_at = NOW(), review_notes = $4, review_notified_at = NULL, updated_at = NOW() WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req), req.userId || null, notes]);
+    logEventActivity(cId(req), req.userId, 'changes_requested', { eventId: ev.id, eventTitle: ev.title, detail: notes || null });
+    notifyCreatorChanges(cId(req), ev, notes, req.userId).catch(() => {});
+    res.json({ ok: true, stage: 'draft' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+eventsRouter.post('/:id/publish', async (req, res) => {
+  try {
+    const ev = (await query(`SELECT id, title, stage FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (!ev) return res.status(404).json({ error: 'Event not found' });
+    const cfg = await getApprovalConfig(cId(req));
+    if (cfg.required && ev.stage !== 'approved') {
+      return res.status(409).json({ error: 'This event needs approval before it can be published. Submit it for review first.' });
+    }
+    await query(`UPDATE events SET stage = 'published', status = 'published', updated_at = NOW() WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
+    logEventActivity(cId(req), req.userId, 'published', { eventId: ev.id, eventTitle: ev.title });
+    res.json({ ok: true, stage: 'published' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -470,9 +521,16 @@ const FIELD_LABEL = { location_id: 'venue', musician_id: 'talent', title: 'title
 
 eventsRouter.patch('/:id', async (req, res) => {
   try {
-    const cur = (await query(`SELECT title, start_at, status FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    const cur = (await query(`SELECT title, start_at, status, stage FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    // Approval gate: can't publish straight from a PATCH unless approved (or approval is off).
+    if ('status' in req.body && req.body.status === 'published' && cur && cur.stage !== 'approved' && cur.stage !== 'published') {
+      const cfg = await getApprovalConfig(cId(req));
+      if (cfg.required) return res.status(409).json({ error: 'This event needs approval before publishing. Submit it for review first.' });
+    }
     const sets = [], vals = [];
     for (const f of EV_FIELDS) if (f in req.body) { vals.push(req.body[f] === '' ? null : req.body[f]); sets.push(`${f} = $${vals.length}`); }
+    // Keep stage in step with a direct status change.
+    if ('status' in req.body) { vals.push(req.body.status === 'published' ? 'published' : 'draft'); sets.push(`stage = $${vals.length}`); }
     // Regenerate the slug if the title or start date changed.
     if ('title' in req.body || 'start_at' in req.body) {
       if (cur) {

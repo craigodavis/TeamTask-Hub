@@ -4187,6 +4187,28 @@ const MIGRATIONS = [
   // than destroying it (mirrors events). Listings filter deleted_at IS NULL.
   `ALTER TABLE event_tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
   `ALTER TABLE event_tasks ADD COLUMN IF NOT EXISTS deleted_by UUID`,
+  // ── Approval workflow ──────────────────────────────────────────────────────
+  // Events move draft → review → approved → published. `status` (draft|published)
+  // stays the live/not-live flag the website + distribution read; `stage` drives
+  // the review pipeline. Columns live on events_all (the base table); the events
+  // view is recreated to expose them.
+  `ALTER TABLE events_all
+     ADD COLUMN IF NOT EXISTS stage                VARCHAR(20),
+     ADD COLUMN IF NOT EXISTS submitted_at         TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS submitted_by         UUID,
+     ADD COLUMN IF NOT EXISTS review_notes         TEXT,
+     ADD COLUMN IF NOT EXISTS review_by            UUID,
+     ADD COLUMN IF NOT EXISTS review_at            TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS review_notified_at   TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS approved_notified_at TIMESTAMPTZ`,
+  `UPDATE events_all SET stage = CASE WHEN status = 'published' THEN 'published' ELSE 'draft' END WHERE stage IS NULL`,
+  // Re-expose events_all through the view so routes can read/write e.stage.
+  // CREATE OR REPLACE keeps the INSTEAD OF DELETE trigger intact.
+  `CREATE OR REPLACE VIEW events AS SELECT * FROM events_all WHERE deleted_at IS NULL`,
+  // Per-company approval config (lives with the other event/scheduling settings).
+  `ALTER TABLE scheduling_settings
+     ADD COLUMN IF NOT EXISTS event_approval_required BOOLEAN NOT NULL DEFAULT false,
+     ADD COLUMN IF NOT EXISTS event_approver_id       UUID`,
 ];
 
 export async function runMigrations() {

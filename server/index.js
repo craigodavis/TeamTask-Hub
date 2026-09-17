@@ -45,6 +45,7 @@ import { startC7SyncScheduler } from './lib/commerce7Sync.js';
 import { startFactorSyncScheduler } from './lib/factorSync.js';
 import { startFeedbackScheduler } from './lib/feedbackSender.js';
 import { startTalentReminderScheduler } from './lib/talentReminders.js';
+import { startEventApprovalReminders } from './lib/eventApproval.js';
 import { startPromoReminderScheduler } from './lib/promoReminders.js';
 import { startZeroCanaryScheduler } from './lib/qboZeroCanary.js';
 import { startAbcPortalScheduler } from './lib/abcPortalScheduler.js';
@@ -248,6 +249,7 @@ function startSchedulers() {
   startFeedbackScheduler();
   startClubPushScheduler();
   startTalentReminderScheduler();
+  startEventApprovalReminders();
   startPromoReminderScheduler();
   startInstagramScheduler();
   startPromoEmailScheduler();
