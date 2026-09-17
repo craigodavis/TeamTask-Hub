@@ -8,6 +8,31 @@ import './AppShell.css';
 
 const STORAGE_KEY = 'teamtask_sidebar_collapsed';
 
+// Sun/moon theme toggle. Cycles the explicit theme and remembers it; the initial
+// value is read before render in main.jsx so there's no flash.
+function ThemeToggle() {
+  const read = () => {
+    try { return localStorage.getItem('teamhub_theme'); } catch { return null; }
+  };
+  const systemDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const [dark, setDark] = useState(() => { const t = read(); return t ? t === 'dark' : systemDark(); });
+  const toggle = () => {
+    const next = dark ? 'light' : 'dark';
+    setDark(!dark);
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('teamhub_theme', next); } catch { /* ignore */ }
+  };
+  return (
+    <button type="button" onClick={toggle} title={dark ? 'Switch to light' : 'Switch to dark'}
+      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 18, lineHeight: 1, padding: 6, borderRadius: 8, display: 'grid', placeItems: 'center' }}>
+      {dark
+        ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4.2" /><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" strokeLinecap="round" /></svg>
+        : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" strokeLinejoin="round" /></svg>}
+    </button>
+  );
+}
+
 function isManageTabActive(location, tab) {
   if (location.pathname !== '/manage') return false;
   const t = new URLSearchParams(location.search).get('tab');
@@ -98,6 +123,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
         </div>
         <h1 className="app-shell-title">{appTitle}</h1>
         <div className="app-shell-header-right">
+          <ThemeToggle />
           <UserMenu user={user} onLogout={onLogout} />
         </div>
       </header>
