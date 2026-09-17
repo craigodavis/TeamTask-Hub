@@ -525,7 +525,7 @@ function PromoScoreCard({ eventId }) {
   return (
     <div style={{ ...card, marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0 }}>Promotion score</h3>
+        <h3 style={{ margin: 0 }}>AI Promotion Score</h3>
         {FLAG.t && <span style={{ fontSize: 12.5, fontWeight: 700, color: FLAG.c }}>{FLAG.t}</span>}
         <span style={{ flex: 1 }} />
         <button style={{ ...btn(false), padding: '6px 12px', fontSize: 13 }} disabled={busy} onClick={rescore}>
@@ -815,7 +815,7 @@ function ReadinessStrip({ ev }) {
       {pill('Talent', ev.musician_name || 'None', null, ev.musician_name ? '#3f8f5b' : '#847771')}
       {pill('Tasks', total ? `${done}/${total}` : '—', null, total && done === total ? '#3f8f5b' : total ? '#b0631f' : '#847771')}
       {pill('Reach', flag ? flag.t : '—', null, flag ? flag.c : '#847771')}
-      {pill('Promo grade', score ? `${score.grade} · ${score.composite}` : '—', null, gcol(score?.composite))}
+      {pill('AI promo grade', score ? `${score.grade} · ${score.composite}` : '—', null, gcol(score?.composite))}
     </div>
   );
 }
@@ -895,6 +895,7 @@ function ApprovalBar({ ev }) {
 }
 
 function EventDetail({ ev, users, musicians, locations, onBack }) {
+  const [tab, setTab] = useState('overview');
   const [notes, setNotes] = useState(ev.internal_notes || '');
   const [tasks, setTasks] = useState([]);
   const [nt, setNt] = useState({ checklist: 'Final Checklist', title: '', assignee_user_id: '', due_date: '', reminder_date: '' });
@@ -1018,6 +1019,14 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
       <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>✕ Close</button>
       <ReadinessStrip ev={ev} />
       <ApprovalBar ev={ev} />
+
+      <div style={{ display: 'flex', gap: 2, marginBottom: 16, borderBottom: '1px solid var(--border,#e3e3e3)', overflowX: 'auto' }}>
+        {[['overview', 'Overview'], ['prep', `Prep${tasks.length ? ` (${tasks.filter((t) => t.done).length}/${tasks.length})` : ''}`], ['promote', 'Promote'], ['talent', 'Talent'], ['activity', 'Activity']].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} style={{ border: 'none', background: 'transparent', padding: '10px 14px', fontWeight: 600, fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap', color: tab === k ? '#7c2d3a' : 'var(--muted,#888)', borderBottom: tab === k ? '2.5px solid #7c2d3a' : '2.5px solid transparent', marginBottom: -1 }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === 'overview' && (<>
       <div style={{ ...card, marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>Event details</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
@@ -1095,7 +1104,9 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           {savedNotes && <span style={{ color: '#137a2f', fontSize: 12, marginLeft: 10 }}>✓ saved</span>}
         </div>
       </div>
+      </>)}
 
+      {tab === 'prep' && (
       <div style={card}>
         <h3 style={{ marginTop: 0 }}>Checklists &amp; tasks <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(internal)</span></h3>
         {Object.keys(groups).length === 0 && <p style={{ opacity: 0.6 }}>No items yet — add one below.</p>}
@@ -1150,14 +1161,14 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
         </div>
         <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Set a <b>Remind from</b> date and an assignee, and they get a text every day from that date until the item is checked off.</p>
       </div>
+      )}
 
-      <MessageTalentCard eventId={ev.id} />
+      {tab === 'talent' && <MessageTalentCard eventId={ev.id} />}
 
+      {tab === 'promote' && (<>
       <DistributionCard eventId={ev.id} card={card} />
 
       <PromoScoreCard eventId={ev.id} />
-
-      <ActivityCard eventId={ev.id} />
 
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1232,6 +1243,9 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           </div>
         </div>
       </div>
+      </>)}
+
+      {tab === 'activity' && <ActivityCard eventId={ev.id} />}
     </div>
   );
 }
