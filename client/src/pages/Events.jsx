@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -348,6 +348,64 @@ function RemindersTab() {
  * ones can never be (Facebook removed event creation from their API; Bandsintown
  * listings come from the artist), and `outreach` goes out as email.
  */
+function MessageTalentCard({ eventId }) {
+  const [ctx, setCtx] = useState(null);
+  const [body, setBody] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    getEventMessageContext(eventId)
+      .then((d) => { setCtx(d); setTo(d.talent?.phone || ''); })
+      .catch((e) => setErr(e.message));
+  }, [eventId]);
+
+  const send = async () => {
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await sendEventMessage(eventId, body, to || undefined);
+      setMsg(`Sent ✓${r.sid ? ` (${r.sid.slice(0, 10)}…)` : ''}`);
+      setBody('');
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const TPL = [['month', '1 month'], ['week', '1 week'], ['day', 'Day-before']];
+
+  return (
+    <div style={{ ...card, marginTop: 16 }}>
+      <h3 style={{ margin: '0 0 4px' }}>Message talent <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(send a text now)</span></h3>
+      {ctx && !ctx.talent && <p style={{ fontSize: 13, color: '#b06000' }}>No talent assigned. You can still type a number below.</p>}
+      {ctx?.talent && (
+        <p style={{ fontSize: 13, opacity: 0.75, margin: '4px 0 8px' }}>
+          To: <strong>{ctx.talent.name}</strong>{ctx.talent.phone ? ` · ${ctx.talent.phone}` : ' · (no phone on file)'}
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 12, opacity: 0.6, alignSelf: 'center' }}>Prefill a reminder:</span>
+        {TPL.map(([k, label]) => (
+          <button key={k} style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }}
+                  disabled={!ctx?.templates?.[k]} onClick={() => setBody(ctx.templates[k])}>{label}</button>
+        ))}
+      </div>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4}
+                placeholder="Type a message, or prefill a reminder above…"
+                style={{ ...inp, fontFamily: 'inherit', fontSize: 14 }} />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, opacity: 0.7 }}>Send to</label>
+        <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="(208) 555-1234"
+               style={{ ...inp, width: 180, padding: 7 }} />
+        <button style={btn(true)} disabled={busy || !body.trim() || !to.trim()} onClick={send}>
+          {busy ? 'Sending…' : 'Send text'}
+        </button>
+        {msg && <span style={{ color: '#137333', fontSize: 13 }}>{msg}</span>}
+        {err && <span style={{ color: '#b00', fontSize: 13 }}>{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 function DistributionCard({ eventId, card }) {
   const [dist, setDist] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -755,6 +813,8 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
         </div>
         <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Set a <b>Remind from</b> date and an assignee, and they get a text every day from that date until the item is checked off.</p>
       </div>
+
+      <MessageTalentCard eventId={ev.id} />
 
       <DistributionCard eventId={ev.id} card={card} />
 

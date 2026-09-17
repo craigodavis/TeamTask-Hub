@@ -2525,6 +2525,14 @@ export async function setEventChannelEnabled(eventId, key, enabled) {
     method: 'PUT', headers: headers(), body: JSON.stringify({ enabled }),
   }));
 }
+export async function getEventMessageContext(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/message`, { headers: headers() }));
+}
+export async function sendEventMessage(eventId, body, to) {
+  return pj(await fetch(`${API}/events/${eventId}/message`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ body, to }),
+  }));
+}
 
 // ---- Website media library (Marketing → Website → Media) ----
 export async function listMedia(params = {}) {
