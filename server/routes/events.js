@@ -18,6 +18,7 @@ import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
 import { getDistribution, announce, markPost, scheduleAnnounce } from '../lib/eventDistribution.js';
 import { sendSmsToPhone } from '../lib/smsHelper.js';
 import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
+import { logEventActivity, getEventActivity, getCompanyActivity } from '../lib/eventActivity.js';
 
 const cId = (req) => req.companyId;
 
@@ -152,6 +153,8 @@ eventsRouter.post('/:id/distribution/announce', async (req, res) => {
       channelKeys: Array.isArray(req.body?.channelKeys) ? req.body.channelKeys : null,
       userId: req.userId,
     });
+    const posted = (r.touched || []).filter((t) => t.action === 'posted').map((t) => t.key);
+    if (posted.length) logEventActivity(cId(req), req.userId, 'announced', { eventId: req.params.id, detail: `pushed ${posted.length} channel${posted.length === 1 ? '' : 's'}`, meta: { channels: posted } });
     res.json(r);
   } catch (e) { console.error('distribution announce', e); res.status(500).json({ error: e.message }); }
 });
@@ -169,6 +172,7 @@ eventsRouter.post('/:id/distribution/schedule', async (req, res) => {
       leadDays: lead ?? null,
       channelKeys: Array.isArray(req.body?.channelKeys) ? req.body.channelKeys : null,
     });
+    if ((r.scheduled || []).length) logEventActivity(cId(req), req.userId, 'scheduled', { eventId: req.params.id, detail: `scheduled ${r.scheduled.length} channel${r.scheduled.length === 1 ? '' : 's'}` });
     res.json(r);
   } catch (e) { console.error('distribution schedule', e); res.status(500).json({ error: e.message }); }
 });
@@ -220,6 +224,18 @@ eventsRouter.post('/:id/message', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Per-event audit history, newest first.
+eventsRouter.get('/:id/activity', async (req, res) => {
+  try { res.json({ activity: await getEventActivity(cId(req), req.params.id) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Company-wide audit feed. Query: ?actor=Name&action=verb
+eventsRouter.get('/activity/feed', async (req, res) => {
+  try { res.json({ activity: await getCompanyActivity(cId(req), { actor: req.query.actor, action: req.query.action }) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Per-event channel on/off. Body: { enabled: bool }. Writes an override row so
 // this event skips (or re-includes) a channel; announce/schedule respect it.
 eventsRouter.put('/:id/distribution/channels/:key', async (req, res) => {
@@ -260,7 +276,7 @@ eventsRouter.get('/:id/tasks', async (req, res) => {
       `SELECT t.id, t.checklist, t.title, t.assignee_user_id, t.done, t.sort_order,
               t.due_date, t.reminder_date, t.parent_task_id, u.display_name AS assignee_name
          FROM event_tasks t LEFT JOIN users u ON u.id = t.assignee_user_id
-        WHERE t.event_id = $1 AND t.company_id = $2
+        WHERE t.event_id = $1 AND t.company_id = $2 AND t.deleted_at IS NULL
         ORDER BY t.checklist, t.sort_order, t.created_at`, [req.params.id, cId(req)]);
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -280,6 +296,7 @@ eventsRouter.post('/:id/tasks', async (req, res) => {
       `INSERT INTO event_tasks (company_id, event_id, checklist, title, assignee_user_id, due_date, reminder_date, parent_task_id, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [cId(req), req.params.id, cl, title.trim(), assignee_user_id || null, due_date || null, reminder_date || null, parent_task_id || null, so]);
+    logEventActivity(cId(req), req.userId, 'task_added', { eventId: req.params.id, detail: `“${title.trim()}”` });
     res.json({ id: r.rows[0].id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -305,8 +322,43 @@ eventsRouter.patch('/tasks/:taskId', async (req, res) => {
 
 eventsRouter.delete('/tasks/:taskId', async (req, res) => {
   try {
-    await query(`DELETE FROM event_tasks WHERE id = $1 AND company_id = $2`, [req.params.taskId, cId(req)]);
+    // Soft-delete → Trash rather than destroy. Restorable via /tasks/:taskId/restore.
+    const r = await query(
+      `UPDATE event_tasks SET deleted_at = NOW(), deleted_by = $3
+        WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL
+        RETURNING event_id, title`, [req.params.taskId, cId(req), req.userId || null]);
+    const t = r.rows[0];
+    if (t) {
+      const ev = (await query(`SELECT title FROM events WHERE id = $1`, [t.event_id])).rows[0];
+      logEventActivity(cId(req), req.userId, 'task_deleted', { eventId: t.event_id, eventTitle: ev?.title, detail: `“${t.title}”` });
+    }
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Restore a trashed task.
+eventsRouter.post('/tasks/:taskId/restore', async (req, res) => {
+  try {
+    const r = await query(
+      `UPDATE event_tasks SET deleted_at = NULL, deleted_by = NULL
+        WHERE id = $1 AND company_id = $2 AND deleted_at IS NOT NULL
+        RETURNING event_id, title`, [req.params.taskId, cId(req)]);
+    const t = r.rows[0];
+    if (!t) return res.status(404).json({ error: 'Not a deleted task' });
+    logEventActivity(cId(req), req.userId, 'task_restored', { eventId: t.event_id, detail: `“${t.title}”` });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Trashed tasks for an event (restorable).
+eventsRouter.get('/:id/tasks/deleted', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT t.id, t.checklist, t.title, t.deleted_at, u.display_name AS deleted_by_name
+         FROM event_tasks t LEFT JOIN users u ON u.id = t.deleted_by
+        WHERE t.event_id = $1 AND t.company_id = $2 AND t.deleted_at IS NOT NULL
+        ORDER BY t.deleted_at DESC`, [req.params.id, cId(req)]);
+    res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -405,17 +457,24 @@ eventsRouter.post('/', async (req, res) => {
     cols.push('slug'); vals.push(slug); ph.push('$' + vals.length);
     const r = await query(`INSERT INTO events (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING id`, vals);
     const id = r.rows[0].id;
+    logEventActivity(cId(req), req.userId, 'created', { eventId: id, eventTitle: req.body.title });
     res.json({ id });
   } catch (e) { console.error('event create', e); res.status(500).json({ error: e.message }); }
 });
 
+// Human labels for the fields we announce in the audit log.
+const FIELD_LABEL = { location_id: 'venue', musician_id: 'talent', title: 'title', description: 'description',
+  start_at: 'date/time', end_at: 'end time', all_day: 'all-day', cost: 'cost', event_url: 'ticket URL',
+  image_url: 'image', social_image_url: 'social image', fb_image_url: 'Facebook image', category: 'category',
+  status: 'status', internal_notes: 'internal notes' };
+
 eventsRouter.patch('/:id', async (req, res) => {
   try {
+    const cur = (await query(`SELECT title, start_at, status FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
     const sets = [], vals = [];
     for (const f of EV_FIELDS) if (f in req.body) { vals.push(req.body[f] === '' ? null : req.body[f]); sets.push(`${f} = $${vals.length}`); }
     // Regenerate the slug if the title or start date changed.
     if ('title' in req.body || 'start_at' in req.body) {
-      const cur = (await query(`SELECT title, start_at FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
       if (cur) {
         const base = makeSlug(req.body.title ?? cur.title, req.body.start_at ?? cur.start_at);
         const s = await uniqueSlug(cId(req), base, req.params.id);
@@ -425,6 +484,16 @@ eventsRouter.patch('/:id', async (req, res) => {
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id, cId(req));
     await query(`UPDATE events SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length - 1} AND company_id = $${vals.length}`, vals);
+
+    // Audit: a status flip is its own verb; otherwise list the fields that changed.
+    const title = req.body.title ?? cur?.title;
+    if ('status' in req.body && cur && req.body.status !== cur.status) {
+      const verb = req.body.status === 'published' ? 'published' : (cur.status === 'published' ? 'unpublished' : 'edited');
+      logEventActivity(cId(req), req.userId, verb, { eventId: req.params.id, eventTitle: title, meta: { from: cur.status, to: req.body.status } });
+    } else {
+      const changed = EV_FIELDS.filter((f) => f in req.body && f !== 'status').map((f) => FIELD_LABEL[f] || f);
+      if (changed.length) logEventActivity(cId(req), req.userId, 'edited', { eventId: req.params.id, eventTitle: title, detail: changed.join(', ') });
+    }
     res.json({ ok: true });
   } catch (e) { console.error('event patch', e); res.status(500).json({ error: e.message }); }
 });
@@ -443,6 +512,7 @@ eventsRouter.delete('/:id', async (req, res) => {
       [req.params.id, cId(req), req.userId || null]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'No such event' });
+    logEventActivity(cId(req), req.userId, 'deleted', { eventId: r.rows[0].id, eventTitle: r.rows[0].title });
     res.json({ ok: true, deleted: r.rows[0] });
   } catch (e) { console.error('event delete', e); res.status(500).json({ error: e.message }); }
 });
@@ -471,6 +541,7 @@ eventsRouter.post('/:id/restore', async (req, res) => {
         WHERE id = $1 AND company_id = $2 AND deleted_at IS NOT NULL
         RETURNING id, title`, [req.params.id, cId(req)]);
     if (!r.rows.length) return res.status(404).json({ error: 'Not a deleted event' });
+    logEventActivity(cId(req), req.userId, 'restored', { eventId: r.rows[0].id, eventTitle: r.rows[0].title });
     res.json({ ok: true, restored: r.rows[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -485,11 +556,22 @@ eventsRouter.post('/:id/duplicate', async (req, res) => {
     let max = 0;
     for (const t of existing) { const m = String(t.title).match(/ -copy(\d+)$/i); if (m) max = Math.max(max, Number(m[1])); }
     const title = `${base} -copy${max + 1}`;
+    // Copy the event but NOT the images — each event gets its own artwork — and
+    // start it as a fresh draft with no dates.
     const r = await query(
       `INSERT INTO events (company_id, location_id, musician_id, title, description, internal_notes, cost, event_url, image_url, social_image_url, fb_image_url, category, status, start_at, end_at, created_by)
-       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, event_url, image_url, social_image_url, fb_image_url, category, 'draft', NULL, NULL, $3
+       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, event_url, NULL, NULL, NULL, category, 'draft', NULL, NULL, $3
          FROM events WHERE id = $1
        RETURNING id`, [req.params.id, title, req.userId || null]);
-    res.json({ id: r.rows[0].id, title });
+    const newId = r.rows[0].id;
+    // Carry the checklist over — the run-of-show is the point of duplicating a
+    // recurring event. Copy structure only (unchecked, no assignees/dates).
+    await query(
+      `INSERT INTO event_tasks (company_id, event_id, checklist, title, parent_task_id, sort_order)
+       SELECT company_id, $2, checklist, title, NULL, sort_order
+         FROM event_tasks WHERE event_id = $1 AND parent_task_id IS NULL AND deleted_at IS NULL`,
+      [req.params.id, newId]);
+    logEventActivity(cId(req), req.userId, 'duplicated', { eventId: newId, eventTitle: title, detail: `copied from “${base}” (checklist copied, image not)` });
+    res.json({ id: newId, title });
   } catch (e) { console.error('event duplicate', e); res.status(500).json({ error: e.message }); }
 });
