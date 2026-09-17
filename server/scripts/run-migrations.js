@@ -4209,15 +4209,6 @@ const MIGRATIONS = [
   `ALTER TABLE scheduling_settings
      ADD COLUMN IF NOT EXISTS event_approval_required BOOLEAN NOT NULL DEFAULT false,
      ADD COLUMN IF NOT EXISTS event_approver_id       UUID`,
-  // Per-channel push mode: on_publish (fire when the event goes live), scheduled
-  // (fire N days before, on its own timing), or manual (only when a person
-  // triggers it). "Announce now" fires the manual ones; publish fires the rest.
-  `ALTER TABLE promo_channels ADD COLUMN IF NOT EXISTS push_mode VARCHAR(20)`,
-  `UPDATE promo_channels SET push_mode = CASE
-      WHEN key IN ('website','eventbrite')        THEN 'on_publish'
-      WHEN key IN ('app_push','google_business')  THEN 'scheduled'
-      ELSE 'manual' END
-    WHERE push_mode IS NULL`,
   // Cached promotion scores per event. Reach + Timing are cheap formulas computed
   // fresh on read; Image + Message are AI-judged and cached here (they cost a call
   // and rarely change), refreshed on demand. Composite is the weighted blend.
@@ -4234,6 +4225,17 @@ const MIGRATIONS = [
      message_note  TEXT,
      scored_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
    )`,
+  // Per-channel push mode: on_publish (fire when the event goes live), scheduled
+  // (fire N days before, on its own timing), or manual (only when a person
+  // triggers it). "Announce now" fires the manual ones; publish fires the rest.
+  // NOTE: appended at the very end — the MIGRATIONS array is append-only; an
+  // insert mid-array renumbers applied versions and silently skips new entries.
+  `ALTER TABLE promo_channels ADD COLUMN IF NOT EXISTS push_mode VARCHAR(20)`,
+  `UPDATE promo_channels SET push_mode = CASE
+      WHEN key IN ('website','eventbrite')        THEN 'on_publish'
+      WHEN key IN ('app_push','google_business')  THEN 'scheduled'
+      ELSE 'manual' END
+    WHERE push_mode IS NULL`,
 ];
 
 export async function runMigrations() {
