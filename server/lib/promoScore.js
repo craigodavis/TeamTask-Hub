@@ -13,6 +13,7 @@
  * work; the AI dimensions come back null with a note.
  */
 import Anthropic from '@anthropic-ai/sdk';
+import sharp from 'sharp';
 import { query } from '../db.js';
 
 // Channels we always use vs the premium outlets for a wider net.
@@ -87,21 +88,21 @@ async function aiScoreImage(apiKey, ev) {
   const url = abs(ev.social_image_url || ev.image_url || ev.fb_image_url);
   if (!url) return { score: 0, note: 'No hero image set. Add a 2400×1000 landscape.' };
   if (!apiKey) return { score: null, note: 'Add an Anthropic key in Settings to AI-score images.' };
-  let buf, media;
+  let jpeg;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const ct = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
-    media = ct.startsWith('image/') ? ct : 'image/jpeg';
-    buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 4_500_000) return { score: null, note: 'Image too large to score automatically.' };
+    const raw = Buffer.from(await res.arrayBuffer());
+    // Downscale to Claude's optimal max edge — keeps any hero image under the
+    // vision size limit and cheaper to score.
+    jpeg = await sharp(raw).rotate().resize(1568, 1568, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
   } catch (e) { return { score: null, note: `Could not load the image to score it (${e.message}).` }; }
   try {
     const client = new Anthropic({ apiKey });
     const m = await client.messages.create({
       model: 'claude-sonnet-5', max_tokens: 200,
       messages: [{ role: 'user', content: [
-        { type: 'image', source: { type: 'base64', media_type: media, data: buf.toString('base64') } },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64') } },
         { type: 'text', text: `Score this event promo image 0-100 for use on a winery's website and social feeds: resolution/sharpness, composition, on-brand feel, and whether any overlaid text stays legible on a phone. Return ONLY JSON: {"score": <int 0-100>, "note": "<one short sentence of feedback>"}` },
       ] }],
     });
