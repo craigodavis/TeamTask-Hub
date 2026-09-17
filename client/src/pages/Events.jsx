@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -308,7 +308,9 @@ function RemindersTab() {
   const [s, setS] = useState(null);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+  const [staff, setStaff] = useState([]);
   useEffect(() => { getSchedulingSettings().then(setS).catch((e) => setErr(e.message)); }, []);
+  useEffect(() => { getAssignableUsers().then((u) => setStaff(u || [])).catch(() => {}); }, []);
   if (err) return <p style={{ color: 'crimson' }}>{err}</p>;
   if (!s) return <p>Loading…</p>;
   const save = async (patch) => {
@@ -335,7 +337,23 @@ function RemindersTab() {
       {tpl('reminder_msg_month', '1 month before')}
       {tpl('reminder_msg_week', '1 week before')}
       {tpl('reminder_msg_day', '1 day before')}
-      {saved && <span style={{ color: '#137a2f', fontWeight: 600 }}>✓ saved</span>}
+
+      <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border,#eee)' }}>
+        <h3 style={{ margin: '0 0 10px' }}>Event approval</h3>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <input type="checkbox" defaultChecked={s.event_approval_required} onChange={(e) => save({ event_approval_required: e.target.checked })} />
+          <span style={{ fontWeight: 600 }}>Require approval before an event can be published</span>
+        </label>
+        <label style={lbl}>Approver</label>
+        <select style={{ ...inp, maxWidth: 320 }} defaultValue={s.event_approver_id || ''} onChange={(e) => save({ event_approver_id: e.target.value || null })}>
+          <option value="">— choose who approves —</option>
+          {staff.map((u) => <option key={u.id} value={u.id}>{u.display_name || u.email}</option>)}
+        </select>
+        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 10, background: 'var(--card-bg,#f6f6f6)', border: '1px solid var(--border,#eee)', padding: 10, borderRadius: 8 }}>
+          When on, a new draft goes to the approver for review. They're texted until they approve or request changes; once approved, the creator is texted until they publish.
+        </div>
+      </div>
+      {saved && <span style={{ color: '#137a2f', fontWeight: 600, display: 'inline-block', marginTop: 12 }}>✓ saved</span>}
     </div>
   );
 }
@@ -575,6 +593,88 @@ function DistributionCard({ eventId, card }) {
   );
 }
 
+const STAGE_META = {
+  draft:     { label: 'Draft',     bg: '#eceae7', fg: '#6b625d' },
+  review:    { label: 'In review', bg: '#f6e7d6', fg: '#a5631f' },
+  approved:  { label: 'Approved',  bg: '#dcefec', fg: '#1f5b56' },
+  published: { label: 'Live',      bg: '#e0f0e4', fg: '#2c6b42' },
+};
+const STAGE_ORDER = ['draft', 'review', 'approved', 'published'];
+
+function ApprovalBar({ ev }) {
+  const [stage, setStage] = useState(ev.stage || (ev.status === 'published' ? 'published' : 'draft'));
+  const [reviewNotes, setReviewNotes] = useState(ev.review_notes || '');
+  const [reqApproval, setReqApproval] = useState(true);
+  const [compose, setCompose] = useState(null); // 'approve' | 'changes'
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => { getSchedulingSettings().then((s) => setReqApproval(!!s.event_approval_required)).catch(() => {}); }, []);
+
+  const run = async (fn, newStage, newNotes) => {
+    setBusy(true); setErr('');
+    try {
+      await fn();
+      setStage(newStage); ev.stage = newStage;
+      if (newNotes !== undefined) { setReviewNotes(newNotes); ev.review_notes = newNotes; }
+      if (newStage === 'published') ev.status = 'published';
+      setCompose(null); setNotes('');
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const idx = STAGE_ORDER.indexOf(stage);
+  const stepBtn = { padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, background: '#7c2d3a', color: '#fff' };
+  const ghost = { padding: '9px 16px', borderRadius: 8, border: '1px solid var(--border,#ccc)', cursor: 'pointer', fontWeight: 600, background: 'transparent' };
+
+  return (
+    <div style={{ ...card, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {STAGE_ORDER.map((s, i) => {
+          const m = STAGE_META[s]; const on = i <= idx;
+          return (
+            <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, padding: '3px 11px', borderRadius: 20,
+                background: on ? m.bg : 'transparent', color: on ? m.fg : 'var(--faint,#aaa)',
+                border: i === idx ? `1.5px solid ${m.fg}` : '1px solid var(--border,#e3e3e3)' }}>{m.label}</span>
+              {i < STAGE_ORDER.length - 1 && <span style={{ color: 'var(--faint,#bbb)' }}>→</span>}
+            </span>
+          );
+        })}
+        <span style={{ flex: 1 }} />
+        {stage === 'draft' && (reqApproval
+          ? <button style={stepBtn} disabled={busy} onClick={() => run(() => submitEventForReview(ev.id), 'review')}>Submit for review</button>
+          : <button style={stepBtn} disabled={busy} onClick={() => run(() => publishEvent(ev.id), 'published')}>Publish</button>)}
+        {stage === 'review' && <>
+          <button style={ghost} disabled={busy} onClick={() => setCompose(compose === 'changes' ? null : 'changes')}>Request changes</button>
+          <button style={stepBtn} disabled={busy} onClick={() => setCompose(compose === 'approve' ? null : 'approve')}>Approve</button>
+        </>}
+        {stage === 'approved' && <button style={stepBtn} disabled={busy} onClick={() => run(() => publishEvent(ev.id), 'published')}>Publish now</button>}
+        {stage === 'published' && <span style={{ fontSize: 13, color: '#2c6b42', fontWeight: 700 }}>● Live on the website</span>}
+      </div>
+
+      {compose && (
+        <div style={{ marginTop: 12 }}>
+          <textarea style={{ ...inp, minHeight: 64 }} placeholder={compose === 'approve' ? 'Optional notes for the creator…' : 'What needs to change? (sent to the creator)'} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            {compose === 'approve'
+              ? <button style={stepBtn} disabled={busy} onClick={() => run(() => approveEvent(ev.id, notes), 'approved', notes || '')}>Approve event</button>
+              : <button style={{ ...stepBtn, background: '#a5631f' }} disabled={busy || !notes.trim()} onClick={() => run(() => requestEventChanges(ev.id, notes), 'draft', notes || '')}>Send back with changes</button>}
+            <button style={ghost} onClick={() => { setCompose(null); setNotes(''); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {reviewNotes && stage !== 'review' && (
+        <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: 'var(--surface-2,#faf6f3)', border: '1px solid var(--border,#e3e3e3)', fontSize: 13 }}>
+          <b>Reviewer notes:</b> {reviewNotes}
+        </div>
+      )}
+      {err && <p style={{ color: '#b00', fontSize: 13, marginBottom: 0 }}>{err}</p>}
+    </div>
+  );
+}
+
 function EventDetail({ ev, users, musicians, locations, onBack }) {
   const [notes, setNotes] = useState(ev.internal_notes || '');
   const [tasks, setTasks] = useState([]);
@@ -697,6 +797,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   return (
     <div>
       <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>← Back to events</button>
+      <ApprovalBar ev={ev} />
       <div style={{ ...card, marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>Event details</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
