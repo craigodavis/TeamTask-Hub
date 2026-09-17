@@ -16,6 +16,8 @@ import { query } from '../db.js';
 // still supported: scripts/reconcile-events-from-wp.js.
 import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
 import { getDistribution, announce, markPost, scheduleAnnounce } from '../lib/eventDistribution.js';
+import { sendSmsToPhone } from '../lib/smsHelper.js';
+import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
 
 const cId = (req) => req.companyId;
 
@@ -169,6 +171,53 @@ eventsRouter.post('/:id/distribution/schedule', async (req, res) => {
     });
     res.json(r);
   } catch (e) { console.error('distribution schedule', e); res.status(500).json({ error: e.message }); }
+});
+
+// Compose context for texting the event's talent: the assigned musician's
+// name/phone and the three reminder templates rendered for this event, so a
+// person can send a reminder now (to test) or edit it into a custom message.
+eventsRouter.get('/:id/message', async (req, res) => {
+  try {
+    const ev = (await query(
+      `SELECT e.id, e.title, m.id AS musician_id, m.name AS talent_name, m.phone,
+              l.name AS location_name,
+              to_char(e.start_at AT TIME ZONE 'America/Denver','FMMon FMDD') AS date_str,
+              to_char(e.start_at AT TIME ZONE 'America/Denver','FMHH12:MI AM') AS time_str
+         FROM events e
+         LEFT JOIN musicians m ON m.id = e.musician_id
+         LEFT JOIN locations l ON l.id = e.location_id
+        WHERE e.id = $1 AND e.company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    if (!ev) return res.status(404).json({ error: 'Event not found' });
+    const s = (await query(
+      `SELECT reminder_msg_month, reminder_msg_week, reminder_msg_day
+         FROM scheduling_settings WHERE company_id = $1`, [cId(req)])).rows[0] || {};
+    const templates = {};
+    for (const mk of MARKS) templates[mk.key] = render(s[mk.tpl] || DEFAULTS[mk.tpl], ev);
+    res.json({
+      talent: ev.musician_id ? { id: ev.musician_id, name: ev.talent_name, phone: ev.phone } : null,
+      templates,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Send a text now from the event. Body: { body, to? }. Defaults to the event's
+// talent phone; `to` overrides (e.g. a test number). Logs to sms_log.
+eventsRouter.post('/:id/message', async (req, res) => {
+  const body = String(req.body?.body || '').trim();
+  if (!body) return res.status(400).json({ error: 'Message body is required' });
+  try {
+    let to = String(req.body?.to || '').trim();
+    if (!to) {
+      const ev = (await query(
+        `SELECT m.phone FROM events e LEFT JOIN musicians m ON m.id = e.musician_id
+          WHERE e.id = $1 AND e.company_id = $2`, [req.params.id, cId(req)])).rows[0];
+      to = ev?.phone || '';
+    }
+    if (!to) return res.status(400).json({ error: 'No phone number — assign talent with a phone, or enter a number.' });
+    const r = await sendSmsToPhone(cId(req), to, body, req.userId || null);
+    if (!r.ok) return res.status(502).json({ error: r.reason || 'Send failed' });
+    res.json({ ok: true, sid: r.sid });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Per-event channel on/off. Body: { enabled: bool }. Writes an override row so

@@ -8,18 +8,18 @@
 import { query } from '../db.js';
 import { sendSmsToPhone } from './smsHelper.js';
 
-const MARKS = [
+export const MARKS = [
   { key: 'month', col: 'reminder_month_sent_at', interval: '1 month', tpl: 'reminder_msg_month' },
   { key: 'week', col: 'reminder_week_sent_at', interval: '7 days', tpl: 'reminder_msg_week' },
   { key: 'day', col: 'reminder_day_sent_at', interval: '1 day', tpl: 'reminder_msg_day' },
 ];
-const DEFAULTS = {
+export const DEFAULTS = {
   reminder_msg_month: 'Hi {talent}! You are booked for {event} at {location} on {date} at {time}.',
   reminder_msg_week: 'Hi {talent} — one week out! {event} at {location} on {date} at {time}.',
   reminder_msg_day: 'Hi {talent}, reminder: you are playing {event} at {location} tomorrow, {date} at {time}.',
 };
 
-function render(tpl, ev) {
+export function render(tpl, ev) {
   return String(tpl || '')
     .replace(/\{talent\}/g, ev.talent_name || '')
     .replace(/\{event\}/g, ev.title || '')
