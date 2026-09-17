@@ -99,7 +99,7 @@ function EventsTab() {
     } catch (x) { setErr(x.message); }
   };
 
-  if (selected) return <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={() => { setSelected(null); load(); }} />;
+  const closeCockpit = () => { setSelected(null); load(); };
 
   const applyF = (list) => list.filter((e) => {
     if (filter.location_id && e.location_id !== filter.location_id) return false;
@@ -115,6 +115,7 @@ function EventsTab() {
   const segStyle = (on) => ({ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 9, border: 'none', cursor: 'pointer', fontWeight: on ? 700 : 500, fontSize: 13.5, background: on ? 'var(--accent-soft,#f4e4e5)' : 'transparent', color: on ? '#7c2d3a' : 'inherit' });
 
   return (
+    <>
     <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
       {/* Left rail */}
       <aside style={{ flex: '0 0 210px', minWidth: 180, position: 'sticky', top: 12 }}>
@@ -212,6 +213,17 @@ function EventsTab() {
       {view === 'calendar' && <CalendarView events={shown} onOpen={setSelected} />}
       </div>
     </div>
+
+    {selected && (
+      <>
+        <div onClick={closeCockpit} style={{ position: 'fixed', inset: 0, background: 'rgba(30,18,20,.36)', zIndex: 60, animation: 'ckfade .18s ease' }} />
+        <div role="dialog" aria-label="Event details" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(620px,100%)', background: 'var(--bg,#f6f2f0)', boxShadow: '-10px 0 48px rgba(0,0,0,.28)', zIndex: 61, overflowY: 'auto', padding: 20, animation: 'ckslide .26s cubic-bezier(.4,0,.2,1)' }}>
+          <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={closeCockpit} />
+        </div>
+        <style>{`@keyframes ckslide{from{transform:translateX(100%)}to{transform:none}}@keyframes ckfade{from{opacity:0}to{opacity:1}}`}</style>
+      </>
+    )}
+    </>
   );
 }
 
@@ -1003,7 +1015,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
 
   return (
     <div>
-      <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>← Back to events</button>
+      <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>✕ Close</button>
       <ReadinessStrip ev={ev} />
       <ApprovalBar ev={ev} />
       <div style={{ ...card, marginBottom: 16 }}>
