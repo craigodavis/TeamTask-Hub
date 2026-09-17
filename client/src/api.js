@@ -2525,6 +2525,14 @@ export async function setEventChannelEnabled(eventId, key, enabled) {
     method: 'PUT', headers: headers(), body: JSON.stringify({ enabled }),
   }));
 }
+// ── Promotion score ─────────────────────────────────────────────────────────────
+export async function getPromoScore(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/promo-score`, { headers: headers() }));
+}
+export async function refreshPromoScore(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/promo-score/refresh`, { method: 'POST', headers: headers() }));
+}
+
 // ── Approval workflow ──────────────────────────────────────────────────────────
 export async function submitEventForReview(eventId) {
   return pj(await fetch(`${API}/events/${eventId}/submit`, { method: 'POST', headers: headers() }));

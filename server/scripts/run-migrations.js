@@ -4209,6 +4209,22 @@ const MIGRATIONS = [
   `ALTER TABLE scheduling_settings
      ADD COLUMN IF NOT EXISTS event_approval_required BOOLEAN NOT NULL DEFAULT false,
      ADD COLUMN IF NOT EXISTS event_approver_id       UUID`,
+  // Cached promotion scores per event. Reach + Timing are cheap formulas computed
+  // fresh on read; Image + Message are AI-judged and cached here (they cost a call
+  // and rarely change), refreshed on demand. Composite is the weighted blend.
+  `CREATE TABLE IF NOT EXISTS event_promo_scores (
+     event_id      UUID PRIMARY KEY,
+     company_id    UUID NOT NULL,
+     reach         INT,
+     timing        INT,
+     image         INT,
+     message       INT,
+     composite     INT,
+     coverage_flag VARCHAR(8),
+     image_note    TEXT,
+     message_note  TEXT,
+     scored_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
 ];
 
 export async function runMigrations() {
