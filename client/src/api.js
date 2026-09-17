@@ -2525,6 +2525,16 @@ export async function setEventChannelEnabled(eventId, key, enabled) {
     method: 'PUT', headers: headers(), body: JSON.stringify({ enabled }),
   }));
 }
+// ── Distribution channel config ──────────────────────────────────────────────────
+export async function getChannelConfig() {
+  return pj(await fetch(`${API}/events/distribution/channels`, { headers: headers() }));
+}
+export async function updateChannelConfig(key, patch) {
+  return pj(await fetch(`${API}/events/distribution/channels/${encodeURIComponent(key)}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify(patch),
+  }));
+}
+
 // ── Promotion score ─────────────────────────────────────────────────────────────
 export async function getPromoScore(eventId) {
   return pj(await fetch(`${API}/events/${eventId}/promo-score`, { headers: headers() }));

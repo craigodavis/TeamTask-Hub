@@ -79,17 +79,30 @@ export const CHANNELS = [
 
 export const CHANNEL_BY_KEY = Object.fromEntries(CHANNELS.map((c) => [c.key, c]));
 
+/**
+ * Default push mode for a channel:
+ *   on_publish  fires the moment the event is published (website, Eventbrite)
+ *   scheduled   fires N days before, on its own timing (Google, app push)
+ *   manual      only when a person triggers it (everything else)
+ * This is a seed — the mode is tunable per company after that.
+ */
+export function defaultMode(key) {
+  if (key === 'website' || key === 'eventbrite') return 'on_publish';
+  if (key === 'app_push' || key === 'google_business') return 'scheduled';
+  return 'manual';
+}
+
 /** Insert any catalogue entries this company doesn't have yet. Idempotent. */
 export async function ensureChannels(companyId) {
   for (const c of CHANNELS) {
-    // lead_days is seeded but never overwritten — it's tunable per company.
+    // lead_days + push_mode are seeded but never overwritten — both tunable per company.
     await query(
-      `INSERT INTO promo_channels (company_id, key, name, tier, enabled, sort_order, lead_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO promo_channels (company_id, key, name, tier, enabled, sort_order, lead_days, push_mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (company_id, key) DO UPDATE
          SET name = EXCLUDED.name, tier = EXCLUDED.tier, sort_order = EXCLUDED.sort_order,
              updated_at = NOW()`,
-      [companyId, c.key, c.name, c.tier, c.enabled, c.sort, c.lead ?? DEFAULT_LEAD_DAYS]
+      [companyId, c.key, c.name, c.tier, c.enabled, c.sort, c.lead ?? DEFAULT_LEAD_DAYS, defaultMode(c.key)]
     );
   }
 }
@@ -150,7 +163,7 @@ export async function getDistribution(companyId, eventId) {
 
   // pe.enabled overrides the company default for this one event.
   const rows = (await query(
-    `SELECT c.key, c.name, c.tier, c.enabled AS default_enabled, c.sort_order, c.lead_days,
+    `SELECT c.key, c.name, c.tier, c.push_mode, c.enabled AS default_enabled, c.sort_order, c.lead_days,
             COALESCE(pe.enabled, c.enabled) AS enabled,
             p.id AS post_id, p.status, p.external_url, p.payload_hash,
             p.posted_at, p.scheduled_at, p.last_error, p.promo_task_id
@@ -167,7 +180,7 @@ export async function getDistribution(companyId, eventId) {
     // Posted against an older payload — the event changed underneath it.
     const stale = r.status === 'posted' && r.payload_hash && r.payload_hash !== hash;
     return {
-      key: r.key, name: r.name, tier: r.tier, enabled: r.enabled, default_enabled: r.default_enabled,
+      key: r.key, name: r.name, tier: r.tier, mode: r.push_mode || 'manual', enabled: r.enabled, default_enabled: r.default_enabled,
       status: stale ? 'stale' : (r.status ?? 'pending'),
       external_url: r.external_url, posted_at: r.posted_at, last_error: r.last_error,
       post_id: r.post_id, promo_task_id: r.promo_task_id,
@@ -201,8 +214,9 @@ export async function scheduleAnnounce(companyId, eventId, { leadDays, channelKe
   const override = leadDays ?? dist.announce_lead_days ?? null;
   const KEEPS_OWN_TIMING = new Set(['app_push', 'google_business']);
 
+  // With no explicit set, schedule the channels whose mode is 'scheduled'.
   const wanted = dist.channels.filter((c) =>
-    (channelKeys?.length ? channelKeys.includes(c.key) : c.enabled));
+    (channelKeys?.length ? channelKeys.includes(c.key) : (c.enabled && c.mode === 'scheduled')));
 
   const scheduled = [];
   for (const ch of wanted) {
@@ -293,8 +307,10 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
   const dist = await getDistribution(companyId, eventId);
   if (!dist) throw new Error('Event not found');
 
+  // "Announce now" with no explicit set fires only the MANUAL channels — the
+  // on-publish and scheduled ones fire themselves. Pass channelKeys to force.
   const wanted = dist.channels.filter((c) =>
-    (channelKeys?.length ? channelKeys.includes(c.key) : c.enabled));
+    (channelKeys?.length ? channelKeys.includes(c.key) : (c.enabled && c.mode === 'manual')));
 
   const touched = [];
   for (const ch of wanted) {
@@ -428,6 +444,23 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
   }
 
   return { ok: true, touched };
+}
+
+/**
+ * Fire the automatic channels when an event is published:
+ *   on_publish  → announce now
+ *   scheduled   → schedule at each channel's lead
+ * Manual channels are left for a person ("Announce now"). Best-effort.
+ */
+export async function firePublishHooks(companyId, eventId, userId = null) {
+  const dist = await getDistribution(companyId, eventId);
+  if (!dist) return { skipped: 'no_event' };
+  const onPub = dist.channels.filter((c) => c.enabled && c.mode === 'on_publish' && c.status !== 'posted').map((c) => c.key);
+  const sched = dist.channels.filter((c) => c.enabled && c.mode === 'scheduled' && c.status !== 'posted').map((c) => c.key);
+  const out = {};
+  if (onPub.length) out.announced = await announce(companyId, eventId, { channelKeys: onPub, userId }).catch((e) => ({ error: e.message }));
+  if (sched.length) out.scheduled = await scheduleAnnounce(companyId, eventId, { channelKeys: sched }).catch((e) => ({ error: e.message }));
+  return out;
 }
 
 /** Record a human-completed post (or reset one). Also closes the linked task. */

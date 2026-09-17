@@ -15,7 +15,7 @@ import { query } from '../db.js';
 // only works while someone reads it. Reading the other direction is still fine and
 // still supported: scripts/reconcile-events-from-wp.js.
 import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
-import { getDistribution, announce, markPost, scheduleAnnounce } from '../lib/eventDistribution.js';
+import { getDistribution, announce, markPost, scheduleAnnounce, firePublishHooks } from '../lib/eventDistribution.js';
 import { sendSmsToPhone } from '../lib/smsHelper.js';
 import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
 import { logEventActivity, getEventActivity, getCompanyActivity } from '../lib/eventActivity.js';
@@ -272,7 +272,8 @@ eventsRouter.post('/:id/publish', async (req, res) => {
     }
     await query(`UPDATE events SET stage = 'published', status = 'published', updated_at = NOW() WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)]);
     logEventActivity(cId(req), req.userId, 'published', { eventId: ev.id, eventTitle: ev.title });
-    res.json({ ok: true, stage: 'published' });
+    const hooks = await firePublishHooks(cId(req), req.params.id, req.userId).catch(() => ({}));
+    res.json({ ok: true, stage: 'published', hooks });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -302,6 +303,32 @@ eventsRouter.get('/:id/activity', async (req, res) => {
 eventsRouter.get('/activity/feed', async (req, res) => {
   try { res.json({ activity: await getCompanyActivity(cId(req), { actor: req.query.actor, action: req.query.action }) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Company channel config: modes, enabled, lead days.
+eventsRouter.get('/distribution/channels', async (req, res) => {
+  try {
+    const { ensureChannels } = await import('../lib/eventDistribution.js');
+    await ensureChannels(cId(req));
+    const r = await query(
+      `SELECT key, name, tier, enabled, COALESCE(push_mode,'manual') AS push_mode, lead_days, sort_order
+         FROM promo_channels WHERE company_id = $1 ORDER BY sort_order`, [cId(req)]);
+    res.json({ channels: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update one channel's config. Body: { push_mode?, enabled?, lead_days? }
+eventsRouter.patch('/distribution/channels/:key', async (req, res) => {
+  try {
+    const b = req.body || {}, sets = [], vals = [];
+    if ('push_mode' in b && ['on_publish', 'scheduled', 'manual'].includes(b.push_mode)) { vals.push(b.push_mode); sets.push(`push_mode = $${vals.length}`); }
+    if ('enabled' in b) { vals.push(!!b.enabled); sets.push(`enabled = $${vals.length}`); }
+    if ('lead_days' in b) { vals.push(Math.max(0, Math.min(365, parseInt(b.lead_days, 10) || 0))); sets.push(`lead_days = $${vals.length}`); }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.key, cId(req));
+    await query(`UPDATE promo_channels SET ${sets.join(', ')}, updated_at = NOW() WHERE key = $${vals.length - 1} AND company_id = $${vals.length}`, vals);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Per-event channel on/off. Body: { enabled: bool }. Writes an override row so
@@ -565,6 +592,7 @@ eventsRouter.patch('/:id', async (req, res) => {
     if ('status' in req.body && cur && req.body.status !== cur.status) {
       const verb = req.body.status === 'published' ? 'published' : (cur.status === 'published' ? 'unpublished' : 'edited');
       logEventActivity(cId(req), req.userId, verb, { eventId: req.params.id, eventTitle: title, meta: { from: cur.status, to: req.body.status } });
+      if (req.body.status === 'published') firePublishHooks(cId(req), req.params.id, req.userId).catch(() => {});
     } else {
       const changed = EV_FIELDS.filter((f) => f in req.body && f !== 'status').map((f) => FIELD_LABEL[f] || f);
       if (changed.length) logEventActivity(cId(req), req.userId, 'edited', { eventId: req.params.id, eventTitle: title, detail: changed.join(', ') });
