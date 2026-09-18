@@ -628,6 +628,7 @@ function DistributionCard({ eventId, card }) {
   const [dist, setDist] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
   const [open, setOpen] = useState(null);
   const [lead, setLead] = useState(21);
 
@@ -638,15 +639,24 @@ function DistributionCard({ eventId, card }) {
   }, [eventId]);
   useEffect(() => { load(); }, [load]);
 
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
   const doAnnounce = async () => {
-    setBusy(true); setErr('');
-    try { await announceEvent(eventId); load(); }
-    catch (e) { setErr(e.message); } finally { setBusy(false); }
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await announceEvent(eventId);
+      const posted = (r.touched || []).filter((t) => t.action === 'posted').length;
+      flash(posted ? `Pushed ${posted} channel${posted === 1 ? '' : 's'} now.` : 'No manual channels were pending to push.');
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const doSchedule = async () => {
-    setBusy(true); setErr('');
-    try { await scheduleEventAnnounce(eventId, Number(lead)); load(); }
-    catch (e) { setErr(e.message); } finally { setBusy(false); }
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const r = await scheduleEventAnnounce(eventId, Number(lead));
+      const n = (r.scheduled || []).length;
+      flash(n ? `Scheduled ${n} auto channel${n === 1 ? '' : 's'} for ${lead} day${Number(lead) === 1 ? '' : 's'} before the event.` : 'No scheduled-mode channels to schedule (set channel modes in the settings tab).');
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const mark = async (postId, status, url) => {
     setBusy(true); setErr('');
@@ -696,8 +706,9 @@ function DistributionCard({ eventId, card }) {
                    style={{ ...inp, width: 62, padding: 5, marginRight: 6 }} />
             days before
           </label>
-          <button style={{ ...btn(false), padding: '6px 12px', fontSize: 13 }} onClick={doSchedule} disabled={busy}>
-            Schedule
+          <button style={{ ...btn(false), padding: '6px 12px', fontSize: 13 }} onClick={doSchedule} disabled={busy}
+                  title="Queues the 🕒 scheduled-mode channels to fire this many days before the event">
+            Schedule 🕒
           </button>
           <button style={{ ...btn(true), padding: '6px 12px', fontSize: 13 }} onClick={doAnnounce} disabled={busy}>
             {busy ? 'Working…' : 'Push manual now'}
@@ -705,19 +716,21 @@ function DistributionCard({ eventId, card }) {
         </div>
       </div>
       {err && <p style={{ color: '#b00', fontSize: 13 }}>{err}</p>}
+      {msg && <p style={{ color: '#137a2f', fontSize: 13, fontWeight: 600, margin: '6px 0 0' }}>{msg}</p>}
       <p style={{ fontSize: 12, opacity: 0.6, margin: '6px 0 0' }}>
-        <b>Push manual now</b> fires only the ✋ manual channels — ⚡ on-publish and 🕒 scheduled ones
-        fire themselves when the event goes live. Uncheck a channel to skip it for this event
-        (remembered per event); set each channel’s mode in the settings tab.
+        <b>Push manual now</b> fires the ✋ manual channels immediately. <b>Schedule 🕒</b> queues the
+        🕒 scheduled-mode channels to auto-fire the set number of days before the event. ⚡ on-publish
+        channels fire on their own when the event goes live. Uncheck a channel to skip it for this
+        event (remembered); set each channel’s mode in the settings tab.
       </p>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12 }}>
         <button type="button" onClick={() => setAllChannels(true)}
-                style={{ background: 'none', border: 'none', color: '#7c2d3a', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
           Select all
         </button>
         <button type="button" onClick={() => setAllChannels(false)}
-                style={{ background: 'none', border: 'none', color: '#7c2d3a', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
           Unselect all
         </button>
       </div>
@@ -1026,7 +1039,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
         ))}
       </div>
 
-      {tab === 'overview' && (<>
+      {tab === 'overview' && (
       <div style={{ ...card, marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>Event details</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
@@ -1096,17 +1109,9 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           {savedD && <span style={{ marginLeft: 10, color: '#137a2f', fontWeight: 600 }}>✓ saved</span>}
         </div>
       </div>
+      )}
 
-      <div style={{ ...card, marginBottom: 16 }}>
-        <HtmlDesc value={notes} onChange={setNotes} label="Internal notes" hint="stays in TeamHub — never sent to the website" />
-        <div style={{ marginTop: 8 }}>
-          <button style={btn(true)} onClick={saveNotes}>Save notes</button>
-          {savedNotes && <span style={{ color: '#137a2f', fontSize: 12, marginLeft: 10 }}>✓ saved</span>}
-        </div>
-      </div>
-      </>)}
-
-      {tab === 'prep' && (
+      {tab === 'prep' && (<>
       <div style={card}>
         <h3 style={{ marginTop: 0 }}>Checklists &amp; tasks <span style={{ opacity: 0.5, fontSize: 12, fontWeight: 400 }}>(internal)</span></h3>
         {Object.keys(groups).length === 0 && <p style={{ opacity: 0.6 }}>No items yet — add one below.</p>}
@@ -1161,7 +1166,15 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
         </div>
         <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>Set a <b>Remind from</b> date and an assignee, and they get a text every day from that date until the item is checked off.</p>
       </div>
-      )}
+
+      <div style={{ ...card, marginTop: 16 }}>
+        <HtmlDesc value={notes} onChange={setNotes} label="Internal notes" hint="stays in TeamHub — never sent to the website" />
+        <div style={{ marginTop: 8 }}>
+          <button style={btn(true)} onClick={saveNotes}>Save notes</button>
+          {savedNotes && <span style={{ color: '#137a2f', fontSize: 12, marginLeft: 10 }}>✓ saved</span>}
+        </div>
+      </div>
+      </>)}
 
       {tab === 'talent' && <MessageTalentCard eventId={ev.id} />}
 
