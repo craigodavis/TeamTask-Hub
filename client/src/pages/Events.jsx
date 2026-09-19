@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, withdrawEvent, verifyEventWithdrawn, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
 import { ImageField } from '../components/MediaPicker';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
@@ -801,6 +801,61 @@ const STAGE_META = {
 };
 const STAGE_ORDER = ['draft', 'review', 'approved', 'published'];
 
+function WithdrawButton({ ev }) {
+  const [phase, setPhase] = useState('idle'); // idle | working | verifying | done | timeout
+  const [report, setReport] = useState(null);
+  const [verify, setVerify] = useState(null);
+  const [checks, setChecks] = useState(0);
+  const [err, setErr] = useState('');
+
+  const poll = async (n) => {
+    try {
+      const v = await verifyEventWithdrawn(ev.id);
+      setVerify(v); setChecks(n + 1);
+      if (v.confirmed) { setPhase('done'); return; }
+      if (n < 7) setTimeout(() => poll(n + 1), 15000); else setPhase('timeout');
+    } catch { if (n < 7) setTimeout(() => poll(n + 1), 15000); else setPhase('timeout'); }
+  };
+  const run = async () => {
+    if (!window.confirm('Withdraw this event from the website, Google Business, Eventbrite and any pending push? It unpublishes the event and pulls down what was posted.')) return;
+    setPhase('working'); setErr(''); setVerify(null); setChecks(0);
+    try {
+      const r = await withdrawEvent(ev.id);
+      setReport(r.report); ev.stage = 'draft'; ev.status = 'draft';
+      setPhase('verifying'); poll(0);
+    } catch (e) { setErr(e.message); setPhase('idle'); }
+  };
+
+  const line = (label, val) => val ? <div key={label} style={{ fontSize: 12.5, padding: '2px 0' }}>• {val}</div> : null;
+  return (
+    <div style={{ ...card, marginBottom: 16, borderLeft: '4px solid #b83a2b' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <b>Withdraw / cancel event</b>
+          <div style={{ fontSize: 12, color: 'var(--muted,#777)' }}>Pulls it from the website, Google, Eventbrite &amp; pending push, then confirms it's gone.</div>
+        </div>
+        <button onClick={run} disabled={phase === 'working' || phase === 'verifying'}
+          style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, background: '#b83a2b', color: '#fff' }}>
+          {phase === 'working' ? 'Withdrawing…' : 'Withdraw everywhere'}
+        </button>
+      </div>
+      {err && <p style={{ color: '#b00', fontSize: 13, margin: '8px 0 0' }}>{err}</p>}
+      {report && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border,#eee)' }}>
+          {['website', 'google', 'eventbrite', 'app_push', 'scheduled_channels', 'rebuild'].map((k) => line(k, report[k]))}
+          <div style={{ marginTop: 8, fontWeight: 700, fontSize: 13 }}>
+            {phase === 'verifying' && <span style={{ color: '#b0631f' }}>Verifying the live page is down… (check {checks || 1})</span>}
+            {phase === 'done' && <span style={{ color: '#137a2f' }}>✓ Confirmed off the live site — the public page returns 404.</span>}
+            {phase === 'timeout' && <span style={{ color: '#b0631f' }}>⚠ Live page still returns {verify?.live_status ?? '—'} after several checks — the static site may still be rebuilding or cached.{' '}
+              <button onClick={() => { setPhase('verifying'); poll(0); }} style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }}>Re-check</button></span>}
+          </div>
+          {verify?.url && <div style={{ fontSize: 11.5, marginTop: 4 }}><a href={verify.url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>open the public page ↗</a></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReadinessStrip({ ev }) {
   const [tasks, setTasks] = useState(null);
   const [score, setScore] = useState(null);
@@ -1036,6 +1091,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
       <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>✕ Close</button>
       <ReadinessStrip ev={ev} />
       <ApprovalBar ev={ev} />
+      {stageOf(ev) === 'published' && <WithdrawButton ev={ev} />}
 
       <div style={{ display: 'flex', gap: 2, marginBottom: 16, borderBottom: '1px solid var(--border,#e3e3e3)', overflowX: 'auto' }}>
         {[['overview', 'Overview'], ['prep', `Prep${tasks.length ? ` (${tasks.filter((t) => t.done).length}/${tasks.length})` : ''}`], ['promote', 'Promote'], ['talent', 'Talent'], ['activity', 'Activity']].map(([k, l]) => (
