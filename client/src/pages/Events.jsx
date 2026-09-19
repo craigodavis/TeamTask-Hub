@@ -509,7 +509,9 @@ function PromoScoreCard({ eventId }) {
 
   const col = (v) => v == null ? '#9a8f88' : v >= 80 ? '#3f8f5b' : v >= 60 ? '#b0631f' : '#b83a2b';
   const compC = col(sc.composite);
-  const FLAG = { gold: { t: '★ Full reach', c: '#3f8f5b' }, ok: { t: '✓ Baseline', c: '#b0631f' }, red: { t: '🚩 Under-promoted', c: '#b83a2b' } }[sc.coverage?.flag] || {};
+  const FLAGC = { gold: '#3f8f5b', ok: '#b0631f', red: '#b83a2b' }[sc.coverage?.flag];
+  const chUsed = sc.coverage ? (sc.coverage.basicHit + sc.coverage.premiumHit) : null;
+  const chTotal = sc.coverage ? (sc.coverage.basicTot + sc.coverage.premiumTot) : null;
   const dim = (label, v, note) => (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
@@ -526,7 +528,7 @@ function PromoScoreCard({ eventId }) {
     <div style={{ ...card, marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0 }}>AI Promotion Score</h3>
-        {FLAG.t && <span style={{ fontSize: 12.5, fontWeight: 700, color: FLAG.c }}>{FLAG.t}</span>}
+        {chTotal != null && <span style={{ fontSize: 12.5, fontWeight: 700, color: FLAGC }}>{chUsed} of {chTotal} channels</span>}
         <span style={{ flex: 1 }} />
         <button style={{ ...btn(false), padding: '6px 12px', fontSize: 13 }} disabled={busy} onClick={rescore}>
           {busy ? 'Scoring…' : sc.ai_scored ? 'Re-score with AI' : 'Score with AI'}
@@ -534,9 +536,9 @@ function PromoScoreCard({ eventId }) {
       </div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', flexWrap: 'wrap' }}>
         <div style={{ flex: '0 0 108px', borderRadius: 10, background: compC, color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '14px 8px' }}>
-          <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>{sc.grade}</div>
-          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.9 }}>{sc.composite}/100</div>
-          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', opacity: 0.85, marginTop: 4 }}>Composite</div>
+          <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1 }}>{sc.composite}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.85, marginTop: 2 }}>/ 100</div>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', opacity: 0.85, marginTop: 5 }}>Promo score</div>
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
           {dim('Reach', sc.reach, `${sc.coverage?.basicHit}/${sc.coverage?.basicTot} basic · ${sc.coverage?.premiumHit}/${sc.coverage?.premiumTot} premium`)}
@@ -820,6 +822,9 @@ function ReadinessStrip({ ev }) {
     </div>
   );
   const flag = score?.coverage?.flag ? FLAG[score.coverage.flag] : null;
+  const cov = score?.coverage;
+  const chUsed = cov ? (cov.basicHit + cov.premiumHit) : null;
+  const chTotal = cov ? (cov.basicTot + cov.premiumTot) : null;
 
   return (
     <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 16, paddingBottom: 4 }}>
@@ -827,8 +832,7 @@ function ReadinessStrip({ ev }) {
       {pill('Image', ev.image_url ? 'Set ✓' : 'Missing', null, ev.image_url ? '#3f8f5b' : '#b83a2b')}
       {pill('Talent', ev.musician_name || 'None', null, ev.musician_name ? '#3f8f5b' : '#847771')}
       {pill('Tasks', total ? `${done}/${total}` : '—', null, total && done === total ? '#3f8f5b' : total ? '#b0631f' : '#847771')}
-      {pill('Reach', flag ? flag.t : '—', null, flag ? flag.c : '#847771')}
-      {pill('AI promo grade', score ? `${score.grade} · ${score.composite}` : '—', null, gcol(score?.composite))}
+      {pill('Reach', cov ? `${chUsed} of ${chTotal} channels` : '—', null, flag ? flag.c : '#847771')}
     </div>
   );
 }
