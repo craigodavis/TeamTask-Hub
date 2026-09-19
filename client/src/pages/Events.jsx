@@ -844,9 +844,10 @@ function WithdrawButton({ ev }) {
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border,#eee)' }}>
           {['website', 'google', 'eventbrite', 'app_push', 'scheduled_channels', 'rebuild'].map((k) => line(k, report[k]))}
           <div style={{ marginTop: 8, fontWeight: 700, fontSize: 13 }}>
-            {phase === 'verifying' && <span style={{ color: '#b0631f' }}>Verifying the live page is down… (check {checks || 1})</span>}
-            {phase === 'done' && <span style={{ color: '#137a2f' }}>✓ Confirmed off the live site — the public page returns 404.</span>}
-            {phase === 'timeout' && <span style={{ color: '#b0631f' }}>⚠ Live page still returns {verify?.live_status ?? '—'} after several checks — the static site may still be rebuilding or cached.{' '}
+            {phase === 'verifying' && <span style={{ color: '#b0631f' }}>Verifying the page is off the live site… (check {checks || 1})</span>}
+            {phase === 'done' && <span style={{ color: '#137a2f' }}>✓ Confirmed off the live site — the event page is gone{verify?.live_status === 404 ? ' (returns 404)' : ''}.</span>}
+            {phase === 'timeout' && <span style={{ color: '#b0631f' }}>
+              {verify?.page_on_origin ? '⚠ The page is still built into the live site — the rebuild hasn’t finished yet.' : '⚠ Couldn’t auto-confirm — open the page to check (Cloudflare may still be caching it).'}{' '}
               <button onClick={() => { setPhase('verifying'); poll(0); }} style={{ ...btn(false), padding: '2px 8px', fontSize: 12 }}>Re-check</button></span>}
           </div>
           {verify?.url && <div style={{ fontSize: 11.5, marginTop: 4 }}><a href={verify.url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>open the public page ↗</a></div>}

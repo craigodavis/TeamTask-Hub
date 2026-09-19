@@ -8,6 +8,7 @@
  * channel it reached, kicks the rebuild, and exposes a verify step that checks the
  * live URL so a person can be *sure*.
  */
+import fs from 'fs';
 import { query } from '../db.js';
 import { deleteLocalPost } from './googleBusinessClient.js';
 import { cancelEventbriteEvent } from './eventbriteClient.js';
@@ -72,19 +73,36 @@ export async function withdrawEvent(companyId, eventId, userId = null) {
  * The static site rebuild + Cloudflare cache mean this can lag by minutes — the
  * caller polls until confirmed.
  */
+// The Astro production docroot on this box. The rebuild removes a withdrawn
+// event's page from here (rsync --delete), so "page file gone" is the reliable,
+// local signal the origin is clean — the box can't fetch its own Cloudflare-
+// fronted public URL to check that directly.
+const DOCROOT = process.env.WEBSITE_DOCROOT || '/home/kindredv/kindredvineyards.com-live';
+
 export async function verifyWithdrawn(companyId, eventId) {
   const ev = (await query(`SELECT slug FROM events_all WHERE id = $1 AND company_id = $2`, [eventId, companyId])).rows[0];
   const slug = ev?.slug;
   const url = slug ? `${siteBase()}/events/${slug}/` : null;
+
+  // In the feed = still exposed to the next build. A withdrawn event is draft.
+  const inFeed = !!(slug && (await query(`SELECT 1 FROM events WHERE company_id = $1 AND slug = $2 AND status = 'published'`, [companyId, slug])).rows[0]);
+
+  // Is the page still built into the live docroot?
+  let pageOnOrigin = null;
+  if (slug) { try { pageOnOrigin = fs.existsSync(`${DOCROOT}/events/${slug}/index.html`) || fs.existsSync(`${DOCROOT}/events/${slug}.html`); } catch { pageOnOrigin = null; } }
+
+  // Best-effort public fetch too (often blocked from the origin box, so it's a bonus).
   let liveStatus = null;
   if (url) {
     try {
-      const r = await fetch(url, { redirect: 'follow', headers: { 'Cache-Control': 'no-cache' } });
+      const ctrl = AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined;
+      const r = await fetch(url, { redirect: 'follow', signal: ctrl, headers: { 'Cache-Control': 'no-cache', 'User-Agent': 'TeamHub-withdraw-verify' } });
       liveStatus = r.status;
     } catch { liveStatus = null; }
   }
-  // In the feed = still exposed to the site build. A withdrawn event is draft, so
-  // this should be false immediately.
-  const inFeed = !!(slug && (await query(`SELECT 1 FROM events WHERE company_id = $1 AND slug = $2 AND status = 'published'`, [companyId, slug])).rows[0]);
-  return { url, live_status: liveStatus, in_feed: inFeed, confirmed: liveStatus === 404 && !inFeed };
+
+  // Confirmed when it's out of the feed AND off the origin — by the public 404 if
+  // we could reach it, otherwise by the page being gone from the docroot.
+  const confirmed = !inFeed && (liveStatus === 404 || (liveStatus == null && pageOnOrigin === false));
+  return { url, live_status: liveStatus, in_feed: inFeed, page_on_origin: pageOnOrigin, confirmed };
 }
