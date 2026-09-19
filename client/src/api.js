@@ -2565,6 +2565,12 @@ export async function requestEventChanges(eventId, notes) {
 export async function publishEvent(eventId) {
   return pj(await fetch(`${API}/events/${eventId}/publish`, { method: 'POST', headers: headers() }));
 }
+export async function withdrawEvent(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/withdraw`, { method: 'POST', headers: headers() }));
+}
+export async function verifyEventWithdrawn(eventId) {
+  return pj(await fetch(`${API}/events/${eventId}/withdraw-verify`, { headers: headers() }));
+}
 
 export async function getEventMessageContext(eventId) {
   return pj(await fetch(`${API}/events/${eventId}/message`, { headers: headers() }));

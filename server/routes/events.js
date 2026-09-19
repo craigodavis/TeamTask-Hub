@@ -21,6 +21,7 @@ import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
 import { logEventActivity, getEventActivity, getCompanyActivity } from '../lib/eventActivity.js';
 import { getApprovalConfig, notifyApprover, notifyCreatorApproved, notifyCreatorChanges } from '../lib/eventApproval.js';
 import { getScore, scoreEvent } from '../lib/promoScore.js';
+import { withdrawEvent, verifyWithdrawn } from '../lib/eventWithdraw.js';
 
 const cId = (req) => req.companyId;
 
@@ -260,6 +261,17 @@ eventsRouter.post('/:id/request-changes', async (req, res) => {
     notifyCreatorChanges(cId(req), ev, notes, req.userId).catch(() => {});
     res.json({ ok: true, stage: 'draft' });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Withdraw an event from everywhere it was posted (site, Google, Eventbrite,
+// pending push), then verify separately.
+eventsRouter.post('/:id/withdraw', async (req, res) => {
+  try { res.json(await withdrawEvent(cId(req), req.params.id, req.userId || null)); }
+  catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+eventsRouter.get('/:id/withdraw-verify', async (req, res) => {
+  try { res.json(await verifyWithdrawn(cId(req), req.params.id)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 eventsRouter.post('/:id/publish', async (req, res) => {

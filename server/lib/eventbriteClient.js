@@ -195,6 +195,11 @@ function buildEventBody(ev, venueId) {
  * event was created but Eventbrite refused to publish (incomplete listing); the
  * URL is then the draft/manage page for a person to finish.
  */
+/** Cancel a published Eventbrite event (keeps the listing but marks it cancelled). */
+export async function cancelEventbriteEvent(companyId, eventbriteEventId) {
+  return apiFetch(companyId, `/events/${eventbriteEventId}/cancel/`, { method: 'POST' });
+}
+
 export async function postEventToEventbrite(companyId, eventId, userId = null) {
   const token = await getToken(companyId);
 
