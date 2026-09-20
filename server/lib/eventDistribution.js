@@ -58,8 +58,8 @@ export const CHANNELS = [
   // was submitted, with the escalating promo-task reminders. Verified submit
   // links, 2026-09.
   { key: 'destination_caldwell', name: 'Destination Caldwell', tier: 'assisted', sort: 81, enabled: true, lead: 21,
-    note: 'Tourism arm for Caldwell (Indian Creek Plaza). Highest-value local listing for a winery. No self-serve form — submit via the events page or email info@destinationcaldwell.com.',
-    link: 'https://www.destinationcaldwell.com/events-agenda/' },
+    note: 'Tourism arm for Caldwell (Indian Creek Plaza). Highest-value local listing for a winery. Runs a Tockify calendar — the link goes straight to their public "Submit Event" form.',
+    link: 'https://tockify.com/tkf2/submitEvent/503480e4179b406498c55f3f18c8bf09' },
   { key: 'boisedev',        name: 'BoiseDev',           tier: 'assisted', sort: 82, enabled: true,  lead: 21,
     note: 'Submit-your-event form on their calendar. Good reach with locals.',
     link: 'https://boisedev.com/calendar/' },
