@@ -4240,6 +4240,27 @@ const MIGRATIONS = [
   // recurring series reusing the same artwork week after week and dock the
   // Image dimension for it. (Append-only — add at the very end.)
   `ALTER TABLE event_promo_scores ADD COLUMN IF NOT EXISTS image_hash TEXT`,
+  // The key Vapi presents when the phone agent calls us, plus an audit line per
+  // request. One key per company, stored readable because the Vapi Settings tab
+  // shows it in full and rotation is a button. (Append-only — add at the very end.)
+  `CREATE TABLE IF NOT EXISTS vapi_settings (
+     company_id  UUID PRIMARY KEY,
+     api_key     TEXT NOT NULL,
+     rotated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     rotated_by  UUID,
+     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE TABLE IF NOT EXISTS vapi_call_log (
+     id         BIGSERIAL PRIMARY KEY,
+     company_id UUID NOT NULL,
+     endpoint   TEXT NOT NULL,
+     ok         BOOLEAN NOT NULL,
+     detail     TEXT,
+     ip         TEXT,
+     at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS vapi_call_log_company_at_idx
+     ON vapi_call_log (company_id, at DESC)`,
 ];
 
 export async function runMigrations() {
