@@ -295,7 +295,7 @@ vapiRouter.get('/hours', async (req, res) => {
 vapiRouter.get('/hours/:venue', async (req, res) => {
   try {
     const payload = await venuePayload(req.vapiCompanyId);
-    const want = String(req.params.venue || '').toLowerCase();
+    const want = normalizeVenue(req.params.venue) || String(req.params.venue || '').toLowerCase();
     const venue = payload.venues.find(
       (v) => v.venue?.toLowerCase() === want || v.name?.toLowerCase() === want
     );
@@ -331,6 +331,61 @@ async function resosForVenue(companyId, venueSlug) {
   return { loc, cfg, base: cfg.api_base || 'https://api.resos.com' };
 }
 
+// ── Meeting the model where it is ────────────────────────────────────────────
+// A language model fills these from what a caller SAID. It will send "Creek",
+// "the winery", "9/26/2026" and "four", and a 404 mid-call is a dropped booking.
+// Be liberal about what comes in; the slugs and formats are our problem, not the
+// agent's.
+
+const NUMBER_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, a: 1, an: 1, couple: 2, pair: 2,
+};
+
+/** Anything a caller might call a venue -> the web_slug we actually store. */
+export function normalizeVenue(raw) {
+  const t = String(raw || '').toLowerCase().trim()
+    .replace(/^the\s+/, '')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return null;
+  if (t.includes('creek')) return 'creek';
+  // "Winery", "Estate", "Frost Road", and plain "Kindred Vineyards" all mean the
+  // Frost Road property. Checked after creek so "Kindred by the Creek" wins.
+  if (/(winery|estate|vineyard|frost)/.test(t)) return 'estate';
+  return t;
+}
+
+/** YYYY-MM-DD, YYYY-M-D and US M/D/YYYY all land as YYYY-MM-DD. */
+export function normalizeDate(raw) {
+  const s = String(raw || '').trim();
+  const pad = (n) => String(n).padStart(2, '0');
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);      // US order, as spoken
+  if (m) return `${m[3]}-${pad(m[1])}-${pad(m[2])}`;
+  return null;
+}
+
+/**
+ * Party size. Returns null rather than a default when it cannot tell — silently
+ * treating "four" as two answers a different question than the one asked, and
+ * nothing downstream would notice.
+ */
+export function normalizeParty(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const t = String(raw).toLowerCase().trim();
+  const n = parseInt(t, 10);
+  if (Number.isFinite(n) && String(n) === t.replace(/[^0-9]/g, '')) {
+    return n >= 1 && n <= 40 ? n : null;
+  }
+  for (const [word, val] of Object.entries(NUMBER_WORDS)) {
+    if (new RegExp(`\\b${word}\\b`).test(t)) return val;
+  }
+  return null;
+}
+
 /** ResOS rejects a locally-formatted number; it wants E.164. */
 function toE164(phone) {
   const digits = String(phone || '').replace(/\D/g, '');
@@ -346,13 +401,19 @@ function toE164(phone) {
  * come back both raw and spoken — an agent reading "16:30" says "sixteen thirty".
  */
 vapiRouter.get('/availability', async (req, res) => {
-  const { venue, date } = req.query;
-  const party = Math.min(Math.max(parseInt(req.query.party, 10) || 2, 1), 40);
+  const venue = normalizeVenue(req.query.venue);
+  const date = normalizeDate(req.query.date);
+  const party = normalizeParty(req.query.party);
   try {
-    if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
-      return res.status(400).json({ error: 'venue and date=YYYY-MM-DD are required', known_venues: ['creek', 'estate'] });
+    if (!venue || !date || !party) {
+      return res.status(400).json({
+        error: 'venue, date and party are all required',
+        got: { venue: req.query.venue ?? null, date: req.query.date ?? null, party: req.query.party ?? null },
+        expected: { venue: 'creek | estate', date: 'YYYY-MM-DD', party: 'a number, 1-40' },
+        spoken: 'I did not catch which location, what date, or how many people.',
+      });
     }
-    const r = await resosForVenue(req.vapiCompanyId, String(venue));
+    const r = await resosForVenue(req.vapiCompanyId, venue);
     if (!r) return res.status(404).json({ error: 'Unknown venue', known_venues: ['creek', 'estate'] });
     if (!r.cfg) {
       return res.status(503).json({ error: 'That venue does not take online bookings.', venue, bookable: false });
@@ -389,11 +450,17 @@ vapiRouter.get('/availability', async (req, res) => {
  * offered again and two parties end up on it.
  */
 vapiRouter.post('/book', async (req, res) => {
-  const { venue, date, time, party, name, phone, email, comment } = req.body || {};
-  const people = Math.min(Math.max(parseInt(party, 10) || 0, 1), 40);
+  const { time, name, phone, email, comment } = req.body || {};
+  const venue = normalizeVenue(req.body?.venue);
+  const date = normalizeDate(req.body?.date);
+  const people = normalizeParty(req.body?.party);
   try {
-    if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !/^\d{2}:\d{2}$/.test(String(time || ''))) {
-      return res.status(400).json({ error: 'venue, date=YYYY-MM-DD and time=HH:MM are required' });
+    if (!venue || !date || !people || !/^\d{1,2}:\d{2}$/.test(String(time || ''))) {
+      return res.status(400).json({
+        error: 'venue, date, time and party are all required',
+        got: { venue: req.body?.venue ?? null, date: req.body?.date ?? null, time: time ?? null, party: req.body?.party ?? null },
+        expected: { venue: 'creek | estate', date: 'YYYY-MM-DD', time: 'HH:MM (24h)', party: 'a number, 1-40' },
+      });
     }
     if (!String(name || '').trim() || !String(phone || '').trim()) {
       return res.status(400).json({ error: 'A name and phone number are required.' });
