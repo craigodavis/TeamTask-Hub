@@ -386,6 +386,26 @@ export function normalizeParty(raw) {
   return null;
 }
 
+/**
+ * "9:30" -> "09:30", and "5:30 PM" -> "17:30".
+ *
+ * ResOS lists times zero-padded, and the booking is matched against that list by
+ * string equality. An unpadded hour passes a loose format check and then fails
+ * the match, so the caller is told the slot has gone when it is sitting right
+ * there — the most confusing possible failure, and invisible in the logs.
+ */
+export function normalizeTime(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  let m = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  if (m[3] === 'pm' && h < 12) h += 12;
+  if (m[3] === 'am' && h === 12) h = 0;
+  if (h > 23 || Number(min) > 59) return null;
+  return `${String(h).padStart(2, '0')}:${min}`;
+}
+
 /** ResOS rejects a locally-formatted number; it wants E.164. */
 function toE164(phone) {
   const digits = String(phone || '').replace(/\D/g, '');
@@ -450,15 +470,16 @@ vapiRouter.get('/availability', async (req, res) => {
  * offered again and two parties end up on it.
  */
 vapiRouter.post('/book', async (req, res) => {
-  const { time, name, phone, email, comment } = req.body || {};
+  const { name, phone, email, comment } = req.body || {};
   const venue = normalizeVenue(req.body?.venue);
   const date = normalizeDate(req.body?.date);
   const people = normalizeParty(req.body?.party);
+  const time = normalizeTime(req.body?.time);
   try {
-    if (!venue || !date || !people || !/^\d{1,2}:\d{2}$/.test(String(time || ''))) {
+    if (!venue || !date || !people || !time) {
       return res.status(400).json({
         error: 'venue, date, time and party are all required',
-        got: { venue: req.body?.venue ?? null, date: req.body?.date ?? null, time: time ?? null, party: req.body?.party ?? null },
+        got: { venue: req.body?.venue ?? null, date: req.body?.date ?? null, time: req.body?.time ?? null, party: req.body?.party ?? null },
         expected: { venue: 'creek | estate', date: 'YYYY-MM-DD', time: 'HH:MM (24h)', party: 'a number, 1-40' },
       });
     }
