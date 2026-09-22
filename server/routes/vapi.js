@@ -245,6 +245,28 @@ vapiRouter.use(async (req, res, next) => {
   }
 });
 
+/**
+ * The base URL itself. Nothing matched it before, so it fell through to the SPA
+ * catch-all and answered `<!DOCTYPE html>` with a 200 — which is what a caller
+ * pasting the base URL into Vapi actually got, and it fails as "Unexpected
+ * token '<'". Answer with the endpoint list instead: it is the natural thing to
+ * try, and it tells you what to call next.
+ */
+vapiRouter.get('/', async (req, res) => {
+  await logCall(req.vapiCompanyId, '/', true, 'index', clientIpOf(req));
+  res.json({
+    ok: true,
+    service: 'kindred-vapi',
+    timezone: TZ,
+    as_of: todayInTz(),
+    endpoints: {
+      'GET /ping': 'liveness and key check',
+      'GET /hours': 'hours, address and phone for every venue',
+      'GET /hours/{venue}': 'one venue — venue is "creek" or "estate"',
+    },
+  });
+});
+
 /** Liveness + key check, so Vapi's config screen can prove the key works. */
 vapiRouter.get('/ping', async (req, res) => {
   await logCall(req.vapiCompanyId, '/ping', true, null, clientIpOf(req));
@@ -326,4 +348,15 @@ vapiAdminRouter.get('/log', requireOwner, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Unmatched paths must not escape into the SPA fallback below this mount, which
+// answers 200 text/html and makes every client-side JSON parse fail with
+// "Unexpected token '<'". Everything under /api/vapi is JSON, including misses.
+vapiRouter.use((req, res) => {
+  res.status(404).json({
+    error: 'Not found',
+    path: req.path,
+    endpoints: ['/ping', '/hours', '/hours/{venue}'],
+  });
 });
