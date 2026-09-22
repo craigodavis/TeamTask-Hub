@@ -1347,6 +1347,16 @@ function KnowledgeTab({ token }) {
 }
 
 // ── Main Square Page ─────────────────────────────────────────────────────────
+// Only what is actually built and deployed. Reservations, the space-rental link
+// and staff SMS are not here on purpose — listing an endpoint that 404s would
+// send someone off to configure a tool that cannot work.
+const VAPI_ENDPOINTS = [
+  { method: 'GET', path: '/ping',  desc: 'Liveness and key check. Use this to prove the key works before wiring anything else.' },
+  { method: 'GET', path: '/hours', desc: 'Hours, address and phone for every venue. The main tool for a general assistant.' },
+  { method: 'GET', path: '/hours/creek',  desc: 'Kindred by the Creek only — flattened, so there is less for the model to sift through.' },
+  { method: 'GET', path: '/hours/estate', desc: 'The Winery only. Note the slug is "estate", not "winery".' },
+];
+
 // ── Vapi Settings Tab ────────────────────────────────────────────────────────
 // The phone agent's credentials. Owner-only, and the key is shown in full on
 // purpose: it unlocks hours and addresses, which is what a caller learns by
@@ -1357,6 +1367,7 @@ function VapiTab({ token }) {
   const [loading, setLoading] = useState(true);
   const [rotating, setRotating] = useState(false);
   const [copied, setCopied]   = useState(null);
+  const [tried, setTried]     = useState({});
 
   const auth = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -1376,6 +1387,22 @@ function VapiTab({ token }) {
     navigator.clipboard?.writeText(text);
     setCopied(what);
     setTimeout(() => setCopied(null), 1600);
+  };
+
+  // Calls the live endpoint with the live key. The point is to show the actual
+  // response body, so a tool schema in Vapi is written against what really comes
+  // back rather than against an example in a doc that has since drifted.
+  const tryIt = async (path) => {
+    setTried((t) => ({ ...t, [path]: 'loading' }));
+    try {
+      const r = await fetch(`${cfg.base_url}${path}`, {
+        headers: { Authorization: `Bearer ${cfg.api_key}` },
+      });
+      const body = await r.json();
+      setTried((t) => ({ ...t, [path]: `${r.status} ${r.statusText}\n\n${JSON.stringify(body, null, 2)}` }));
+    } catch (e) {
+      setTried((t) => ({ ...t, [path]: `Request failed: ${e.message}` }));
+    }
   };
 
   const rotate = async () => {
@@ -1425,11 +1452,39 @@ function VapiTab({ token }) {
             </button>
           </div>
           <p className="sq-vapi-hint">
-            <code>GET /ping</code> — check the key ·
-            <code> GET /hours</code> — both venues ·
-            <code> GET /hours/creek</code> or <code>/hours/estate</code> — one venue
+            Paste this plus one of the paths below into Vapi's tool configuration.
+            The base URL on its own returns only the endpoint list, not any data.
           </p>
         </div>
+      </div>
+
+      <h3 className="sq-vapi-h">Endpoints</h3>
+      <div className="sq-vapi-eps">
+        {VAPI_ENDPOINTS.map((ep) => {
+          const full = `${cfg?.base_url || ''}${ep.path}`;
+          const res  = tried[ep.path];
+          return (
+            <div className="sq-vapi-ep" key={ep.path}>
+              <div className="sq-vapi-ep-head">
+                <span className="sq-vapi-method">{ep.method}</span>
+                <code className="sq-vapi-path">{ep.path}</code>
+                <span className="sq-vapi-ep-actions">
+                  <button className="sq-btn" onClick={() => copy(full, ep.path)}>
+                    {copied === ep.path ? 'Copied' : 'Copy URL'}
+                  </button>
+                  <button className="sq-btn" onClick={() => tryIt(ep.path)} disabled={res === 'loading'}>
+                    {res === 'loading' ? 'Calling…' : 'Try it'}
+                  </button>
+                </span>
+              </div>
+              <p className="sq-vapi-ep-desc">{ep.desc}</p>
+              <code className="sq-vapi-ep-url">{full}</code>
+              {res && res !== 'loading' && (
+                <pre className="sq-vapi-ep-res">{res}</pre>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <h3 className="sq-vapi-h">Recent calls</h3>
