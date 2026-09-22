@@ -58,6 +58,7 @@ import { amazonOrdersRouter } from './routes/amazonOrders.js';
 import { amazonSessionRouter } from './routes/amazonSession.js';
 import { cardMappingsRouter } from './routes/cardMappings.js';
 import { squareRouter } from './routes/square.js';
+import { vapiRouter, vapiAdminRouter } from './routes/vapi.js';
 import { squareSyncRouter, startSquareSyncScheduler } from './routes/squareSync.js';
 import { productsRouter } from './routes/products.js';
 import { productInventoryRouter } from './routes/productInventory.js';
@@ -194,6 +195,10 @@ app.use('/api/skynet', requireAuth, requireCapability('skynet.view'), skynetRout
 app.use('/api/gateway', requireAuth, gatewayRouter);
 app.use('/api/ground-control', requireAuth, groundControlRouter);
 app.use('/api/reports/view', scheduledReportsRouter);          // public — no auth
+// The phone agent. Public in the sense that it carries no session — it presents
+// the key from Kindred AI → Vapi Settings, checked inside the router itself.
+app.use('/api/vapi', vapiRouter);                              // key-gated, no session
+app.use('/api/vapi-admin', requireAuth, vapiAdminRouter);      // owner-only: read/rotate the key
 app.use('/api/reports/scheduled', requireAuth, requireCapability('reports.scheduled'), scheduledReportsRouter);
 app.use('/api/permissions', requireAuth, permissionsRouter);
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { todayInTimezone } from '../utils/dateUtils';
 import './Square.css';
@@ -1347,21 +1347,133 @@ function KnowledgeTab({ token }) {
 }
 
 // ── Main Square Page ─────────────────────────────────────────────────────────
+// ── Vapi Settings Tab ────────────────────────────────────────────────────────
+// The phone agent's credentials. Owner-only, and the key is shown in full on
+// purpose: it unlocks hours and addresses, which is what a caller learns by
+// dialling anyway, and being able to copy it is the point of the page.
+function VapiTab({ token }) {
+  const [cfg, setCfg]         = useState(null);
+  const [calls, setCalls]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [rotating, setRotating] = useState(false);
+  const [copied, setCopied]   = useState(null);
+
+  const auth = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      fetch('/api/vapi-admin/key', { headers: auth }).then((r) => r.json()),
+      fetch('/api/vapi-admin/log', { headers: auth }).then((r) => r.json()).catch(() => ({ calls: [] })),
+    ])
+      .then(([k, l]) => { setCfg(k); setCalls(l.calls || []); })
+      .finally(() => setLoading(false));
+  }, [auth]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const copy = (text, what) => {
+    navigator.clipboard?.writeText(text);
+    setCopied(what);
+    setTimeout(() => setCopied(null), 1600);
+  };
+
+  const rotate = async () => {
+    // Deliberately blunt: the old key stops working the instant this returns,
+    // and the phone agent goes silent until Vapi is updated.
+    if (!window.confirm(
+      'Rotate the Vapi key?\n\nThe current key stops working immediately. '
+      + 'Calls will fail until you paste the new key into Vapi.'
+    )) return;
+    setRotating(true);
+    try {
+      const r = await fetch('/api/vapi-admin/key/rotate', { method: 'POST', headers: auth });
+      const d = await r.json();
+      if (d.api_key) setCfg((c) => ({ ...c, api_key: d.api_key, rotated_at: d.rotated_at }));
+    } finally { setRotating(false); }
+  };
+
+  if (loading) return <div className="sq-state">Loading Vapi settings…</div>;
+  if (cfg?.error) return <div className="sq-state">{cfg.error}</div>;
+
+  return (
+    <div className="sq-vapi">
+      <div className="sq-vapi-cred">
+        <div className="sq-vapi-field">
+          <label>API key</label>
+          <div className="sq-vapi-row">
+            <code className="sq-vapi-key">{cfg?.api_key}</code>
+            <button className="sq-btn" onClick={() => copy(cfg.api_key, 'key')}>
+              {copied === 'key' ? 'Copied' : 'Copy'}
+            </button>
+            <button className="sq-btn sq-btn-warn" onClick={rotate} disabled={rotating}>
+              {rotating ? 'Rotating…' : 'Rotate'}
+            </button>
+          </div>
+          <p className="sq-vapi-hint">
+            Send as <code>Authorization: Bearer &lt;key&gt;</code> or <code>x-api-key</code>.
+            {cfg?.rotated_at && <> Last rotated {new Date(cfg.rotated_at).toLocaleString()}.</>}
+          </p>
+        </div>
+
+        <div className="sq-vapi-field">
+          <label>Base URL</label>
+          <div className="sq-vapi-row">
+            <code className="sq-vapi-key">{cfg?.base_url}</code>
+            <button className="sq-btn" onClick={() => copy(cfg.base_url, 'url')}>
+              {copied === 'url' ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p className="sq-vapi-hint">
+            <code>GET /ping</code> — check the key ·
+            <code> GET /hours</code> — both venues ·
+            <code> GET /hours/creek</code> or <code>/hours/estate</code> — one venue
+          </p>
+        </div>
+      </div>
+
+      <h3 className="sq-vapi-h">Recent calls</h3>
+      {calls.length === 0 ? (
+        <div className="sq-state">
+          Nothing yet. Once Vapi is pointed at the base URL above, every request shows here —
+          including rejected ones, so a wrong key is visible immediately.
+        </div>
+      ) : (
+        <table className="sq-result-table">
+          <thead><tr><th>When</th><th>Endpoint</th><th>Result</th><th>Detail</th></tr></thead>
+          <tbody>
+            {calls.map((c, i) => (
+              <tr key={i}>
+                <td>{new Date(c.at).toLocaleString()}</td>
+                <td><code>{c.endpoint}</code></td>
+                <td className={c.ok ? 'sq-ok' : 'sq-bad'}>{c.ok ? 'OK' : 'Rejected'}</td>
+                <td>{c.detail || ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function Square() {
   const { user, timezone } = useOutletContext();
   const token = localStorage.getItem('teamtask_token');
   const [tab, setTab] = useState('ask');
 
   const isManager = user?.role === 'manager' || user?.role === 'owner';
+  const isOwner   = user?.role === 'owner';
 
   const ALL_TABS = [
     { id: 'ask',       label: '✦ Ask AiRon',   managerOnly: false },
     { id: 'knowledge', label: '🧠 Knowledge',   managerOnly: true  },
     { id: 'mappings',  label: '⟳ Mappings',     managerOnly: true  },
     { id: 'journal',   label: '📓 Journal',     managerOnly: true  },
+    { id: 'vapi',      label: '☎ Vapi Settings', managerOnly: true, ownerOnly: true },
   ];
 
-  const TABS = ALL_TABS.filter((t) => !t.managerOnly || isManager);
+  const TABS = ALL_TABS.filter((t) => (!t.managerOnly || isManager) && (!t.ownerOnly || isOwner));
 
   return (
     <div className="sq-page">
@@ -1391,6 +1503,7 @@ export function Square() {
         {tab === 'knowledge' && <KnowledgeTab token={token} />}
         {tab === 'mappings'  && <MappingsTab  token={token} />}
         {tab === 'journal'   && <JournalTab   token={token} />}
+        {tab === 'vapi'      && <VapiTab      token={token} />}
       </div>
     </div>
   );

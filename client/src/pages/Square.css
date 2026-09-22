@@ -1368,3 +1368,48 @@
 .sq-replay-btn { border: 0; background: none; cursor: pointer; opacity: 0.45;
                  font-size: 0.85rem; padding: 2px 4px; float: right; }
 .sq-replay-btn:hover { opacity: 1; }
+
+/* ── Vapi Settings ─────────────────────────────────────────────────────────── */
+.sq-vapi { display: flex; flex-direction: column; gap: 1.5rem; }
+
+.sq-vapi-cred {
+  display: flex; flex-direction: column; gap: 1.25rem;
+  padding: 1.25rem;
+  background: var(--sq-panel, rgba(127, 127, 127, 0.06));
+  border: 1px solid var(--sq-border, rgba(127, 127, 127, 0.22));
+  border-radius: 10px;
+}
+
+.sq-vapi-field label {
+  display: block; margin-bottom: 0.4rem;
+  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; opacity: 0.7;
+}
+
+/* Wraps rather than scrolls: the key must be fully visible to be copied by eye. */
+.sq-vapi-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+
+.sq-vapi-key {
+  flex: 1 1 22rem; min-width: 0;
+  padding: 0.5rem 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem; word-break: break-all;
+  background: var(--sq-code-bg, rgba(127, 127, 127, 0.12));
+  border: 1px solid var(--sq-border, rgba(127, 127, 127, 0.22));
+  border-radius: 6px;
+}
+
+.sq-vapi-hint { margin: 0.45rem 0 0; font-size: 0.8rem; opacity: 0.72; line-height: 1.5; }
+.sq-vapi-hint code {
+  padding: 0.1rem 0.3rem; border-radius: 4px;
+  background: var(--sq-code-bg, rgba(127, 127, 127, 0.12));
+  font-size: 0.78rem;
+}
+
+.sq-vapi-h { margin: 0; font-size: 0.95rem; font-weight: 600; }
+
+.sq-btn-warn { border-color: #c0392b; color: #c0392b; }
+.sq-btn-warn:hover:not(:disabled) { background: #c0392b; color: #fff; }
+
+.sq-ok  { color: #2e7d32; font-weight: 600; }
+.sq-bad { color: #c0392b; font-weight: 600; }
