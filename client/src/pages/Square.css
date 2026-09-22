@@ -1464,3 +1464,16 @@
 
 /* POST is the colour of something that changes the world, not reads it. */
 .sq-vapi-method-post { background: #b26a00; }
+
+/* Topic routing */
+.sq-vapi-topics select { padding: 0.3rem 0.4rem; font-size: 0.85rem; max-width: 15rem; }
+.sq-vapi-topics td { vertical-align: top; }
+.sq-vapi-aliases { margin-top: 0.2rem; font-size: 0.72rem; opacity: 0.55; }
+.sq-vapi-check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; white-space: nowrap; }
+.sq-vapi-tag {
+  margin-left: 0.4rem; padding: 0.05rem 0.35rem; border-radius: 3px;
+  background: var(--sq-code-bg, rgba(127,127,127,0.15));
+  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8;
+}
+/* Flash while the row is being written, so a slow save is visible rather than silent. */
+.sq-row-saving { opacity: 0.55; transition: opacity 0.15s; }

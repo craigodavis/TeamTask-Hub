@@ -578,6 +578,199 @@ vapiRouter.post('/space-rental-link', async (req, res) => {
   }
 });
 
+// ── Topic routing ────────────────────────────────────────────────────────────
+
+/** Is a venue open right this minute? Seasonal rules and specials included. */
+async function venueOpenNow(companyId, venueSlug) {
+  const locs = (await query(
+    venueSlug
+      ? `SELECT id FROM locations WHERE company_id = $1 AND web_slug = $2`
+      : `SELECT id FROM locations WHERE company_id = $1 AND web_slug IS NOT NULL`,
+    venueSlug ? [companyId, venueSlug] : [companyId]
+  )).rows;
+  if (!locs.length) return false;
+
+  const today = todayInTz();
+  const nowMin = nowMinutesInTz();
+  for (const loc of locs) {
+    const reg = await query(
+      `SELECT day_of_week, to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes,
+              to_char(from_date,'YYYY-MM-DD') AS from_date, to_char(to_date,'YYYY-MM-DD') AS to_date, label
+         FROM kindred_web.hours WHERE location_id = $1 AND department = $2`,
+      [loc.id, DEPT]
+    );
+    const spec = await query(
+      `SELECT to_char(on_date,'YYYY-MM-DD') AS on_date, is_closed,
+              to_char(opens,'HH24:MI') AS opens, to_char(closes,'HH24:MI') AS closes, note
+         FROM kindred_web.hours_special WHERE location_id = $1 AND department = $2 AND on_date = $3::date`,
+      [loc.id, DEPT, today]
+    );
+    const d = resolveDay(reg.rows, spec.rows, today);
+    if (!d.closed && (d.intervals || []).some((i) => nowMin >= toMinutes(i.opens) && nowMin < toMinutes(i.closes))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Free text from a caller -> a configured topic.
+ *
+ * Exact slug, then alias, then a loose label match, and finally the company's
+ * default topic. Never returns nothing: a caller whose reason we cannot classify
+ * is exactly the caller who most needs to reach a person.
+ */
+async function resolveTopic(companyId, raw) {
+  const rows = (await query(
+    `SELECT * FROM vapi_topics WHERE company_id = $1 AND active ORDER BY sort, label`,
+    [companyId]
+  )).rows;
+  if (!rows.length) return null;
+
+  const t = String(raw || '').toLowerCase().trim().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t) {
+    const bySlug = rows.find((r) => r.slug === t.replace(/ /g, '_'));
+    if (bySlug) return { topic: bySlug, matched: 'slug' };
+    const byAlias = rows.find((r) => (r.aliases || []).some((a) => t.includes(String(a).toLowerCase())));
+    if (byAlias) return { topic: byAlias, matched: 'alias' };
+    const byLabel = rows.find((r) => t.includes(r.label.toLowerCase()) || r.label.toLowerCase().includes(t));
+    if (byLabel) return { topic: byLabel, matched: 'label' };
+  }
+  const def = rows.find((r) => r.is_default) || rows[rows.length - 1];
+  return { topic: def, matched: 'default' };
+}
+
+/** Who should hear about this topic, falling back to the topic's fallback role. */
+async function recipientsFor(companyId, topic) {
+  const withPhone = `phone IS NOT NULL AND btrim(phone) <> ''`;
+  let rows = [];
+  if (topic.route_type === 'user' && topic.user_id) {
+    rows = (await query(
+      `SELECT id, display_name, phone FROM users WHERE id = $1 AND company_id = $2 AND ${withPhone}`,
+      [topic.user_id, companyId]
+    )).rows;
+  } else if (topic.role) {
+    rows = (await query(
+      `SELECT id, display_name, phone FROM users WHERE company_id = $1 AND role = $2 AND ${withPhone}`,
+      [companyId, topic.role]
+    )).rows;
+  }
+  // The named person has no number on file, or the role is empty. Falling back is
+  // the difference between a message going somewhere and going nowhere.
+  if (!rows.length && topic.fallback_role) {
+    rows = (await query(
+      `SELECT id, display_name, phone FROM users WHERE company_id = $1 AND role = $2 AND ${withPhone}`,
+      [companyId, topic.fallback_role]
+    )).rows;
+    return { people: rows, usedFallback: true };
+  }
+  return { people: rows, usedFallback: false };
+}
+
+/**
+ * POST /route  { topic, caller_name?, caller_phone?, question?, venue? }
+ *
+ * The agent classifies; this decides. Transfer requires all three of: the topic
+ * permits it, a venue is open right now, and somebody is actually reachable.
+ * Anything short of that becomes a message, because a caller put through to a
+ * phone nobody answers is worse served than one who was simply told.
+ */
+vapiRouter.post('/route', async (req, res) => {
+  const { topic: rawTopic, caller_name, caller_phone, question, venue } = req.body || {};
+  const companyId = req.vapiCompanyId;
+  try {
+    const found = await resolveTopic(companyId, rawTopic);
+    if (!found) {
+      return res.status(503).json({ error: 'No topics configured', spoken: 'Let me take a message and have someone call you back.' });
+    }
+    const { topic, matched } = found;
+    const { people, usedFallback } = await recipientsFor(companyId, topic);
+
+    const openNow = topic.allow_transfer ? await venueOpenNow(companyId, normalizeVenue(venue)) : false;
+    const canTransfer = topic.allow_transfer && openNow && people.length > 0;
+
+    if (canTransfer) {
+      const target = people[0];
+      await query(
+        `INSERT INTO vapi_messages (company_id, topic_slug, raw_topic, caller_name, caller_phone, question, action, recipients, delivered, detail)
+         VALUES ($1,$2,$3,$4,$5,$6,'transfer',$7,true,$8)`,
+        [companyId, topic.slug, rawTopic || null, caller_name || null, caller_phone || null,
+         question || null, target.display_name, `matched=${matched}${usedFallback ? ' fallback' : ''}`]
+      );
+      await logCall(companyId, '/route', true, `${topic.slug} -> transfer ${target.display_name}`, clientIpOf(req));
+      return res.json({
+        action: 'transfer',
+        topic: topic.slug,
+        destination: { type: 'number', number: toE164(target.phone) },
+        content: `Connecting you to ${String(target.display_name).split(' ')[0]} now.`,
+        spoken: `Let me put you through to ${String(target.display_name).split(' ')[0]}.`,
+      });
+    }
+
+    // Message path.
+    if (!people.length) {
+      await query(
+        `INSERT INTO vapi_messages (company_id, topic_slug, raw_topic, caller_name, caller_phone, question, action, recipients, delivered, detail)
+         VALUES ($1,$2,$3,$4,$5,$6,'message',NULL,false,'nobody with a phone on file')`,
+        [companyId, topic.slug, rawTopic || null, caller_name || null, caller_phone || null, question || null]
+      );
+      await logCall(companyId, '/route', false, `${topic.slug} -> nobody reachable`, clientIpOf(req));
+      return res.status(503).json({
+        error: 'No recipient configured',
+        spoken: 'I am not able to reach anyone about that right now. Please call back during our opening hours.',
+      });
+    }
+
+    const who = people.map((p) => p.display_name).join(', ');
+    const body = [
+      `Kindred call — ${topic.label}.`,
+      caller_name ? `From ${caller_name}.` : null,
+      caller_phone ? `Call back: ${caller_phone}.` : 'No number given.',
+      question ? `"${String(question).slice(0, 300)}"` : null,
+    ].filter(Boolean).join(' ');
+
+    const results = await Promise.all(
+      people.map((p) => sendSmsToPhone(companyId, p.phone, body, null).catch((e) => ({ ok: false, reason: e.message })))
+    );
+    const delivered = results.filter((r) => r?.ok).length;
+
+    await query(
+      `INSERT INTO vapi_messages (company_id, topic_slug, raw_topic, caller_name, caller_phone, question, action, recipients, delivered, detail)
+       VALUES ($1,$2,$3,$4,$5,$6,'message',$7,$8,$9)`,
+      [companyId, topic.slug, rawTopic || null, caller_name || null, caller_phone || null, question || null,
+       who, delivered > 0, `${delivered}/${people.length} sent${usedFallback ? ' (fallback)' : ''}; matched=${matched}`]
+    );
+    await logCall(companyId, '/route', delivered > 0, `${topic.slug} -> message ${delivered}/${people.length}`, clientIpOf(req));
+
+    if (!delivered) {
+      return res.status(502).json({
+        error: 'Could not deliver the message',
+        spoken: 'I could not get a message through just now. Please call back, or try us on the website.',
+      });
+    }
+    res.json({
+      action: 'message', topic: topic.slug, notified: people.length,
+      spoken: caller_phone
+        ? 'I have passed that on and someone will get back to you shortly.'
+        : 'I have passed that on. What is the best number to reach you on?',
+    });
+  } catch (e) {
+    console.error('[vapi] /route failed:', e.message);
+    await logCall(companyId, '/route', false, e.message, clientIpOf(req));
+    res.status(500).json({ error: 'Routing failed', spoken: 'Something went wrong on my end. Please call back in a moment.' });
+  }
+});
+
+/** The topic list, so the assistant prompt can be built from what is configured. */
+vapiRouter.get('/topics', async (req, res) => {
+  const r = await query(
+    `SELECT slug, label, aliases FROM vapi_topics WHERE company_id = $1 AND active ORDER BY sort, label`,
+    [req.vapiCompanyId]
+  );
+  await logCall(req.vapiCompanyId, '/topics', true, `${r.rows.length} topics`, clientIpOf(req));
+  res.json({ topics: r.rows });
+});
+
 // ── Admin router: owner only ─────────────────────────────────────────────────
 
 vapiAdminRouter.get('/key', requireOwner, async (req, res) => {
@@ -601,6 +794,79 @@ vapiAdminRouter.post('/key/rotate', requireOwner, async (req, res) => {
     res.json({ api_key: row.api_key, rotated_at: row.rotated_at });
   } catch (e) {
     console.error('[vapi] key rotate failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Topics plus everything the editor needs to populate its dropdowns. */
+vapiAdminRouter.get('/topics', requireOwner, async (req, res) => {
+  try {
+    const topics = (await query(
+      `SELECT t.*, u.display_name AS user_name
+         FROM vapi_topics t
+         LEFT JOIN users u ON u.id = t.user_id
+        WHERE t.company_id = $1 ORDER BY t.sort, t.label`,
+      [req.companyId]
+    )).rows;
+    // Only people who can actually be texted — offering a name with no number on
+    // file is offering a route that silently fails.
+    const staff = (await query(
+      `SELECT id, display_name, role FROM users
+        WHERE company_id = $1 AND phone IS NOT NULL AND btrim(phone) <> ''
+        ORDER BY display_name`,
+      [req.companyId]
+    )).rows;
+    const roles = (await query(
+      `SELECT role, COUNT(*) FILTER (WHERE phone IS NOT NULL AND btrim(phone) <> '') AS reachable
+         FROM users WHERE company_id = $1 GROUP BY role ORDER BY role`,
+      [req.companyId]
+    )).rows;
+    res.json({ topics, staff, roles });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+vapiAdminRouter.put('/topics/:id', requireOwner, async (req, res) => {
+  const b = req.body || {};
+  try {
+    const routeType = b.route_type === 'user' ? 'user' : 'role';
+    const r = await query(
+      `UPDATE vapi_topics
+          SET route_type = $1,
+              user_id    = $2,
+              role       = $3,
+              allow_transfer = $4,
+              active     = $5,
+              updated_at = NOW(),
+              updated_by = $6
+        WHERE id = $7 AND company_id = $8
+      RETURNING *`,
+      [routeType,
+       routeType === 'user' ? (b.user_id || null) : null,
+       routeType === 'role' ? (b.role || null) : null,
+       !!b.allow_transfer,
+       b.active !== false,
+       req.userId, req.params.id, req.companyId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Topic not found' });
+    res.json({ ok: true, topic: r.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** What the agent has actually done — who was told, and did the text land. */
+vapiAdminRouter.get('/messages', requireOwner, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT topic_slug, raw_topic, caller_name, caller_phone, question,
+              action, recipients, delivered, detail, at
+         FROM vapi_messages WHERE company_id = $1 ORDER BY at DESC LIMIT 50`,
+      [req.companyId]
+    );
+    res.json({ messages: r.rows });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

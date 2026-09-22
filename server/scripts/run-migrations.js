@@ -4261,6 +4261,68 @@ const MIGRATIONS = [
    )`,
   `CREATE INDEX IF NOT EXISTS vapi_call_log_company_at_idx
      ON vapi_call_log (company_id, at DESC)`,
+  // Topic routing for the phone agent: what a caller wants -> who hears about it.
+  // allow_transfer is a hard NO, not a preference — some topics should never put a
+  // caller through however open we are. Reachability is decided at call time from
+  // the venue's hours, so out of hours everything degrades to a message on its own.
+  // (Append-only — add at the very end.)
+  `CREATE TABLE IF NOT EXISTS vapi_topics (
+     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id      UUID NOT NULL,
+     slug            VARCHAR(40)  NOT NULL,
+     label           VARCHAR(80)  NOT NULL,
+     aliases         TEXT[]       NOT NULL DEFAULT '{}',
+     route_type      VARCHAR(16)  NOT NULL DEFAULT 'role',
+     user_id         UUID,
+     role            VARCHAR(32),
+     allow_transfer  BOOLEAN      NOT NULL DEFAULT false,
+     fallback_role   VARCHAR(32)  NOT NULL DEFAULT 'manager',
+     is_default      BOOLEAN      NOT NULL DEFAULT false,
+     active          BOOLEAN      NOT NULL DEFAULT true,
+     sort            INT          NOT NULL DEFAULT 0,
+     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+     updated_by      UUID
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS vapi_topics_company_slug_idx
+     ON vapi_topics (company_id, slug)`,
+  // Exactly one catch-all per company: a caller whose reason matches nothing must
+  // still reach somebody rather than falling into a hole.
+  `CREATE UNIQUE INDEX IF NOT EXISTS vapi_topics_one_default_idx
+     ON vapi_topics (company_id) WHERE is_default`,
+  // What the agent actually did, per call. Separate from vapi_call_log because
+  // "who was told, and did they get a text" is the question you ask when a guest
+  // says nobody ever rang them back.
+  `CREATE TABLE IF NOT EXISTS vapi_messages (
+     id             BIGSERIAL PRIMARY KEY,
+     company_id     UUID NOT NULL,
+     topic_slug     VARCHAR(40),
+     raw_topic      TEXT,
+     caller_name    TEXT,
+     caller_phone   TEXT,
+     question       TEXT,
+     action         VARCHAR(16) NOT NULL,
+     recipients     TEXT,
+     delivered      BOOLEAN NOT NULL DEFAULT false,
+     detail         TEXT,
+     at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS vapi_messages_company_at_idx
+     ON vapi_messages (company_id, at DESC)`,
+  // Seed the buckets. Routed to managers by default so the feature is never a
+  // black hole before anyone opens the settings page; transfer stays off until
+  // someone deliberately turns it on.
+  `INSERT INTO vapi_topics (company_id, slug, label, aliases, route_type, role, allow_transfer, is_default, sort)
+     SELECT c.id, v.slug, v.label, v.aliases, 'role', 'manager', v.allow_transfer, v.is_default, v.sort
+       FROM companies c
+       CROSS JOIN (VALUES
+         ('wine_club',      'Wine Club',      ARRAY['club','membership','member','shipment','pickup','allocation'], false, false, 1),
+         ('reservations',   'Reservations',   ARRAY['booking','table','reserve','tasting'],                          false, false, 2),
+         ('private_events', 'Private Events', ARRAY['event','wedding','party','rental','venue','hire'],              false, false, 3),
+         ('lost_property',  'Lost Property',  ARRAY['lost','left','wallet','phone','keys','forgot'],                 false, false, 4),
+         ('manager',        'Speak to a Manager', ARRAY['manager','complaint','owner','speak to someone'],           true,  true,  5)
+       ) AS v(slug, label, aliases, allow_transfer, is_default, sort)
+     ON CONFLICT (company_id, slug) DO NOTHING`,
 ];
 
 export async function runMigrations() {

@@ -1362,10 +1362,109 @@ const VAPI_ENDPOINTS = [
   { method: 'POST', path: '/book', noTry: true,
     desc: 'Creates a real reservation in ResOS. Email is optional — spelling one out loud is error-prone, and a wrong address sends the confirmation to a stranger.',
     body: { venue: 'creek', date: '2026-09-27', time: '17:30', party: 4, name: 'Jane Doe', phone: '+12085551234', email: '(optional)', comment: '(optional)' } },
+  { method: 'GET', path: '/topics',
+    desc: 'The configured topic list. Build the assistant prompt from this so it classifies into buckets that actually exist.' },
+  { method: 'POST', path: '/route', noTry: true,
+    desc: 'Decides message vs transfer for a caller and does it. The assistant classifies the topic; TeamHub decides what happens.',
+    body: { topic: 'wine_club', caller_name: 'Sarah Jones', caller_phone: '+12085551234', question: 'When does the next shipment go out?', venue: '(optional: creek | estate)' } },
   { method: 'POST', path: '/space-rental-link', noTry: true,
     desc: 'Texts the caller the event-enquiry form instead of taking a private-event booking by voice.',
     body: { phone: '+12085551234', name: '(optional)' } },
 ];
+
+// ── Topic routing editor ─────────────────────────────────────────────────────
+// One row per topic: who hears about it, and whether a caller may be put through.
+function TopicRouting({ token }) {
+  const [data, setData]   = useState(null);
+  const [saving, setSaving] = useState(null);
+  const auth = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const load = useCallback(() => {
+    fetch('/api/vapi-admin/topics', { headers: auth }).then((r) => r.json()).then(setData);
+  }, [auth]);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (topic, patch) => {
+    setSaving(topic.id);
+    const next = { ...topic, ...patch };
+    try {
+      await fetch(`/api/vapi-admin/topics/${topic.id}`, {
+        method: 'PUT',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          route_type: next.route_type, user_id: next.user_id,
+          role: next.role, allow_transfer: next.allow_transfer, active: next.active,
+        }),
+      });
+      setData((d) => ({ ...d, topics: d.topics.map((t) => (t.id === topic.id ? next : t)) }));
+    } finally { setSaving(null); }
+  };
+
+  if (!data) return <div className="sq-state">Loading topics…</div>;
+  if (data.error) return <div className="sq-state">{data.error}</div>;
+
+  return (
+    <div className="sq-vapi-topics">
+      <table className="sq-result-table">
+        <thead>
+          <tr><th>Topic</th><th>Route to</th><th>Allow transfer</th><th>Active</th></tr>
+        </thead>
+        <tbody>
+          {data.topics.map((t) => (
+            <tr key={t.id} className={saving === t.id ? 'sq-row-saving' : ''}>
+              <td>
+                <strong>{t.label}</strong>
+                {t.is_default && <span className="sq-vapi-tag">catch-all</span>}
+                <div className="sq-vapi-aliases">{(t.aliases || []).join(' · ')}</div>
+              </td>
+              <td>
+                <select
+                  value={t.route_type === 'user' ? `user:${t.user_id || ''}` : `role:${t.role || ''}`}
+                  onChange={(e) => {
+                    const [kind, val] = e.target.value.split(':');
+                    save(t, kind === 'user'
+                      ? { route_type: 'user', user_id: val, role: null }
+                      : { route_type: 'role', role: val, user_id: null });
+                  }}
+                >
+                  <optgroup label="A role">
+                    {data.roles.map((r) => (
+                      <option key={r.role} value={`role:${r.role}`}>
+                        {r.role} ({r.reachable} reachable)
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="A person">
+                    {data.staff.map((u) => (
+                      <option key={u.id} value={`user:${u.id}`}>{u.display_name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </td>
+              <td>
+                <label className="sq-vapi-check">
+                  <input type="checkbox" checked={!!t.allow_transfer}
+                         onChange={(e) => save(t, { allow_transfer: e.target.checked })} />
+                  <span>{t.allow_transfer ? 'During open hours' : 'Message only'}</span>
+                </label>
+              </td>
+              <td>
+                <input type="checkbox" checked={t.active !== false}
+                       onChange={(e) => save(t, { active: e.target.checked })} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="sq-vapi-hint">
+        Transfer needs all three: the box above ticked, a venue open at that moment, and
+        someone reachable. Anything less becomes a text — a caller put through to a phone
+        nobody answers is worse served than one who was simply told.
+        Only staff with a phone number on file are listed.
+      </p>
+    </div>
+  );
+}
 
 // ── Vapi Settings Tab ────────────────────────────────────────────────────────
 // The phone agent's credentials. Owner-only, and the key is shown in full on
@@ -1501,6 +1600,9 @@ function VapiTab({ token }) {
           );
         })}
       </div>
+
+      <h3 className="sq-vapi-h">Topic routing</h3>
+      <TopicRouting token={token} />
 
       <h3 className="sq-vapi-h">Recent calls</h3>
       {calls.length === 0 ? (
