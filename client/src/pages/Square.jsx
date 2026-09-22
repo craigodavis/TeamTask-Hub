@@ -1355,6 +1355,16 @@ const VAPI_ENDPOINTS = [
   { method: 'GET', path: '/hours', desc: 'Hours, address and phone for every venue. The main tool for a general assistant.' },
   { method: 'GET', path: '/hours/creek',  desc: 'Kindred by the Creek only — flattened, so there is less for the model to sift through.' },
   { method: 'GET', path: '/hours/estate', desc: 'The Winery only. Note the slug is "estate", not "winery".' },
+  { method: 'GET', path: '/availability?venue=creek&date=2026-09-27&party=4',
+    desc: 'Bookable times for a venue, date and party size. Read-only, so it is safe to call as often as the conversation needs.' },
+  // No Try it on these two: one creates a real reservation, the other sends a
+  // real text. A settings page must not have a button that does either.
+  { method: 'POST', path: '/book', noTry: true,
+    desc: 'Creates a real reservation in ResOS. Email is optional — spelling one out loud is error-prone, and a wrong address sends the confirmation to a stranger.',
+    body: { venue: 'creek', date: '2026-09-27', time: '17:30', party: 4, name: 'Jane Doe', phone: '+12085551234', email: '(optional)', comment: '(optional)' } },
+  { method: 'POST', path: '/space-rental-link', noTry: true,
+    desc: 'Texts the caller the event-enquiry form instead of taking a private-event booking by voice.',
+    body: { phone: '+12085551234', name: '(optional)' } },
 ];
 
 // ── Vapi Settings Tab ────────────────────────────────────────────────────────
@@ -1466,19 +1476,24 @@ function VapiTab({ token }) {
           return (
             <div className="sq-vapi-ep" key={ep.path}>
               <div className="sq-vapi-ep-head">
-                <span className="sq-vapi-method">{ep.method}</span>
+                <span className={`sq-vapi-method${ep.method === 'POST' ? ' sq-vapi-method-post' : ''}`}>{ep.method}</span>
                 <code className="sq-vapi-path">{ep.path}</code>
                 <span className="sq-vapi-ep-actions">
                   <button className="sq-btn" onClick={() => copy(full, ep.path)}>
                     {copied === ep.path ? 'Copied' : 'Copy URL'}
                   </button>
-                  <button className="sq-btn" onClick={() => tryIt(ep.path)} disabled={res === 'loading'}>
-                    {res === 'loading' ? 'Calling…' : 'Try it'}
-                  </button>
+                  {!ep.noTry && (
+                    <button className="sq-btn" onClick={() => tryIt(ep.path)} disabled={res === 'loading'}>
+                      {res === 'loading' ? 'Calling…' : 'Try it'}
+                    </button>
+                  )}
                 </span>
               </div>
               <p className="sq-vapi-ep-desc">{ep.desc}</p>
               <code className="sq-vapi-ep-url">{full}</code>
+              {ep.body && (
+                <pre className="sq-vapi-ep-res">{`JSON body\n${JSON.stringify(ep.body, null, 2)}`}</pre>
+              )}
               {res && res !== 'loading' && (
                 <pre className="sq-vapi-ep-res">{res}</pre>
               )}

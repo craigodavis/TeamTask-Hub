@@ -24,6 +24,8 @@ import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { verifyKey, presentedKey, logCall } from '../lib/vapiKey.js';
 import { getOrCreateKey, rotateKey } from '../lib/vapiKey.js';
 import { requireOwner } from '../middleware/auth.js';
+import { availableTimes, createBooking } from '../lib/resosClient.js';
+import { sendSmsToPhone } from '../lib/smsHelper.js';
 // Behind Apache/Passenger req.ip is always 127.0.0.1 and req.protocol is always
 // 'http'. mcpDb.js already worked out how to read the real client address from
 // the forwarded chain (last entry — Apache appends, so earlier ones are
@@ -263,6 +265,9 @@ vapiRouter.get('/', async (req, res) => {
       'GET /ping': 'liveness and key check',
       'GET /hours': 'hours, address and phone for every venue',
       'GET /hours/{venue}': 'one venue — venue is "creek" or "estate"',
+      'GET /availability': 'bookable times — ?venue=&date=YYYY-MM-DD&party=N',
+      'POST /book': 'make a reservation — {venue,date,time,party,name,phone,email?,comment?}',
+      'POST /space-rental-link': 'text the event-enquiry form — {phone,name?}',
     },
   });
 });
@@ -306,6 +311,168 @@ vapiRouter.get('/hours/:venue', async (req, res) => {
   } catch (e) {
     console.error('[vapi] /hours/:venue failed:', e.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Reservations ─────────────────────────────────────────────────────────────
+
+/** The ResOS credentials for a venue slug, or null if it cannot take bookings. */
+async function resosForVenue(companyId, venueSlug) {
+  const loc = (await query(
+    `SELECT id, name FROM locations WHERE company_id = $1 AND web_slug = $2 LIMIT 1`,
+    [companyId, venueSlug]
+  )).rows[0];
+  if (!loc) return null;
+  const cfg = (await query(
+    `SELECT api_key, api_base, active FROM kindred_web.resos_config WHERE location_id = $1`,
+    [loc.id]
+  )).rows[0];
+  if (!cfg?.api_key || cfg.active === false) return { loc, cfg: null };
+  return { loc, cfg, base: cfg.api_base || 'https://api.resos.com' };
+}
+
+/** ResOS rejects a locally-formatted number; it wants E.164. */
+function toE164(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return `+${digits}`;
+}
+
+/**
+ * GET /availability?venue=creek&date=YYYY-MM-DD&party=4
+ *
+ * Read-only, so the agent can offer times before committing to anything. Times
+ * come back both raw and spoken — an agent reading "16:30" says "sixteen thirty".
+ */
+vapiRouter.get('/availability', async (req, res) => {
+  const { venue, date } = req.query;
+  const party = Math.min(Math.max(parseInt(req.query.party, 10) || 2, 1), 40);
+  try {
+    if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
+      return res.status(400).json({ error: 'venue and date=YYYY-MM-DD are required', known_venues: ['creek', 'estate'] });
+    }
+    const r = await resosForVenue(req.vapiCompanyId, String(venue));
+    if (!r) return res.status(404).json({ error: 'Unknown venue', known_venues: ['creek', 'estate'] });
+    if (!r.cfg) {
+      return res.status(503).json({ error: 'That venue does not take online bookings.', venue, bookable: false });
+    }
+
+    const { times } = await availableTimes(r.base, r.cfg.api_key, { people: party, date });
+    const slots = (times || []).map((t) => ({ time: t, spoken: spokenTime(t) }));
+    await logCall(req.vapiCompanyId, '/availability', true, `${venue} ${date} party=${party} -> ${slots.length}`, clientIpOf(req));
+    res.json({
+      venue, date, party,
+      available: slots.length > 0,
+      slots,
+      spoken: slots.length
+        ? `We have ${slots.length === 1 ? 'one time' : slots.length + ' times'} available: ${slots.map((x) => x.spoken).join(', ')}`
+        : 'We have nothing available at that size on that day.',
+    });
+  } catch (e) {
+    console.error('[vapi] /availability failed:', e.message);
+    await logCall(req.vapiCompanyId, '/availability', false, e.message, clientIpOf(req));
+    res.status(502).json({ error: 'Could not check availability right now.' });
+  }
+});
+
+/**
+ * POST /book  { venue, date, time, party, name, phone, email?, comment? }
+ *
+ * Email is OPTIONAL here, unlike the website form. Spelling an address out loud
+ * is the most error-prone thing a voice agent can attempt, and a wrong one is
+ * worse than none — the confirmation goes to a stranger. When it is absent
+ * ResOS is told not to email, and the phone number is the contact.
+ *
+ * status:'approved' matters. Without it ResOS files the booking as a pending
+ * request, which shows a table but does not hold it, so the same table gets
+ * offered again and two parties end up on it.
+ */
+vapiRouter.post('/book', async (req, res) => {
+  const { venue, date, time, party, name, phone, email, comment } = req.body || {};
+  const people = Math.min(Math.max(parseInt(party, 10) || 0, 1), 40);
+  try {
+    if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !/^\d{2}:\d{2}$/.test(String(time || ''))) {
+      return res.status(400).json({ error: 'venue, date=YYYY-MM-DD and time=HH:MM are required' });
+    }
+    if (!String(name || '').trim() || !String(phone || '').trim()) {
+      return res.status(400).json({ error: 'A name and phone number are required.' });
+    }
+    const r = await resosForVenue(req.vapiCompanyId, String(venue));
+    if (!r) return res.status(404).json({ error: 'Unknown venue', known_venues: ['creek', 'estate'] });
+    if (!r.cfg) return res.status(503).json({ error: 'That venue does not take online bookings.' });
+
+    // Re-check against ResOS: never write a time it is not currently offering.
+    const { times } = await availableTimes(r.base, r.cfg.api_key, { people, date });
+    if (!times.includes(time)) {
+      return res.status(409).json({
+        error: 'That time is no longer available.',
+        spoken: 'I am sorry, that time has just gone. Shall I check what else is open?',
+        slots: (times || []).map((t) => ({ time: t, spoken: spokenTime(t) })),
+      });
+    }
+
+    const hasEmail = typeof email === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+    const booking = await createBooking(r.base, r.cfg.api_key, {
+      date, time, people,
+      guest: {
+        name: String(name).trim().slice(0, 200),
+        phone: toE164(phone),
+        ...(hasEmail ? { email: email.trim().toLowerCase().slice(0, 255) } : {}),
+        notificationEmail: hasEmail,
+      },
+      source: 'phone',
+      status: 'approved',
+      comment: String(comment || '').trim().slice(0, 1000),
+      languageCode: 'en',
+    });
+
+    const bookingId = typeof booking === 'string' ? booking : (booking?._id || booking?.id || null);
+    await logCall(req.vapiCompanyId, '/book', true, `${venue} ${date} ${time} party=${people} id=${bookingId}`, clientIpOf(req));
+    res.json({
+      ok: true, venue, date, time, party: people, booking_id: bookingId,
+      emailed: hasEmail,
+      spoken: `You are booked for ${people} at ${spokenTime(time)} on ${new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.`,
+    });
+  } catch (e) {
+    console.error('[vapi] /book failed:', e.message);
+    await logCall(req.vapiCompanyId, '/book', false, e.message, clientIpOf(req));
+    res.status(502).json({ error: 'Could not complete that booking.', spoken: 'I could not complete that booking. Let me take a message and someone will call you back.' });
+  }
+});
+
+// ── Space rental ─────────────────────────────────────────────────────────────
+
+const EVENT_REQUEST_URL = process.env.EVENT_REQUEST_URL || 'https://www.kindredvineyards.com/events/request/';
+
+/**
+ * POST /space-rental-link  { phone, name? }
+ *
+ * Texts the caller the application form rather than trying to take a private
+ * event booking by voice. The form needs a date, guest count, address and email
+ * to produce a quote — that is a bad conversation on the phone and a worse one
+ * to get wrong, since the quote is stored by value and honoured afterwards.
+ */
+vapiRouter.post('/space-rental-link', async (req, res) => {
+  const { phone, name } = req.body || {};
+  try {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length < 10) {
+      return res.status(400).json({ error: 'A valid phone number is required.' });
+    }
+    const greeting = String(name || '').trim() ? `Hi ${String(name).trim().split(/\s+/)[0]}, ` : '';
+    const body = `${greeting}here is the link to enquire about hosting your event at Kindred Vineyards: ${EVENT_REQUEST_URL}`;
+    await sendSmsToPhone(req.vapiCompanyId, toE164(digits), body, null);
+
+    await logCall(req.vapiCompanyId, '/space-rental-link', true, `sent to ...${digits.slice(-4)}`, clientIpOf(req));
+    res.json({
+      ok: true, sent_to: `...${digits.slice(-4)}`, url: EVENT_REQUEST_URL,
+      spoken: 'I have just texted you the link to our event enquiry form.',
+    });
+  } catch (e) {
+    console.error('[vapi] /space-rental-link failed:', e.message);
+    await logCall(req.vapiCompanyId, '/space-rental-link', false, e.message, clientIpOf(req));
+    res.status(502).json({ error: 'Could not send the text.', spoken: 'I could not send that text just now. Let me take a message instead.' });
   }
 });
 
@@ -357,6 +524,6 @@ vapiRouter.use((req, res) => {
   res.status(404).json({
     error: 'Not found',
     path: req.path,
-    endpoints: ['/ping', '/hours', '/hours/{venue}'],
+    endpoints: ['/ping', '/hours', '/hours/{venue}', '/availability', '/book', '/space-rental-link'],
   });
 });

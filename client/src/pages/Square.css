@@ -1461,3 +1461,6 @@
   border: 1px solid var(--sq-border, rgba(127, 127, 127, 0.22));
   border-radius: 5px;
 }
+
+/* POST is the colour of something that changes the world, not reads it. */
+.sq-vapi-method-post { background: #b26a00; }
