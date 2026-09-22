@@ -213,11 +213,19 @@ vapiRouter.use(async (req, res, next) => {
   // through the day as the venues open and close.
   res.set('Cache-Control', 'no-store');
 
-  // The key travels in a request header, and this host does NOT redirect plain
-  // http to https — a request to http://…/api/vapi is served, in clear, key and
-  // all. Refuse it here rather than trust every caller to type the right scheme.
-  // Only enforced when the forwarded header exists, i.e. when we are actually
-  // behind the TLS terminator; local development over http still works.
+  // A tripwire, NOT a protection — do not rely on it.
+  //
+  // The key travels in a request header and this host does not redirect plain
+  // http to https, so http://…/api/vapi is served in clear, key and all. This
+  // check cannot stop that: Apache here does not set x-forwarded-proto (verified
+  // — sending it by hand returns 403, a genuine http request returns 401, so the
+  // header is simply absent), and the header is caller-supplied anyway, so an
+  // attacker sends "https" and walks past. It catches a misconfigured proxy in
+  // front of us and nothing else.
+  //
+  // The real fix is an Apache-level redirect, which protects the whole site
+  // rather than this router. Until that exists, treat any key that has been sent
+  // over http as disclosed and rotate it.
   if (req.get('x-forwarded-proto') && clientProto(req) !== 'https') {
     return res.status(403).json({ error: 'HTTPS required' });
   }
