@@ -550,11 +550,25 @@ vapiRouter.post('/space-rental-link', async (req, res) => {
     }
     const greeting = String(name || '').trim() ? `Hi ${String(name).trim().split(/\s+/)[0]}, ` : '';
     const body = `${greeting}here is the link to enquire about hosting your event at Kindred Vineyards: ${EVENT_REQUEST_URL}`;
-    await sendSmsToPhone(req.vapiCompanyId, toE164(digits), body, null);
+    // sendSmsToPhone RETURNS failure, it does not throw — an unconfigured Twilio
+    // or a rejected number comes back as {ok:false}. Ignoring that told the caller
+    // "I've just texted you the link" while nothing was sent, which is the one
+    // outcome worse than admitting we could not do it.
+    const sent = await sendSmsToPhone(req.vapiCompanyId, toE164(digits), body, null);
+    if (!sent?.ok) {
+      console.error('[vapi] space-rental SMS failed:', sent?.reason);
+      await logCall(req.vapiCompanyId, '/space-rental-link', false, sent?.reason || 'sms failed', clientIpOf(req));
+      return res.status(502).json({
+        error: 'Could not send the text.',
+        reason: sent?.reason || 'unknown',
+        url: EVENT_REQUEST_URL,
+        spoken: 'I could not send that text. You can find the form on our website under Events, or I can take a message and have someone call you.',
+      });
+    }
 
-    await logCall(req.vapiCompanyId, '/space-rental-link', true, `sent to ...${digits.slice(-4)}`, clientIpOf(req));
+    await logCall(req.vapiCompanyId, '/space-rental-link', true, `sent to ...${digits.slice(-4)} sid=${sent.sid}`, clientIpOf(req));
     res.json({
-      ok: true, sent_to: `...${digits.slice(-4)}`, url: EVENT_REQUEST_URL,
+      ok: true, sent_to: `...${digits.slice(-4)}`, url: EVENT_REQUEST_URL, sid: sent.sid,
       spoken: 'I have just texted you the link to our event enquiry form.',
     });
   } catch (e) {
