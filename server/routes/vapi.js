@@ -24,6 +24,22 @@ import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { verifyKey, presentedKey, logCall } from '../lib/vapiKey.js';
 import { getOrCreateKey, rotateKey } from '../lib/vapiKey.js';
 import { requireOwner } from '../middleware/auth.js';
+// Behind Apache/Passenger req.ip is always 127.0.0.1 and req.protocol is always
+// 'http'. mcpDb.js already worked out how to read the real client address from
+// the forwarded chain (last entry — Apache appends, so earlier ones are
+// caller-supplied), verified by spoofing. Reuse it rather than re-deriving it.
+import { clientIpOf } from './mcpDb.js';
+
+/**
+ * The scheme the CLIENT used, not the one Passenger sees. Express `trust proxy`
+ * would give us this, but it is app-wide state that also changes secure-cookie
+ * behaviour on every other route — mcpDb.js declines it for the same reason.
+ */
+function clientProto(req) {
+  const fwd = req.get('x-forwarded-proto');
+  if (fwd) return String(fwd).split(',')[0].trim().toLowerCase();
+  return req.protocol;
+}
 
 const TZ = 'America/Boise';
 const DEPT = 'main';
@@ -196,11 +212,21 @@ vapiRouter.use(async (req, res, next) => {
   // Never cached by an intermediary: the answer depends on the key and changes
   // through the day as the venues open and close.
   res.set('Cache-Control', 'no-store');
+
+  // The key travels in a request header, and this host does NOT redirect plain
+  // http to https — a request to http://…/api/vapi is served, in clear, key and
+  // all. Refuse it here rather than trust every caller to type the right scheme.
+  // Only enforced when the forwarded header exists, i.e. when we are actually
+  // behind the TLS terminator; local development over http still works.
+  if (req.get('x-forwarded-proto') && clientProto(req) !== 'https') {
+    return res.status(403).json({ error: 'HTTPS required' });
+  }
+
   try {
     const companyId = await kindredCompanyId();
     const ok = await verifyKey(companyId, presentedKey(req));
     if (!ok) {
-      await logCall(companyId, req.path, false, 'bad or missing key', req.ip);
+      await logCall(companyId, req.path, false, 'bad or missing key', clientIpOf(req));
       return res.status(401).json({ error: 'Unauthorized' });
     }
     req.vapiCompanyId = companyId;
@@ -213,7 +239,7 @@ vapiRouter.use(async (req, res, next) => {
 
 /** Liveness + key check, so Vapi's config screen can prove the key works. */
 vapiRouter.get('/ping', async (req, res) => {
-  await logCall(req.vapiCompanyId, '/ping', true, null, req.ip);
+  await logCall(req.vapiCompanyId, '/ping', true, null, clientIpOf(req));
   res.json({ ok: true, timezone: TZ, as_of: todayInTz() });
 });
 
@@ -221,11 +247,11 @@ vapiRouter.get('/ping', async (req, res) => {
 vapiRouter.get('/hours', async (req, res) => {
   try {
     const payload = await venuePayload(req.vapiCompanyId);
-    await logCall(req.vapiCompanyId, '/hours', true, `${payload.venues.length} venues`, req.ip);
+    await logCall(req.vapiCompanyId, '/hours', true, `${payload.venues.length} venues`, clientIpOf(req));
     res.json(payload);
   } catch (e) {
     console.error('[vapi] /hours failed:', e.message);
-    await logCall(req.vapiCompanyId, '/hours', false, e.message, req.ip);
+    await logCall(req.vapiCompanyId, '/hours', false, e.message, clientIpOf(req));
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -239,13 +265,13 @@ vapiRouter.get('/hours/:venue', async (req, res) => {
       (v) => v.venue?.toLowerCase() === want || v.name?.toLowerCase() === want
     );
     if (!venue) {
-      await logCall(req.vapiCompanyId, `/hours/${want}`, false, 'unknown venue', req.ip);
+      await logCall(req.vapiCompanyId, `/hours/${want}`, false, 'unknown venue', clientIpOf(req));
       return res.status(404).json({
         error: 'Unknown venue',
         known: payload.venues.map((v) => v.venue),
       });
     }
-    await logCall(req.vapiCompanyId, `/hours/${want}`, true, null, req.ip);
+    await logCall(req.vapiCompanyId, `/hours/${want}`, true, null, clientIpOf(req));
     res.json({ timezone: payload.timezone, as_of: payload.as_of, ...venue });
   } catch (e) {
     console.error('[vapi] /hours/:venue failed:', e.message);
@@ -261,7 +287,7 @@ vapiAdminRouter.get('/key', requireOwner, async (req, res) => {
     res.json({
       api_key: row.api_key,
       rotated_at: row.rotated_at,
-      base_url: `${req.protocol}://${req.get('host')}/api/vapi`,
+      base_url: `${clientProto(req)}://${req.get('host')}/api/vapi`,
     });
   } catch (e) {
     console.error('[vapi] key read failed:', e.message);
