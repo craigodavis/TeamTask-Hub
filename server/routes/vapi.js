@@ -827,10 +827,98 @@ vapiAdminRouter.get('/topics', requireOwner, async (req, res) => {
   }
 });
 
+/** A label becomes a stable identifier the assistant can be told to send. */
+function slugify(label) {
+  return String(label || '').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+}
+
+/** "club, membership, pickup" -> ['club','membership','pickup'] */
+function parseAliases(raw) {
+  if (Array.isArray(raw)) return raw.map((a) => String(a).toLowerCase().trim()).filter(Boolean).slice(0, 25);
+  return String(raw || '')
+    .split(/[,\n]/).map((a) => a.toLowerCase().trim().replace(/[^a-z0-9 ]+/g, ''))
+    .filter(Boolean).slice(0, 25);
+}
+
+/**
+ * Exactly one catch-all. The partial unique index would reject a second, so
+ * stand the others down first rather than handing the user a constraint error
+ * they cannot act on.
+ */
+async function clearOtherDefaults(companyId, exceptId) {
+  await query(
+    `UPDATE vapi_topics SET is_default = false, updated_at = NOW()
+      WHERE company_id = $1 AND is_default AND ($2::uuid IS NULL OR id <> $2::uuid)`,
+    [companyId, exceptId || null]
+  );
+}
+
+vapiAdminRouter.post('/topics', requireOwner, async (req, res) => {
+  const b = req.body || {};
+  try {
+    const label = String(b.label || '').trim().slice(0, 80);
+    if (!label) return res.status(400).json({ error: 'A name is required.' });
+    const slug = slugify(b.slug || label);
+    if (!slug) return res.status(400).json({ error: 'That name has no letters or numbers in it.' });
+
+    const dupe = await query(`SELECT 1 FROM vapi_topics WHERE company_id = $1 AND slug = $2`, [req.companyId, slug]);
+    if (dupe.rows.length) return res.status(409).json({ error: `A topic called "${slug}" already exists.` });
+
+    const routeType = b.route_type === 'user' ? 'user' : 'role';
+    if (b.is_default) await clearOtherDefaults(req.companyId, null);
+
+    const sortRow = await query(`SELECT COALESCE(MAX(sort), 0) + 1 AS next FROM vapi_topics WHERE company_id = $1`, [req.companyId]);
+    const r = await query(
+      `INSERT INTO vapi_topics
+         (company_id, slug, label, aliases, route_type, user_id, role,
+          allow_transfer, fallback_role, is_default, active, sort, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,$12) RETURNING *`,
+      [req.companyId, slug, label, parseAliases(b.aliases), routeType,
+       routeType === 'user' ? (b.user_id || null) : null,
+       routeType === 'role' ? (b.role || null) : null,
+       !!b.allow_transfer, b.fallback_role || 'manager', !!b.is_default,
+       sortRow.rows[0].next, req.userId]
+    );
+    res.json({ ok: true, topic: r.rows[0] });
+  } catch (e) {
+    console.error('[vapi] topic create failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Removing the catch-all is refused. It is the destination for every caller we
+ * cannot classify, and without one those calls reach nobody at all — a failure
+ * that is silent from both ends.
+ */
+vapiAdminRouter.delete('/topics/:id', requireOwner, async (req, res) => {
+  try {
+    const row = (await query(
+      `SELECT slug, label, is_default FROM vapi_topics WHERE id = $1 AND company_id = $2`,
+      [req.params.id, req.companyId]
+    )).rows[0];
+    if (!row) return res.status(404).json({ error: 'Topic not found' });
+    if (row.is_default) {
+      return res.status(409).json({
+        error: 'This is the catch-all topic. Make another topic the catch-all first, then delete this one.',
+      });
+    }
+    await query(`DELETE FROM vapi_topics WHERE id = $1 AND company_id = $2`, [req.params.id, req.companyId]);
+    console.warn('[vapi] topic %s deleted by %s', row.slug, req.userId);
+    res.json({ ok: true, deleted: row.slug });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 vapiAdminRouter.put('/topics/:id', requireOwner, async (req, res) => {
   const b = req.body || {};
   try {
     const routeType = b.route_type === 'user' ? 'user' : 'role';
+    // A topic added by hand is rarely right first time — the aliases are what
+    // decide whether a caller's words reach it, so they have to be editable.
+    if (b.is_default) await clearOtherDefaults(req.companyId, req.params.id);
     const r = await query(
       `UPDATE vapi_topics
           SET route_type = $1,
@@ -838,6 +926,9 @@ vapiAdminRouter.put('/topics/:id', requireOwner, async (req, res) => {
               role       = $3,
               allow_transfer = $4,
               active     = $5,
+              label      = COALESCE($9, label),
+              aliases    = COALESCE($10, aliases),
+              is_default = COALESCE($11, is_default),
               updated_at = NOW(),
               updated_by = $6
         WHERE id = $7 AND company_id = $8
@@ -847,7 +938,10 @@ vapiAdminRouter.put('/topics/:id', requireOwner, async (req, res) => {
        routeType === 'role' ? (b.role || null) : null,
        !!b.allow_transfer,
        b.active !== false,
-       req.userId, req.params.id, req.companyId]
+       req.userId, req.params.id, req.companyId,
+       b.label === undefined ? null : String(b.label).trim().slice(0, 80) || null,
+       b.aliases === undefined ? null : parseAliases(b.aliases),
+       b.is_default === undefined ? null : !!b.is_default]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Topic not found' });
     res.json({ ok: true, topic: r.rows[0] });

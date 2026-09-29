@@ -1479,3 +1479,23 @@
 }
 /* Flash while the row is being written, so a slow save is visible rather than silent. */
 .sq-row-saving { opacity: 0.55; transition: opacity 0.15s; }
+
+/* Add-a-topic */
+.sq-vapi-add { margin-top: 1rem; padding: 0.9rem 1rem; border: 1px dashed var(--border); border-radius: 8px; }
+.sq-vapi-add h4 { margin: 0 0 0.6rem; font-size: 0.85rem; font-weight: 600; }
+.sq-vapi-add-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.sq-vapi-add-row input[type="text"], .sq-vapi-add-row input:not([type]) {
+  flex: 1 1 12rem; min-width: 0; padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input-bg, var(--card)); color: var(--text); font-size: 0.85rem;
+}
+.sq-vapi-alias-input {
+  margin-top: 0.3rem; width: 100%; padding: 0.25rem 0.4rem;
+  border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: var(--text-muted); font-size: 0.72rem;
+}
+/* Invisible until touched, so the row still reads as a label not a form. */
+.sq-vapi-alias-input:hover, .sq-vapi-alias-input:focus {
+  border-color: var(--border); background: var(--bg-muted); color: var(--text);
+}
+.sq-vapi-err { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--danger); }

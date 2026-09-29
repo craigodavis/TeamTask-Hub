@@ -1377,6 +1377,9 @@ const VAPI_ENDPOINTS = [
 function TopicRouting({ token }) {
   const [data, setData]   = useState(null);
   const [saving, setSaving] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft]   = useState({ label: '', aliases: '', route_type: 'role', role: 'manager', user_id: '', allow_transfer: false });
+  const [err, setErr]       = useState(null);
   const auth = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   const load = useCallback(() => {
@@ -1400,6 +1403,39 @@ function TopicRouting({ token }) {
     } finally { setSaving(null); }
   };
 
+  const addTopic = async () => {
+    setErr(null);
+    if (!draft.label.trim()) { setErr('Give the topic a name.'); return; }
+    setAdding(true);
+    try {
+      const r = await fetch('/api/vapi-admin/topics', {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      });
+      const d = await r.json();
+      if (!r.ok) { setErr(d.error || 'Could not add that topic.'); return; }
+      setDraft({ label: '', aliases: '', route_type: 'role', role: 'manager', user_id: '', allow_transfer: false });
+      load();
+    } finally { setAdding(false); }
+  };
+
+  const removeTopic = async (t) => {
+    if (!window.confirm(`Delete "${t.label}"?\n\nCallers about this will fall to the catch-all instead.`)) return;
+    setSaving(t.id);
+    try {
+      const r = await fetch(`/api/vapi-admin/topics/${t.id}`, { method: 'DELETE', headers: auth });
+      const d = await r.json();
+      if (!r.ok) { setErr(d.error || 'Could not delete that topic.'); return; }
+      load();
+    } finally { setSaving(null); }
+  };
+
+  const saveAliases = (t, text) => {
+    if (text === (t.aliases || []).join(', ')) return;   // untouched
+    save(t, { aliases: text.split(',').map((a) => a.trim()).filter(Boolean) });
+  };
+
   if (!data) return <div className="sq-state">Loading topics…</div>;
   if (data.error) return <div className="sq-state">{data.error}</div>;
 
@@ -1407,7 +1443,7 @@ function TopicRouting({ token }) {
     <div className="sq-vapi-topics">
       <table className="sq-result-table">
         <thead>
-          <tr><th>Topic</th><th>Route to</th><th>Allow transfer</th><th>Active</th></tr>
+          <tr><th>Topic</th><th>Route to</th><th>Allow transfer</th><th>Active</th><th /></tr>
         </thead>
         <tbody>
           {data.topics.map((t) => (
@@ -1415,7 +1451,14 @@ function TopicRouting({ token }) {
               <td>
                 <strong>{t.label}</strong>
                 {t.is_default && <span className="sq-vapi-tag">catch-all</span>}
-                <div className="sq-vapi-aliases">{(t.aliases || []).join(' · ')}</div>
+                {/* Editable, because the aliases are what decide whether a
+                    caller's actual words ever reach this topic. */}
+                <input
+                  className="sq-vapi-alias-input"
+                  defaultValue={(t.aliases || []).join(', ')}
+                  placeholder="words a caller might say, comma separated"
+                  onBlur={(e) => saveAliases(t, e.target.value)}
+                />
               </td>
               <td>
                 <select
@@ -1452,10 +1495,54 @@ function TopicRouting({ token }) {
                 <input type="checkbox" checked={t.active !== false}
                        onChange={(e) => save(t, { active: e.target.checked })} />
               </td>
+              <td>
+                {!t.is_default && (
+                  <button className="sq-btn sq-btn-warn" onClick={() => removeTopic(t)}
+                          disabled={saving === t.id} title="Delete this topic">×</button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <div className="sq-vapi-add">
+        <h4>Add a topic</h4>
+        <div className="sq-vapi-add-row">
+          <input placeholder="Name, e.g. Gift Cards" value={draft.label}
+                 onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+          <input placeholder="words a caller might say: gift card, voucher, certificate"
+                 value={draft.aliases}
+                 onChange={(e) => setDraft({ ...draft, aliases: e.target.value })} />
+          <select
+            value={draft.route_type === 'user' ? `user:${draft.user_id}` : `role:${draft.role}`}
+            onChange={(e) => {
+              const [kind, val] = e.target.value.split(':');
+              setDraft(kind === 'user'
+                ? { ...draft, route_type: 'user', user_id: val, role: '' }
+                : { ...draft, route_type: 'role', role: val, user_id: '' });
+            }}
+          >
+            <optgroup label="A role">
+              {data.roles.map((r) => (
+                <option key={r.role} value={`role:${r.role}`}>{r.role} ({r.reachable} reachable)</option>
+              ))}
+            </optgroup>
+            <optgroup label="A person">
+              {data.staff.map((u) => <option key={u.id} value={`user:${u.id}`}>{u.display_name}</option>)}
+            </optgroup>
+          </select>
+          <label className="sq-vapi-check">
+            <input type="checkbox" checked={draft.allow_transfer}
+                   onChange={(e) => setDraft({ ...draft, allow_transfer: e.target.checked })} />
+            <span>Allow transfer</span>
+          </label>
+          <button className="sq-btn" onClick={addTopic} disabled={adding}>
+            {adding ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+        {err && <p className="sq-vapi-err">{err}</p>}
+      </div>
+
       <p className="sq-vapi-hint">
         Transfer needs all three: the box above ticked, a venue open at that moment, and
         someone reachable. Anything less becomes a text — a caller put through to a phone
