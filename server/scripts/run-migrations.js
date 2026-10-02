@@ -4374,6 +4374,44 @@ const MIGRATIONS = [
   // is a place customers go, and therefore also a place people work.
   `UPDATE locations SET is_venue = true, is_work_site = true
      WHERE web_slug IS NOT NULL AND is_venue = false`,
+  // The library lives in the cellar, so the CELLAR is the location and library is
+  // simply what is kept there. Modelling it as a "Library" location would have put
+  // a stock category into a table that means physical place — the same conflation
+  // the is_venue / is_work_site flags above exist to undo.
+  //
+  // This replaces three mechanisms doing one job: product_inventory.library_bottles,
+  // locations.allows_library, and the Library toggle on the count card. A wine whose
+  // stock was entirely library (23 Homestead: 0 regular, 126 library) appeared on the
+  // count screen with nothing to count, which is what prompted it.
+  // (Append-only — add at the very end.)
+  `INSERT INTO locations (company_id, name, web_slug, allows_library, is_default_inventory,
+                          is_inventory_site, is_venue, is_work_site)
+     SELECT c.id, 'Cellar', NULL, false, false, true, false, false FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM locations l WHERE l.company_id = c.id AND l.name = 'Cellar')`,
+  // Move existing library stock to the Cellar as ordinary bottles. Summed, not
+  // overwritten, in case the Cellar already holds some of that wine.
+  `INSERT INTO product.product_inventory
+     (product_id, location_id, company_id, total_bottles, library_bottles, last_counted_at, last_counted_by)
+   SELECT pi.product_id, cel.id, pi.company_id, pi.library_bottles, 0,
+          pi.last_counted_at, pi.last_counted_by
+     FROM product.product_inventory pi
+     JOIN locations cel ON cel.company_id = pi.company_id AND cel.name = 'Cellar'
+    WHERE COALESCE(pi.library_bottles, 0) > 0
+   ON CONFLICT (product_id, location_id) DO UPDATE
+     SET total_bottles = product.product_inventory.total_bottles + EXCLUDED.total_bottles`,
+  // Mirror it into the log so an as-of-date snapshot after this point agrees with
+  // the live figures — the ABC filing reconstructs from the log.
+  `INSERT INTO product.product_inventory_log
+     (product_id, location_id, company_id, total_bottles, library_bottles, counted_by, counted_at)
+   SELECT pi.product_id, cel.id, pi.company_id, pi.total_bottles, 0, NULL, NOW()
+     FROM product.product_inventory pi
+     JOIN locations cel ON cel.company_id = pi.company_id AND cel.name = 'Cellar'
+    WHERE pi.location_id = cel.id AND pi.total_bottles > 0`,
+  // Zero the old column LAST. physicalCount() sums total_bottles + library_bottles
+  // across every location, so leaving both populated would double-count those
+  // bottles in the ABC total.
+  `UPDATE product.product_inventory SET library_bottles = 0 WHERE COALESCE(library_bottles,0) > 0`,
+  `UPDATE locations SET allows_library = false WHERE allows_library`,
 ];
 
 export async function runMigrations() {

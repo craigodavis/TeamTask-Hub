@@ -296,6 +296,7 @@ export function WineInventory() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusView, setStatusView] = useState('uncompleted');
+  const [showEmpty, setShowEmpty] = useState(false);
 
   useEffect(() => {
     getLocations('inventory')
@@ -353,7 +354,16 @@ export function WineInventory() {
       if (statusView === 'uncompleted') return !i.counted_today;
       if (statusView === 'completed') return i.counted_today;
       return true;
-    });
+    })
+    // A wine with no bottles at THIS location is noise on a count sheet. Never
+    // hide one already touched today, or it would vanish the moment someone
+    // typed a zero; never hide a never-counted wine, which is the opposite of
+    // noise. Hidden, not gone — the pill says how many and brings them back.
+    .filter((i) => showEmpty || i.counted_today || !i.last_counted_at
+                || (i.cases || 0) > 0 || (i.bottles || 0) > 0);
+
+  const emptyCount = items.filter((i) => !i.counted_today && i.last_counted_at
+                && (i.cases || 0) === 0 && (i.bottles || 0) === 0).length;
 
   return (
     <div className="wine-inv-page">
@@ -380,6 +390,20 @@ export function WineInventory() {
               {s.label}
             </button>
           ))}
+          {/* Zero-stock wines are hidden, not gone, and the count is on the button.
+              Default-hiding stock without a visible way back is how it gets
+              forgotten — 23 Homestead sat on this screen with 0 regular bottles
+              and 126 in the cellar, which is what started this. */}
+          {emptyCount > 0 && (
+            <button
+              type="button"
+              className={`wine-inv-pill${showEmpty ? ' active' : ''}`}
+              onClick={() => setShowEmpty((v) => !v)}
+              title="Wines recorded as zero at this location are hidden by default"
+            >
+              {showEmpty ? 'Hide empty' : `+${emptyCount} empty`}
+            </button>
+          )}
         </div>
       </div>
 
