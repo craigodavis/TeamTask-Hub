@@ -180,8 +180,40 @@ async function productionFor(companyId, startIso, endIso) {
 // count for whatever period it was taken in — which is why the filing must be
 // prepared before the next count begins, and why we store the result in
 // abc_filings rather than recomputing history from this table.
-async function physicalCount(companyId) {
-  const r = await query(
+/**
+ * The physical count to reconcile against.
+ *
+ * With no `asOfIso` this reads CURRENT inventory — the latest count per line,
+ * whenever it happened. That is the right default for filing the month just
+ * ended, and wrong for filing a month three counts ago: the walk-back from a
+ * distant count has to unwind every sale in between, and any error in that
+ * window lands in the residual. July 2026 showed it — a 2 Sep count left a
+ * 120 gal overage, while the 5-6 Aug count five days after month end left 56.
+ *
+ * With `asOfIso` it reconstructs the count as it stood on that date from
+ * product_inventory_log — the same "latest row per product+location at or
+ * before" that /api/products/inventory/report has always used. The log is the
+ * record; product_inventory is only ever its newest slice.
+ */
+async function physicalCount(companyId, asOfIso = null) {
+  const r = asOfIso
+    ? await query(
+        `SELECT COALESCE(SUM(total_bottles + COALESCE(library_bottles, 0)), 0)::int AS bottles,
+                COALESCE(SUM(total_bottles), 0)::int   AS regular_bottles,
+                COALESCE(SUM(library_bottles), 0)::int AS library_bottles,
+                COUNT(*)::int                          AS lines,
+                MIN(counted_at)                        AS first_counted_at,
+                MAX(counted_at)                        AS last_counted_at
+           FROM (
+             SELECT DISTINCT ON (product_id, location_id)
+                    total_bottles, library_bottles, counted_at
+               FROM product.product_inventory_log
+              WHERE company_id = $1 AND counted_at <= $2
+              ORDER BY product_id, location_id, counted_at DESC
+           ) snapshot`,
+        [companyId, asOfIso]
+      )
+    : await query(
     // Library is a SEPARATE pile from regular stock, not a slice of it, so the
     // filing has to add the two. Library wine is still wine we hold — the state
     // wants everything on the premises, whether or not it is for sale.
@@ -212,8 +244,11 @@ async function physicalCount(companyId) {
  * @param {string} companyId
  * @param {string} month  'YYYY-MM' — the period being reported
  */
-export async function computeFiling(companyId, month) {
+export async function computeFiling(companyId, month, { countAsOf = null } = {}) {
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error(`month must be YYYY-MM, got "${month}"`);
+  if (countAsOf && !/^\d{4}-\d{2}-\d{2}$/.test(countAsOf)) {
+    throw new Error(`countAsOf must be YYYY-MM-DD, got "${countAsOf}"`);
+  }
 
   const monthStart = `${month}-01`;
   // Cast to ::timestamp before AT TIME ZONE — the timestamptz overload silently
@@ -238,7 +273,7 @@ export async function computeFiling(companyId, month) {
   const [inMonth, production, count] = await Promise.all([
     volumesBetween(companyId, m_start, m_end),
     productionFor(companyId, m_start, m_end),
-    physicalCount(companyId),
+    physicalCount(companyId, countAsOf ? `${countAsOf}T23:59:59.999Z` : null),
   ]);
 
   // The crew counts a few days into the following month, so the raw count is not
@@ -355,6 +390,7 @@ export async function computeFiling(companyId, month) {
       countedGallons:   count.gallons,
       countedBottles:   count.bottles,
       countedLines:     count.lines,
+      countAsOf:        countAsOf,          // null = current inventory
       countedFrom:      count.firstCountedAt,
       countedAt:        count.lastCountedAt,
       postCountBackout: postMonth,
