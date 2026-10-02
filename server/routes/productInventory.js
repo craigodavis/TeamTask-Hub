@@ -262,6 +262,7 @@ router.post('/undo', requireCapability('wine.inventory'), async (req, res) => {
       `SELECT id, total_bottles, library_bottles, counted_at
          FROM product.product_inventory_log
         WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+          AND voided_at IS NULL
         ORDER BY counted_at DESC, id DESC
         LIMIT 1`,
       [product_id, location_id, companyId]
@@ -284,25 +285,32 @@ router.post('/undo', requireCapability('wine.inventory'), async (req, res) => {
       `SELECT id, total_bottles, library_bottles, counted_at, counted_by
          FROM product.product_inventory_log
         WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+          AND voided_at IS NULL
           AND (total_bottles IS DISTINCT FROM $4 OR library_bottles IS DISTINCT FROM $5)
         ORDER BY counted_at DESC, id DESC
         LIMIT 1`,
       [product_id, location_id, companyId, latest.total_bottles, latest.library_bottles]
     )).rows[0] || null;
 
+    // Void, never delete. With prev, void everything above it: that is the burst
+    // of duplicate writes making up the one count being undone. Without prev, every
+    // live row holds the same figure, so the whole live history IS that one count
+    // and all of it is voided — but the rows survive, so nothing can be orphaned
+    // and a mistake stays auditable.
     const del = await client.query(
       prev
-        ? `DELETE FROM product.product_inventory_log
+        ? `UPDATE product.product_inventory_log
+              SET voided_at = NOW(), voided_by = $6
             WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+              AND voided_at IS NULL
               AND (counted_at, id) > ($4, $5)`
-        // Every row on record holds the same figure, so the whole history IS this
-        // one count. Clear it rather than leaving rows that claim an earlier count
-        // the undo has just contradicted.
-        : `DELETE FROM product.product_inventory_log
-            WHERE product_id = $1 AND location_id = $2 AND company_id = $3`,
+        : `UPDATE product.product_inventory_log
+              SET voided_at = NOW(), voided_by = $4
+            WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+              AND voided_at IS NULL`,
       prev
-        ? [product_id, location_id, companyId, prev.counted_at, prev.id]
-        : [product_id, location_id, companyId]
+        ? [product_id, location_id, companyId, prev.counted_at, prev.id, req.userId || null]
+        : [product_id, location_id, companyId, req.userId || null]
     );
 
     if (prev) {
@@ -339,7 +347,7 @@ router.post('/undo', requireCapability('wine.inventory'), async (req, res) => {
     await client.query('COMMIT');
     res.json({
       ok: true,
-      rows_removed: del.rowCount,
+      rows_voided: del.rowCount,
       undone: {
         ...fromTotalBottles(latest.total_bottles),
         total_bottles: latest.total_bottles,
@@ -557,7 +565,7 @@ router.get('/report', requireCapability('wine.reports'), async (req, res) => {
     const r = await query(
       `SELECT DISTINCT ON (product_id, location_id) product_id, location_id, total_bottles, counted_at
        FROM product.product_inventory_log
-       WHERE company_id = $1 AND counted_at <= $2
+       WHERE company_id = $1 AND counted_at <= $2 AND voided_at IS NULL
        ORDER BY product_id, location_id, counted_at DESC`,
       [companyId, `${asOf}T23:59:59.999Z`]
     );

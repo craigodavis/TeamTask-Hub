@@ -4437,6 +4437,36 @@ const MIGRATIONS = [
   // the historical fact, so the restored figure and its real date both survive.
   `ALTER TABLE product.product_inventory
      ADD COLUMN IF NOT EXISTS recount_requested BOOLEAN NOT NULL DEFAULT false`,
+  // Undo originally DELETED the rows it popped, to keep a mis-keyed figure from
+  // distorting the ABC filing that reconstructs counts from this log. That was the
+  // wrong trade: it destroyed history that cannot be recovered, and a second undo
+  // on an already-undone count fell into a branch that deleted every row for the
+  // product and location, leaving product_inventory claiming a count with no log
+  // behind it. Voiding reaches the same goal — every reader filters voided rows, so
+  // the filing still ignores the mistake — without losing the evidence.
+  `ALTER TABLE product.product_inventory_log
+     ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ`,
+  `ALTER TABLE product.product_inventory_log
+     ADD COLUMN IF NOT EXISTS voided_by UUID`,
+  `CREATE INDEX IF NOT EXISTS product_inventory_log_live_idx
+     ON product.product_inventory_log (product_id, location_id, counted_at DESC)
+     WHERE voided_at IS NULL`,
+  // Repair the one row the delete-based undo orphaned: 25 A Souvenir at the
+  // Winerage reads 12 bottles counted 2026-10-02 with zero log rows, so the filing
+  // cannot see it. Re-create the missing log row from the live figure rather than
+  // clearing the live figure, which was a real count. Guarded so it only ever
+  // touches genuinely orphaned rows and cannot run twice.
+  `INSERT INTO product.product_inventory_log
+     (product_id, location_id, company_id, total_bottles, library_bottles,
+      counted_by, counted_at)
+   SELECT pi.product_id, pi.location_id, pi.company_id,
+          pi.total_bottles, COALESCE(pi.library_bottles, 0),
+          pi.last_counted_by, pi.last_counted_at
+     FROM product.product_inventory pi
+    WHERE pi.last_counted_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM product.product_inventory_log g
+                       WHERE g.product_id = pi.product_id
+                         AND g.location_id = pi.location_id)`,
 ];
 
 export async function runMigrations() {

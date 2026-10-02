@@ -208,7 +208,9 @@ async function physicalCount(companyId, asOfIso = null) {
              SELECT DISTINCT ON (product_id, location_id)
                     total_bottles, library_bottles, counted_at
                FROM product.product_inventory_log
-              WHERE company_id = $1 AND counted_at <= $2
+              -- voided rows are undone counts; including them would bring a
+              -- mis-keyed figure straight back into the filing.
+              WHERE company_id = $1 AND counted_at <= $2 AND voided_at IS NULL
               ORDER BY product_id, location_id, counted_at DESC
            ) snapshot`,
         [companyId, asOfIso]

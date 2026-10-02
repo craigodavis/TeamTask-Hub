@@ -136,7 +136,7 @@ router.get('/', requireCapability('dashboard.view'), async (req, res) => {
       `SELECT COALESCE(SUM(total_bottles), 0)::int AS v FROM (
          SELECT DISTINCT ON (product_id, location_id) total_bottles
            FROM product.product_inventory_log
-          WHERE company_id = $1 AND counted_at <= $2
+          WHERE company_id = $1 AND counted_at <= $2 AND voided_at IS NULL
           ORDER BY product_id, location_id, counted_at DESC) t`,
       [companyId, lastYear(now)]
     );
