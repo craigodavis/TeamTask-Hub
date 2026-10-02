@@ -4467,6 +4467,64 @@ const MIGRATIONS = [
       AND NOT EXISTS (SELECT 1 FROM product.product_inventory_log g
                        WHERE g.product_id = pi.product_id
                          AND g.location_id = pi.location_id)`,
+
+  // ── Winery -> Winerage: the building was renamed, not duplicated ────────────
+  // Craig, 2026-10-02: "winery is now winerage... it was renamed to winerage" and
+  // "the winery is going to have a very small inventory - it is just for the
+  // tasting room. Those values stayed and should be under winerage."
+  //
+  // Winerage was added as a NEW location on 2026-10-02, so for one day the same
+  // shelves existed under two names and the ABC physical total read 16,207 bottles
+  // against a reality of ~6,800. Every count filed under "Winery" before today was
+  // taken in the winerage building, so those rows are RE-POINTED rather than zeroed
+  // — that way Winerage inherits the 5 Aug and 2 Sep history and the August and
+  // September as-of reports become correct instead of merely quiet.
+  //
+  // The 2026-10-02 06:00Z cutoff is local midnight in America/Boise. Craig counted
+  // the Winerage that morning and was counting the Winery tasting room while this
+  // was written, so NOTHING dated today is touched by any of these statements,
+  // whichever order they land in. Those are real counts of their real locations.
+
+  // Log rows first: no unique constraint here, so the whole history moves and
+  // Winerage ends up with 5 Aug -> 2 Sep -> 2 Oct in order.
+  `UPDATE product.product_inventory_log g
+      SET location_id = (SELECT id FROM locations WHERE name = 'Winerage'
+                          AND company_id = g.company_id AND deleted_at IS NULL)
+    WHERE g.location_id = (SELECT id FROM locations WHERE name = 'Winery'
+                            AND company_id = g.company_id AND deleted_at IS NULL)
+      AND g.counted_at < '2026-10-02T06:00:00Z'
+      AND EXISTS (SELECT 1 FROM locations WHERE name = 'Winerage'
+                   AND company_id = g.company_id AND deleted_at IS NULL)`,
+
+  // product_inventory has UNIQUE (product_id, location_id), so the two cases split.
+  // Case 1 - a Winerage row already exists: Craig recounted that wine today, so his
+  // count wins outright and the stale Winery row is dropped. Dropping, not summing:
+  // adding 9,410 to his 6,082 is exactly the double-count this fixes.
+  `DELETE FROM product.product_inventory pi
+    WHERE pi.location_id = (SELECT id FROM locations WHERE name = 'Winery'
+                             AND company_id = pi.company_id AND deleted_at IS NULL)
+      AND (pi.last_counted_at IS NULL OR pi.last_counted_at < '2026-10-02T06:00:00Z')
+      AND EXISTS (SELECT 1 FROM product.product_inventory w
+                   JOIN locations l ON l.id = w.location_id
+                  WHERE l.name = 'Winerage' AND l.company_id = pi.company_id
+                    AND l.deleted_at IS NULL AND w.product_id = pi.product_id)`,
+
+  // Case 2 - no Winerage row: the wine was never counted there, usually because it
+  // is inactive and so invisible on the count sheet (23 Estate Moonlit Cello 366,
+  // 23 Legacy 34). Move the row and keep its figure; zeroing would silently delete
+  // real wine nobody has had the chance to count.
+  `UPDATE product.product_inventory pi
+      SET location_id = (SELECT id FROM locations WHERE name = 'Winerage'
+                          AND company_id = pi.company_id AND deleted_at IS NULL)
+    WHERE pi.location_id = (SELECT id FROM locations WHERE name = 'Winery'
+                             AND company_id = pi.company_id AND deleted_at IS NULL)
+      AND (pi.last_counted_at IS NULL OR pi.last_counted_at < '2026-10-02T06:00:00Z')
+      AND EXISTS (SELECT 1 FROM locations WHERE name = 'Winerage'
+                   AND company_id = pi.company_id AND deleted_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM product.product_inventory w
+                       JOIN locations l ON l.id = w.location_id
+                      WHERE l.name = 'Winerage' AND l.company_id = pi.company_id
+                        AND l.deleted_at IS NULL AND w.product_id = pi.product_id)`,
 ];
 
 export async function runMigrations() {
