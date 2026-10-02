@@ -436,6 +436,27 @@ router.post('/transfer', requireCapability('wine.inventory'), async (req, res) =
           [product_id, loc, companyId, row?.total_bottles ?? 0, row?.library_bottles ?? 0]
         );
       }
+      // Moving wine INTO a library location is the same statement as counting it
+      // there: it is now cellar stock. Without this the Cellar's roster only grew
+      // when someone counted, so wine moved in would not appear on the sheet that
+      // is supposed to list it.
+      //
+      // Note the name clash: the `is_library` in this request body means "move the
+      // library pile rather than the regular pile", which is a different question
+      // from whether the DESTINATION is a library location. This looks at the
+      // destination.
+      //
+      // It deliberately does NOT touch is_active. A move is usually partial — ten
+      // cases to the cellar, forty still for sale in the Winerage — and is_active
+      // forces is_available off and drops the wine off the other count sheets, so
+      // retiring it here would strand stock that is still being sold.
+      await client.query(
+        `UPDATE product.products p SET is_library = true
+          WHERE p.id = $1 AND p.company_id = $2 AND p.is_library = false
+            AND EXISTS (SELECT 1 FROM locations l
+                         WHERE l.id = $3 AND l.company_id = $2 AND l.is_library_only)`,
+        [product_id, companyId, to_location_id]
+      );
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK').catch(() => {});
@@ -450,7 +471,33 @@ router.post('/transfer', requireCapability('wine.inventory'), async (req, res) =
         WHERE pi.product_id = $1 AND pi.location_id = ANY($2::uuid[])`,
       [product_id, [from_location_id, to_location_id]]
     );
-    res.status(201).json({ ok: true, moved: qty, is_library: !!is_library, locations: after.rows });
+    // Whether anything is left outside the library. Reported rather than acted on:
+    // retiring a wine is a decision about whether it is still sold, and is_active
+    // gates the count sheets, so flipping it automatically would hide the wine from
+    // the Winerage sheet and nobody would confirm it really is empty.
+    const outside = (await query(
+      `SELECT COALESCE(SUM(pi.total_bottles + pi.library_bottles), 0)::int AS bottles
+         FROM product.product_inventory pi
+         JOIN locations l ON l.id = pi.location_id
+        WHERE pi.product_id = $1 AND l.company_id = $2
+          AND l.deleted_at IS NULL AND NOT l.is_library_only`,
+      [product_id, companyId]
+    )).rows[0]?.bottles ?? 0;
+
+    const flags = (await query(
+      `SELECT is_library, is_active FROM product.products WHERE id = $1`, [product_id]
+    )).rows[0] || {};
+
+    res.status(201).json({
+      ok: true,
+      moved: qty,
+      is_library: !!is_library,
+      locations: after.rows,
+      marked_library: flags.is_library === true,
+      bottles_outside_library: outside,
+      // The only case where retiring the wine is even arguable.
+      suggest_inactive: flags.is_library === true && flags.is_active === true && outside === 0,
+    });
   } catch (err) {
     console.error('[inventory/transfer]', err.message);
     res.status(500).json({ error: err.message });

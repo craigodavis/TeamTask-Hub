@@ -83,11 +83,21 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
     if (!moveTo) { setMoveErr('Pick a destination.'); return; }
     setMoving(true); setMoveErr('');
     try {
-      await transferWineInventory({
+      const r = await transferWineInventory({
         product_id: item.id, from_location_id: locationId, to_location_id: moveTo, bottles: n,
       });
       setShowMove(false); setMoveQty(''); setMoveTo('');
       onTransferred?.();
+      // Moving into the cellar marks the wine as library on its own. Retiring it
+      // is a separate decision — Active gates the other count sheets and forces
+      // Admin available off — so this asks rather than deciding, and only when
+      // there is genuinely nothing left anywhere else.
+      if (r?.suggest_inactive) {
+        window.alert(
+          `${item.name} is marked as library and there are no bottles left outside the cellar.\n\n`
+          + `It is still Active, so it stays on the other count sheets and can be sold.`
+          + ` Untick Active on the product if you are done with it.`);
+      }
     } catch (e) {
       setMoveErr(e.message);
     } finally { setMoving(false); }
