@@ -8,6 +8,7 @@ import { query, pool } from '../db.js';
 import { requireCapability } from '../middleware/auth.js';
 import { toTotalBottles, fromTotalBottles, parseVolumeMl, mlToLitersGallons, CASE_SIZE } from '../lib/wineInventory.js';
 import { unfulfilledAsOf } from '../lib/abcFiling.js';
+import { estimateForProducts } from '../lib/inventoryEstimate.js';
 
 const router = express.Router();
 const cid = (req) => req.companyId;
@@ -63,6 +64,25 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
       [cid(req), location_id, tz]
     );
 
+    // Commerce7 records no tasting room, so its sales can only be charged to one
+    // location — the default. Charging them to whichever location happened to be
+    // open on screen would be worse than not charging them at all.
+    const isDefault = (await query(
+      `SELECT is_default_inventory FROM locations WHERE id = $1 AND company_id = $2`,
+      [location_id, cid(req)]
+    )).rows[0]?.is_default_inventory === true;
+
+    let estimates = new Map(), tastings = null;
+    try {
+      const est = await estimateForProducts(cid(req), location_id, isDefault, r.rows);
+      estimates = est.estimates;
+      tastings = est.tastings;
+    } catch (e) {
+      // The count is the thing this page exists for. An estimate that cannot be
+      // computed must not take the count down with it.
+      console.warn('[inventory] estimate failed, serving counts only:', e.message);
+    }
+
     const items = r.rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -73,8 +93,9 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
       counted_today: row.counted_today,
       ...fromTotalBottles(row.total_bottles),
       library: fromTotalBottles(row.library_bottles),
+      estimate: estimates.get(row.id) || null,
     }));
-    res.json({ items });
+    res.json({ items, tastings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
