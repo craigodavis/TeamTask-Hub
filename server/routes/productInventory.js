@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { query } from '../db.js';
+import { query, pool } from '../db.js';
 import { requireCapability } from '../middleware/auth.js';
 import { toTotalBottles, fromTotalBottles, parseVolumeMl, mlToLitersGallons, CASE_SIZE } from '../lib/wineInventory.js';
 import { unfulfilledAsOf } from '../lib/abcFiling.js';
@@ -22,7 +22,18 @@ async function getCompanyTimezone(companyId) {
 // this location, whether it was already counted today, and who/when last counted.
 router.get('/', requireCapability('wine.inventory'), async (req, res) => {
   try {
-    const { location_id } = req.query;
+    let { location_id } = req.query;
+    if (!location_id) {
+      // Most of the wine is in one building; making the page open there saves a
+      // click every single time and removes the chance of counting into the wrong
+      // location by leaving the picker where it was.
+      const def = await query(
+        `SELECT id FROM locations
+          WHERE company_id = $1 AND is_default_inventory AND deleted_at IS NULL LIMIT 1`,
+        [cid(req)]
+      );
+      location_id = def.rows[0]?.id;
+    }
     if (!location_id) return res.status(400).json({ error: 'location_id is required' });
 
     const tz = await getCompanyTimezone(cid(req));
@@ -123,6 +134,140 @@ router.post('/', requireCapability('wine.inventory'), async (req, res) => {
       library: fromTotalBottles(libraryBottles),
       counted_today: true,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/products/inventory/transfer ────────────────────────────────────
+//
+// Wine moving between buildings is ONE event, not two counts. Recorded as two
+// counts it is indistinguishable from a miscount afterwards: the source drops and
+// the destination rises, and nothing says they were the same bottles. That
+// ambiguity is exactly what made "23 Legacy +34" and "Cerceau +29" unexplainable.
+//
+// Both sides are written in a single transaction, and both sides also land in
+// product_inventory_log so an as-of-date snapshot stays correct — the log is what
+// the ABC filing reconstructs from.
+router.post('/transfer', requireCapability('wine.inventory'), async (req, res) => {
+  const { product_id, from_location_id, to_location_id, bottles, is_library, note } = req.body || {};
+  const companyId = cid(req);
+  const qty = parseInt(bottles, 10);
+  try {
+    if (!product_id || !from_location_id || !to_location_id) {
+      return res.status(400).json({ error: 'product_id, from_location_id and to_location_id are required' });
+    }
+    if (from_location_id === to_location_id) {
+      return res.status(400).json({ error: 'Pick two different locations.' });
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'bottles must be a positive whole number.' });
+    }
+    const col = is_library ? 'library_bottles' : 'total_bottles';
+
+    // Refuse to move more than the source is recorded as holding. A transfer that
+    // drives a location negative is a count error being laundered into a movement.
+    const src = await query(
+      `SELECT ${col} AS have FROM product.product_inventory
+        WHERE product_id = $1 AND location_id = $2`,
+      [product_id, from_location_id]
+    );
+    const have = Number(src.rows[0]?.have ?? 0);
+    if (have < qty) {
+      return res.status(409).json({
+        error: `Only ${have} bottle(s) recorded at the source — count it before moving ${qty}.`,
+        available: have,
+      });
+    }
+
+    // One held connection for the whole thing. db.js's query() checks a client out
+    // and releases it per call, so BEGIN and COMMIT issued through it would land on
+    // different connections and the transaction would be a no-op — with a stray
+    // BEGIN left on a pooled connection. Same pattern as squareInventorySync.
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO ${process.env.DB_SCHEMA || 'teamtask_hub'}`);
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE product.product_inventory SET ${col} = ${col} - $3
+          WHERE product_id = $1 AND location_id = $2`,
+        [product_id, from_location_id, qty]
+      );
+      // The destination may never have held this wine before, hence the upsert.
+      // last_counted_at is deliberately NOT touched on either side: nobody counted
+      // anything, and claiming otherwise would make a stale line look freshly counted.
+      await client.query(
+        `INSERT INTO product.product_inventory
+           (product_id, location_id, company_id, total_bottles, library_bottles)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (product_id, location_id) DO UPDATE
+           SET ${col} = product.product_inventory.${col} + $6`,
+        [product_id, to_location_id, companyId,
+         is_library ? 0 : qty, is_library ? qty : 0, qty]
+      );
+      await client.query(
+        `INSERT INTO product.inventory_transfers
+           (company_id, product_id, from_location_id, to_location_id, bottles, is_library, moved_by, note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [companyId, product_id, from_location_id, to_location_id, qty, !!is_library,
+         req.userId || null, (note || '').trim().slice(0, 500) || null]
+      );
+      // Log both sides at their post-move levels, so an as-of-date snapshot for any
+      // later date reflects where the wine actually was. counted_by is null: this is
+      // a movement, not a count, and the log should not imply a person counted it.
+      for (const loc of [from_location_id, to_location_id]) {
+        const now = await client.query(
+          `SELECT total_bottles, library_bottles FROM product.product_inventory
+            WHERE product_id = $1 AND location_id = $2`,
+          [product_id, loc]
+        );
+        const row = now.rows[0];
+        await client.query(
+          `INSERT INTO product.product_inventory_log
+             (product_id, location_id, company_id, total_bottles, library_bottles, counted_by)
+           VALUES ($1,$2,$3,$4,$5,NULL)`,
+          [product_id, loc, companyId, row?.total_bottles ?? 0, row?.library_bottles ?? 0]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    const after = await query(
+      `SELECT l.name, pi.total_bottles, pi.library_bottles
+         FROM product.product_inventory pi JOIN locations l ON l.id = pi.location_id
+        WHERE pi.product_id = $1 AND pi.location_id = ANY($2::uuid[])`,
+      [product_id, [from_location_id, to_location_id]]
+    );
+    res.status(201).json({ ok: true, moved: qty, is_library: !!is_library, locations: after.rows });
+  } catch (err) {
+    console.error('[inventory/transfer]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/products/inventory/transfers?product_id=&limit= ─────────────────
+router.get('/transfers', requireCapability('wine.inventory'), async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT t.id, p.name AS wine, f.name AS from_location, d.name AS to_location,
+              t.bottles, t.is_library, t.moved_at, t.note, u.display_name AS moved_by_name
+         FROM product.inventory_transfers t
+         JOIN product.products p ON p.id = t.product_id
+         JOIN locations f ON f.id = t.from_location_id
+         JOIN locations d ON d.id = t.to_location_id
+         LEFT JOIN users u ON u.id = t.moved_by
+        WHERE t.company_id = $1
+          AND ($2::uuid IS NULL OR t.product_id = $2::uuid)
+        ORDER BY t.moved_at DESC
+        LIMIT LEAST(COALESCE($3::int, 50), 200)`,
+      [cid(req), req.query.product_id || null, req.query.limit || null]
+    );
+    res.json({ transfers: r.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -235,3 +235,18 @@
   background: #f0fdf4;
 }
 .wine-inv-summary-done .wine-inv-summary-head { margin: 0; color: #15803d; }
+
+/* Move (transfer) row — visually distinct from the count inputs above it, because
+   a movement is not a count and must not be mistaken for one. */
+.wine-move-row {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem;
+  margin-top: 0.5rem; padding: 0.5rem 0.6rem;
+  background: var(--bg-muted, rgba(127,127,127,0.1));
+  border: 1px dashed var(--border); border-radius: 6px;
+}
+.wine-move-row select {
+  padding: 0.35rem 0.4rem; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--input-bg, var(--card)); color: var(--text); font-size: 0.85rem;
+}
+.wine-move-err  { font-size: 0.78rem; color: var(--danger); }
+.wine-move-hint { font-size: 0.72rem; opacity: 0.65; flex-basis: 100%; }

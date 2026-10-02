@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getLocations, getWineInventoryList, saveWineInventoryCount } from '../api';
+import { getLocations, getWineInventoryList, saveWineInventoryCount, transferWineInventory } from '../api';
 import { CASE_SIZE } from '../utils/wineInventory';
 import './WineInventory.css';
 
@@ -22,7 +22,7 @@ function matchesSearch(item, term) {
 // completed. Only pressing "Done" does — it also auto-normalizes any bottle
 // overflow (>= 12) into cases first. This removes all the timing-based
 // auto-complete logic that made items disappear unpredictably.
-function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
+function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, onTransferred }) {
   // Start empty, not pre-filled with last month's count. A pre-filled box is
   // indistinguishable from one the counter has already filled in, so a wine that
   // was never actually counted silently re-saves last month's number as though it
@@ -39,6 +39,27 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
   const canLibrary = allowsLibrary !== false;
   const [savedFlash, setSavedFlash] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [showMove, setShowMove] = useState(false);
+  const [moveQty, setMoveQty]   = useState('');
+  const [moveTo, setMoveTo]     = useState('');
+  const [moving, setMoving]     = useState(false);
+  const [moveErr, setMoveErr]   = useState('');
+
+  const doMove = async () => {
+    const n = parseInt(moveQty, 10);
+    if (!Number.isFinite(n) || n <= 0) { setMoveErr('How many bottles?'); return; }
+    if (!moveTo) { setMoveErr('Pick a destination.'); return; }
+    setMoving(true); setMoveErr('');
+    try {
+      await transferWineInventory({
+        product_id: item.id, from_location_id: locationId, to_location_id: moveTo, bottles: n,
+      });
+      setShowMove(false); setMoveQty(''); setMoveTo('');
+      onTransferred?.();
+    } catch (e) {
+      setMoveErr(e.message);
+    } finally { setMoving(false); }
+  };
   const timerRef = useRef(null);
   // True once the user actually presses a key in either field — distinguishes
   // "deliberately typed 0" (skip nothing) from "just tapped through without
@@ -193,8 +214,44 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved }) {
         >
           {finishing ? '…' : '✓ Done'}
         </button>
+        {locations && locations.length > 1 && (
+          <button
+            type="button"
+            className={`wine-count-library-toggle${showMove ? ' on' : ''}`}
+            onClick={() => { setShowMove((v) => !v); setMoveErr(''); }}
+            title="Move bottles of this wine to another location — a movement, not a count"
+          >
+            Move
+          </button>
+        )}
         {savedFlash && <span className="wine-count-saved">saved</span>}
       </div>
+
+      {showMove && (
+        <div className="wine-move-row">
+          <label className="wine-count-field">
+            <span>Move</span>
+            <input type="number" inputMode="numeric" min="1" placeholder="btl"
+                   value={moveQty} onChange={(e) => setMoveQty(e.target.value)}
+                   onFocus={(e) => e.target.select()} />
+          </label>
+          <label className="wine-count-field">
+            <span>To</span>
+            <select value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+              <option value="">Choose…</option>
+              {locations.filter((l) => l.id !== locationId)
+                        .map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </label>
+          <button type="button" className="wine-count-done" disabled={moving} onClick={doMove}>
+            {moving ? '…' : 'Move'}
+          </button>
+          {moveErr && <span className="wine-move-err">{moveErr}</span>}
+          {/* Says plainly that this is not a count — the whole point of recording
+              movements separately is that nobody later reads it as one. */}
+          <span className="wine-move-hint">Records a movement. Neither location is marked counted.</span>
+        </div>
+      )}
 
       {/* Sits directly under the Library button that reveals it, tinted and
           smaller — it is a subset of the count above, not a second count. */}
@@ -246,7 +303,11 @@ export function WineInventory() {
         const locs = d.locations || [];
         setLocations(locs);
         const remembered = localStorage.getItem(LOCATION_STORAGE_KEY);
-        const initial = (remembered && locs.some((l) => l.id === remembered)) ? remembered : locs[0]?.id;
+        // A remembered choice wins — somebody mid-count at the Creek should not be
+        // bounced. Otherwise open at the location holding most of the wine rather
+        // than whichever sorts first, so the common case needs no click.
+        const preferred = locs.find((l) => l.is_default_inventory)?.id || locs[0]?.id;
+        const initial = (remembered && locs.some((l) => l.id === remembered)) ? remembered : preferred;
         if (initial) setLocationId(initial);
         else setLoading(false);
       })
@@ -375,6 +436,8 @@ export function WineInventory() {
               key={item.id}
               item={item}
               locationId={locationId}
+              locations={locations}
+              onTransferred={load}
               allowsLibrary={locations.find((l) => l.id === locationId)?.allows_library !== false}
               onSaved={handleSaved}
             />

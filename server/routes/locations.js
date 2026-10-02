@@ -9,8 +9,10 @@ const companyId = (req) => req.companyId;
 router.get('/', async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, company_id, name, square_location_id, allows_library, created_at
-       FROM locations WHERE company_id = $1 ORDER BY name`,
+      `SELECT id, company_id, name, square_location_id, allows_library,
+              web_slug, is_default_inventory, created_at
+       FROM locations WHERE company_id = $1 AND deleted_at IS NULL
+        ORDER BY is_default_inventory DESC, name`,
       [companyId(req)]
     );
     res.json({ locations: r.rows });

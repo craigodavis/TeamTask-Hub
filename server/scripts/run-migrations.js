@@ -4323,6 +4323,43 @@ const MIGRATIONS = [
          ('manager',        'Speak to a Manager', ARRAY['manager','complaint','owner','speak to someone'],           true,  true,  5)
        ) AS v(slug, label, aliases, allow_transfer, is_default, sort)
      ON CONFLICT (company_id, slug) DO NOTHING`,
+  // Wine lives in two buildings at the Winery site: the Winerage (storage, most of
+  // the stock) and the winery itself. Counting them as one location made every
+  // figure a site total, which is why a pallet moving between buildings was
+  // indistinguishable from a miscount. web_slug stays NULL so the website and the
+  // phone agent never see it — both select WHERE web_slug IS NOT NULL.
+  // (Append-only — add at the very end.)
+  `ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_default_inventory BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS locations_one_default_inventory_idx
+     ON locations (company_id) WHERE is_default_inventory AND deleted_at IS NULL`,
+  `INSERT INTO locations (company_id, name, web_slug, allows_library, is_default_inventory)
+     SELECT c.id, 'Winerage', NULL, true, false FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM locations l WHERE l.company_id = c.id AND l.name = 'Winerage')`,
+  // Claim the default in two statements, so the partial unique index can never see
+  // two rows holding it at once.
+  `UPDATE locations SET is_default_inventory = false WHERE is_default_inventory`,
+  `UPDATE locations SET is_default_inventory = true WHERE name = 'Winerage' AND deleted_at IS NULL`,
+  // Moving wine between buildings is a MOVEMENT, not two counts. Recorded as two
+  // counts it reads as wine vanishing here and appearing there — the same
+  // signature as a miscount, and indistinguishable from one afterwards. That
+  // ambiguity is what made 23 Legacy +34 and Cerceau +29 unexplainable.
+  `CREATE TABLE IF NOT EXISTS product.inventory_transfers (
+     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id       UUID NOT NULL,
+     product_id       UUID NOT NULL,
+     from_location_id UUID NOT NULL,
+     to_location_id   UUID NOT NULL,
+     bottles          INT  NOT NULL CHECK (bottles > 0),
+     is_library       BOOLEAN NOT NULL DEFAULT false,
+     moved_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     moved_by         UUID,
+     note             TEXT,
+     CHECK (from_location_id <> to_location_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS inventory_transfers_company_moved_idx
+     ON product.inventory_transfers (company_id, moved_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS inventory_transfers_product_idx
+     ON product.inventory_transfers (product_id, moved_at DESC)`,
 ];
 
 export async function runMigrations() {

@@ -74,6 +74,25 @@ export async function getLocations() {
   return data;
 }
 
+export async function transferWineInventory(body) {
+  const res = await fetch(`${API}/products/inventory/transfer`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Transfer failed');
+  return data;
+}
+
+export async function getWineTransfers(productId) {
+  const qs = productId ? `?product_id=${encodeURIComponent(productId)}` : '';
+  const res = await fetch(`${API}/products/inventory/transfers${qs}`, { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load transfers');
+  return data;
+}
+
 export async function getSquareLocations() {
   const res = await fetch(`${API}/locations/square`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
