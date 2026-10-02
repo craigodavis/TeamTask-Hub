@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getLocations, getWineInventoryList, saveWineInventoryCount, transferWineInventory } from '../api';
-import { CASE_SIZE } from '../utils/wineInventory';
+import { getLocations, getWineInventoryList, saveWineInventoryCount, transferWineInventory,
+         undoWineInventoryCount } from '../api';
+import { CASE_SIZE, CASES_PER_ROW } from '../utils/wineInventory';
 import './WineInventory.css';
 
 const STATUS_VIEWS = [
@@ -28,6 +29,11 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
   // was never actually counted silently re-saves last month's number as though it
   // were this month's. Last month's figures show as placeholders instead — visible
   // for reference, impossible to mistake for an entry.
+  // Wine in the Winerage is stacked in rows of (usually) 16 cases, so counting
+  // "4 rows and 14 cases" is far faster than counting 78 cases. Rows is just a
+  // multiplier on the way in — nothing stores rows, so a row that holds 15 cases
+  // is simply entered as fewer rows plus loose cases.
+  const [rows, setRows] = useState('');
   const [cases, setCases] = useState('');
   const [bottles, setBottles] = useState('');
   // Library is its own pile, counted separately from sellable stock. Regular
@@ -44,6 +50,32 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
   const [moveTo, setMoveTo]     = useState('');
   const [moving, setMoving]     = useState(false);
   const [moveErr, setMoveErr]   = useState('');
+  const [undoing, setUndoing]   = useState(false);
+
+  // Confirms because it rewrites history rather than adding to it: the popped
+  // entry is removed from the log the ABC filing reads, so it cannot be dug back
+  // out afterwards. Names the figure being discarded so the person can see they
+  // are on the wine they think they are — the mistake it exists to fix was
+  // counting one wine's cases onto a different wine's card.
+  const doUndo = async () => {
+    const now = item.last_counted_at
+      ? `${item.cases} cases, ${item.bottles} btl (${new Date(item.last_counted_at).toLocaleDateString()})`
+      : 'the current entry';
+    if (!window.confirm(
+      `Undo the last count for ${item.name}?\n\n`
+      + `This discards ${now} and brings back whatever was recorded before it.`)) return;
+    setUndoing(true);
+    try {
+      const r = await undoWineInventoryCount({ product_id: item.id, location_id: locationId });
+      onTransferred?.();   // same full reload a Move does — the card's figures all moved
+      window.alert(r.now_uncounted
+        ? `Undone. ${item.name} is back to never counted here.`
+        : `Undone. ${item.name} is back to ${r.restored.cases} cases, ${r.restored.bottles} btl`
+          + ` from ${new Date(r.restored.counted_at).toLocaleDateString()}.`);
+    } catch (e) {
+      window.alert(`Could not undo: ${e.message}`);
+    } finally { setUndoing(false); }
+  };
 
   const doMove = async () => {
     const n = parseInt(moveQty, 10);
@@ -67,6 +99,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
   const touchedRef = useRef(false);
 
   useEffect(() => {
+    setRows('');
     setCases('');
     setBottles('');
     setLibCases('');
@@ -75,14 +108,16 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
     touchedRef.current = false;
   }, [item.id]);
 
-  const persistDraft = async (nextCases, nextBottles) => {
+  const persistDraft = async (nextRows, nextCases, nextBottles) => {
+    const rowsNum = parseInt(nextRows, 10) || 0;
     const casesNum = parseInt(nextCases, 10) || 0;
     const bottlesNum = parseInt(nextBottles, 10) || 0;
-    if (!touchedRef.current && casesNum === 0 && bottlesNum === 0) return;
+    if (!touchedRef.current && rowsNum === 0 && casesNum === 0 && bottlesNum === 0) return;
     try {
       await saveWineInventoryCount({
         product_id: item.id,
         location_id: locationId,
+        rows: nextRows,
         cases: nextCases,
         bottles: nextBottles,
         // Same rule as Done: blank library means "not re-entered", so keep what
@@ -97,15 +132,16 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
     }
   };
 
-  const scheduleSave = useCallback((nextCases, nextBottles) => {
+  const scheduleSave = useCallback((nextRows, nextCases, nextBottles) => {
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => persistDraft(nextCases, nextBottles), 500);
+    timerRef.current = setTimeout(() => persistDraft(nextRows, nextCases, nextBottles), 500);
   }, []);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const bottleCount = parseInt(bottles, 10) || 0;
   const caseCount = parseInt(cases, 10) || 0;
+  const rowCount = parseInt(rows, 10) || 0;
 
   // The only path that marks a wine completed. Rolls any full case's worth
   // of loose bottles into the case count first, then saves and completes —
@@ -118,7 +154,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
     // now, so "no sellable stock, eleven cases in the library" is a complete
     // count with both regular boxes legitimately empty. Only block when all four
     // are blank.
-    const anyEntry = [cases, bottles, libCases, libBottles]
+    const anyEntry = [rows, cases, bottles, libCases, libBottles]
       .some((v) => String(v).trim() !== '');
     if (!anyEntry) {
       window.alert(
@@ -126,11 +162,17 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
         + `Enter a number — type 0 if there are none left.`);
       return;
     }
-    let finalCases = caseCount;
+    // Rows collapse into cases here rather than being stored, so everything
+    // downstream — the ABC filing, the estimate, the history — keeps seeing one
+    // number of cases and never has to know how the stack was arranged.
+    let finalCases = caseCount + rowCount * CASES_PER_ROW;
     let finalBottles = bottleCount;
     if (finalBottles >= CASE_SIZE) {
       finalCases += Math.floor(finalBottles / CASE_SIZE);
       finalBottles = finalBottles % CASE_SIZE;
+    }
+    if (finalCases !== caseCount || finalBottles !== bottleCount) {
+      setRows('');
       setCases(finalCases);
       setBottles(finalBottles);
     }
@@ -189,6 +231,24 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
         )}
       </div>
       <div className="wine-count-inputs">
+        {/* Rows sits first because that is the order you count in: whole rows,
+            then the leftover cases, then loose bottles. Labelled with the 16 so
+            nobody has to remember the multiplier, and deliberately NOT
+            pre-filled from the last count — a stack gets rearranged. */}
+        <label className="wine-count-field">
+          <span>Rows ({CASES_PER_ROW})</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min="0"
+            placeholder="0"
+            value={rows}
+            onChange={(e) => { const v = e.target.value; setRows(v); scheduleSave(v, cases, bottles); }}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={() => { touchedRef.current = true; }}
+            onBlur={() => persistDraft(rows, cases, bottles)}
+          />
+        </label>
         <label className="wine-count-field">
           <span>Cases</span>
           <input
@@ -197,10 +257,10 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
             min="0"
             placeholder={item.last_counted_at ? String(item.cases ?? 0) : '0'}
             value={cases}
-            onChange={(e) => { const v = e.target.value; setCases(v); scheduleSave(v, bottles); }}
+            onChange={(e) => { const v = e.target.value; setCases(v); scheduleSave(rows, v, bottles); }}
             onFocus={(e) => e.target.select()}
             onKeyDown={() => { touchedRef.current = true; }}
-            onBlur={() => persistDraft(cases, bottles)}
+            onBlur={() => persistDraft(rows, cases, bottles)}
           />
         </label>
         <label className="wine-count-field">
@@ -211,10 +271,10 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
             min="0"
             placeholder={item.last_counted_at ? String(item.bottles ?? 0) : '0'}
             value={bottles}
-            onChange={(e) => { const v = e.target.value; setBottles(v); scheduleSave(cases, v); }}
+            onChange={(e) => { const v = e.target.value; setBottles(v); scheduleSave(rows, cases, v); }}
             onFocus={(e) => e.target.select()}
             onKeyDown={() => { touchedRef.current = true; }}
-            onBlur={() => persistDraft(cases, bottles)}
+            onBlur={() => persistDraft(rows, cases, bottles)}
           />
         </label>
         {canLibrary && (
@@ -226,6 +286,16 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
         >
           Library
         </button>
+        )}
+        {/* 4 rows reads as a small number and lands as 768 bottles. Showing the
+            total as it is typed is the only chance to notice a slipped digit
+            before it becomes a saved count. */}
+        {(rowCount > 0 || caseCount > 0 || bottleCount > 0) && (
+          <span className="wine-count-total">
+            = {rowCount * CASES_PER_ROW + caseCount + Math.floor(bottleCount / CASE_SIZE)} cases
+            {(bottleCount % CASE_SIZE) ? ` + ${bottleCount % CASE_SIZE} btl` : ''}
+            {' '}({rowCount * CASES_PER_ROW * CASE_SIZE + caseCount * CASE_SIZE + bottleCount} bottles)
+          </span>
         )}
         <button
           type="button"
@@ -244,6 +314,17 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
             title="Move bottles of this wine to another location — a movement, not a count"
           >
             Move
+          </button>
+        )}
+        {item.last_counted_at && (
+          <button
+            type="button"
+            className="wine-count-undo"
+            onClick={doUndo}
+            disabled={undoing}
+            title="Discard the last count for this wine here and bring back the one before it"
+          >
+            {undoing ? '…' : 'Undo'}
           </button>
         )}
         {savedFlash && <span className="wine-count-saved">saved</span>}
@@ -290,7 +371,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
                 placeholder={String(item.library?.cases ?? 0)}
                 onChange={(e) => { setLibCases(e.target.value); touchedRef.current = true; }}
                 onFocus={(e) => e.target.select()}
-                onBlur={() => persistDraft(cases, bottles)}
+                onBlur={() => persistDraft(rows, cases, bottles)}
               />
             </label>
             <label className="wine-count-field wine-count-field-sm">
@@ -300,7 +381,7 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
                 placeholder={String(item.library?.bottles ?? 0)}
                 onChange={(e) => { setLibBottles(e.target.value); touchedRef.current = true; }}
                 onFocus={(e) => e.target.select()}
-                onBlur={() => persistDraft(cases, bottles)}
+                onBlur={() => persistDraft(rows, cases, bottles)}
               />
             </label>
           </div>
@@ -320,6 +401,11 @@ export function WineInventory() {
   const [statusView, setStatusView] = useState('uncompleted');
   const [showEmpty, setShowEmpty] = useState(false);
   const [tastings, setTastings] = useState(null);
+  const [locInfo, setLocInfo] = useState(null);
+  // At a library location the list is the wines flagged as library. This lifts
+  // that so a wine found on the racks but never flagged can still be counted —
+  // and saving the count flags it, so it is on the list next time.
+  const [allWines, setAllWines] = useState(false);
 
   useEffect(() => {
     getLocations('inventory')
@@ -342,16 +428,23 @@ export function WineInventory() {
     if (!locationId) return;
     setLoading(true);
     setError('');
-    getWineInventoryList(locationId)
-      .then((d) => { setItems(d.items || []); setTastings(d.tastings || null); })
+    getWineInventoryList(locationId, { allWines })
+      .then((d) => {
+        setItems(d.items || []);
+        setTastings(d.tastings || null);
+        setLocInfo(d.location || null);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [locationId]);
+  }, [locationId, allWines]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleLocationChange = (id) => {
     setLocationId(id);
+    // Not carried between locations — it is a deliberate override for one shelf,
+    // and leaving it on would quietly show the Winerage every archived vintage.
+    setAllWines(false);
     localStorage.setItem(LOCATION_STORAGE_KEY, id);
   };
 
@@ -417,6 +510,16 @@ export function WineInventory() {
               Default-hiding stock without a visible way back is how it gets
               forgotten — 23 Homestead sat on this screen with 0 regular bottles
               and 126 in the cellar, which is what started this. */}
+          {locInfo?.is_library_only && (
+            <button
+              type="button"
+              className={`wine-inv-pill${allWines ? ' active' : ''}`}
+              onClick={() => setAllWines((v) => !v)}
+              title="The cellar lists library wines. Turn this on to count one that is not flagged yet — saving its count adds it."
+            >
+              {allWines ? 'Library only' : 'All wines'}
+            </button>
+          )}
           {emptyCount > 0 && (
             <button
               type="button"
@@ -432,6 +535,17 @@ export function WineInventory() {
 
       {items.length > 0 && (
         <p className="wine-inv-progress">{remaining} of {items.length} remaining</p>
+      )}
+
+      {/* Says what this list IS, because at the Cellar it is a different list from
+          every other location and that would otherwise look like a bug. */}
+      {locInfo?.is_library_only && (
+        <p className="wine-inv-note">
+          {locInfo.name} holds library wine — this lists the {items.length} wine
+          {items.length === 1 ? '' : 's'} marked as library
+          {allWines ? ', plus every other wine while "All wines" is on' : ''}.
+          {' '}Counting a wine here marks it as library.
+        </p>
       )}
 
       {/* Tastings cannot be charged to a wine — "Wine Tasting" is one item and

@@ -97,6 +97,7 @@ export function ProductDetail() {
   const [teaser, setTeaser]           = useState('');
   const [description, setDescription] = useState('');
   const [isActive, setIsActive]       = useState(true);
+  const [isLibrary, setIsLibrary]     = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
   const [isWebAvailable, setIsWebAvailable] = useState(true);
   const [isArchived, setIsArchived]   = useState(false);
@@ -147,6 +148,7 @@ export function ProductDetail() {
         setTeaser(p.c7?.teaser || '');
         setDescription(p.description || '');
         setIsActive(p.is_active !== false);
+        setIsLibrary(p.is_library === true);
         setIsAvailable(Boolean(p.is_available));
         // Defaults on: an older product predating the column reads as true.
         setIsWebAvailable(p.is_web_available !== false);
@@ -188,6 +190,7 @@ export function ProductDetail() {
       description: description || null,
       teaser: teaser || null,
       is_active: isActive,
+      is_library: isLibrary,
       is_available: isAvailable,
       is_web_available: isWebAvailable,
       is_archived: isArchived,
@@ -498,6 +501,24 @@ export function ProductDetail() {
                 />
                 <label htmlFor="pd-active">Active</label>
                 <span className="pd-field-hint">On the shelf — appears on the inventory count sheet.</span>
+              </div>
+              {/* Not chained to Active, unlike the two boxes beside it. An old
+                  vintage sitting in the cellar is normally not Active, but one
+                  pulled out for a special event is Active AND still library —
+                  so neither box may switch the other off. */}
+              <div className="pd-field-check">
+                <input
+                  id="pd-library"
+                  type="checkbox"
+                  checked={isLibrary}
+                  onChange={(e) => setIsLibrary(e.target.checked)}
+                />
+                <label htmlFor="pd-library">Library</label>
+                <span className="pd-field-hint">
+                  Held in the cellar — appears on the Cellar count sheet. Independent
+                  of Active, so a library wine can be put up for sale and stay in the
+                  cellar count.
+                </span>
               </div>
               <div className="pd-field-check">
                 <input

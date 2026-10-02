@@ -258,3 +258,44 @@
 .wine-est-over { color: var(--danger); opacity: 1; font-weight: 600; }
 .wine-est-unmatched { font-style: italic; opacity: 0.55; }
 .wine-inv-tastings { margin: 0.1rem 0 0.4rem; font-size: 0.78rem; opacity: 0.7; }
+
+/* Says what the Cellar's list is, since it is built differently from every other
+   location's and would otherwise read as wines missing. */
+.wine-inv-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted, #888);
+}
+
+/* The running total of what has been typed. 4 rows reads small and lands as 768
+   bottles, so this is the only point at which a slipped digit is still cheap. */
+.wine-count-total {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-muted, #888);
+}
+
+/* Deliberately quiet and not red: undo is a correction people reach for while
+   counting, not a danger, but it must never compete with Done for the thumb. */
+.wine-count-undo {
+  flex-shrink: 0;
+  min-height: 56px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 10px;
+  background: var(--bg-subtle, #fafafa);
+  color: var(--text-muted, #888);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.wine-count-undo:disabled { opacity: 0.6; cursor: not-allowed; }
+.wine-count-undo:not(:disabled):hover {
+  border-color: #cf1322;
+  color: #cf1322;
+}

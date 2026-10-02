@@ -62,7 +62,7 @@ router.get('/', requireAuth, async (req, res) => {
     const result = await withConn((client) => client.query(
       `SELECT
          p.id, p.name, p.vintage, p.varietal, p.wine_style, p.appellation,
-         p.region, p.alcohol_pct, p.is_active, p.is_available, p.is_web_available, p.is_archived, p.product_type,
+         p.region, p.alcohol_pct, p.is_active, p.is_library, p.is_available, p.is_web_available, p.is_archived, p.product_type,
          p.display_order, p.images, p.created_at, p.updated_at,
          c7.c7_product_id, c7.c7_handle, c7.teaser,
          -- variant summary
@@ -896,6 +896,11 @@ router.put('/:id', requireAuth, requireCapability('wine.products'), async (req, 
       if (b.region !== undefined)       addProd('region', b.region ?? null);
       if (b.country !== undefined)      addProd('country', b.country ?? null);
       if (b.is_active !== undefined) addProd('is_active', Boolean(b.is_active));
+      // Independent of is_active on purpose, with no precedence rule between them
+      // like the is_available chain above: a library wine pulled out for a special
+      // event is for sale AND still in the library, so neither one may override
+      // the other. See productInventory.js for how the Cellar list uses it.
+      if (b.is_library !== undefined) addProd('is_library', Boolean(b.is_library));
       if (b.is_available !== undefined) {
         // Available requires Active. Rather than 400 on a combination the UI
         // already prevents, treat "not active" as decisive — a wine that does not

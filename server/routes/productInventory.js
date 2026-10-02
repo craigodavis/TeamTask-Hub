@@ -6,7 +6,8 @@
 import express from 'express';
 import { query, pool } from '../db.js';
 import { requireCapability } from '../middleware/auth.js';
-import { toTotalBottles, fromTotalBottles, parseVolumeMl, mlToLitersGallons, CASE_SIZE } from '../lib/wineInventory.js';
+import { toTotalBottles, fromTotalBottles, toTotalBottlesFromRows, fromTotalBottlesWithRows,
+         parseVolumeMl, mlToLitersGallons, CASE_SIZE, CASES_PER_ROW } from '../lib/wineInventory.js';
 import { unfulfilledAsOf } from '../lib/abcFiling.js';
 import { estimateForProducts } from '../lib/inventoryEstimate.js';
 
@@ -39,11 +40,18 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
 
     const tz = await getCompanyTimezone(cid(req));
 
+    const loc = (await query(
+      `SELECT id, name, is_default_inventory, is_library_only
+         FROM locations WHERE id = $1 AND company_id = $2`,
+      [location_id, cid(req)]
+    )).rows[0] || null;
+    const libraryOnly = loc?.is_library_only === true;
+
     const r = await query(
       `SELECT p.id, p.name, p.vintage, p.varietal, p.display_order,
               COALESCE(pi.total_bottles, 0) AS total_bottles,
               COALESCE(pi.library_bottles, 0) AS library_bottles,
-              pi.last_counted_at,
+              pi.last_counted_at, p.is_library, p.is_active,
               u.display_name AS last_counted_by_name,
               (pi.last_counted_at IS NOT NULL
                 AND DATE(pi.last_counted_at AT TIME ZONE $3) = DATE(NOW() AT TIME ZONE $3)
@@ -55,22 +63,32 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
        -- Counted because it physically exists, not because it is for sale. A
        -- club-release wine or one still resting is on the rack and must be
        -- counted; is_available would hide it.
-       WHERE p.company_id = $1 AND p.is_active = true AND p.is_archived = false
+       WHERE p.company_id = $1 AND p.is_archived = false
          -- Exclude products explicitly classified as something other than
          -- Wine (Beer, Food, etc.) via Commerce7's product_type, but don't
          -- hide not-yet-synced wines that still have a null type.
          AND (p.product_type = 'Wine' OR p.product_type IS NULL)
-       ORDER BY p.display_order, p.name`,
-      [cid(req), location_id, tz]
+         -- A library location has its own roster: wines flagged is_library, which
+         -- is independent of is_active so one pulled out for a special event stays
+         -- on this list. Anything already counted here is listed whatever its flags
+         -- say, so a count can never make a wine vanish from the page that
+         -- recorded it. $5 lifts the filter when someone needs to count a wine that
+         -- is not flagged yet — saving a count there sets the flag (see POST).
+         AND CASE WHEN $5::boolean THEN true
+                  WHEN $4::boolean THEN (p.is_library = true OR pi.product_id IS NOT NULL)
+                  ELSE p.is_active = true
+             END
+       -- display_order is the tasting-menu order and means nothing to a library;
+       -- walking a cellar, vintage is the thing you navigate by.
+       ORDER BY CASE WHEN $4::boolean THEN p.vintage END DESC NULLS LAST,
+                p.display_order, p.name`,
+      [cid(req), location_id, tz, libraryOnly, req.query.all_wines === 'true']
     );
 
     // Commerce7 records no tasting room, so its sales can only be charged to one
     // location — the default. Charging them to whichever location happened to be
     // open on screen would be worse than not charging them at all.
-    const isDefault = (await query(
-      `SELECT is_default_inventory FROM locations WHERE id = $1 AND company_id = $2`,
-      [location_id, cid(req)]
-    )).rows[0]?.is_default_inventory === true;
+    const isDefault = loc?.is_default_inventory === true;
 
     let estimates = new Map(), tastings = null;
     try {
@@ -91,11 +109,24 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
       last_counted_at: row.last_counted_at,
       last_counted_by_name: row.last_counted_by_name,
       counted_today: row.counted_today,
+      is_library: row.is_library === true,
+      is_active: row.is_active === true,
       ...fromTotalBottles(row.total_bottles),
+      rows_view: fromTotalBottlesWithRows(row.total_bottles),
       library: fromTotalBottles(row.library_bottles),
+      library_rows_view: fromTotalBottlesWithRows(row.library_bottles),
       estimate: estimates.get(row.id) || null,
     }));
-    res.json({ items, tastings });
+    res.json({
+      items,
+      tastings,
+      location: loc
+        ? { id: loc.id, name: loc.name,
+            is_default_inventory: loc.is_default_inventory === true,
+            is_library_only: libraryOnly }
+        : null,
+      cases_per_row: CASES_PER_ROW,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -105,14 +136,16 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
 // Body: { product_id, location_id, cases, bottles }
 router.post('/', requireCapability('wine.inventory'), async (req, res) => {
   try {
-    const { product_id, location_id, cases, bottles,
-            library_cases, library_bottles } = req.body;
+    const { product_id, location_id, rows, cases, bottles,
+            library_rows, library_cases, library_bottles } = req.body;
     if (!product_id || !location_id) {
       return res.status(400).json({ error: 'product_id and location_id are required' });
     }
     const companyId = cid(req);
-    const totalBottles = toTotalBottles(cases, bottles);
-    const libraryBottles = toTotalBottles(library_cases, library_bottles);
+    // rows is optional and additive — an absent rows behaves exactly as before,
+    // so an older client (or a mid-count tab that has not reloaded) keeps working.
+    const totalBottles = toTotalBottlesFromRows(rows, cases, bottles);
+    const libraryBottles = toTotalBottlesFromRows(library_rows, library_cases, library_bottles);
 
     // Library is its own pile, not a slice of the regular count, so there is no
     // ceiling to check — regular can be zero while the library holds eleven
@@ -150,13 +183,166 @@ router.post('/', requireCapability('wine.inventory'), async (req, res) => {
       [product_id, location_id, companyId, totalBottles, req.userId, libraryBottles]
     );
 
+    // Counting a wine at a library location IS the statement that it is a library
+    // wine — flagging it here means the roster maintains itself as the cellar gets
+    // walked, instead of needing a separate admin step before a count can happen.
+    // One-way on purpose: it never clears the flag, so a wine counted down to zero
+    // in the cellar stays on next month's list to be confirmed as still empty.
+    if (totalBottles > 0) {
+      await query(
+        `UPDATE product.products p SET is_library = true
+          WHERE p.id = $1 AND p.company_id = $2 AND p.is_library = false
+            AND EXISTS (SELECT 1 FROM locations l
+                         WHERE l.id = $3 AND l.company_id = $2 AND l.is_library_only)`,
+        [product_id, companyId, location_id]
+      );
+    }
+
     res.status(201).json({
       ...fromTotalBottles(totalBottles),
+      rows_view: fromTotalBottlesWithRows(totalBottles),
       library: fromTotalBottles(libraryBottles),
+      library_rows_view: fromTotalBottlesWithRows(libraryBottles),
+      cases_per_row: CASES_PER_ROW,
       counted_today: true,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/products/inventory/undo ────────────────────────────────────────
+// Body: { product_id, location_id }
+// Discards the last count for this wine at this location and restores the one
+// before it.
+//
+// Two things make this less obvious than it sounds:
+//
+//  1. One count is NOT one log row. The card draft-saves on a debounce and again
+//     on blur before Done writes the final figure, so a single count lands as two
+//     to four identical rows milliseconds apart — 23 Summer Silhouette's mis-entry
+//     wrote three. Popping one row would discard a duplicate and leave the figure
+//     unchanged, so the button would look broken and get pressed again. We pop the
+//     whole contiguous run of rows holding the current value: one logical count.
+//  2. It DELETES rather than appending a correction. The ABC filing reconstructs
+//     physical counts from this log, so a mis-keyed figure left in it keeps
+//     distorting the as-of-date reports; and appending would make the next undo
+//     find the mistake again and flip back to it forever.
+router.post('/undo', requireCapability('wine.inventory'), async (req, res) => {
+  const { product_id, location_id } = req.body || {};
+  if (!product_id || !location_id) {
+    return res.status(400).json({ error: 'product_id and location_id are required' });
+  }
+  const companyId = cid(req);
+  // query() releases its pool client per call, so BEGIN/COMMIT through it would
+  // land on different connections and not be a transaction at all. Hold one.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Lock the live row first, so two people undoing the same wine cannot both
+    // read the same "current" value and pop past each other.
+    const live = (await client.query(
+      `SELECT total_bottles, library_bottles FROM product.product_inventory
+        WHERE product_id = $1 AND location_id = $2
+          FOR UPDATE`,
+      [product_id, location_id]
+    )).rows[0];
+
+    const latest = (await client.query(
+      `SELECT id, total_bottles, library_bottles, counted_at
+         FROM product.product_inventory_log
+        WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+        ORDER BY counted_at DESC, id DESC
+        LIMIT 1`,
+      [product_id, location_id, companyId]
+    )).rows[0];
+
+    if (!latest && !live) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No count on record here, so there is nothing to undo.' });
+    }
+    if (!latest) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'This figure has no count history behind it, so there is nothing to go back to.',
+      });
+    }
+
+    // The newest row holding a DIFFERENT figure is the count before this one.
+    // Everything above it is the current count's duplicate writes.
+    const prev = (await client.query(
+      `SELECT id, total_bottles, library_bottles, counted_at, counted_by
+         FROM product.product_inventory_log
+        WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+          AND (total_bottles IS DISTINCT FROM $4 OR library_bottles IS DISTINCT FROM $5)
+        ORDER BY counted_at DESC, id DESC
+        LIMIT 1`,
+      [product_id, location_id, companyId, latest.total_bottles, latest.library_bottles]
+    )).rows[0] || null;
+
+    const del = await client.query(
+      prev
+        ? `DELETE FROM product.product_inventory_log
+            WHERE product_id = $1 AND location_id = $2 AND company_id = $3
+              AND (counted_at, id) > ($4, $5)`
+        // Every row on record holds the same figure, so the whole history IS this
+        // one count. Clear it rather than leaving rows that claim an earlier count
+        // the undo has just contradicted.
+        : `DELETE FROM product.product_inventory_log
+            WHERE product_id = $1 AND location_id = $2 AND company_id = $3`,
+      prev
+        ? [product_id, location_id, companyId, prev.counted_at, prev.id]
+        : [product_id, location_id, companyId]
+    );
+
+    if (prev) {
+      // Restore the EARLIER timestamp, not NOW(). The wine has to stop looking
+      // counted-today so it returns to the Uncompleted list to be counted
+      // properly — which is the whole point of undoing a wrong entry.
+      await client.query(
+        `UPDATE product.product_inventory
+            SET total_bottles = $3, library_bottles = $4,
+                last_counted_at = $5, last_counted_by = $6
+          WHERE product_id = $1 AND location_id = $2`,
+        [product_id, location_id, prev.total_bottles, prev.library_bottles,
+         prev.counted_at, prev.counted_by]
+      );
+    } else {
+      // Back to never-counted rather than to a zero, which would read as
+      // "somebody looked and found none".
+      await client.query(
+        `UPDATE product.product_inventory
+            SET total_bottles = 0, library_bottles = 0,
+                last_counted_at = NULL, last_counted_by = NULL
+          WHERE product_id = $1 AND location_id = $2`,
+        [product_id, location_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      rows_removed: del.rowCount,
+      undone: {
+        ...fromTotalBottles(latest.total_bottles),
+        total_bottles: latest.total_bottles,
+        counted_at: latest.counted_at,
+      },
+      restored: prev
+        ? { ...fromTotalBottles(prev.total_bottles),
+            rows_view: fromTotalBottlesWithRows(prev.total_bottles),
+            total_bottles: prev.total_bottles,
+            counted_at: prev.counted_at }
+        : null,
+      now_uncounted: !prev,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[inventory/undo]', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

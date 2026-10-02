@@ -4412,6 +4412,23 @@ const MIGRATIONS = [
   // bottles in the ABC total.
   `UPDATE product.product_inventory SET library_bottles = 0 WHERE COALESCE(library_bottles,0) > 0`,
   `UPDATE locations SET allows_library = false WHERE allows_library`,
+  // A library location holds only old vintages, so it needs its own list of wines
+  // — before this the Cellar page showed the 13 current releases and hid both
+  // wines actually on its racks (282 bottles). See productInventory.js GET.
+  `ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_library_only BOOLEAN NOT NULL DEFAULT false`,
+  `UPDATE locations SET is_library_only = true WHERE name = 'Cellar'`,
+  // Deliberately NOT is_active = false. Being in the library and being for sale
+  // are independent: a library wine gets pulled out for a special event and is
+  // then both at once, which one flag cannot express. is_active also gates the
+  // products list and availability, so overloading it would move those too.
+  `ALTER TABLE product.products ADD COLUMN IF NOT EXISTS is_library BOOLEAN NOT NULL DEFAULT false`,
+  // Seed from physical fact rather than from is_active: the wines that actually
+  // have stock recorded at a library location are library wines by definition.
+  `UPDATE product.products p SET is_library = true
+     WHERE EXISTS (SELECT 1 FROM product.product_inventory pi
+                    JOIN locations l ON l.id = pi.location_id
+                   WHERE pi.product_id = p.id AND l.is_library_only
+                     AND COALESCE(pi.total_bottles, 0) > 0)`,
 ];
 
 export async function runMigrations() {

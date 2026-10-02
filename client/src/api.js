@@ -86,6 +86,18 @@ export async function transferWineInventory(body) {
   return data;
 }
 
+// Pops the last count for a wine at a location and restores the one before it.
+export async function undoWineInventoryCount({ product_id, location_id }) {
+  const res = await fetch(`${API}/products/inventory/undo`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_id, location_id }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Undo failed');
+  return data;
+}
+
 export async function getWineTransfers(productId) {
   const qs = productId ? `?product_id=${encodeURIComponent(productId)}` : '';
   const res = await fetch(`${API}/products/inventory/transfers${qs}`, { headers: headers() });
@@ -1380,21 +1392,28 @@ export async function attachProductsToLine(lineId, productIds) {
 
 // ── Wine Inventory ─────────────────────────────────────────────────────────────
 
-export async function getWineInventoryList(locationId) {
-  const res = await fetch(`${API}/products/inventory?location_id=${encodeURIComponent(locationId)}`, { headers: headers() });
+export async function getWineInventoryList(locationId, { allWines } = {}) {
+  const qs = new URLSearchParams({ location_id: locationId });
+  // Only meaningful at a library location, where the list is otherwise just the
+  // wines flagged as library.
+  if (allWines) qs.set('all_wines', 'true');
+  const res = await fetch(`${API}/products/inventory?${qs}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load inventory list');
   return data;
 }
 
 export async function saveWineInventoryCount({
-  product_id, location_id, cases, bottles, library_cases, library_bottles,
+  product_id, location_id, rows, cases, bottles, library_cases, library_bottles,
 }) {
   const res = await fetch(`${API}/products/inventory`, {
     method: 'POST',
     headers: { ...headers(), 'Content-Type': 'application/json' },
+    // This destructures explicitly rather than spreading a body object, so any
+    // field not named here is dropped in silence — rows went missing exactly
+    // that way. Add new count fields in BOTH places.
     body: JSON.stringify({
-      product_id, location_id, cases, bottles,
+      product_id, location_id, rows: rows || 0, cases, bottles,
       library_cases: library_cases || 0, library_bottles: library_bottles || 0,
     }),
   });
