@@ -299,3 +299,11 @@
   border-color: #cf1322;
   color: #cf1322;
 }
+
+/* A wine awaiting a recount otherwise looks identical to one simply not counted
+   yet, which hides that the figure showing on it was deliberately discarded. */
+.wine-count-recount {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #d46b08;
+}

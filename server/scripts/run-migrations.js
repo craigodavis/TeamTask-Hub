@@ -4429,6 +4429,14 @@ const MIGRATIONS = [
                     JOIN locations l ON l.id = pi.location_id
                    WHERE pi.product_id = p.id AND l.is_library_only
                      AND COALESCE(pi.total_bottles, 0) > 0)`,
+  // last_counted_at was answering two questions: when was this last counted, and
+  // does it still need counting today. Undo broke on the overlap — undoing a wine
+  // counted TWICE in one day restores the earlier of the two, which is still
+  // today, so the wine stayed marked counted-today and never came back to the
+  // Uncompleted list to be recounted. This separates the workflow question from
+  // the historical fact, so the restored figure and its real date both survive.
+  `ALTER TABLE product.product_inventory
+     ADD COLUMN IF NOT EXISTS recount_requested BOOLEAN NOT NULL DEFAULT false`,
 ];
 
 export async function runMigrations() {

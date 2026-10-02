@@ -69,9 +69,11 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
       const r = await undoWineInventoryCount({ product_id: item.id, location_id: locationId });
       onTransferred?.();   // same full reload a Move does — the card's figures all moved
       window.alert(r.now_uncounted
-        ? `Undone. ${item.name} is back to never counted here.`
+        ? `Undone. ${item.name} is back to never counted here, and is on the`
+          + ` Uncompleted list to be counted.`
         : `Undone. ${item.name} is back to ${r.restored.cases} cases, ${r.restored.bottles} btl`
-          + ` from ${new Date(r.restored.counted_at).toLocaleDateString()}.`);
+          + ` from ${new Date(r.restored.counted_at).toLocaleDateString()},`
+          + ` and is on the Uncompleted list to be counted again.`);
     } catch (e) {
       window.alert(`Could not undo: ${e.message}`);
     } finally { setUndoing(false); }
@@ -212,6 +214,11 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
         <div className="wine-count-name">
           {item.name}{item.vintage ? ` (${item.vintage})` : ''}
         </div>
+        {item.recount_requested && (
+          <div className="wine-count-recount">
+            Recount pending — the last entry was undone
+          </div>
+        )}
         <div className="wine-count-last">
           {item.last_counted_at
             ? `Last: ${item.cases} cases, ${item.bottles} btl — ${new Date(item.last_counted_at).toLocaleDateString()}${item.last_counted_by_name ? ` by ${item.last_counted_by_name}` : ''}`

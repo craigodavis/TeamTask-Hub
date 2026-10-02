@@ -53,9 +53,15 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
               COALESCE(pi.library_bottles, 0) AS library_bottles,
               pi.last_counted_at, p.is_library, p.is_active,
               u.display_name AS last_counted_by_name,
+              -- An undo sets recount_requested, which overrides the date match.
+              -- Without it, undoing a wine counted twice in one day restores the
+              -- earlier of today's two entries and the wine stays marked done,
+              -- so it never returns to the Uncompleted list to be recounted.
               (pi.last_counted_at IS NOT NULL
                 AND DATE(pi.last_counted_at AT TIME ZONE $3) = DATE(NOW() AT TIME ZONE $3)
-              ) AS counted_today
+                AND NOT COALESCE(pi.recount_requested, false)
+              ) AS counted_today,
+              COALESCE(pi.recount_requested, false) AS recount_requested
        FROM product.products p
        LEFT JOIN product.product_inventory pi
          ON pi.product_id = p.id AND pi.location_id = $2
@@ -109,6 +115,7 @@ router.get('/', requireCapability('wine.inventory'), async (req, res) => {
       last_counted_at: row.last_counted_at,
       last_counted_by_name: row.last_counted_by_name,
       counted_today: row.counted_today,
+      recount_requested: row.recount_requested === true,
       is_library: row.is_library === true,
       is_active: row.is_active === true,
       ...fromTotalBottles(row.total_bottles),
@@ -172,7 +179,9 @@ router.post('/', requireCapability('wine.inventory'), async (req, res) => {
        VALUES ($1, $2, $3, $4, $6, NOW(), $5)
        ON CONFLICT (product_id, location_id) DO UPDATE
          SET total_bottles = $4, library_bottles = $6,
-             last_counted_at = NOW(), last_counted_by = $5`,
+             last_counted_at = NOW(), last_counted_by = $5,
+             -- Counting it is what satisfies an outstanding recount request.
+             recount_requested = false`,
       [product_id, location_id, companyId, totalBottles, req.userId, libraryBottles]
     );
 
@@ -303,7 +312,13 @@ router.post('/undo', requireCapability('wine.inventory'), async (req, res) => {
       await client.query(
         `UPDATE product.product_inventory
             SET total_bottles = $3, library_bottles = $4,
-                last_counted_at = $5, last_counted_by = $6
+                last_counted_at = $5, last_counted_by = $6,
+                -- The point of undoing is to get the wine back so it can be
+                -- counted again. Restoring the earlier timestamp is not enough on
+                -- its own: when a wine was counted twice in one day the restored
+                -- timestamp is also today, so the date arithmetic alone would keep
+                -- it marked done. 25 A Souvenir hit exactly that.
+                recount_requested = true
           WHERE product_id = $1 AND location_id = $2`,
         [product_id, location_id, prev.total_bottles, prev.library_bottles,
          prev.counted_at, prev.counted_by]
@@ -314,7 +329,8 @@ router.post('/undo', requireCapability('wine.inventory'), async (req, res) => {
       await client.query(
         `UPDATE product.product_inventory
             SET total_bottles = 0, library_bottles = 0,
-                last_counted_at = NULL, last_counted_by = NULL
+                last_counted_at = NULL, last_counted_by = NULL,
+                recount_requested = true
           WHERE product_id = $1 AND location_id = $2`,
         [product_id, location_id]
       );
