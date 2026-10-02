@@ -62,7 +62,7 @@ function itemsForProduct(productNorm, catalog) {
 
 /**
  * @param {string} companyId
- * @param {string} locationId        the location being viewed
+ * @param {string} locationId        the location being viewed (TeamHub uuid)
  * @param {boolean} isDefaultLocation  Commerce7 has no tasting-room location, so its
  *                                     sales are attributed to the default only
  * @param {Array<{id,name,last_counted_at,total_bottles}>} products
@@ -70,6 +70,19 @@ function itemsForProduct(productNorm, catalog) {
 export async function estimateForProducts(companyId, locationId, isDefaultLocation, products) {
   const counted = products.filter((p) => p.last_counted_at);
   if (!counted.length) return { estimates: new Map(), tastings: null };
+
+  // team_square."order".location_id is SQUARE's location id, not the TeamHub uuid —
+  // two different identifier spaces that both happen to be called location_id.
+  // Comparing them directly matched nothing and silently produced "no sales since
+  // the count" for every wine, which reads as a healthy page.
+  //
+  // A location with no square_location_id (the Cellar, the Winerage) has no till and
+  // therefore no Square sales — correct to subtract nothing there, rather than
+  // subtracting the whole company's.
+  const sqLoc = (await query(
+    `SELECT square_location_id FROM locations WHERE id = $1 AND company_id = $2`,
+    [locationId, companyId]
+  )).rows[0]?.square_location_id || null;
 
   // Scan only as far back as the OLDEST count on this page. Per-product cutoffs are
   // applied below, so the query stays one bounded pass rather than one per wine.
@@ -113,9 +126,10 @@ export async function estimateForProducts(companyId, locationId, isDefaultLocati
          JOIN team_square.catalog_item_variation civ ON civ.id = li.catalog_object_id
          JOIN team_square.catalog_item ci ON ci.id = civ.item_id
          LEFT JOIN team_square.catalog_category cc ON cc.id = ci.reporting_category_id
-        WHERE o.state = 'COMPLETED' AND o.created_at > $1 AND o.location_id = $2
+        WHERE o.state = 'COMPLETED' AND o.created_at > $1
+          AND ($2::text IS NULL OR o.location_id = $2::text)
           AND (cc.name ILIKE '%Tasting%' OR li.name = 'WINE CLUB TASTING')`,
-      [floor, locationId]
+      [floor, sqLoc]
     ),
   ]);
 
@@ -144,7 +158,8 @@ export async function estimateForProducts(companyId, locationId, isDefaultLocati
     let bottles = 0, glasses = 0;
     for (const it of items) {
       for (const row of byItem.get(it.id) || []) {
-        if (String(row.location_id) !== String(locationId)) continue;
+        // No till here means no Square sales to subtract.
+        if (!sqLoc || String(row.location_id) !== String(sqLoc)) continue;
         if (new Date(row.day) < since) continue;      // day-grained: see caveat below
         if (row.kind === '750ml Bottle') bottles += Number(row.qty);
         else glasses += Number(row.qty);
