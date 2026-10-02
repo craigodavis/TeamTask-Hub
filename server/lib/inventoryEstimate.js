@@ -155,7 +155,7 @@ export async function estimateForProducts(companyId, locationId, isDefaultLocati
     const norm = normalizeWineName(p.name);
     const items = itemsForProduct(norm, catalog);
 
-    let bottles = 0, glasses = 0;
+    let bottles = 0; let glasses = 0;
     for (const it of items) {
       for (const row of byItem.get(it.id) || []) {
         // No till here means no Square sales to subtract.
@@ -177,6 +177,10 @@ export async function estimateForProducts(companyId, locationId, isDefaultLocati
       }
     }
 
+    // Square stores quantity as numeric and the arithmetic leaves artefacts —
+    // "11.9999 bottles sold" is noise, not precision.
+    bottles = Math.round(bottles * 100) / 100;
+    glasses = Math.round(glasses * 100) / 100;
     const glassBottles = Math.round((glasses * GLASS_OZ / OZ_PER_BOTTLE) * 100) / 100;
     const sold = bottles + glassBottles + c7;
     estimates.set(p.id, {

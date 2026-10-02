@@ -165,6 +165,28 @@ function WineCountCard({ item, locationId, allowsLibrary, onSaved, locations, on
             ? `Last: ${item.cases} cases, ${item.bottles} btl — ${new Date(item.last_counted_at).toLocaleDateString()}${item.last_counted_by_name ? ` by ${item.last_counted_by_name}` : ''}`
             : 'Never counted'}
         </div>
+        {/* What should be here now. Shown only when there is something to say: an
+            estimate equal to the count tells you nothing the line above didn't. */}
+        {item.estimate && item.estimate.matched && (
+          item.estimate.over_sold ? (
+            <div className="wine-est wine-est-over">
+              Sold more than counted — {item.estimate.sold_bottles} btl
+              {item.estimate.sold_glasses ? ` + ${item.estimate.sold_glasses} glasses` : ''}
+              {item.estimate.sold_c7 ? ` + ${item.estimate.sold_c7} club` : ''} since the count
+            </div>
+          ) : (item.estimate.sold_bottles || item.estimate.sold_glasses || item.estimate.sold_c7) ? (
+            <div className="wine-est">
+              Should be <strong>{item.estimate.estimated}</strong> — sold {item.estimate.sold_bottles} btl
+              {item.estimate.sold_glasses ? `, ${item.estimate.sold_glasses} glasses` : ''}
+              {item.estimate.sold_c7 ? `, ${item.estimate.sold_c7} club` : ''} since
+            </div>
+          ) : null
+        )}
+        {item.estimate && !item.estimate.matched && item.last_counted_at && (
+          <div className="wine-est wine-est-unmatched">
+            No sales data — not matched to a Square item
+          </div>
+        )}
       </div>
       <div className="wine-count-inputs">
         <label className="wine-count-field">
@@ -297,6 +319,7 @@ export function WineInventory() {
   const [search, setSearch] = useState('');
   const [statusView, setStatusView] = useState('uncompleted');
   const [showEmpty, setShowEmpty] = useState(false);
+  const [tastings, setTastings] = useState(null);
 
   useEffect(() => {
     getLocations('inventory')
@@ -320,7 +343,7 @@ export function WineInventory() {
     setLoading(true);
     setError('');
     getWineInventoryList(locationId)
-      .then((d) => setItems(d.items || []))
+      .then((d) => { setItems(d.items || []); setTastings(d.tastings || null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [locationId]);
@@ -409,6 +432,16 @@ export function WineInventory() {
 
       {items.length > 0 && (
         <p className="wine-inv-progress">{remaining} of {items.length} remaining</p>
+      )}
+
+      {/* Tastings cannot be charged to a wine — "Wine Tasting" is one item and
+          nothing records which wines were on the flight. Stated separately rather
+          than spread across the estimates to look precise. */}
+      {tastings && tastings.units > 0 && (
+        <p className="wine-inv-tastings">
+          Plus {tastings.units} tastings poured here since {new Date(tastings.since).toLocaleDateString()}
+          {' '}(~{tastings.bottles} bottles) — not attributable to any one wine.
+        </p>
       )}
 
       {/* Session summary. A wine that was skipped is invisible once the counter

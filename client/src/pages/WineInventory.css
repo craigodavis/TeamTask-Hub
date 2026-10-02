@@ -250,3 +250,11 @@
 }
 .wine-move-err  { font-size: 0.78rem; color: var(--danger); }
 .wine-move-hint { font-size: 0.72rem; opacity: 0.65; flex-basis: 100%; }
+
+/* Estimated on-hand. Quieter than the count: it is derived, and must never be
+   mistaken for something somebody counted. */
+.wine-est { margin-top: 0.2rem; font-size: 0.75rem; opacity: 0.8; }
+.wine-est strong { font-weight: 700; opacity: 1; }
+.wine-est-over { color: var(--danger); opacity: 1; font-weight: 600; }
+.wine-est-unmatched { font-style: italic; opacity: 0.55; }
+.wine-inv-tastings { margin: 0.1rem 0 0.4rem; font-size: 0.78rem; opacity: 0.7; }
