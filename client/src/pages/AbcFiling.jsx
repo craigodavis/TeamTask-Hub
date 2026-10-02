@@ -223,11 +223,26 @@ export function AbcFiling() {
                 ) : (
                   <table className="abc-table"><tbody>
                     {d.productionRuns.map((r, i) => (
-                      <tr key={i}>
+                      <tr key={i} className={r.excluded ? 'abc-run-excluded' : undefined}>
                         <td>{r.name} <em>{r.date}</em>
-                          {r.cases === null && <strong className="abc-warn"> — no case count</strong>}
+                          {r.cases === null && !r.excluded
+                            && <strong className="abc-warn"> — no case count</strong>}
+                          {/* Spelled out rather than just omitted: a production figure
+                              quietly lower than the bottling records is how a reader
+                              later concludes the number is wrong. */}
+                          {r.excluded && (
+                            <div className="abc-run-note">
+                              Excluded from this filing
+                              {r.unbottledOn ? ` — returned to barrel ${r.unbottledOn}` : ''}.
+                              {r.exclusionReason ? ` ${r.exclusionReason}` : ''}
+                            </div>
+                          )}
                         </td>
-                        <td className="num">{r.cases === null ? '—' : `${r.cases} cs / ${GAL(r.gallons)}`}</td>
+                        <td className="num">
+                          {r.excluded
+                            ? <s>{r.cases === null ? '—' : `${r.cases} cs / ${GAL(r.gallons)}`}</s>
+                            : (r.cases === null ? '—' : `${r.cases} cs / ${GAL(r.gallons)}`)}
+                        </td>
                       </tr>
                     ))}
                   </tbody></table>

@@ -78,3 +78,14 @@
    note rather than another form table. */
 .abc-unfulfilled { margin-top: .4rem; }
 .abc-unfulfilled em { color: #888; font-style: normal; font-size: .8rem; }
+
+/* An excluded bottling run stays visible. Hiding it would leave the production
+   figure quietly lower than the bottling records imply, which is how somebody
+   later concludes the filing is wrong. */
+.abc-run-excluded td { opacity: 0.7; }
+.abc-run-note {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-muted, #888);
+}

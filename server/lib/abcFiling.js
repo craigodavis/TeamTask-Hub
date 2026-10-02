@@ -144,7 +144,8 @@ export async function unfulfilledAsOf(companyId, asOfIso) {
 // ── Production: vintly bottling runs dated inside the month ──────────────────
 async function productionFor(companyId, startIso, endIso) {
   const r = await query(
-    `SELECT name, vintage, bottling_date::date AS bottling_date, starting_case_qty
+    `SELECT name, vintage, bottling_date::date AS bottling_date, starting_case_qty,
+            exclude_from_abc, abc_exclusion_reason, unbottled_on
        FROM vintly.projects
       WHERE company_id = $1
         AND deleted_at IS NULL
@@ -154,7 +155,10 @@ async function productionFor(companyId, startIso, endIso) {
 
   // A bottling run with no case count contributes ZERO gallons silently. That is
   // exactly the class of error the residual would absorb — surface it instead.
+  // An excluded run has no case count to be missing — it is deliberately out of the
+  // filing, so warning about it would be noise.
   const missingCaseQty = r.rows
+    .filter((p) => !p.exclude_from_abc)
     .filter((p) => p.starting_case_qty === null || p.starting_case_qty === undefined)
     .map((p) => `${p.name} (${p.bottling_date.toISOString().slice(0, 10)})`);
 
@@ -166,10 +170,18 @@ async function productionFor(companyId, startIso, endIso) {
     gallons: p.starting_case_qty === null
       ? null
       : round2(Number(p.starting_case_qty) * BOTTLES_PER_CASE * GAL_PER_BOTTLE),
+    // Excluded runs stay in the list so the filing page can SHOW the exclusion.
+    // Netting them out invisibly is how a reader later fails to understand why
+    // production is lower than the bottling records imply.
+    excluded:       p.exclude_from_abc === true,
+    exclusionReason: p.abc_exclusion_reason || null,
+    unbottledOn:    p.unbottled_on ? p.unbottled_on.toISOString().slice(0, 10) : null,
   }));
 
   return {
-    gallons: round2(runs.reduce((s, x) => s + (x.gallons || 0), 0)),
+    // Excluded runs contribute nothing. They are never SUBTRACTED — the form has no
+    // negative production line — they simply do not count toward the total.
+    gallons: round2(runs.reduce((s, x) => s + (x.excluded ? 0 : (x.gallons || 0)), 0)),
     runs,
     missingCaseQty,
   };
@@ -195,7 +207,72 @@ async function productionFor(companyId, startIso, endIso) {
  * before" that /api/products/inventory/report has always used. The log is the
  * record; product_inventory is only ever its newest slice.
  */
-async function physicalCount(companyId, asOfIso = null) {
+/**
+ * Products whose bottles must not appear in the ABC count, because the lot that
+ * made them was returned to bulk and the whole run is excluded from the filing.
+ *
+ * Both sides have to move together. Excluding a run's production while leaving its
+ * bottles in the count (or the reverse) manufactures a phantom loss the size of the
+ * run — 171 gal in the 24 Into the Mystic case.
+ *
+ * The join is NOT by name: the lot is "24 Pinot Vineyard Blend KV & CS" and the
+ * product is "24 Into the Mystic". It is products.vintly_project_id when set, else
+ * product_line_id + vintage, which is how Craig described it. Where line + vintage
+ * is AMBIGUOUS — 25 Viognier WS + A Souvenir + 2025 hits both "25 A Souvenir" and
+ * "25 A Souvenir Viognier" — nothing is excluded and the id is reported instead, so
+ * a duplicate product record can never silently delete the wrong wine's bottles.
+ */
+export async function excludedProducts(companyId) {
+  const r = await query(
+    `WITH ex AS (
+       SELECT id, name, product_line_id, vintage, unbottled_on, abc_exclusion_reason
+         FROM vintly.projects
+        WHERE company_id = $1 AND deleted_at IS NULL AND exclude_from_abc
+     ),
+     direct AS (
+       SELECT ex.id AS project_id, p.id AS product_id
+         FROM ex JOIN product.products p ON p.vintly_project_id = ex.id
+        WHERE p.company_id = $1
+     ),
+     byline AS (
+       SELECT ex.id AS project_id,
+              ARRAY_AGG(p.id) AS product_ids,
+              COUNT(*)        AS matches
+         FROM ex
+         JOIN product.products p
+           ON p.product_line_id = ex.product_line_id AND p.vintage = ex.vintage
+        WHERE p.company_id = $1 AND ex.product_line_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM direct d WHERE d.project_id = ex.id)
+        GROUP BY ex.id
+     )
+     SELECT ex.id, ex.name, ex.unbottled_on, ex.abc_exclusion_reason,
+            COALESCE(
+              (SELECT ARRAY_AGG(d.product_id) FROM direct d WHERE d.project_id = ex.id),
+              CASE WHEN bl.matches = 1 THEN bl.product_ids END
+            ) AS product_ids,
+            COALESCE(bl.matches, 0) AS line_matches
+       FROM ex LEFT JOIN byline bl ON bl.project_id = ex.id`,
+    [companyId]
+  );
+  const productIds = [];
+  const unresolved = [];
+  for (const row of r.rows) {
+    if (row.product_ids?.length) productIds.push(...row.product_ids);
+    else unresolved.push({ project: row.name, lineMatches: Number(row.line_matches) });
+  }
+  return {
+    productIds,
+    unresolved,
+    lots: r.rows.map((x) => ({
+      name: x.name,
+      unbottledOn: x.unbottled_on ? x.unbottled_on.toISOString().slice(0, 10) : null,
+      reason: x.abc_exclusion_reason,
+      resolved: (x.product_ids?.length ?? 0) > 0,
+    })),
+  };
+}
+
+async function physicalCount(companyId, asOfIso = null, excludedProductIds = []) {
   const r = asOfIso
     ? await query(
         `SELECT COALESCE(SUM(total_bottles + COALESCE(library_bottles, 0)), 0)::int AS bottles,
@@ -211,9 +288,10 @@ async function physicalCount(companyId, asOfIso = null) {
               -- voided rows are undone counts; including them would bring a
               -- mis-keyed figure straight back into the filing.
               WHERE company_id = $1 AND counted_at <= $2 AND voided_at IS NULL
+                AND NOT (product_id = ANY($3::uuid[]))
               ORDER BY product_id, location_id, counted_at DESC
            ) snapshot`,
-        [companyId, asOfIso]
+        [companyId, asOfIso, excludedProductIds]
       )
     : await query(
     // Library is a SEPARATE pile from regular stock, not a slice of it, so the
@@ -226,8 +304,9 @@ async function physicalCount(companyId, asOfIso = null) {
             MIN(last_counted_at)                 AS first_counted_at,
             MAX(last_counted_at)                 AS last_counted_at
        FROM product.product_inventory
-      WHERE company_id = $1 AND total_bottles IS NOT NULL`,
-    [companyId]
+      WHERE company_id = $1 AND total_bottles IS NOT NULL
+        AND NOT (product_id = ANY($2::uuid[]))`,
+    [companyId, excludedProductIds]
   );
   const row = r.rows[0];
   return {
@@ -272,10 +351,16 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
   );
   const beginning = prior.rows.length ? Number(prior.rows[0].ending_inventory) : null;
 
+  // Resolved FIRST and not in the Promise.all: physicalCount needs the product ids,
+  // and the whole point is that the production side and the bottle side are excluded
+  // together. Running them in parallel would let one land without the other.
+  const excluded = await excludedProducts(companyId);
+
   const [inMonth, production, count] = await Promise.all([
     volumesBetween(companyId, m_start, m_end),
     productionFor(companyId, m_start, m_end),
-    physicalCount(companyId, countAsOf ? `${countAsOf}T23:59:59.999Z` : null),
+    physicalCount(companyId, countAsOf ? `${countAsOf}T23:59:59.999Z` : null,
+                  excluded.productIds),
   ]);
 
   // The crew counts a few days into the following month, so the raw count is not
@@ -360,6 +445,24 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
         + `(tolerance ±${tolerance.toFixed(2)}, ${(RESIDUAL_TOLERANCE * 100).toFixed(0)}% of beginning).`,
   });
 
+  // An excluded lot whose product cannot be resolved is the dangerous half-state:
+  // production is out of the filing while its bottles are still in the count, which
+  // is a phantom loss the size of the run. Block rather than file a number that is
+  // wrong in a direction nobody will question.
+  checks.push({
+    id: 'exclusions_resolved',
+    label: 'Excluded lots resolve to a product',
+    ok: excluded.unresolved.length === 0,
+    detail: excluded.unresolved.length
+      ? `Excluded from ABC but no single matching product, so its bottles are still `
+        + `in the count: ${excluded.unresolved
+            .map((u) => `${u.project} (${u.lineMatches} products match its line + vintage)`)
+            .join('; ')}`
+      : excluded.lots.length
+        ? `${excluded.lots.length} lot(s) excluded, all resolved.`
+        : 'No lots excluded.',
+  });
+
   const blocking = checks.filter((c) => !c.ok);
 
   return {
@@ -398,6 +501,9 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
       postCountBackout: postMonth,
       salesBreakdown:   inMonth.breakdown,
       productionRuns:   production.runs,
+      // Stated on the filing page so the exclusion is visible, not inferred from a
+      // production figure that is quietly lower than the bottling records.
+      excludedLots:     excluded.lots,
     },
   };
 }

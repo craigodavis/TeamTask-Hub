@@ -4525,6 +4525,21 @@ const MIGRATIONS = [
                        JOIN locations l ON l.id = w.location_id
                       WHERE l.name = 'Winerage' AND l.company_id = pi.company_id
                         AND l.deleted_at IS NULL AND w.product_id = pi.product_id)`,
+
+  // ── Unbottling: wine that went back in the barrel ───────────────────────────
+  // Recorded on the run that bottled it, because one projects row IS one bottling
+  // run (24 Viognier CS has two rows for two runs), so a separate events table
+  // would invent structure the schema does not need.
+  //
+  // These are HISTORY, not a production event. Craig, 2026-10-02: "I can't report a
+  // negative production." The ABC form has no line for a reversal, so nothing here
+  // is ever subtracted from the production figure — exclude_from_abc takes the whole
+  // run out of the filing instead, on both the production and the bottle side.
+  `ALTER TABLE vintly.projects ADD COLUMN IF NOT EXISTS unbottled_on DATE`,
+  `ALTER TABLE vintly.projects ADD COLUMN IF NOT EXISTS unbottled_bottles INTEGER`,
+  `ALTER TABLE vintly.projects
+     ADD COLUMN IF NOT EXISTS exclude_from_abc BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE vintly.projects ADD COLUMN IF NOT EXISTS abc_exclusion_reason TEXT`,
 ];
 
 export async function runMigrations() {
