@@ -4360,6 +4360,20 @@ const MIGRATIONS = [
      ON product.inventory_transfers (company_id, moved_at DESC)`,
   `CREATE INDEX IF NOT EXISTS inventory_transfers_product_idx
      ON product.inventory_transfers (product_id, moved_at DESC)`,
+  // One locations table was serving three different questions — where do we store
+  // wine, where do customers visit, where do people work — and every picker got
+  // every answer. That is why adding a wine warehouse offered it as a venue for
+  // events and a place to record food waste. Say what each location IS.
+  // web_slug was already doing is_venue's job informally, which is why the website
+  // and the phone agent stayed clean while food waste and events did not.
+  // (Append-only — add at the very end.)
+  `ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_inventory_site BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_venue          BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_work_site      BOOLEAN NOT NULL DEFAULT false`,
+  // Backfill from the only signal that already existed: a location with a web_slug
+  // is a place customers go, and therefore also a place people work.
+  `UPDATE locations SET is_venue = true, is_work_site = true
+     WHERE web_slug IS NOT NULL AND is_venue = false`,
 ];
 
 export async function runMigrations() {

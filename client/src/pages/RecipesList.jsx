@@ -143,7 +143,7 @@ export function RecipesList() {
       if (filterStatus) params.status      = filterStatus;
       const [recipesRes, locsRes, catsRes] = await Promise.all([
         getRecipes(params),
-        getLocations(),
+        getLocations('work'),
         getRecipesCategories(),
       ]);
       setRecipes(recipesRes.recipes || []);

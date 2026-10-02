@@ -15,7 +15,7 @@ export function WineInventoryReport() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    getLocations().then((d) => setLocations(d.locations || [])).catch(() => {});
+    getLocations('inventory').then((d) => setLocations(d.locations || [])).catch(() => {});
   }, []);
 
   const load = useCallback(() => {

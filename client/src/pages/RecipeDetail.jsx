@@ -103,7 +103,7 @@ export function RecipeDetail() {
       const [recipeRes, allIngrRes, locsRes, catsRes, recipesRes] = await Promise.all([
         getRecipe(id),
         getRecipesIngredients(),
-        getLocations(),
+        getLocations('work'),
         getRecipesCategories(),
         getRecipes(),
       ]);

@@ -27,7 +27,7 @@ export function KitchenInventory() {
   const listRef = useRef(null);
 
   useEffect(() => {
-    getLocations()
+    getLocations('work')
       .then((d) => {
         const locs = d.locations || [];
         setLocations(locs);

@@ -53,7 +53,7 @@ function EventsTab() {
 
   const load = useCallback(async () => {
     try {
-      const [e, m, l, u] = await Promise.all([getEvents('all'), getMusicians(), getLocations(), getAssignableUsers()]);
+      const [e, m, l, u] = await Promise.all([getEvents('all'), getMusicians(), getLocations('venue'), getAssignableUsers()]);
       const evs = Array.isArray(e) ? e : [];
       setEvents(evs); setMusicians(Array.isArray(m) ? m : []);
       setLocations(Array.isArray(l) ? l : (l?.locations || [])); setUsers(Array.isArray(u) ? u : []);

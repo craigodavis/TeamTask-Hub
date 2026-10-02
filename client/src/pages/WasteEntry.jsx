@@ -27,7 +27,7 @@ export function WasteEntry() {
         const [e, i, locs] = await Promise.all([
           getFoodWasteEntry(entryId),
           getIngredients(),
-          getLocations().catch(() => ({ locations: [] })),
+          getLocations('work').catch(() => ({ locations: [] })),
         ]);
         if (!cancelled) {
           setEntry(e);

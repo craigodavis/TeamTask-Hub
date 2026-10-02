@@ -298,7 +298,7 @@ export function WineInventory() {
   const [statusView, setStatusView] = useState('uncompleted');
 
   useEffect(() => {
-    getLocations()
+    getLocations('inventory')
       .then((d) => {
         const locs = d.locations || [];
         setLocations(locs);

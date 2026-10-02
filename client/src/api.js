@@ -67,8 +67,9 @@ export async function pinLogin(email, pin) {
   return data;
 }
 
-export async function getLocations() {
-  const res = await fetch(`${API}/locations`, { headers: headers() });
+export async function getLocations(kind) {
+  const qs = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+  const res = await fetch(`${API}/locations${qs}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load locations');
   return data;

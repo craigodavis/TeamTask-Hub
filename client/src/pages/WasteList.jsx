@@ -26,7 +26,7 @@ export function WasteList() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    getLocations().then((r) => setLocations(r.locations || [])).catch(() => {});
+    getLocations('work').then((r) => setLocations(r.locations || [])).catch(() => {});
   }, []);
 
   const loadEntries = useCallback(() => {

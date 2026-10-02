@@ -113,7 +113,7 @@ function EditIngredientModal({ ingredient, onSave, onClose }) {
   });
   const [saving, setSaving]     = useState(false);
 
-  useEffect(() => { getLocations().then((d) => setLocations(d.locations || [])).catch(() => {}); }, []);
+  useEffect(() => { getLocations('work').then((d) => setLocations(d.locations || [])).catch(() => {}); }, []);
 
   const defaultSettings = () => ({ parQty: '', parUnit: 'each', freq: '', dow: 1, dom: 1, wom: 1 });
 
@@ -313,7 +313,7 @@ export function RecipesIngredients() {
   const [locNames, setLocNames]         = useState({});
 
   useEffect(() => {
-    getLocations().then((d) => {
+    getLocations('work').then((d) => {
       const map = {};
       (d.locations || []).forEach((l) => { map[l.id] = l.name; });
       setLocNames(map);

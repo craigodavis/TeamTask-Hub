@@ -150,7 +150,7 @@ function Notifications() {
   const load = useCallback(() => {
     getNotificationGroups().then((r) => { setGroups(r.groups || []); setWarning(r.warning); }).catch((e) => setError(e.message));
     getNotificationSends().then((r) => setSends(r.sends || [])).catch(() => {});
-    getLocations().then((d) => setLocations(d.locations || [])).catch(() => {});
+    getLocations('venue').then((d) => setLocations(d.locations || [])).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 

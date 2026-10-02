@@ -9,11 +9,19 @@ const companyId = (req) => req.companyId;
 router.get('/', async (req, res) => {
   try {
     const r = await query(
+      // kind is OPTIONAL and unfiltered by default. A screen that has not opted in
+      // keeps the behaviour it had, so forgetting one cannot empty its picker.
       `SELECT id, company_id, name, square_location_id, allows_library,
-              web_slug, is_default_inventory, created_at
-       FROM locations WHERE company_id = $1 AND deleted_at IS NULL
+              web_slug, is_default_inventory, is_inventory_site, is_venue,
+              is_work_site, created_at
+       FROM locations
+        WHERE company_id = $1 AND deleted_at IS NULL
+          AND ($2::text IS NULL
+               OR ($2 = 'inventory' AND is_inventory_site)
+               OR ($2 = 'venue'     AND is_venue)
+               OR ($2 = 'work'      AND is_work_site))
         ORDER BY is_default_inventory DESC, name`,
-      [companyId(req)]
+      [companyId(req), ['inventory', 'venue', 'work'].includes(req.query.kind) ? req.query.kind : null]
     );
     res.json({ locations: r.rows });
   } catch (err) {
