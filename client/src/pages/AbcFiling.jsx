@@ -216,6 +216,30 @@ export function AbcFiling() {
                   <tr><td>Paid tastings</td><td className="num">{GAL(d.salesBreakdown?.paidTastings)}</td></tr>
                 </tbody></table>
               </div>
+              {/* Shown whenever it is non-zero, because it is the difference between
+                  the books and the shelf: sales counted this wine as gone, the count
+                  still sees it. Silently closing the residual with it would hide the
+                  single largest reason a month fails to tie. */}
+              {!!d.uncollected?.deltaGallons && (
+                <div>
+                  <h4>Sold, not collected</h4>
+                  <table className="abc-table"><tbody>
+                    <tr><td>At month start</td>
+                        <td className="num">{d.uncollected.startBottles} btl / {GAL(d.uncollected.startGallons)}</td></tr>
+                    <tr><td>At month end</td>
+                        <td className="num">{d.uncollected.endBottles} btl / {GAL(d.uncollected.endGallons)}</td></tr>
+                    <tr><td><strong>Change, added back to expected</strong></td>
+                        <td className="num"><strong>{d.uncollected.deltaBottles > 0 ? '+' : ''}
+                          {d.uncollected.deltaBottles} btl / {GAL(d.uncollected.deltaGallons)}</strong></td></tr>
+                  </tbody></table>
+                  <p className="abc-empty">
+                    Club wine paid for but still on the shelf. Sales count it as sold on
+                    the paid date, the count still finds it, so the change over the month
+                    reconciles the two. Beginning and ending stay on the same basis as the
+                    month you last filed.
+                  </p>
+                </div>
+              )}
               <div>
                 <h4>Production</h4>
                 {(d.productionRuns?.length ?? 0) === 0 ? (

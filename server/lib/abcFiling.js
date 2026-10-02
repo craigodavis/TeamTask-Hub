@@ -97,6 +97,39 @@ async function volumesBetween(companyId, startIso, endIso) {
  * available estimate — Commerce7 keeps quantity_fulfilled as a running total
  * rather than a history, so a partial fulfilment cannot be replayed to a date.
  */
+/**
+ * Club wine sold but never collected, as gallons, at a point in time.
+ *
+ * Craig, 2026-10-02: "we have wine that has not been picked up by wine club members
+ * yet. This can be found in orders not yet fulfilled."
+ *
+ * The filing books a Commerce7 sale on order_paid_date for the full quantity, so a
+ * club release is sold the moment it is paid while the bottles stay on the shelf and
+ * keep turning up in the physical count. The two only diverge by the CHANGE in that
+ * balance over the month, which is normally a bottle or two — Apr +0.79 gal, May
+ * +0.40, Jul 0.00, Aug +2.38 — and then a release quadruples it: Sep 2026 went from
+ * 994 to 1,663 bottles, +132.55 gal, against a tolerance near 30.
+ *
+ * Returned as its own reconciling figure rather than netted off the ending inventory.
+ * Netting would restate ending on a different basis from the beginning that was
+ * actually filed, putting a ~197 gal discontinuity between August and September —
+ * larger than the problem. See docs/ABC_FILING.md.
+ */
+export async function uncollectedGallonsAsOf(companyId, asOfIso) {
+  const r = await query(
+    `SELECT COALESCE(SUM(oi.quantity - COALESCE(oi.quantity_fulfilled, 0)), 0)::numeric AS bottles
+       FROM commerce7.orders o
+       JOIN commerce7.order_items oi ON oi.order_id = o.id
+      WHERE o.company_id = $1
+        AND oi.item_type = 'Wine'
+        AND o.order_paid_date::date <= $2::date
+        AND (o.order_fulfilled_date IS NULL OR o.order_fulfilled_date::date > $2::date)`,
+    [companyId, asOfIso]
+  );
+  const bottles = Number(r.rows[0]?.bottles || 0);
+  return { bottles, gallons: round2(bottles * GAL_PER_BOTTLE) };
+}
+
 export async function unfulfilledAsOf(companyId, asOfIso) {
   const r = await query(
     `SELECT o.order_delivery_method AS method,
@@ -337,10 +370,15 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
   const bounds = await query(
     `SELECT ($1::date)::timestamp AT TIME ZONE $2                        AS m_start,
             (($1::date) + interval '1 month')::timestamp AT TIME ZONE $2 AS m_end,
-            (($1::date) - interval '1 month')::date                      AS prev_month`,
+            (($1::date) - interval '1 month')::date                      AS prev_month,
+            -- Calendar month ends as plain DATEs, for the uncollected-wine balance.
+            -- That balance is compared against order dates by ::date, so it wants the
+            -- last day of the month, not the exclusive timestamptz boundary above.
+            (($1::date) + interval '1 month' - interval '1 day')::date     AS m_end_date,
+            (($1::date) - interval '1 day')::date                          AS prev_month_end`,
     [monthStart, TZ]
   );
-  const { m_start, m_end, prev_month } = bounds.rows[0];
+  const { m_start, m_end, prev_month, m_end_date, prev_month_end } = bounds.rows[0];
 
   // Beginning inventory comes from what was FILED last month — never recomputed.
   // The state's copy is the authority; a recomputed beginning silently drifts.
@@ -375,9 +413,20 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
     count.gallons + postMonth.salesConsumers + postMonth.freeTastings - postMonth.returns
   );
 
-  // Expected position from the books alone.
+  // Wine sold this month that is still on the shelf awaiting pickup. Sales already
+  // counted it as gone; the count still sees it. Adding back the CHANGE over the
+  // month reconciles the two without restating either end of the period, so the
+  // beginning stays exactly what was filed last month.
+  const [uncollectedStart, uncollectedEnd] = await Promise.all([
+    uncollectedGallonsAsOf(companyId, prev_month_end),
+    uncollectedGallonsAsOf(companyId, m_end_date),
+  ]);
+  const uncollectedDelta = round2(uncollectedEnd.gallons - uncollectedStart.gallons);
+
+  // Expected position from the books, reconciled for wine sold but not collected.
   const expectedEnding = beginning === null ? null : round2(
-    beginning + production.gallons - inMonth.salesConsumers - inMonth.freeTastings + inMonth.returns
+    beginning + production.gallons - inMonth.salesConsumers - inMonth.freeTastings
+    + inMonth.returns + uncollectedDelta
   );
 
   // Positive residual = wine that left without being recorded (breakage, spillage,
@@ -501,6 +550,13 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
       postCountBackout: postMonth,
       salesBreakdown:   inMonth.breakdown,
       productionRuns:   production.runs,
+      uncollected: {
+        startGallons: uncollectedStart.gallons, startBottles: uncollectedStart.bottles,
+        endGallons:   uncollectedEnd.gallons,   endBottles:   uncollectedEnd.bottles,
+        deltaGallons: uncollectedDelta,
+        deltaBottles: uncollectedEnd.bottles - uncollectedStart.bottles,
+      },
+      productionRunsExcluded: production.runs.filter((x) => x.excluded).length,
       // Stated on the filing page so the exclusion is visible, not inferred from a
       // production figure that is quietly lower than the bottling records.
       excludedLots:     excluded.lots,
