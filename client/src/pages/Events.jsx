@@ -233,9 +233,16 @@ function venueColor(name) {
   return /creek/i.test(name) ? '#2c7671' : '#7c2d3a';
 }
 function stageOf(e) { return e.stage || (e.status === 'published' ? 'published' : 'draft'); }
+// When an event is OVER — its end, falling back to its start for events with no
+// end_at. The segment tests below used start_at, so a multi-day event stopped being
+// "upcoming" 24 hours after it opened even while it was still running: Oktoberfest
+// 2026 ran 3-4 Oct and vanished from this page at midday on the 4th. The matching
+// server-side filters are in routes/events.js and routes/website.js.
+const endMs = (e) => new Date(e.end_at || e.start_at).getTime();
+
 const SEGMENTS = [
-  { key: 'upcoming', label: 'Upcoming', test: (e) => new Date(e.start_at) >= Date.now() - 864e5 },
-  { key: 'week', label: 'This week', test: (e) => { const d = new Date(e.start_at); return d >= Date.now() - 864e5 && d <= Date.now() + 7 * 864e5; } },
+  { key: 'upcoming', label: 'Upcoming', test: (e) => endMs(e) >= Date.now() - 864e5 },
+  { key: 'week', label: 'This week', test: (e) => endMs(e) >= Date.now() - 864e5 && new Date(e.start_at).getTime() <= Date.now() + 7 * 864e5 },
   { key: 'all', label: 'All events', test: () => true },
   { key: 'draft', label: 'Drafts', test: (e) => stageOf(e) === 'draft' },
   { key: 'review', label: 'In review', test: (e) => stageOf(e) === 'review' },
@@ -1358,7 +1365,25 @@ function CalendarView({ events, onOpen }) {
   const startDow = first.getDay();
   const daysInMonth = new Date(month.y, month.m + 1, 0).getDate();
   const byDay = {};
-  for (const e of events) { const d = new Date(e.start_at); const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; (byDay[key] ??= []).push(e); }
+  const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // An event occupies every day it spans, not just the day it begins. Keying only on
+  // start_at drew Oktoberfest on Saturday and left Sunday empty, though it ran both
+  // days. Dates are compared in local time because that is what the grid shows.
+  for (const e of events) {
+    const start = new Date(e.start_at);
+    if (Number.isNaN(start.getTime())) continue;
+    // Step back a millisecond before taking the end date, so an event finishing at
+    // exactly midnight belongs to the day it ran, not the morning after.
+    let end = e.end_at ? new Date(new Date(e.end_at).getTime() - 1) : start;
+    if (Number.isNaN(end.getTime()) || end < start) end = start;
+    const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    // Guard against a mis-keyed end_at years out turning this into a long loop.
+    for (let guard = 0; cur <= last && guard < 400; guard++) {
+      (byDay[dayKey(cur)] ??= []).push(e);
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
   const cells = [];
   for (let i = 0; i < startDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
