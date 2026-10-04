@@ -107,7 +107,11 @@ export const eventsRouter = express.Router();
 eventsRouter.get('/', async (req, res) => {
   try {
     const past = req.query.range === 'all' || req.query.range === 'past';
-    const where = past ? '' : `AND e.start_at >= NOW() - INTERVAL '1 day'`;
+    // The one-day grace was standing in for "still roughly current", but it is
+    // measured from the START, so a multi-day event falls out 24h after it opens
+    // even while it is running. Oktoberfest 2026 disappeared from this list at
+    // midday on its closing day. Measure from the end instead.
+    const where = past ? '' : `AND COALESCE(e.end_at, e.start_at) >= NOW() - INTERVAL '1 day'`;
     const order = past ? 'DESC' : 'ASC';
     const r = await query(
       `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.event_url, e.image_url, e.social_image_url, e.fb_image_url,

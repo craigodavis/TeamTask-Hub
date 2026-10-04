@@ -14,7 +14,7 @@ promoRouter.get('/overview', async (req, res) => {
          JOIN events e ON e.id = pe.event_id
          LEFT JOIN promo_contacts c ON c.id = pe.contact_id
          LEFT JOIN promo_templates t ON t.id = pe.template_id
-        WHERE pe.company_id = $1 AND e.start_at >= NOW() - INTERVAL '1 day'
+        WHERE pe.company_id = $1 AND COALESCE(e.end_at, e.start_at) >= NOW() - INTERVAL '1 day'
         ORDER BY pe.send_at`, [cId(req)])).rows;
     const tasks = (await query(
       `SELECT pt.id, pt.title, pt.reminders_sent, u.display_name AS assignee_name,
@@ -22,7 +22,7 @@ promoRouter.get('/overview', async (req, res) => {
          FROM promo_tasks pt
          JOIN events e ON e.id = pt.event_id
          LEFT JOIN users u ON u.id = pt.assignee_user_id
-        WHERE pt.company_id = $1 AND pt.done = false AND e.start_at >= NOW() - INTERVAL '1 day'
+        WHERE pt.company_id = $1 AND pt.done = false AND COALESCE(e.end_at, e.start_at) >= NOW() - INTERVAL '1 day'
         ORDER BY e.start_at`, [cId(req)])).rows;
     res.json({ emails, tasks });
   } catch (e) { res.status(500).json({ error: e.message }); }
