@@ -88,3 +88,39 @@
   .evr { padding: .75rem; }
   .evr-grid { grid-template-columns: 1fr; }
 }
+
+/* The link staff hand to customers. Full URL as selectable text rather than a bare
+   button, because it gets read down the phone as often as it gets pasted. */
+.evr-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.evr-link-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #888);
+}
+
+.evr-link-url {
+  font-size: 0.85rem;
+  word-break: break-all;
+  color: var(--primary, #1677ff);
+}
+
+.evr-link-copy {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 6px;
+  background: var(--bg-subtle, #fafafa);
+  color: var(--text, #222);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.evr-link-copy:hover { border-color: var(--primary, #1677ff); }

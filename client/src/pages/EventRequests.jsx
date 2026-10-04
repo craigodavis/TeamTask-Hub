@@ -47,6 +47,25 @@ const toForm = (t) => ({
 export default function EventRequests() {
   const [tab, setTab] = useState('requests');
   const [error, setError] = useState('');
+  // Served by the API rather than hardcoded here, so this is literally the URL the
+  // phone agent texts callers — see server/lib/publicLinks.js.
+  const [formUrl, setFormUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    getEventRequests().then((d) => setFormUrl(d.form_url || '')).catch(() => {});
+  }, []);
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(formUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard is blocked outside a secure context and on some mobile browsers.
+      // The link is selectable text either way, so say nothing and let them copy it.
+    }
+  };
   return (
     <div className="evr">
       <header className="evr-head">
@@ -56,6 +75,18 @@ export default function EventRequests() {
             Special event enquiries from the website, the tiers that price them, and the
             copy guests read.
           </p>
+          {/* The thing staff come here wanting: the link to send someone who asks
+              about hosting an event. Shown as text, not just a button, so it can be
+              read down the phone as well as pasted. */}
+          {formUrl && (
+            <div className="evr-link">
+              <span className="evr-link-label">Send customers this link</span>
+              <a href={formUrl} target="_blank" rel="noreferrer" className="evr-link-url">{formUrl}</a>
+              <button type="button" className="evr-link-copy" onClick={copyLink}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          )}
         </div>
         <nav className="evr-tabs">
           {[['requests', 'Requests'], ['tiers', 'Tiers & pricing'], ['copy', 'Message']].map(([k, label]) => (

@@ -10,6 +10,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
+import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
   KEYS, money, outstanding, allSatisfied,
   alertRecipients, planningMeetingSms, shortDate,
@@ -148,7 +149,9 @@ router.get('/', requireManager, async (req, res) => {
         ${status ? 'WHERE status = $1' : ''}
         ORDER BY created_at DESC LIMIT 500`,
       status ? [status] : []);
-    res.json({ requests: rows.map(shape) });
+    // Sent with the list so staff can copy the exact link customers receive
+    // instead of retyping a URL from memory.
+    res.json({ requests: rows.map(shape), form_url: EVENT_REQUEST_URL });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

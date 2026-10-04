@@ -26,6 +26,7 @@ import { getOrCreateKey, rotateKey } from '../lib/vapiKey.js';
 import { requireOwner } from '../middleware/auth.js';
 import { availableTimes, createBooking } from '../lib/resosClient.js';
 import { sendSmsToPhone } from '../lib/smsHelper.js';
+import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 // Behind Apache/Passenger req.ip is always 127.0.0.1 and req.protocol is always
 // 'http'. mcpDb.js already worked out how to read the real client address from
 // the forwarded chain (last entry — Apache appends, so earlier ones are
@@ -531,7 +532,8 @@ vapiRouter.post('/book', async (req, res) => {
 
 // ── Space rental ─────────────────────────────────────────────────────────────
 
-const EVENT_REQUEST_URL = process.env.EVENT_REQUEST_URL || 'https://www.kindredvineyards.com/events/request/';
+// EVENT_REQUEST_URL lives in lib/publicLinks.js so the Event Requests page shows
+// staff the same URL this texts to callers.
 
 /**
  * POST /space-rental-link  { phone, name? }
