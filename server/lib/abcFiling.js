@@ -405,14 +405,6 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
   // the month-end position. Back out everything that moved between month-end and
   // the moment of the count. (June 2026: count of 1,984.86 on Jul 3-4 + 24.94
   // sales + 1.38 tastings - 6.54 returns = 2,004.63 month-end. Ties exactly.)
-  let postMonth = { salesConsumers: 0, freeTastings: 0, returns: 0, breakdown: {} };
-  if (count.lastCountedAt && new Date(count.lastCountedAt) > new Date(m_end)) {
-    postMonth = await volumesBetween(companyId, m_end, count.lastCountedAt.toISOString());
-  }
-  const countedAtMonthEnd = round2(
-    count.gallons + postMonth.salesConsumers + postMonth.freeTastings - postMonth.returns
-  );
-
   // Wine sold this month that is still on the shelf awaiting pickup. Sales already
   // counted it as gone; the count still sees it. Adding back the CHANGE over the
   // month reconciles the two without restating either end of the period, so the
@@ -422,6 +414,30 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
     uncollectedGallonsAsOf(companyId, m_end_date),
   ]);
   const uncollectedDelta = round2(uncollectedEnd.gallons - uncollectedStart.gallons);
+
+  let postMonth = { salesConsumers: 0, freeTastings: 0, returns: 0, breakdown: {} };
+  // Sales after month end are added back because the wine was still here at month
+  // end — but only if it has actually LEFT since. A club release sells on its paid
+  // date and the bottles stay on the shelf for weeks, so adding those back credits
+  // the month with wine that never moved. Aug 2026 was counted on 3 Sep, the day of a
+  // release: of 246.99 gal backed out, 118.48 gal was still sitting there, which
+  // showed up as a 149.79 gal overage and a NEGATIVE spoilage line.
+  //
+  // Same correction as the in-month uncollectedDelta above, applied to the restatement
+  // window. July and September are untouched by it — their windows saw no change in
+  // the balance — which is why only August was wrong.
+  let postUncollected = 0;
+  if (count.lastCountedAt && new Date(count.lastCountedAt) > new Date(m_end)) {
+    postMonth = await volumesBetween(companyId, m_end, count.lastCountedAt.toISOString());
+    const atCount = await uncollectedGallonsAsOf(
+      companyId, count.lastCountedAt.toISOString().slice(0, 10)
+    );
+    postUncollected = round2(atCount.gallons - uncollectedEnd.gallons);
+  }
+  const countedAtMonthEnd = round2(
+    count.gallons + postMonth.salesConsumers + postMonth.freeTastings - postMonth.returns
+    - postUncollected
+  );
 
   // Expected position from the books, reconciled for wine sold but not collected.
   const expectedEnding = beginning === null ? null : round2(
@@ -548,6 +564,9 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
       countedFrom:      count.firstCountedAt,
       countedAt:        count.lastCountedAt,
       postCountBackout: postMonth,
+      // Stated so the restatement is auditable: how much of the backed-out sales was
+      // still physically on the shelf when the count was taken.
+      postCountUncollected: postUncollected,
       salesBreakdown:   inMonth.breakdown,
       productionRuns:   production.runs,
       uncollected: {
