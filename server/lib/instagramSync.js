@@ -17,7 +17,6 @@
  * Env: IG_ACCESS_TOKEN (first run only), IG_USER_ID (default "me"), IG_GRAPH_BASE.
  */
 import { query } from '../db.js';
-import { notifyWebsiteContentChanged } from './websiteDeploy.js';
 import { currentToken } from './instagramToken.js';
 
 const IG_BASE = process.env.IG_GRAPH_BASE || 'https://graph.instagram.com';
@@ -71,9 +70,20 @@ export async function syncInstagram() {
     `DELETE FROM kindred_web.instagram_media
       WHERE id NOT IN (SELECT id FROM kindred_web.instagram_media ORDER BY posted_at DESC LIMIT 48)`
   );
-  // Runs on a timer with no HTTP request behind it, so the route-level watch in
-  // index.js can't see it — tell the website directly.
-  if (count) notifyWebsiteContentChanged('instagram sync');
+  // The website is deliberately NOT rebuilt here.
+  //
+  // The conditional upsert above was meant to make `count` mean "something a
+  // visitor would notice changed". It cannot: Instagram signs every CDN URL
+  // with an `oh=` hash and an `oe=` expiry that are regenerated on every API
+  // call, so media_url and thumbnail_url differ for all 24 posts on every
+  // fetch. The count was never zero, and the site rebuilt on the hour, every
+  // hour — 24 Actions runs a day for nothing.
+  //
+  // Nothing, because the feed is read client-side: InstagramFeed.astro fetches
+  // /api/website/instagram in the browser on every page load. The signed URLs
+  // are never baked into the static build, so a rebuild cannot refresh them and
+  // a visitor always gets whatever is in this table right now. Writing fresh
+  // URLs here is the whole job; the deploy was pure cost.
   return { ok: true, count };
 }
 
