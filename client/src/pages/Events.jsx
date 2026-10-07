@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, deleteMusician, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, withdrawEvent, verifyEventWithdrawn, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
 import { ImageField } from '../components/MediaPicker';
+import '../styles/vintly.css';
 import './Talent.css';
+import Drawer from '../components/Drawer';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -362,67 +364,124 @@ function MusiciansTab() {
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>Add Talent</button>}
+        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>Add talent</button>
       </div>
-      {form && (
-        <div style={{ ...card, marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'Add'} Talent</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
-            <div><label style={lbl}>Name</label><input style={inp} value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div><label style={lbl}>Type</label>
-              <select style={inp} value={form.type || 'musician'} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+      {/* The edit form lives in a slide-over rather than pushing the list down the
+          page. On a phone it becomes a bottom sheet — see components/Drawer.css. */}
+      <Drawer
+        open={!!form}
+        title={form?.id ? `Edit ${form.name || 'talent'}` : 'Add talent'}
+        onClose={() => { setForm(null); setErr(''); }}
+        footer={form && (
+          <>
+            <button className="vin-btn" onClick={() => { setForm(null); setErr(''); }}>Cancel</button>
+            <button className="vin-btn vin-btn-primary"
+                    disabled={!form.name || !form.phone?.trim()} onClick={save}>
+              {form.id ? 'Save changes' : 'Add talent'}
+            </button>
+          </>
+        )}
+      >
+        {form && (<>
+          {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
+          <div>
+            <label className="vin-label">Name</label>
+            <input className="vin-input" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">Type</label>
+              <select className="vin-select" value={form.type || 'musician'} onChange={(e) => setForm({ ...form, type: e.target.value })}>
                 <option value="musician">Musician</option>
                 <option value="instructor">Class / Instructor</option>
                 <option value="business">Business / Vendor</option>
                 <option value="other">Other</option>
               </select>
             </div>
-            <div><label style={lbl}>Phone <span style={{ color: '#c0392b' }}>*required</span></label><input style={inp} value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="for event reminders" /></div>
-            <div><label style={lbl}>Website / social</label><input style={inp} value={form.website_url || ''} onChange={(e) => setForm({ ...form, website_url: e.target.value })} /></div>
-            <div><label style={lbl}>Photo URL</label><input style={inp} value={form.photo_url || ''} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} /></div>
-            <div><label style={lbl}>Act</label>
-              <select style={inp} value={form.act_type || ''} onChange={(e) => setForm({ ...form, act_type: e.target.value })}>
-                <option value="">—</option><option value="solo">Solo</option>
+            <div>
+              <label className="vin-label">Act</label>
+              <select className="vin-select" value={form.act_type || ''} onChange={(e) => setForm({ ...form, act_type: e.target.value })}>
+                <option value="">\u2014</option><option value="solo">Solo</option>
                 <option value="duo">Duo</option><option value="band">Band</option>
               </select>
             </div>
-            <div><label style={lbl}>Genre</label>
-              <input style={inp} list="talent-genres" value={form.genre || ''}
-                     onChange={(e) => setForm({ ...form, genre: e.target.value })} />
+          </div>
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">Genre</label>
               {/* Free text with suggestions from what is already in use, so it stays
                   tidy without boxing anyone into a fixed taxonomy. */}
+              <input className="vin-input" list="talent-genres" value={form.genre || ''}
+                     onChange={(e) => setForm({ ...form, genre: e.target.value })} />
               <datalist id="talent-genres">{genres.map((g) => <option key={g} value={g} />)}</datalist>
             </div>
-            <div><label style={lbl}>Rating</label>
-              <select style={inp} value={form.rating ?? ''} onChange={(e) => setForm({ ...form, rating: e.target.value })}>
+            <div>
+              <label className="vin-label">Rating</label>
+              <select className="vin-select" value={form.rating ?? ''} onChange={(e) => setForm({ ...form, rating: e.target.value })}>
                 <option value="">Unrated</option>
-                {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{'★'.repeat(n)} ({n})</option>)}
+                {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{'\u2605'.repeat(n)} ({n})</option>)}
               </select>
             </div>
-            <div><label style={lbl}>Rate</label><input type="number" style={inp} value={form.rate_amount || ''} onChange={(e) => setForm({ ...form, rate_amount: e.target.value })} /></div>
-            <div><label style={lbl}>Rate unit</label>
-              <select style={inp} value={form.rate_unit || 'event'} onChange={(e) => setForm({ ...form, rate_unit: e.target.value })}>
+          </div>
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">Rate</label>
+              <input type="number" className="vin-input" value={form.rate_amount || ''} onChange={(e) => setForm({ ...form, rate_amount: e.target.value })} />
+            </div>
+            <div>
+              <label className="vin-label">Rate unit</label>
+              <select className="vin-select" value={form.rate_unit || 'event'} onChange={(e) => setForm({ ...form, rate_unit: e.target.value })}>
                 <option value="event">per event</option><option value="hour">per hour</option>
               </select>
             </div>
-            <div><label style={lbl}>Email</label><input style={inp} value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-            <div><label style={lbl}>Main contact</label><input style={inp} value={form.main_contact || ''} onChange={(e) => setForm({ ...form, main_contact: e.target.value, write_check_to: (!form.write_check_to || form.write_check_to === form.main_contact) ? e.target.value : form.write_check_to })} /></div>
-            <div><label style={lbl}>Write check to <span style={{ opacity: 0.5, fontWeight: 400 }}>(defaults to main contact)</span></label><input style={inp} value={form.write_check_to || ''} onChange={(e) => setForm({ ...form, write_check_to: e.target.value })} placeholder={form.main_contact || ''} /></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Address</label><textarea rows={2} style={inp} value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-            <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Notes</label><textarea rows={2} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-            <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={form.active !== false} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
-              <span style={{ fontWeight: 600, fontSize: 13 }}>Active</span>
-            </label>
           </div>
-          {err && <p style={{ color: 'crimson' }}>{err}</p>}
-          <div style={{ marginTop: 12 }}>
-            <button style={btn(true)} disabled={!form.name || !form.phone?.trim()} onClick={save}>Save</button>
-            <button style={{ ...btn(false), marginLeft: 8 }} onClick={() => setForm(null)}>Cancel</button>
-            {!form.phone?.trim() && <span style={{ marginLeft: 10, fontSize: 12, color: '#c0392b' }}>Phone required</span>}
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">Phone <span style={{ color: 'var(--vin-text-danger)' }}>required</span></label>
+              <input className="vin-input" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="for event reminders" />
+            </div>
+            <div>
+              <label className="vin-label">Email</label>
+              <input className="vin-input" value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </div>
           </div>
-        </div>
-      )}
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">Main contact</label>
+              <input className="vin-input" value={form.main_contact || ''} onChange={(e) => setForm({ ...form, main_contact: e.target.value, write_check_to: (!form.write_check_to || form.write_check_to === form.main_contact) ? e.target.value : form.write_check_to })} />
+            </div>
+            <div>
+              <label className="vin-label">Write check to</label>
+              <input className="vin-input" value={form.write_check_to || ''} onChange={(e) => setForm({ ...form, write_check_to: e.target.value })} placeholder={form.main_contact || 'defaults to main contact'} />
+            </div>
+          </div>
+          <div>
+            <label className="vin-label">Website / social</label>
+            <input className="vin-input" value={form.website_url || ''} onChange={(e) => setForm({ ...form, website_url: e.target.value })} />
+          </div>
+          <div>
+            <label className="vin-label">Photo URL</label>
+            <input className="vin-input" value={form.photo_url || ''} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} />
+          </div>
+          <div>
+            <label className="vin-label">Address</label>
+            <textarea rows={2} className="vin-textarea" value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </div>
+          <div>
+            <label className="vin-label">Notes</label>
+            <textarea rows={3} className="vin-textarea" value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <input type="checkbox" checked={form.active !== false} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+            <span>Active</span>
+          </label>
+          {!form.phone?.trim() && (
+            <p style={{ fontSize: 12, color: 'var(--vin-text-danger)', margin: 0 }}>
+              Phone is required — talent get event reminders by text.
+            </p>
+          )}
+        </>)}
+      </Drawer>
       <div className="tal-bar">
         <select className="tal-sel" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
           <option value="all">All statuses</option><option value="active">Active only</option><option value="inactive">Inactive only</option>

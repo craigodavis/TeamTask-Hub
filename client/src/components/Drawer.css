@@ -1,0 +1,75 @@
+/*
+ * Slide-over edit drawer — Vintly's "right window open" pattern.
+ *
+ * On a phone it is NOT a 360px panel squeezed to the side. It becomes a full-width
+ * bottom sheet: a side panel on a 390px screen leaves a useless sliver of list
+ * behind it, and the Save button ends up at the top-right, furthest from the thumb.
+ */
+.vin-drawer-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex; justify-content: flex-end;
+  z-index: 60;
+}
+
+.vin-drawer-panel {
+  width: 420px; max-width: 92vw;
+  height: 100%;
+  background: var(--vin-surface-2);
+  color: var(--vin-text);
+  border-left: 0.5px solid var(--vin-border);
+  padding: 16px 18px;
+  display: flex; flex-direction: column;
+  box-sizing: border-box;
+  overflow-y: auto;
+  animation: vin-drawer-in 0.16s ease-out;
+}
+@keyframes vin-drawer-in { from { transform: translateX(100%); } to { transform: none; } }
+
+.vin-drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 16px;
+}
+.vin-drawer-header h3 { margin: 0; font-size: 16px; font-weight: 500; }
+.vin-drawer-close {
+  border: none; background: none; cursor: pointer;
+  color: var(--vin-muted); font-size: 20px; line-height: 1;
+  padding: 4px 8px; border-radius: 6px;
+}
+.vin-drawer-close:hover { background: var(--vin-surface-1); color: var(--vin-text); }
+
+.vin-drawer-body { display: flex; flex-direction: column; gap: 12px; flex: 1; }
+
+/* Two fields per row on anything wider than a phone — a rate and its unit, or a
+   phone and an email, read as pairs rather than a tall single column. */
+.vin-drawer-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.vin-drawer-footer {
+  margin-top: 16px; padding-top: 14px;
+  border-top: 0.5px solid var(--vin-border);
+  display: flex; gap: 8px;
+  position: sticky; bottom: 0;
+  background: var(--vin-surface-2);
+}
+.vin-drawer-footer .vin-btn { flex: 1; }
+
+@media (max-width: 760px) {
+  .vin-drawer-overlay { flex-direction: column; justify-content: flex-end; }
+  .vin-drawer-panel {
+    width: 100%; max-width: 100%;
+    height: auto; max-height: 92dvh;
+    border-left: none;
+    border-top: 0.5px solid var(--vin-border);
+    border-radius: 14px 14px 0 0;
+    /* Clear of the home indicator, so Save is never under it. */
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    animation: vin-sheet-in 0.18s ease-out;
+  }
+  @keyframes vin-sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+  .vin-drawer-row { grid-template-columns: 1fr; }
+  .vin-drawer-footer .vin-btn { min-height: 46px; font-size: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vin-drawer-panel { animation: none; }
+}

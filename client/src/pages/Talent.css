@@ -1,69 +1,10 @@
 /*
- * Talent tab — Vintly's visual language.
+ * Talent tab — uses the shared Vintly tokens from styles/vintly.css.
  *
- * Craig wanted this to feel like the Vintly app. The tokens below mirror
- * vintly/client/src/index.css: a warm paper palette rather than grey, layered
- * surfaces, 0.5px hairline borders, 12px card radius, and semantic bg/text PAIRS
- * for pills so they stay legible in both themes.
- *
- * Scoped under .tal rather than dropped into TeamHub's :root. TeamHub has its own
- * token set (--primary, --card, --bg-subtle) that the rest of the app depends on,
- * and redefining those globally to match Vintly would restyle every other page as a
- * side effect of a request about one tab.
+ * The token block that used to live here was removed: it duplicated vintly.css and
+ * was scoped to .tal, which meant the drawer (rendered at the top of the DOM, outside
+ * .tal) could not see any of it.
  */
-.tal {
-  --tal-surface-1: #f0efe9;
-  --tal-surface-2: #ffffff;
-  --tal-text: #1a1a18;
-  --tal-text-2: #5f5e5a;
-  --tal-muted: #888780;
-  --tal-border: rgba(0, 0, 0, 0.10);
-  --tal-border-strong: rgba(0, 0, 0, 0.22);
-  --tal-bg-accent: #e6f1fb;  --tal-text-accent: #0c447c;
-  --tal-bg-warning: #faeeda; --tal-text-warning: #633806;
-  --tal-bg-danger: #fcebeb;  --tal-text-danger: #791f1f;
-  --tal-bg-success: #eaf3de; --tal-text-success: #27500a;
-  --tal-fill: #1a1a18;       --tal-on-fill: #ffffff;
-  --tal-radius: 12px;
-  color: var(--tal-text);
-}
-
-/* Dark tokens are declared twice on purpose. An @media cannot appear inside a
-   selector list, so the OS-preference rule and the explicit [data-theme="dark"]
-   rule have to be separate blocks. The media query is guarded against
-   data-theme="light" so an explicitly-light TeamHub stays light on an OS set dark. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .tal {
-  --tal-surface-1: #1f1f1c;
-  --tal-surface-2: #26261f;
-  --tal-text: #f1efe8;
-  --tal-text-2: #b4b2a9;
-  --tal-muted: #888780;
-  --tal-border: rgba(255, 255, 255, 0.10);
-  --tal-border-strong: rgba(255, 255, 255, 0.22);
-  --tal-bg-accent: #0c447c;  --tal-text-accent: #b5d4f4;
-  --tal-bg-warning: #854f0b; --tal-text-warning: #fac775;
-  --tal-bg-danger: #791f1f;  --tal-text-danger: #f3c0c0;
-  --tal-bg-success: #27500a; --tal-text-success: #c0dd97;
-  --tal-fill: #f1efe8;       --tal-on-fill: #171715;
-  }
-}
-
-:root[data-theme="dark"] .tal {
-  --tal-surface-1: #1f1f1c;
-  --tal-surface-2: #26261f;
-  --tal-text: #f1efe8;
-  --tal-text-2: #b4b2a9;
-  --tal-muted: #888780;
-  --tal-border: rgba(255, 255, 255, 0.10);
-  --tal-border-strong: rgba(255, 255, 255, 0.22);
-  --tal-bg-accent: #0c447c;  --tal-text-accent: #b5d4f4;
-  --tal-bg-warning: #854f0b; --tal-text-warning: #fac775;
-  --tal-bg-danger: #791f1f;  --tal-text-danger: #f3c0c0;
-  --tal-bg-success: #27500a; --tal-text-success: #c0dd97;
-  --tal-fill: #f1efe8;       --tal-on-fill: #171715;
-}
-
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 .tal-bar {
   display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
@@ -71,14 +12,14 @@
 }
 .tal-sel {
   padding: 6px 9px;
-  border: 0.5px solid var(--tal-border-strong);
+  border: 0.5px solid var(--vin-border-strong);
   border-radius: 8px;
-  background: var(--tal-surface-2);
-  color: var(--tal-text);
+  background: var(--vin-surface-2);
+  color: var(--vin-text);
   font-size: 13px;
 }
-.tal-sel:focus { outline: 2px solid var(--tal-text-accent); outline-offset: -1px; }
-.tal-count { font-size: 12px; color: var(--tal-muted); margin-left: auto; }
+.tal-sel:focus { outline: 2px solid var(--vin-text-accent); outline-offset: -1px; }
+.tal-count { font-size: 12px; color: var(--vin-muted); margin-left: auto; }
 
 /* ── Cards ────────────────────────────────────────────────────────────────── */
 .tal-grid {
@@ -87,41 +28,41 @@
   gap: 12px;
 }
 .tal-card {
-  background: var(--tal-surface-2);
-  border: 0.5px solid var(--tal-border);
-  border-radius: var(--tal-radius);
+  background: var(--vin-surface-2);
+  border: 0.5px solid var(--vin-border);
+  border-radius: var(--vin-radius);
   padding: 14px 16px;
   display: flex; flex-direction: column; gap: 10px;
   transition: border-color 0.12s ease;
 }
-.tal-card:hover { border-color: var(--tal-border-strong); }
+.tal-card:hover { border-color: var(--vin-border-strong); }
 .tal-card.is-inactive { opacity: 0.55; }
 
 .tal-head { display: flex; gap: 11px; align-items: center; }
 .tal-avatar {
   width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
-  background: var(--tal-surface-1);
+  background: var(--vin-surface-1);
   display: flex; align-items: center; justify-content: center;
-  font-size: 17px; color: var(--tal-muted);
+  font-size: 17px; color: var(--vin-muted);
 }
 .tal-id { flex: 1; cursor: pointer; min-width: 0; }
 .tal-name {
   font-weight: 500; font-size: 15px; line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tal-rate { font-size: 13px; color: var(--tal-text-2); margin-top: 1px; }
+.tal-rate { font-size: 13px; color: var(--vin-text-2); margin-top: 1px; }
 
 /* Facts row. Reads as quiet metadata, so the name and rate stay dominant. */
 .tal-meta {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  font-size: 12px; color: var(--tal-muted);
+  font-size: 12px; color: var(--vin-muted);
 }
 .tal-meta .sep { opacity: 0.4; }
-.tal-stars { color: var(--tal-text-warning); letter-spacing: 0.5px; }
+.tal-stars { color: var(--vin-text-warning); letter-spacing: 0.5px; }
 
 .tal-foot {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  padding-top: 10px; border-top: 0.5px solid var(--tal-border);
+  padding-top: 10px; border-top: 0.5px solid var(--vin-border);
 }
 
 /* ── Pills ────────────────────────────────────────────────────────────────── */
@@ -129,29 +70,29 @@
   display: inline-block; font-size: 11.5px; font-weight: 500;
   padding: 3px 10px; border-radius: 99px; white-space: nowrap;
 }
-.tal-pill-success { background: var(--tal-bg-success); color: var(--tal-text-success); }
-.tal-pill-muted   { background: var(--tal-surface-1);  color: var(--tal-muted); }
-.tal-pill-danger  { background: var(--tal-bg-danger);  color: var(--tal-text-danger); }
-.tal-pill-accent  { background: var(--tal-bg-accent);  color: var(--tal-text-accent); }
+.tal-pill-success { background: var(--vin-bg-success); color: var(--vin-text-success); }
+.tal-pill-muted   { background: var(--vin-surface-1);  color: var(--vin-muted); }
+.tal-pill-danger  { background: var(--vin-bg-danger);  color: var(--vin-text-danger); }
+.tal-pill-accent  { background: var(--vin-bg-accent);  color: var(--vin-text-accent); }
 
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 .tal-btn {
   padding: 4px 11px; font-size: 12px;
-  border: 0.5px solid var(--tal-border-strong);
+  border: 0.5px solid var(--vin-border-strong);
   border-radius: 7px;
-  background: transparent; color: var(--tal-text);
+  background: transparent; color: var(--vin-text);
   cursor: pointer; white-space: nowrap;
 }
-.tal-btn:hover { background: var(--tal-surface-1); }
-.tal-btn-danger { color: var(--tal-text-danger); border-color: var(--tal-bg-danger); }
-.tal-btn-danger:hover { background: var(--tal-bg-danger); }
+.tal-btn:hover { background: var(--vin-surface-1); }
+.tal-btn-danger { color: var(--vin-text-danger); border-color: var(--vin-bg-danger); }
+.tal-btn-danger:hover { background: var(--vin-bg-danger); }
 .tal-btn-primary {
-  background: var(--tal-fill); color: var(--tal-on-fill); border-color: var(--tal-fill);
+  background: var(--vin-fill); color: var(--vin-on-fill); border-color: var(--vin-fill);
 }
-.tal-btn-primary:hover { opacity: 0.85; background: var(--tal-fill); }
+.tal-btn-primary:hover { opacity: 0.85; background: var(--vin-fill); }
 .tal-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .tal-empty {
   padding: 2.5rem 1rem; text-align: center;
-  color: var(--tal-muted); font-size: 13px;
+  color: var(--vin-muted); font-size: 13px;
 }

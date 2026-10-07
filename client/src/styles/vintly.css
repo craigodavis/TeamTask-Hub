@@ -1,0 +1,122 @@
+/*
+ * Vintly design tokens, for rolling that look and feel across TeamHub.
+ *
+ * Craig: "Want to go to a better look and feel like we do in Vintly app... the right
+ * window open concept works really nicely for vintly."
+ *
+ * Ported from vintly/client/src/index.css: a warm paper palette rather than grey,
+ * layered surfaces, 0.5px hairline borders, and semantic background/text PAIRS so a
+ * pill stays legible in either theme instead of a tinted background with inherited
+ * text on it.
+ *
+ * Every name is prefixed --vin-. They sit on :root, which is safe precisely because
+ * of the prefix: TeamHub's own tokens (--primary, --card, --bg-subtle, --border) are
+ * untouched, so adopting this on one screen cannot restyle any other. A screen opts
+ * in by using var(--vin-*); nothing is applied globally.
+ */
+:root {
+  --vin-surface-0: #f7f6f2;
+  --vin-surface-1: #f0efe9;
+  --vin-surface-2: #ffffff;
+
+  --vin-text: #1a1a18;
+  --vin-text-2: #5f5e5a;
+  --vin-muted: #888780;
+
+  --vin-border: rgba(0, 0, 0, 0.10);
+  --vin-border-strong: rgba(0, 0, 0, 0.22);
+
+  --vin-bg-accent: #e6f1fb;  --vin-text-accent: #0c447c;
+  --vin-bg-warning: #faeeda; --vin-text-warning: #633806;
+  --vin-bg-danger: #fcebeb;  --vin-text-danger: #791f1f;
+  --vin-bg-success: #eaf3de; --vin-text-success: #27500a;
+
+  --vin-fill: #1a1a18;
+  --vin-on-fill: #ffffff;
+
+  --vin-radius: 12px;
+  --vin-radius-sm: 8px;
+}
+
+/* Declared twice on purpose: an @media cannot appear inside a selector list, so the
+   OS-preference rule and the explicit [data-theme="dark"] rule are separate blocks.
+   The media query is guarded so an explicitly-light TeamHub stays light on a dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --vin-surface-0: #171715;
+    --vin-surface-1: #1f1f1c;
+    --vin-surface-2: #26261f;
+    --vin-text: #f1efe8;
+    --vin-text-2: #b4b2a9;
+    --vin-muted: #888780;
+    --vin-border: rgba(255, 255, 255, 0.10);
+    --vin-border-strong: rgba(255, 255, 255, 0.22);
+    --vin-bg-accent: #0c447c;  --vin-text-accent: #b5d4f4;
+    --vin-bg-warning: #854f0b; --vin-text-warning: #fac775;
+    --vin-bg-danger: #791f1f;  --vin-text-danger: #f3c0c0;
+    --vin-bg-success: #27500a; --vin-text-success: #c0dd97;
+    --vin-fill: #f1efe8;
+    --vin-on-fill: #171715;
+  }
+}
+
+:root[data-theme="dark"] {
+  --vin-surface-0: #171715;
+  --vin-surface-1: #1f1f1c;
+  --vin-surface-2: #26261f;
+  --vin-text: #f1efe8;
+  --vin-text-2: #b4b2a9;
+  --vin-muted: #888780;
+  --vin-border: rgba(255, 255, 255, 0.10);
+  --vin-border-strong: rgba(255, 255, 255, 0.22);
+  --vin-bg-accent: #0c447c;  --vin-text-accent: #b5d4f4;
+  --vin-bg-warning: #854f0b; --vin-text-warning: #fac775;
+  --vin-bg-danger: #791f1f;  --vin-text-danger: #f3c0c0;
+  --vin-bg-success: #27500a; --vin-text-success: #c0dd97;
+  --vin-fill: #f1efe8;
+  --vin-on-fill: #171715;
+}
+
+/* ── Shared primitives ────────────────────────────────────────────────────── */
+.vin-pill {
+  display: inline-block; font-size: 11.5px; font-weight: 500;
+  padding: 3px 10px; border-radius: 99px; white-space: nowrap;
+}
+.vin-pill-success { background: var(--vin-bg-success); color: var(--vin-text-success); }
+.vin-pill-muted   { background: var(--vin-surface-1);  color: var(--vin-muted); }
+.vin-pill-danger  { background: var(--vin-bg-danger);  color: var(--vin-text-danger); }
+.vin-pill-accent  { background: var(--vin-bg-accent);  color: var(--vin-text-accent); }
+
+.vin-btn {
+  padding: 5px 12px; font-size: 12.5px;
+  border: 0.5px solid var(--vin-border-strong);
+  border-radius: 7px;
+  background: transparent; color: var(--vin-text);
+  cursor: pointer; white-space: nowrap;
+}
+.vin-btn:hover { background: var(--vin-surface-1); }
+.vin-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.vin-btn-primary {
+  background: var(--vin-fill); color: var(--vin-on-fill); border-color: var(--vin-fill);
+}
+.vin-btn-primary:hover:not(:disabled) { opacity: 0.85; background: var(--vin-fill); }
+.vin-btn-danger { color: var(--vin-text-danger); border-color: var(--vin-bg-danger); }
+.vin-btn-danger:hover { background: var(--vin-bg-danger); }
+
+.vin-input, .vin-select, .vin-textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 0.5px solid var(--vin-border-strong);
+  border-radius: var(--vin-radius-sm);
+  background: var(--vin-surface-2);
+  color: var(--vin-text);
+  font-size: 13.5px;
+  font-family: inherit;
+}
+.vin-input:focus, .vin-select:focus, .vin-textarea:focus {
+  outline: 2px solid var(--vin-text-accent); outline-offset: -1px;
+}
+.vin-label {
+  font-size: 12px; color: var(--vin-text-2);
+  display: block; margin-bottom: 3px;
+}
