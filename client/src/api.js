@@ -2475,6 +2475,16 @@ export async function updateMusician(id, body) {
   return d;
 }
 
+// force=true confirms deletion of an act that still has upcoming events; without it
+// the API returns 409 with the count so the user can be asked.
+export async function deleteMusician(id, { force } = {}) {
+  const res = await fetch(`${API}/musicians/${id}${force ? '?force=true' : ''}`,
+    { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(d.error || 'Failed to delete'); e.detail = d; throw e; }
+  return d;
+}
+
 export async function uploadEventImage(file) {
   const fd = new FormData();
   fd.append('image', file);

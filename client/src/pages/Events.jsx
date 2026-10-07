@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, withdrawEvent, verifyEventWithdrawn, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, deleteMusician, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, withdrawEvent, verifyEventWithdrawn, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
 import { ImageField } from '../components/MediaPicker';
+import './Talent.css';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -283,20 +284,76 @@ function MusiciansTab() {
   const load = useCallback(async () => { try { setList(await getMusicians()); } catch (x) { setErr(x.message); } }, []);
   useEffect(() => { load(); }, [load]);
 
-  const blank = { name: '', type: 'musician', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', main_contact: '', write_check_to: '', address: '', notes: '', active: true };
-  const [filter, setFilter] = useState({ status: 'all', phone: 'all' });
+  const blank = { name: '', type: 'musician', act_type: '', genre: '', rating: '', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', main_contact: '', write_check_to: '', address: '', notes: '', active: true };
+  const [filter, setFilter] = useState({ status: 'all', phone: 'all', email: 'all', act_type: 'all', genre: 'all', rating: 'all', sort: 'name' });
+  // Genres come from what has actually been typed rather than a fixed list — the
+  // acts Kindred books do not fit a canned taxonomy, and a wrong list just gets
+  // worked around with "Other".
+  const genres = [...new Set(list.map((m) => (m.genre || '').trim()).filter(Boolean))].sort();
   const toggleActive = async (m) => { await updateMusician(m.id, { active: !m.active }); load(); };
-  const mfsel = { padding: '5px 7px', borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 13, background: 'transparent', color: 'inherit' };
+
+  // Delete is for duplicates and mistakes; Deactivate is for an act you are simply not
+  // booking. The confirm says which, because the two are easy to confuse and only one
+  // of them is reversible from this screen.
+  const remove = async (m) => {
+    if (!window.confirm(`Delete ${m.name}?\n\nPast events keep their line-up, but the act `
+      + `disappears from this list and from the event picker. If you just are not booking `
+      + `them at the moment, use Deactivate instead.`)) return;
+    try {
+      await deleteMusician(m.id);
+      load();
+    } catch (e) {
+      // 409: still on upcoming events. Say how many and let the user decide.
+      if (e.detail?.upcoming) {
+        if (window.confirm(`${e.detail.error}\n\nDelete anyway?`)) {
+          await deleteMusician(m.id, { force: true });
+          load();
+        }
+        return;
+      }
+      window.alert(`Could not delete: ${e.message}`);
+    }
+  };
   const filtered = list.filter((m) => {
     if (filter.status === 'active' && !m.active) return false;
     if (filter.status === 'inactive' && m.active) return false;
     if (filter.phone === 'has' && !m.phone) return false;
     if (filter.phone === 'no' && m.phone) return false;
+    if (filter.email === 'has' && !m.email) return false;
+    if (filter.email === 'no' && m.email) return false;
+    if (filter.act_type !== 'all' && (m.act_type || '') !== filter.act_type) return false;
+    if (filter.genre !== 'all' && (m.genre || '') !== filter.genre) return false;
+    // "3+" style thresholds, plus an explicit unrated bucket — "no rating" is a real
+    // thing to go looking for, not the bottom of the scale.
+    if (filter.rating === 'none' && m.rating != null) return false;
+    if (filter.rating !== 'all' && filter.rating !== 'none'
+        && (m.rating == null || m.rating < Number(filter.rating))) return false;
     return true;
+  }).sort((a, b) => {
+    // Unset values sort last in every mode rather than reading as zero, so an act
+    // with no rate does not look like the cheapest one on the list.
+    const nulls = (x, y) => (x == null) - (y == null);
+    switch (filter.sort) {
+      case 'price_asc':  return nulls(a.rate_amount, b.rate_amount) || (a.rate_amount - b.rate_amount);
+      case 'price_desc': return nulls(a.rate_amount, b.rate_amount) || (b.rate_amount - a.rate_amount);
+      case 'rating':     return nulls(a.rating, b.rating) || (b.rating - a.rating) || a.name.localeCompare(b.name);
+      case 'lift':       return nulls(a.lift_pct, b.lift_pct) || (b.lift_pct - a.lift_pct);
+      case 'act_type':   return (a.act_type || 'zz').localeCompare(b.act_type || 'zz') || a.name.localeCompare(b.name);
+      case 'genre':      return (a.genre || 'zz').localeCompare(b.genre || 'zz') || a.name.localeCompare(b.name);
+      default:           return a.name.localeCompare(b.name);
+    }
   });
   const save = async () => {
     try {
-      const body = { ...form }; Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
+      const body = { ...form };
+      // Deleting every empty key means "cleared" and "untouched" look identical to the
+      // API, so a genre or rating could never be removed once set. These three send an
+      // explicit null; everything else keeps the old drop-if-empty behaviour.
+      const CLEARABLE = ['act_type', 'genre', 'rating'];
+      Object.keys(body).forEach((k) => {
+        if (body[k] !== '') return;
+        if (CLEARABLE.includes(k)) body[k] = null; else delete body[k];
+      });
       if (form.id) await updateMusician(form.id, body); else await createMusician(body);
       setForm(null); await load();
     } catch (x) { setErr(x.message); }
@@ -323,6 +380,25 @@ function MusiciansTab() {
             <div><label style={lbl}>Phone <span style={{ color: '#c0392b' }}>*required</span></label><input style={inp} value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="for event reminders" /></div>
             <div><label style={lbl}>Website / social</label><input style={inp} value={form.website_url || ''} onChange={(e) => setForm({ ...form, website_url: e.target.value })} /></div>
             <div><label style={lbl}>Photo URL</label><input style={inp} value={form.photo_url || ''} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} /></div>
+            <div><label style={lbl}>Act</label>
+              <select style={inp} value={form.act_type || ''} onChange={(e) => setForm({ ...form, act_type: e.target.value })}>
+                <option value="">—</option><option value="solo">Solo</option>
+                <option value="duo">Duo</option><option value="band">Band</option>
+              </select>
+            </div>
+            <div><label style={lbl}>Genre</label>
+              <input style={inp} list="talent-genres" value={form.genre || ''}
+                     onChange={(e) => setForm({ ...form, genre: e.target.value })} />
+              {/* Free text with suggestions from what is already in use, so it stays
+                  tidy without boxing anyone into a fixed taxonomy. */}
+              <datalist id="talent-genres">{genres.map((g) => <option key={g} value={g} />)}</datalist>
+            </div>
+            <div><label style={lbl}>Rating</label>
+              <select style={inp} value={form.rating ?? ''} onChange={(e) => setForm({ ...form, rating: e.target.value })}>
+                <option value="">Unrated</option>
+                {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{'★'.repeat(n)} ({n})</option>)}
+              </select>
+            </div>
             <div><label style={lbl}>Rate</label><input type="number" style={inp} value={form.rate_amount || ''} onChange={(e) => setForm({ ...form, rate_amount: e.target.value })} /></div>
             <div><label style={lbl}>Rate unit</label>
               <select style={inp} value={form.rate_unit || 'event'} onChange={(e) => setForm({ ...form, rate_unit: e.target.value })}>
@@ -347,32 +423,90 @@ function MusiciansTab() {
           </div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-        <select style={mfsel} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
+      <div className="tal-bar">
+        <select className="tal-sel" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
           <option value="all">All statuses</option><option value="active">Active only</option><option value="inactive">Inactive only</option>
         </select>
-        <select style={mfsel} value={filter.phone} onChange={(e) => setFilter({ ...filter, phone: e.target.value })}>
+        <select className="tal-sel" value={filter.phone} onChange={(e) => setFilter({ ...filter, phone: e.target.value })}>
           <option value="all">Any phone</option><option value="has">Has phone</option><option value="no">No phone</option>
         </select>
-        <span style={{ fontSize: 12, opacity: 0.5 }}>{filtered.length} talent</span>
+        <select className="tal-sel" value={filter.email} onChange={(e) => setFilter({ ...filter, email: e.target.value })}>
+          <option value="all">Any email</option><option value="has">Has email</option><option value="no">No email</option>
+        </select>
+        <select className="tal-sel" value={filter.act_type} onChange={(e) => setFilter({ ...filter, act_type: e.target.value })}>
+          <option value="all">Any act</option><option value="solo">Solo</option>
+          <option value="duo">Duo</option><option value="band">Band</option>
+          <option value="">Act not set</option>
+        </select>
+        <select className="tal-sel" value={filter.genre} onChange={(e) => setFilter({ ...filter, genre: e.target.value })}>
+          <option value="all">Any genre</option>
+          {genres.map((g) => <option key={g} value={g}>{g}</option>)}
+          <option value="">Genre not set</option>
+        </select>
+        <select className="tal-sel" value={filter.rating} onChange={(e) => setFilter({ ...filter, rating: e.target.value })}>
+          <option value="all">Any rating</option>
+          <option value="5">5 ★</option><option value="4">4 ★ and up</option>
+          <option value="3">3 ★ and up</option><option value="2">2 ★ and up</option>
+          <option value="none">Unrated</option>
+        </select>
+        <select className="tal-sel" value={filter.sort} onChange={(e) => setFilter({ ...filter, sort: e.target.value })}>
+          <option value="name">Sort: Name</option>
+          <option value="rating">Sort: Rating</option>
+          <option value="price_asc">Sort: Price (low first)</option>
+          <option value="price_desc">Sort: Price (high first)</option>
+          <option value="act_type">Sort: Act</option>
+          <option value="genre">Sort: Genre</option>
+          <option value="lift">Sort: Sales lift</option>
+        </select>
+        <span className="tal-count">{filtered.length} of {list.length}</span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 }}>
+      {filtered.length === 0 ? (
+        <div className="tal-empty">No talent matches these filters.</div>
+      ) : (
+      <div className="tal-grid">
         {filtered.map((m) => (
-          <div key={m.id} style={{ ...card, opacity: m.active ? 1 : 0.6 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              {m.photo_url ? <img src={m.photo_url} alt="" style={{ width: 44, height: 44, borderRadius: 22, objectFit: 'cover' }} /> : <div style={{ width: 44, height: 44, borderRadius: 22, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎵</div>}
-              <div onClick={() => setForm({ ...m, rate_amount: m.rate_amount ?? '' })} style={{ cursor: 'pointer', flex: 1 }}>
-                <div style={{ fontWeight: 700 }}>{m.name}{m.type && m.type !== 'musician' ? <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}> · {m.type}</span> : ''}{!m.phone ? <span style={{ fontSize: 11, color: '#c0392b' }}> · no phone</span> : ''}</div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>{m.rate_amount != null ? `${money(m.rate_amount)}/${m.rate_unit || 'event'}` : (m.phone || m.email || '—')}</div>
+          <div key={m.id} className={`tal-card${m.active ? '' : ' is-inactive'}`}>
+            <div className="tal-head">
+              {m.photo_url
+                ? <img src={m.photo_url} alt="" className="tal-avatar" />
+                : <div className="tal-avatar">♪</div>}
+              <div className="tal-id" onClick={() => setForm({ ...m, rate_amount: m.rate_amount ?? '' })}>
+                <div className="tal-name">{m.name}</div>
+                <div className="tal-rate">
+                  {m.rate_amount != null ? `${money(m.rate_amount)}/${m.rate_unit || 'event'}` : 'No rate set'}
+                </div>
               </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: m.active ? '#e2f7e6' : '#eee', color: m.active ? '#137a2f' : '#777' }}>{m.active ? 'Active' : 'Inactive'}</span>
-              <button style={{ ...btn(false), padding: '2px 8px', fontSize: 11 }} onClick={() => toggleActive(m)}>{m.active ? 'Deactivate' : 'Activate'}</button>
+
+            {/* The facts you filter on, shown so a filtered list can be read without
+                opening every card. Quiet, so name and rate stay dominant. */}
+            <div className="tal-meta">
+              {m.act_type && <span style={{ textTransform: 'capitalize' }}>{m.act_type}</span>}
+              {m.act_type && m.genre && <span className="sep">·</span>}
+              {m.genre && <span>{m.genre}</span>}
+              {m.rating != null && <><span className="sep">·</span>
+                <span className="tal-stars" title={`${m.rating} of 5`}>{'★'.repeat(m.rating)}</span></>}
+              {m.lift_pct != null && <><span className="sep">·</span><span>+{m.lift_pct}% lift</span></>}
+            </div>
+
+            <div className="tal-foot">
+              <span style={{ display: 'flex', gap: 5 }}>
+                <span className={`tal-pill ${m.active ? 'tal-pill-success' : 'tal-pill-muted'}`}>
+                  {m.active ? 'Active' : 'Inactive'}
+                </span>
+                {!m.phone && <span className="tal-pill tal-pill-danger">No phone</span>}
+                {!m.email && <span className="tal-pill tal-pill-muted">No email</span>}
+              </span>
+              <span style={{ display: 'flex', gap: 5 }}>
+                <button className="tal-btn" onClick={() => toggleActive(m)}>{m.active ? 'Deactivate' : 'Activate'}</button>
+                <button className="tal-btn tal-btn-danger" onClick={() => remove(m)}
+                        title="Remove this act entirely">Delete</button>
+              </span>
             </div>
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }

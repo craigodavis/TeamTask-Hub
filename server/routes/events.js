@@ -65,16 +65,31 @@ export const musiciansRouter = express.Router();
 musiciansRouter.get('/', async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, name, type, stage_name, bio, photo_url, website_url, links, rate_amount, rate_unit,
-              phone, email, main_contact, write_check_to, address, lift_pct, lift_nights, notes, active
-         FROM musicians WHERE company_id = $1 ORDER BY active DESC, lift_pct DESC NULLS LAST, name`, [cId(req)]);
+      `SELECT id, name, type, act_type, genre, rating, stage_name, bio, photo_url, website_url, links,
+              rate_amount, rate_unit, phone, email, main_contact, write_check_to, address,
+              lift_pct, lift_nights, notes, active
+         FROM musicians WHERE company_id = $1 AND deleted_at IS NULL
+         ORDER BY active DESC, lift_pct DESC NULLS LAST, name`, [cId(req)]);
     res.json(r.rows);
   } catch (e) { console.error('musicians list', e); res.status(500).json({ error: e.message }); }
 });
 
-const MUS_FIELDS = ['name', 'type', 'stage_name', 'bio', 'photo_url', 'website_url', 'links', 'rate_amount', 'rate_unit', 'phone', 'email', 'main_contact', 'write_check_to', 'address', 'notes', 'active'];
+// Whitelist for create and update. A field missing here is silently dropped, so
+// anything added to the form has to be added here too.
+const MUS_FIELDS = ['name', 'type', 'act_type', 'genre', 'rating', 'stage_name', 'bio', 'photo_url', 'website_url', 'links', 'rate_amount', 'rate_unit', 'phone', 'email', 'main_contact', 'write_check_to', 'address', 'notes', 'active'];
+
+// '' from an unset <select> would fail the CHECK constraints, and '' is not a rating
+// or an act size — it means "not recorded". Normalise before it reaches the database.
+function normalizeMusicianBody(b) {
+  if (b.act_type === '') b.act_type = null;
+  if (b.genre === '') b.genre = null;
+  if (b.rating === '' || b.rating === undefined) { if ('rating' in b) b.rating = null; }
+  else if (b.rating !== null) b.rating = parseInt(b.rating, 10) || null;
+  return b;
+}
 musiciansRouter.post('/', async (req, res) => {
   try {
+    normalizeMusicianBody(req.body);
     if (!req.body.name?.trim()) return res.status(400).json({ error: 'Name is required' });
     if (!req.body.phone?.trim()) return res.status(400).json({ error: 'Phone is required (we text talent event reminders)' });
     if (!req.body.write_check_to?.trim() && req.body.main_contact?.trim()) req.body.write_check_to = req.body.main_contact.trim();
@@ -89,6 +104,7 @@ musiciansRouter.post('/', async (req, res) => {
 
 musiciansRouter.patch('/:id', async (req, res) => {
   try {
+    normalizeMusicianBody(req.body);
     const sets = [], vals = [];
     for (const f of MUS_FIELDS) if (f in req.body) {
       vals.push(f === 'links' ? JSON.stringify(req.body[f] || []) : req.body[f]);
@@ -99,6 +115,42 @@ musiciansRouter.patch('/:id', async (req, res) => {
     await query(`UPDATE musicians SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length - 1} AND company_id = $${vals.length}`, vals);
     res.json({ ok: true });
   } catch (e) { console.error('musician patch', e); res.status(500).json({ error: e.message }); }
+});
+
+// ── DELETE /api/musicians/:id ────────────────────────────────────────────────
+// Soft delete. Events keep a musician_id, and past events must still be able to say
+// who played them, so the row stays and is hidden instead. Deactivating is the right
+// move for an act you simply are not booking right now; this is for duplicates and
+// mistakes.
+musiciansRouter.delete('/:id', async (req, res) => {
+  try {
+    const m = (await query(
+      `SELECT name FROM musicians WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL`,
+      [req.params.id, cId(req)])).rows[0];
+    if (!m) return res.status(404).json({ error: 'Not found' });
+
+    const booked = (await query(
+      `SELECT COUNT(*)::int AS n,
+              COUNT(*) FILTER (WHERE COALESCE(end_at, start_at) >= NOW())::int AS upcoming
+         FROM events WHERE musician_id = $1 AND company_id = $2 AND deleted_at IS NULL`,
+      [req.params.id, cId(req)])).rows[0];
+
+    // An act booked for a date that has not happened yet is almost certainly not the
+    // one you meant to delete. Refuse unless the caller says they mean it.
+    if (booked.upcoming > 0 && req.query.force !== 'true') {
+      return res.status(409).json({
+        error: `${m.name} is on ${booked.upcoming} upcoming event${booked.upcoming === 1 ? '' : 's'}.`
+             + ` Deactivate instead, or confirm to delete anyway.`,
+        upcoming: booked.upcoming, events: booked.n, name: m.name,
+      });
+    }
+
+    await query(
+      `UPDATE musicians SET deleted_at = NOW(), deleted_by = $3, updated_at = NOW()
+        WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL`,
+      [req.params.id, cId(req), req.userId || null]);
+    res.json({ ok: true, name: m.name, events: booked.n, upcoming: booked.upcoming });
+  } catch (e) { console.error('musician delete', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── Events ───────────────────────────────────────────────────────────────────

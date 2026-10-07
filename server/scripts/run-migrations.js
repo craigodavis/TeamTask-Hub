@@ -4540,6 +4540,22 @@ const MIGRATIONS = [
   `ALTER TABLE vintly.projects
      ADD COLUMN IF NOT EXISTS exclude_from_abc BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE vintly.projects ADD COLUMN IF NOT EXISTS abc_exclusion_reason TEXT`,
+
+  // ── Talent: act size, genre and rating ──────────────────────────────────────
+  // NOT the existing `type` column, which is talent-kind (every row is 'musician')
+  // and distinguishes a musician from other acts. act_type is how big the act is,
+  // which is what actually drives the fee and the stage.
+  `ALTER TABLE musicians ADD COLUMN IF NOT EXISTS act_type VARCHAR(10)`,
+  `ALTER TABLE musicians ADD COLUMN IF NOT EXISTS genre VARCHAR(80)`,
+  `ALTER TABLE musicians ADD COLUMN IF NOT EXISTS rating SMALLINT`,
+  // Constrained rather than left free: a 1-5 rating that silently accepts 10 sorts
+  // wrong forever. Left nullable because most of the 44 acts are unrated.
+  `ALTER TABLE musicians DROP CONSTRAINT IF EXISTS musicians_rating_range`,
+  `ALTER TABLE musicians ADD CONSTRAINT musicians_rating_range
+     CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5))`,
+  `ALTER TABLE musicians DROP CONSTRAINT IF EXISTS musicians_act_type_valid`,
+  `ALTER TABLE musicians ADD CONSTRAINT musicians_act_type_valid
+     CHECK (act_type IS NULL OR act_type IN ('solo', 'duo', 'band'))`,
 ];
 
 export async function runMigrations() {
