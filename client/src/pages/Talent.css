@@ -61,9 +61,14 @@
 .tal-stars { color: var(--vin-text-warning); letter-spacing: 0.5px; }
 
 .tal-foot {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  display: flex; justify-content: space-between; align-items: center;
+  /* Wraps rather than overflows. At 312px a card holds two or three pills plus
+     Deactivate and Delete, which does not fit on one line — without this the row
+     spilled past the card edge instead of dropping the buttons underneath. */
+  flex-wrap: wrap; gap: 8px;
   padding-top: 10px; border-top: 0.5px solid var(--vin-border);
 }
+.tal-foot > span { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
 
 /* ── Pills ────────────────────────────────────────────────────────────────── */
 .tal-pill {
