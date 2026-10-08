@@ -702,12 +702,19 @@ websiteRouter.get('/events/calendar', async (req, res) => {
       // Overlap, not start: a festival running 30 Sep - 2 Oct belongs in BOTH
       // months' calendars, and filtering on start_at alone hides it from October.
       range = `AND e.start_at < ($${params.length}::date + INTERVAL '1 month')`
-            + ` AND COALESCE(e.end_at, e.start_at) >= $${params.length}::date`;
+            + ` AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= $${params.length}::date`;
     } else {
       // COALESCE because end_at is nullable; a single-day event with no end is
       // unaffected. Oktoberfest 2026 ran 3-4 Oct and vanished from the website on
       // the 4th, mid-event, because start_at was already in the past.
-      range = `AND COALESCE(e.end_at, e.start_at) >= date_trunc('day', now())`;
+      //
+      // GREATEST because an end_at BEFORE the start is not a real end time, it is
+      // a typo, and it must not be allowed to decide anything. "70s & 80s Night"
+      // was entered for 7 Nov with its end left on 7 Oct, so this clause read it
+      // as a month finished and hid a published event from the site entirely —
+      // silently, which is the worst way for it to fail. An event is over when
+      // the later of its two ends has passed, and the start always counts.
+      range = `AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= date_trunc('day', now())`;
     }
     let venueClause = '';
     if (req.query.venue) { params.push(req.query.venue); venueClause = `AND l.web_slug = $${params.length}`; }
@@ -734,7 +741,7 @@ websiteRouter.get('/events', async (req, res) => {
     const params = [companyId];
     // Same rule as the calendar above: still on today means still listed.
     let where = `e.company_id = $1 AND e.status = 'published'`
-              + ` AND COALESCE(e.end_at, e.start_at) >= date_trunc('day', now())`;
+              + ` AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= date_trunc('day', now())`;
     if (req.query.venue) { params.push(req.query.venue); where += ` AND l.web_slug = $${params.length}`; }
     if (req.query.category) { params.push(req.query.category); where += ` AND e.category = $${params.length}`; }
     if (req.query.q && req.query.q.trim()) {

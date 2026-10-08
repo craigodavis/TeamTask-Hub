@@ -608,10 +608,30 @@ eventsRouter.post('/emails/:eid/send-now', async (req, res) => {
     res.json(await sendOnePromoEmail(req.params.eid));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+/**
+ * An end before the start is always a typo, and it used to be saved without a
+ * murmur. "70s & 80s Night" was moved to 7 November with its end left on 7
+ * October; the website reads the later of start/end to decide whether an event
+ * has happened, so a published event simply never appeared — no error, nothing
+ * in the UI, just absent. Refuse it at the door instead.
+ *
+ * Returns an error string, or null when the pair is fine. Either side missing
+ * is fine: end_at is optional and start_at is checked separately.
+ */
+function endBeforeStart(start_at, end_at) {
+  if (!start_at || !end_at) return null;
+  const s = new Date(start_at), e = new Date(end_at);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  if (e >= s) return null;
+  return 'The end time is before the start time. Check the end date — it is easy to move an event and leave the end on the old date.';
+}
+
 eventsRouter.post('/', async (req, res) => {
   try {
     if (!req.body.title?.trim()) return res.status(400).json({ error: 'Title is required' });
     if (!req.body.start_at) return res.status(400).json({ error: 'Start date/time is required' });
+    const badRange = endBeforeStart(req.body.start_at, req.body.end_at);
+    if (badRange) return res.status(400).json({ error: badRange });
     const cols = ['company_id', 'created_by'], vals = [cId(req), req.userId || null], ph = ['$1', '$2'];
     for (const f of EV_FIELDS) if (f in req.body && req.body[f] !== '') {
       cols.push(f); vals.push(req.body[f]); ph.push('$' + vals.length);
@@ -633,7 +653,15 @@ const FIELD_LABEL = { location_id: 'venue', musician_id: 'talent', title: 'title
 
 eventsRouter.patch('/:id', async (req, res) => {
   try {
-    const cur = (await query(`SELECT title, start_at, status, stage FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    const cur = (await query(`SELECT title, start_at, end_at, status, stage FROM events WHERE id = $1 AND company_id = $2`, [req.params.id, cId(req)])).rows[0];
+    // Validate the pair the row will END UP with: editing only the start must
+    // still be caught against the end already stored, which is exactly how the
+    // November event got into this state.
+    const badRange = endBeforeStart(
+      'start_at' in req.body ? req.body.start_at : cur?.start_at,
+      'end_at' in req.body ? req.body.end_at : cur?.end_at,
+    );
+    if (badRange) return res.status(400).json({ error: badRange });
     // Approval gate: can't publish straight from a PATCH unless approved (or approval is off).
     if ('status' in req.body && req.body.status === 'published' && cur && cur.stage !== 'approved' && cur.stage !== 'published') {
       const cfg = await getApprovalConfig(cId(req));
