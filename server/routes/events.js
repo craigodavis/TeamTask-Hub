@@ -131,7 +131,7 @@ musiciansRouter.delete('/:id', async (req, res) => {
 
     const booked = (await query(
       `SELECT COUNT(*)::int AS n,
-              COUNT(*) FILTER (WHERE COALESCE(end_at, start_at) >= NOW())::int AS upcoming
+              COUNT(*) FILTER (WHERE GREATEST(start_at, COALESCE(end_at, start_at)) >= NOW())::int AS upcoming
          FROM events WHERE musician_id = $1 AND company_id = $2 AND deleted_at IS NULL`,
       [req.params.id, cId(req)])).rows[0];
 
@@ -163,11 +163,11 @@ eventsRouter.get('/', async (req, res) => {
     // measured from the START, so a multi-day event falls out 24h after it opens
     // even while it is running. Oktoberfest 2026 disappeared from this list at
     // midday on its closing day. Measure from the end instead.
-    const where = past ? '' : `AND COALESCE(e.end_at, e.start_at) >= NOW() - INTERVAL '1 day'`;
+    const where = past ? '' : `AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= NOW() - INTERVAL '1 day'`;
     const order = past ? 'DESC' : 'ASC';
     const r = await query(
       `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.event_url, e.image_url, e.social_image_url, e.fb_image_url,
-              e.category, e.status, e.stage, e.review_notes, e.review_by, e.review_at, e.submitted_by, e.wp_event_id, e.location_id, e.musician_id,
+              e.category, e.status, e.stage, e.sticky, e.review_notes, e.review_by, e.review_at, e.submitted_by, e.wp_event_id, e.location_id, e.musician_id,
               l.name AS location_name, m.name AS musician_name, m.lift_pct
          FROM events e
          LEFT JOIN locations l ON l.id = e.location_id
@@ -184,7 +184,7 @@ eventsRouter.post('/upload-image', imgUpload.single('image'), (req, res) => {
 });
 
 // Internal-only fields (notes, tasks) are never included in the WordPress push.
-const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'event_url', 'image_url', 'social_image_url', 'fb_image_url', 'category', 'status', 'internal_notes'];
+const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'event_url', 'image_url', 'social_image_url', 'fb_image_url', 'category', 'status', 'internal_notes', 'sticky'];
 
 // Employees assignable to event tasks
 eventsRouter.get('/assignable-users', async (req, res) => {
@@ -647,7 +647,7 @@ eventsRouter.post('/', async (req, res) => {
 
 // Human labels for the fields we announce in the audit log.
 const FIELD_LABEL = { location_id: 'venue', musician_id: 'talent', title: 'title', description: 'description',
-  start_at: 'date/time', end_at: 'end time', all_day: 'all-day', cost: 'cost', event_url: 'ticket URL',
+  start_at: 'date/time', end_at: 'end time', all_day: 'all-day', cost: 'cost', event_url: 'ticket URL', sticky: 'always show on the events page',
   image_url: 'image', social_image_url: 'social image', fb_image_url: 'Facebook image', category: 'category',
   status: 'status', internal_notes: 'internal notes' };
 

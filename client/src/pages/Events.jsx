@@ -1185,13 +1185,16 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const toLocal = toLocalInput; // see the note on toLocalInput — stored time is wall clock
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
-    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
+    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', sticky: !!ev.sticky, image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
   const setField = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const saveDetails = async () => {
     const body = {};
     for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url']) body[k] = f[k] === '' ? null : f[k];
+    // Separate from the loop above: that turns '' into null, and false is not ''
+    // — but a checkbox that cannot be turned back off is worse than no checkbox.
+    body.sticky = !!f.sticky;
     await updateEvent(ev.id, body); setSavedD(true); setTimeout(() => setSavedD(false), 1200);
   };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
@@ -1326,6 +1329,20 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
               <option value="draft">Draft (not on website)</option>
               <option value="published">Published (to website)</option>
             </select>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" style={{ marginTop: 3 }} checked={f.sticky}
+                     onChange={(e) => setField('sticky', e.target.checked)} />
+              <span>
+                <b>Always show on the events page</b>
+                <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2, lineHeight: 1.5 }}>
+                  The website lists the next few events by date. Tick this and it stays on the
+                  page however far off it is, shown after the others. For the one event you want
+                  seen all year — it still needs to be Published.
+                </div>
+              </span>
+            </label>
           </div>
           <div style={{ gridColumn: '1 / -1' }}><HtmlDesc value={f.description} onChange={(v) => setField('description', v)} /></div>
           <div style={{ gridColumn: '1 / -1' }}>

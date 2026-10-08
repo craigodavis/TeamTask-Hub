@@ -207,7 +207,7 @@ websiteRouter.post('/event-request', async (req, res) => {
 
 const LIST_FIELDS = `
   e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
-  e.event_url, e.image_url, e.social_image_url, e.fb_image_url, e.category,
+  e.event_url, e.image_url, e.social_image_url, e.fb_image_url, e.category, e.sticky,
   l.web_slug AS venue, l.name AS venue_name,
   m.name AS musician_name, m.stage_name AS musician_stage_name,
   m.photo_url AS musician_photo, m.website_url AS musician_url`;
@@ -748,7 +748,7 @@ websiteRouter.get('/events', async (req, res) => {
       params.push(`%${req.query.q.trim()}%`);
       where += ` AND (e.title ILIKE $${params.length} OR e.description ILIKE $${params.length} OR e.category ILIKE $${params.length})`;
     }
-    params.push(limit);
+    const listParams = [...params, limit];
     const r = await query(
       `SELECT ${LIST_FIELDS}
          FROM events e
@@ -756,10 +756,48 @@ websiteRouter.get('/events', async (req, res) => {
          LEFT JOIN musicians m ON m.id = e.musician_id
         WHERE ${where}
         ORDER BY e.start_at ASC
-        LIMIT $${params.length}`,
-      params
+        LIMIT $${listParams.length}`,
+      listParams
     );
-    res.json({ events: absMediaAll(r.rows), limit });
+    let rows = r.rows;
+
+    /* Sticky events.
+     *
+     * The list is capped so the page shows what is on SOON. That is the right
+     * default and the wrong answer for the one event we want seen all year: a
+     * harvest party announced in spring sits below ten weekly music nights and
+     * is invisible until it is nearly here.
+     *
+     * So after the window is filled, any sticky event the cap pushed out is
+     * appended — same filters, so a sticky event that has passed stays gone and
+     * one at the wrong venue stays out. Already in the window? Left where it is,
+     * in date order, rather than shown twice.
+     *
+     * Not applied to a search: typing "bingo" asks a question, and answering it
+     * with an unrelated pinned event is just noise.
+     */
+    const searching = Boolean(req.query.q && req.query.q.trim());
+    if (!searching) {
+      const have = rows.map((e) => e.id);
+      const sParams = [...params, have];
+      const extra = await query(
+        `SELECT ${LIST_FIELDS}
+           FROM events e
+           LEFT JOIN locations l ON l.id = e.location_id
+           LEFT JOIN musicians m ON m.id = e.musician_id
+          WHERE ${where} AND e.sticky = TRUE AND NOT (e.id = ANY($${sParams.length}::uuid[]))
+          ORDER BY e.start_at ASC
+          LIMIT 20`,
+        sParams
+      );
+      // `pinned` marks only the ones APPENDED past the cap. A sticky event that
+      // falls inside the window is an ordinary upcoming event and should look
+      // like one; the website needs the distinction to explain why these sit
+      // outside the date order.
+      rows = rows.concat(extra.rows.map((e) => ({ ...e, pinned: true })));
+    }
+
+    res.json({ events: absMediaAll(rows), limit });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

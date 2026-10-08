@@ -4556,6 +4556,13 @@ const MIGRATIONS = [
   `ALTER TABLE musicians DROP CONSTRAINT IF EXISTS musicians_act_type_valid`,
   `ALTER TABLE musicians ADD CONSTRAINT musicians_act_type_valid
      CHECK (act_type IS NULL OR act_type IN ('solo', 'duo', 'band'))`,
+
+  // Sticky events stay on the venue's events page however far down the date
+  // order they fall. The list is capped at events_list_count (10), which is
+  // right for "what's on soon" and wrong for the one thing we want seen all
+  // year — a harvest party announced in spring sits at position 30 until it is
+  // nearly here.
+  `ALTER TABLE events ADD COLUMN IF NOT EXISTS sticky BOOLEAN NOT NULL DEFAULT FALSE`,
 ];
 
 export async function runMigrations() {
