@@ -4562,7 +4562,31 @@ const MIGRATIONS = [
   // right for "what's on soon" and wrong for the one thing we want seen all
   // year — a harvest party announced in spring sits at position 30 until it is
   // nearly here.
-  `ALTER TABLE events ADD COLUMN IF NOT EXISTS sticky BOOLEAN NOT NULL DEFAULT FALSE`,
+  //
+  // NOTE `events` is a VIEW over `events_all` (the rows with deleted_at IS NULL),
+  // so a column is added to the base table and the view is then widened to carry
+  // it. Writing `ALTER TABLE events` here instead throws "events is not a table",
+  // and because a failing migration aborts the whole loop, that mistake takes
+  // every later migration down with it. Add columns to events_all.
+  `ALTER TABLE events_all ADD COLUMN IF NOT EXISTS sticky BOOLEAN NOT NULL DEFAULT FALSE`,
+  // CREATE OR REPLACE VIEW can only append columns, never reorder or remove, so
+  // sticky goes last and the rest of the list must stay exactly as it was.
+  `CREATE OR REPLACE VIEW events AS
+     SELECT events_all.id, events_all.company_id, events_all.location_id, events_all.musician_id,
+            events_all.title, events_all.description, events_all.start_at, events_all.end_at,
+            events_all.all_day, events_all.cost, events_all.event_url, events_all.image_url,
+            events_all.category, events_all.status, events_all.wp_event_id, events_all.wp_synced_at,
+            events_all.source, events_all.reminder_week_sent_at, events_all.reminder_day_sent_at,
+            events_all.created_by, events_all.created_at, events_all.updated_at,
+            events_all.reminder_month_sent_at, events_all.internal_notes, events_all.social_image_url,
+            events_all.slug, events_all.app_notify, events_all.announce_lead_days,
+            events_all.publish_warned_at, events_all.fb_image_url, events_all.deleted_at,
+            events_all.deleted_by, events_all.stage, events_all.submitted_at, events_all.submitted_by,
+            events_all.review_notes, events_all.review_by, events_all.review_at,
+            events_all.review_notified_at, events_all.approved_notified_at,
+            events_all.sticky
+       FROM events_all
+      WHERE events_all.deleted_at IS NULL`,
 ];
 
 export async function runMigrations() {
