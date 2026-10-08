@@ -4587,6 +4587,14 @@ const MIGRATIONS = [
             events_all.sticky
        FROM events_all
       WHERE events_all.deleted_at IS NULL`,
+
+  // Every menu edit from the UI failed with "value too long for type character
+  // varying(40)". actorOf() falls back to `user:${req.userId}` because the auth
+  // middleware never populates req.user, and "user:" plus a 36-character uuid is
+  // exactly 41. The audit insert blew up and took the whole save down with it, which
+  // is why no UI edit had ever succeeded - the only four rows in the table came from
+  // scripts. An audit actor has no business being length-capped anyway.
+  `ALTER TABLE menu_item_changes ALTER COLUMN actor TYPE TEXT`,
 ];
 
 export async function runMigrations() {

@@ -402,9 +402,15 @@ router.get('/:key/items/history', requireCapability('tastingroom.menus'), async 
   if (!isMenu(key)) return res.status(404).json({ error: 'Unknown menu' });
   try {
     const r = await query(
-      `SELECT id, item_id, action, before_json, after_json, actor, created_at
-         FROM menu_item_changes WHERE company_id=$1 AND menu_key=$2
-        ORDER BY created_at DESC LIMIT 200`,
+      // actor_user is the reliable identity; the actor string is a fallback that
+      // reads "user:<uuid>" for anything saved from the UI. Resolve the name on read
+      // so the history is legible without rewriting rows already stored.
+      `SELECT c.id, c.item_id, c.action, c.before_json, c.after_json, c.created_at,
+              COALESCE(u.display_name, c.actor) AS actor
+         FROM menu_item_changes c
+         LEFT JOIN users u ON u.id = c.actor_user
+        WHERE c.company_id=$1 AND c.menu_key=$2
+        ORDER BY c.created_at DESC LIMIT 200`,
       [cid(req), key]
     );
     res.json({ changes: r.rows });
