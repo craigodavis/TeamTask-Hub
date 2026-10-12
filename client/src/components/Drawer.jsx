@@ -14,9 +14,25 @@ import './Drawer.css';
 export default function Drawer({ open, title, onClose, children, footer }) {
   const panelRef = useRef(null);
 
+  /**
+   * Why onClose is held in a ref instead of listed as a dependency.
+   *
+   * Every caller passes an inline arrow — onClose={() => setForm(null)} — which is a
+   * new function on every render. With onClose in the dependency array this effect
+   * re-ran on each keystroke and called panelRef.focus(), moving focus out of the
+   * field being typed in: a character went in, then focus jumped to the panel. It
+   * looked like a bug in whichever field you happened to try.
+   *
+   * The ref keeps Escape calling the CURRENT onClose while letting the effect depend
+   * on `open` alone, so the focus move happens once per opening, which is the only
+   * time it is wanted.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current?.(); };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -25,7 +41,7 @@ export default function Drawer({ open, title, onClose, children, footer }) {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (
