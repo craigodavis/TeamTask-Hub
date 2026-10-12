@@ -25,7 +25,6 @@ import { Overview } from './pages/Overview';
 import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
 import Reservations from './pages/Reservations';
-import EventRequests from './pages/EventRequests';
 import PrivateEvents from './pages/PrivateEvents';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
@@ -192,12 +191,11 @@ function App() {
                 ? <PrivateEvents /> : <Navigate to="/" replace />
             }
           />
+          {/* Event Requests is now a tab inside Private Events. Kept as a redirect
+              so existing bookmarks and links do not 404. */}
           <Route
             path="/marketing/event-requests"
-            element={
-              user?.role === 'owner' || user?.role === 'manager'
-                ? <EventRequests /> : <Navigate to="/" replace />
-            }
+            element={<Navigate to="/marketing/private-events" replace />}
           />
           <Route path="/policies" element={<Policies />} />
           {/* Open to every signed-in user — the server decides what you may edit

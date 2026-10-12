@@ -5,6 +5,7 @@ import {
   getLocations,
 } from '../api';
 import Drawer from '../components/Drawer';
+import { Requests, Tiers, Copy } from './EventRequests';
 import '../styles/vintly.css';
 import './PrivateEvents.css';
 
@@ -39,19 +40,28 @@ const LABEL = {
 
 export function PrivateEvents() {
   const [tab, setTab] = useState('calendar');
+  const [err, setErr] = useState('');
   return (
     <div className="pe">
       <h2 style={{ marginBottom: 4 }}>Private Events</h2>
       <p style={{ fontSize: 13, color: 'var(--vin-muted)', marginTop: 0, marginBottom: 14 }}>
         Enquiries from the website, what they require, and what else is already booked that day.
       </p>
-      <div className="pe-tabs" style={{ marginBottom: 14 }}>
-        {[['calendar', 'Calendar'], ['rules', 'Rules']].map(([k, l]) => (
+      {/* One flat row. Event Requests used to be its own sidebar entry; it belongs
+          here, and nesting its tabs inside these would be worse than the split. */}
+      <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
+        {[['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Tiers & pricing'],
+          ['copy', 'Message'], ['rules', 'Rules']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
-                  onClick={() => setTab(k)}>{l}</button>
+                  onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
       </div>
-      {tab === 'calendar' ? <CalendarTab /> : <RulesTab />}
+      {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+      {tab === 'calendar' && <CalendarTab />}
+      {tab === 'requests' && <Requests onError={setErr} />}
+      {tab === 'tiers' && <Tiers onError={setErr} />}
+      {tab === 'copy' && <Copy onError={setErr} />}
+      {tab === 'rules' && <RulesTab />}
     </div>
   );
 }

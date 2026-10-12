@@ -44,6 +44,9 @@ const toForm = (t) => ({
   planning_meeting_days: t.planning_meeting_days ?? '',
 });
 
+// The three panels are exported so Private Events can show them in ONE flat tab row
+// alongside its calendar and rules. This page stays as a redirect target for old
+// links; nesting its tabs inside another set of tabs would be worse than the problem.
 export default function EventRequests() {
   const [tab, setTab] = useState('requests');
   const [error, setError] = useState('');
@@ -106,7 +109,7 @@ export default function EventRequests() {
 
 /* -------------------------------------------------------------- requests */
 
-function Requests({ onError }) {
+export function Requests({ onError }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -149,7 +152,16 @@ function Requests({ onError }) {
               <div>
                 <h3>{r.name}</h3>
                 <p className="evr-meta">
-                  {fmtDate(r.event_date)} · {r.guests} {r.guests === 1 ? 'guest' : 'guests'}
+                  {fmtDate(r.event_date)}
+                  {/* The time block and venue the guest asked for. Older requests
+                      predate these fields and say so, rather than showing a blank
+                      that reads as "any time, anywhere". Every hours-based term
+                      depends on them. */}
+                  {r.start_time
+                    ? ` · ${String(r.start_time).slice(0, 5)}–${String(r.end_time || '').slice(0, 5)}`
+                    : ' · no time given'}
+                  {r.location_name ? ` · ${r.location_name}` : ' · no venue given'}
+                  {' · '}{r.guests} {r.guests === 1 ? 'guest' : 'guests'}
                 </p>
               </div>
               <span className={`evr-pill ${r.status}`}>{r.status}</span>
@@ -217,7 +229,7 @@ function Requests({ onError }) {
 
 /* ----------------------------------------------------------------- tiers */
 
-function Tiers({ onError }) {
+export function Tiers({ onError }) {
   const [tiers, setTiers] = useState([]);
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -341,7 +353,7 @@ function Tiers({ onError }) {
 
 /* ------------------------------------------------------------------ copy */
 
-function Copy({ onError }) {
+export function Copy({ onError }) {
   const [v, setV] = useState({ intro: '', approvedEmail: '' });
   const [saved, setSaved] = useState(false);
 

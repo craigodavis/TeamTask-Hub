@@ -146,9 +146,11 @@ router.get('/', requireManager, async (req, res) => {
   try {
     const status = req.query.status;
     const { rows } = await query(
-      `SELECT * FROM kindred_web.event_requests
-        ${status ? 'WHERE status = $1' : ''}
-        ORDER BY created_at DESC LIMIT 500`,
+      `SELECT r.*, l.name AS location_name
+         FROM kindred_web.event_requests r
+         LEFT JOIN locations l ON l.id = r.location_id
+        ${status ? 'WHERE r.status = $1' : ''}
+        ORDER BY r.created_at DESC LIMIT 500`,
       status ? [status] : []);
     // Sent with the list so staff can copy the exact link customers receive
     // instead of retyping a URL from memory.
