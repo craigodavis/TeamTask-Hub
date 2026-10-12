@@ -4899,6 +4899,10 @@ The date is not held until the first payment and the security deposit are receiv
        FROM companies c
       WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
                          WHERE s.company_id = c.id AND s.key = 'signatures')`,
+
+  // after_hours_availability is computed per venue from the hours table now, so the
+  // seeded constant is dead. Removed rather than left to be edited with no effect.
+  `DELETE FROM kindred_web.event_contract_values WHERE key = 'after_hours_availability'`,
 ];
 
 export async function runMigrations() {

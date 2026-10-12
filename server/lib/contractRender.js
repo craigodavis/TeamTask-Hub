@@ -48,6 +48,46 @@ function fmtTime(t) {
  * signed contract reads as though the term does not apply; a dash reads as missing,
  * which is what it is.
  */
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** "Friday and Saturday" / "Thursday, Friday and Saturday" */
+function listDays(names) {
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * When after-hours use actually begins at a venue, read from the hours table.
+ *
+ * The wording Craig supplied carried fixed times ("Friday after 6:00 pm, Saturday
+ * and Sunday after 7:00 pm") which were hypothetical and did not match any venue —
+ * the Creek is open to the public until 10:00 pm on Friday, so promising exclusive
+ * use from 6:00 pm would have been a term we could not honour, and rental_type
+ * would have billed it at the shared rate anyway.
+ *
+ * Generating it means the contract cannot drift from the app. Change the hours and
+ * the next contract says the new ones.
+ */
+export async function afterHoursSentence(companyId, locationId) {
+  if (!locationId) return 'once Kindred closes to the public';
+
+  const { rows } = await query(
+    `SELECT day_of_week, closes FROM kindred_web.hours
+      WHERE company_id = $1 AND location_id = $2 AND from_date IS NULL
+      ORDER BY day_of_week`, [companyId, locationId]);
+  if (!rows.length) return 'once Kindred closes to the public';
+
+  // Group the days that share a closing time, so it reads like a person wrote it.
+  const byClose = new Map();
+  for (const r of rows) {
+    const t = fmtTime(r.closes);
+    if (!byClose.has(t)) byClose.set(t, []);
+    byClose.get(t).push(DAY_NAMES[r.day_of_week]);
+  }
+  const parts = [...byClose.entries()].map(([t, days]) => `${listDays(days)} after ${t}`);
+  return `${listDays(parts)} — whenever Kindred closes to the public that day`;
+}
+
 export async function tokensFor(companyId, r) {
   const type = await rentalType(companyId, r.location_id, isoDate(r.event_date),
     r.start_time, r.end_time);
@@ -61,6 +101,8 @@ export async function tokensFor(companyId, r) {
     : '—';
 
   return {
+    // Computed, so it overrides the seeded default and always matches the app.
+    after_hours_availability: await afterHoursSentence(companyId, r.location_id),
     renter_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || '—',
     renter_phone: r.phone || '—',
     renter_email: r.email || '—',
