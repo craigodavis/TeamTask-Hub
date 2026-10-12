@@ -11,7 +11,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, EFFECT_TYPES } from '../lib/eventRules.js';
-import { renderContract } from '../lib/contractRender.js';
+import { renderContract, isoDate } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
   KEYS, money, outstanding, allSatisfied,
@@ -447,7 +447,7 @@ router.get('/:id/run-sheet', requireManager, async (req, res) => {
       `SELECT e.title, e.start_at, l.name AS location_name
          FROM events e LEFT JOIN locations l ON l.id = e.location_id
         WHERE e.start_at::date = $1::date ORDER BY e.start_at`,
-      [String(r.event_date).slice(0, 10)])).rows;
+      [isoDate(r.event_date)])).rows;
 
     res.json({ request: shape(r), steps, alsoOn });
   } catch (e) { console.error('run-sheet', e); res.status(500).json({ error: e.message }); }
@@ -465,7 +465,7 @@ router.post('/:id/evaluate', requireManager, async (req, res) => {
     const out = await evaluate(req.companyId, {
       guests: cur.guests,
       locationId: cur.location_id,
-      eventDate: cur.event_date ? String(cur.event_date).slice(0, 10) : null,
+      eventDate: isoDate(cur.event_date),
       startTime: cur.start_time, endTime: cur.end_time,
     });
 
@@ -517,7 +517,9 @@ router.get('/calendar', requireManager, async (req, res) => {
 
     res.json({
       requests: reqs.map((r) => {
-        const d = String(r.event_date).slice(0, 10);
+        // pg hands back a Date; String(aDate).slice(0,10) is "Tue Sep 01", which
+        // never matches an ISO key — so no conflict was ever found.
+        const d = isoDate(r.event_date);
         const sameDay = byDate[d] || [];
         return {
           ...shape(r),

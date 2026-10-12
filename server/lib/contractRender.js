@@ -17,9 +17,21 @@ const RENTAL_LABEL = {
   both: 'Business hours and after hours',
 };
 
+/**
+ * pg returns a DATE column as a JS Date, and String(aDate).slice(0,10) is
+ * "Tue Sep 01" — which parses as Invalid Date. Only a string can be sliced.
+ */
+export function isoDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  const s = String(d).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
 function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(`${String(d).slice(0, 10)}T12:00:00`).toLocaleDateString('en-US',
+  const iso = isoDate(d);
+  if (!iso) return '—';
+  return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US',
     { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
@@ -37,10 +49,8 @@ function fmtTime(t) {
  * which is what it is.
  */
 export async function tokensFor(companyId, r) {
-  const type = await rentalType(
-    companyId, r.location_id, r.event_date ? String(r.event_date).slice(0, 10) : null,
-    r.start_time, r.end_time
-  );
+  const type = await rentalType(companyId, r.location_id, isoDate(r.event_date),
+    r.start_time, r.end_time);
 
   const where = r.both_venues
     ? 'Winery tasting room and Kindred by the Creek'
