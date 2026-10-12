@@ -164,11 +164,15 @@ websiteRouter.post('/event-request', async (req, res) => {
     if (!Number.isFinite(guests) || guests < 1) return res.status(400).json({ error: 'How many people are you expecting?' });
     if (guests > 2000) return res.status(400).json({ error: 'Please call us — that is larger than we can quote online.' });
 
-    // Phone is now required. It was collected but optional, which left 33 of 44
-    // talent records without one and would do the same here — and an event enquiry
-    // we cannot ring back is barely an enquiry.
+    // The site deploys to preview and is promoted to production by hand, so the
+    // live form can be a version behind this endpoint. A submission with no
+    // startTime at all is from the OLD form: accept it rather than reject a real
+    // customer for a field their page never showed them. Once the new form is
+    // promoted every submission carries it and the strict path applies.
+    const legacyForm = b.startTime === undefined && b.venue === undefined;
+
     const phone = (b.phone || '').trim();
-    if (phone.replace(/\D/g, '').length < 10) {
+    if (!legacyForm && phone.replace(/\D/g, '').length < 10) {
       return res.status(400).json({ error: 'Please give us a phone number we can reach you on.' });
     }
 
@@ -176,23 +180,31 @@ websiteRouter.post('/event-request', async (req, res) => {
     // business hours" cannot be answered from a start time alone, and the two venues
     // open at different times — the Creek at 16:00 Tue-Fri, the Winery at noon.
     const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
-    const startTime = String(b.startTime || '').slice(0, 5);
-    const endTime = String(b.endTime || '').slice(0, 5);
-    if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
-      return res.status(400).json({ error: 'Please give a start and end time for your event.' });
-    }
-    if (endTime <= startTime) {
-      return res.status(400).json({ error: 'The end time needs to be after the start time.' });
+    let startTime = String(b.startTime || '').slice(0, 5);
+    let endTime = String(b.endTime || '').slice(0, 5);
+    if (!legacyForm) {
+      if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
+        return res.status(400).json({ error: 'Please give a start and end time for your event.' });
+      }
+      if (endTime <= startTime) {
+        return res.status(400).json({ error: 'The end time needs to be after the start time.' });
+      }
+    } else if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
+      startTime = null; endTime = null;
     }
 
     // The form sends the public slug; the id never leaves the server.
+    let venue = null;
     const venueSlug = String(b.venue || '').trim().toLowerCase();
-    if (!venueSlug) return res.status(400).json({ error: 'Please choose which of our places you would like.' });
-    const venue = (await query(
-      `SELECT id, name FROM locations
-        WHERE company_id = $1 AND lower(web_slug) = $2 AND deleted_at IS NULL`,
-      [await kindredCompanyId(), venueSlug])).rows[0];
-    if (!venue) return res.status(400).json({ error: 'Please choose which of our places you would like.' });
+    if (venueSlug) {
+      venue = (await query(
+        `SELECT id, name FROM locations
+          WHERE company_id = $1 AND lower(web_slug) = $2 AND deleted_at IS NULL`,
+        [await kindredCompanyId(), venueSlug])).rows[0] || null;
+    }
+    if (!legacyForm && !venue) {
+      return res.status(400).json({ error: 'Please choose which of our places you would like.' });
+    }
 
     // The quote is taken NOW and stored by value: tiers get edited, and what we
     // told this guest must not change under them afterwards.
@@ -212,7 +224,7 @@ websiteRouter.post('/event-request', async (req, res) => {
        tier?.deposit_required ? tier.deposit_cents : null,
        !!tier?.deposit_required, !!tier?.insurance_required, newToken(),
        JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null }),
-       startTime, endTime, venue.id],
+       startTime, endTime, venue?.id || null],
     );
     const saved = rows[0];
 
