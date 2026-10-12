@@ -4728,6 +4728,177 @@ const MIGRATIONS = [
     WHERE NOT EXISTS (
       SELECT 1 FROM kindred_web.event_contract_sections s
        WHERE s.company_id = c.id AND s.key = 'parties_and_event_details')`,
+
+  // ── Contract body: Craig's sections 2-10, with the variable parts tokenised ──
+  // Editable business constants behind the contract's {{tokens}}. Rates, the drink
+  // minimum, the curfew and the parking threshold are the SAME for every booking, so
+  // they belong in one place rather than retyped into each clause. The renderer
+  // merges these under the per-booking tokens, so a terms band can later override a
+  // rate for one event without touching the wording.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_contract_values (
+     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id UUID NOT NULL,
+     key        TEXT NOT NULL,
+     value      TEXT NOT NULL DEFAULT '',
+     label      TEXT,
+     sort_order INTEGER NOT NULL DEFAULT 0,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS event_contract_values_key
+     ON kindred_web.event_contract_values (company_id, key)`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'bh_capacity', '30', 'Business-hours capacity (guests)', 0 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'bh_capacity')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'bh_tables', 'four', 'Business-hours tables included', 10 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'bh_tables')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'bh_chairs', '30', 'Business-hours chairs included', 20 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'bh_chairs')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'after_hours_availability', 'Friday after 6:00 pm, and Saturday and Sunday after 7:00 pm', 'When after-hours rentals are available', 30 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'after_hours_availability')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'curfew_time', '10:00 pm', 'Everything finished by', 40 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'curfew_time')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'drink_minimum', '$300', 'Drink minimum per rental type', 50 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'drink_minimum')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'bh_rate', '$150', 'Business-hours hourly rate', 60 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'bh_rate')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'ah_rate', '$250', 'After-hours hourly rate', 70 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'ah_rate')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'free_setup_hours', 'one', 'Free setup hours included', 80 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'free_setup_hours')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'first_payment_pct', '50%', 'First installment', 90 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'first_payment_pct')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'second_payment_pct', '50%', 'Second installment', 100 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'second_payment_pct')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'balance_due_days', '30', 'Second payment due this many days before', 110 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'balance_due_days')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'security_deposit', '$500', 'Refundable security deposit', 120 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'security_deposit')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'gratuity_pct', '20%', 'Automatic gratuity', 130 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'gratuity_pct')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'pizza_max_guests', '80', 'Pizza by the slice available up to', 140 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'pizza_max_guests')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'parking_attendant_threshold', '75', 'Parking attendant required above this many guests', 150 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'parking_attendant_threshold')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'cancellation_terms', '[to be added]', 'Cancellation and rescheduling terms', 160 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'cancellation_terms')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'rental_types', '2. Rental Types', 'Kindred offers two kinds of rental, and one agreement can cover either or both. The difference that matters most: business-hours rentals are shared, not exclusive.
+
+**Business-hours rental (shared space).** The Renter is reserving seating and tables, not the building. Kindred stays open to the public, so other guests will be present in the same building during the event. The Renter does not get exclusive use, privacy, or control over music, noise level, or who enters. Capacity is up to {{bh_capacity}} guests, and the rental includes up to {{bh_tables}} 6-foot tables and up to {{bh_chairs}} chairs.
+
+**After-hours rental (exclusive use).** Once Kindred closes to the public, the Renter has exclusive use of the reserved space for the booked time. After-hours events are available {{after_hours_availability}}. All events end, and all setup and teardown is finished, by {{curfew_time}}.
+
+**Combined rental.** If the Renter books both, the shared-space terms apply until the business closes to the public. The exclusive-use terms apply only from that point on. Hours of each type are listed separately on the booking and billed at their own rates.', 20, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'rental_types')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'rates_and_minimum', '3. Rates and Drink Minimum', 'Rental is billed per booked hour, and each rental type carries a {{drink_minimum}} drink minimum.
+
+| Rental type | Hourly rate | Drink minimum | Use of space |
+| --- | --- | --- | --- |
+| Business hours | {{bh_rate}}/hr | {{drink_minimum}} | Shared with other guests |
+| After hours | {{ah_rate}}/hr | {{drink_minimum}} | Exclusive |
+
+Tables, chairs and servers are included, and there are no cleaning fees. Each event includes {{free_setup_hours}} free hour of setup. Wine club members receive their club discount on the rental.
+
+If the drink minimum is not met, Kindred sells the difference to the Renter in unopened bottles. The minimum can be met with a hosted tab or with individual guest purchases.', 30, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'rates_and_minimum')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'payment_in_advance', '4. Payment in Advance', 'The event must be paid in full before it takes place, in two installments. The event total is the rental fee for all booked hours plus the drink minimum.
+
+| Installment | Amount | Due |
+| --- | --- | --- |
+| First payment | {{first_payment_pct}} of the event total | At booking, to hold the date |
+| Second payment | {{second_payment_pct}} of the event total | Before the event, no later than {{balance_due_days}} days prior |
+
+The date is not held until the first payment and the security deposit are received. If the second payment is not received by its due date, Kindred may release the date. The drink minimum paid in advance is credited toward food and drinks on the day of the event. A valid card must be on file.', 40, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'payment_in_advance')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'security_deposit', '5. Security Deposit', 'A {{security_deposit}} refundable security deposit is due at booking, in addition to the rental payments above. Kindred returns the deposit after the event if the space is left in the condition it was found, nothing is damaged, the event ends on time, and all other terms of this agreement were followed. Kindred may deduct the cost of any damage, missing items, or overtime from the deposit, and will bill the Renter for any amount beyond it.', 50, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'security_deposit')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'gratuity_food_beverage', '6. Gratuity, Food and Beverage', '- A {{gratuity_pct}} gratuity for staff is added automatically to the final bill.
+- Outside food and non-alcoholic beverages are allowed, and outside caterers are welcome.
+- Outside alcohol is not permitted. Wine and other alcohol must be purchased from Kindred.
+- Kindred offers pizza by the slice for groups up to {{pizza_max_guests}}, and Italian sodas and a water machine are available on site.
+- No open flames or BBQs.', 60, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'gratuity_food_beverage')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'parking_attendant', '7. Parking Attendant', 'If the event has more than {{parking_attendant_threshold}} guests, the Renter must provide a parking attendant for the duration of the event to direct arriving and departing vehicles. The Renter is responsible for arranging and paying for the attendant, and must confirm the arrangement with Kindred before the event. Kindred may require an attendant for a smaller event if parking or traffic conditions call for it.', 70, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'parking_attendant')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'setup_teardown_noise', '8. Setup, Teardown and Noise', 'The Renter and their guests handle their own setup and teardown. Each event includes {{free_setup_hours}} free hour of setup. Because of a strict local noise ordinance, the event, setup and teardown must all be finished by {{curfew_time}}. Time beyond {{curfew_time}} may be deducted from the security deposit.', 80, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'setup_teardown_noise')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'damages_liability', '9. Damages, Liability and General Terms', '- The Renter is responsible for any damage to the property, furnishings or equipment caused by the Renter, their guests, or their vendors.
+- The Renter is responsible for the conduct of their guests. Kindred may end the event without refund if guests are unsafe, over-served, or violate this agreement.
+- Kindred serves alcohol only to guests of legal drinking age and may decline service at its discretion.
+- Cancellation and rescheduling terms: {{cancellation_terms}}
+- This agreement is the full understanding between the parties, and changes must be made in writing.', 90, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'damages_liability')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+     SELECT c.id, 'signatures', '10. Signatures', 'By signing, the Renter agrees to the terms above, including that business-hours rentals share the space with other guests and do not include exclusive use.', 100, true, true
+       FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections s
+                         WHERE s.company_id = c.id AND s.key = 'signatures')`,
 ];
 
 export async function runMigrations() {

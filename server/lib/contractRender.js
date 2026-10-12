@@ -74,6 +74,15 @@ export async function tokensFor(companyId, r) {
   };
 }
 
+/** The editable business constants — rates, drink minimum, curfew, thresholds. */
+export async function contractValues(companyId) {
+  const { rows } = await query(
+    `SELECT key, value FROM kindred_web.event_contract_values WHERE company_id = $1`,
+    [companyId]
+  );
+  return Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
+}
+
 /** Replace {{token}} wherever it appears; an unknown token is left visible on
  *  purpose, so a typo in a clause shows up rather than silently blanking. */
 export function fill(body, tokens) {
@@ -93,7 +102,11 @@ export async function renderContract(companyId, request, extraKeys = []) {
       ORDER BY sort_order, title`,
     [companyId, extraKeys]
   );
-  const tokens = await tokensFor(companyId, request);
+  // Constants first, booking second: a per-booking value always wins over the
+  // company default, which is what lets a terms band later override a rate for one
+  // event without the clause wording changing.
+  const defaults = await contractValues(companyId);
+  const tokens = { ...defaults, ...(await tokensFor(companyId, request)) };
   return {
     tokens,
     sections: rows.map((s) => ({

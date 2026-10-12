@@ -330,6 +330,27 @@ router.delete('/contract-sections/:id', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// The business constants the contract tokens resolve against.
+router.get('/contract-values', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM kindred_web.event_contract_values
+        WHERE company_id = $1 ORDER BY sort_order, key`, [req.companyId]);
+    res.json({ values: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/contract-values/:id', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE kindred_web.event_contract_values SET value = $1, updated_at = now()
+        WHERE id = $2 AND company_id = $3 RETURNING *`,
+      [String(req.body?.value ?? ''), req.params.id, req.companyId]);
+    if (!rows.length) return res.status(404).json({ error: 'No such value' });
+    res.json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/event-requests/:id/contract — the contract as this booking would see it.
 // Read-only preview: nothing is stored until it is sent, and nothing can change once
 // signed, because signing freezes a snapshot and its hash.
