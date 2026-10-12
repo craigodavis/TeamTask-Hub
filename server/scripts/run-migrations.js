@@ -4648,6 +4648,33 @@ const MIGRATIONS = [
      CHECK (min_guests IS NULL OR max_guests IS NULL OR max_guests >= min_guests)`,
   `CREATE INDEX IF NOT EXISTS event_rules_lookup
      ON kindred_web.event_rules (company_id, active, effect_type, priority)`,
+
+  // Contract clauses, maintained rather than hard-coded, so which sections a
+  // contract carries can vary by booking. See docs/PRIVATE_EVENTS.md.
+  //
+  // `key` is the stable handle the terms reference. Renaming a title is harmless;
+  // changing a key orphans every rule pointing at it, which is why they are
+  // separate columns.
+  //
+  // Editing a section never alters a contract already signed: the contract is
+  // rendered to an immutable snapshot with a hash of exactly what was shown. This
+  // table is the SOURCE for future contracts, not the record of past ones.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_contract_sections (
+     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id     UUID NOT NULL,
+     key            TEXT NOT NULL,
+     title          TEXT NOT NULL,
+     body           TEXT NOT NULL DEFAULT '',
+     sort_order     INTEGER NOT NULL DEFAULT 0,
+     always_include BOOLEAN NOT NULL DEFAULT false,
+     active         BOOLEAN NOT NULL DEFAULT true,
+     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  // One key per company — a duplicate key makes "which clause did this rule mean"
+  // unanswerable.
+  `CREATE UNIQUE INDEX IF NOT EXISTS event_contract_sections_key
+     ON kindred_web.event_contract_sections (company_id, key)`,
 ];
 
 export async function runMigrations() {

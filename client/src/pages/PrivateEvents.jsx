@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getPrivateEventCalendar, getEventRules, createEventRule, updateEventRule,
   deleteEventRule, previewEventRules, evaluateEventRequest, updateEventRequest,
-  getLocations,
+  getLocations, getContractSections, createContractSection,
+  updateContractSection, deleteContractSection,
 } from '../api';
 import Drawer from '../components/Drawer';
 import { Requests, Tiers, Copy } from './EventRequests';
@@ -51,7 +52,7 @@ export function PrivateEvents() {
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
         {[['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Tiers & pricing'],
-          ['copy', 'Message'], ['rules', 'Rules']].map(([k, l]) => (
+          ['copy', 'Message'], ['rules', 'Rules'], ['contract', 'Contract']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
@@ -62,6 +63,7 @@ export function PrivateEvents() {
       {tab === 'tiers' && <Tiers onError={setErr} />}
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'rules' && <RulesTab />}
+      {tab === 'contract' && <ContractSectionsTab />}
     </div>
   );
 }
@@ -408,6 +410,126 @@ function RulesTab() {
                    onChange={(e) => setForm({ ...form, active: e.target.checked })} />
             <span>Active</span>
           </label>
+        </>)}
+      </Drawer>
+    </>
+  );
+}
+
+/**
+ * The clause library a contract is assembled from.
+ *
+ * Which sections a given booking's contract carries is decided by the terms; this
+ * is what they choose from. Sections marked "always" go in every contract; the rest
+ * are pulled in by key.
+ *
+ * Editing a section here does NOT alter a contract already signed — that is rendered
+ * to a snapshot with a hash of exactly what was shown. This is the source for future
+ * contracts, not the record of past ones.
+ */
+function ContractSectionsTab() {
+  const [list, setList] = useState([]);
+  const [form, setForm] = useState(null);
+  const [err, setErr] = useState('');
+
+  const load = useCallback(() => {
+    getContractSections().then((d) => setList(d.sections || [])).catch((e) => setErr(e.message));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const blank = { title: '', key: '', body: '', sort_order: (list.length + 1) * 10,
+    always_include: false, active: true };
+
+  const save = async () => {
+    try {
+      if (form.id) await updateContractSection(form.id, form);
+      else await createContractSection(form);
+      setForm(null); setErr(''); load();
+    } catch (e) { setErr(e.message); }
+  };
+
+  return (
+    <>
+      <div className="pe-head">
+        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>
+          Add section
+        </button>
+        <span style={{ fontSize: 12, color: 'var(--vin-muted)' }}>
+          {list.filter((x) => x.always_include).length} always included ·{' '}
+          {list.filter((x) => !x.always_include).length} chosen by terms
+        </span>
+      </div>
+      {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+
+      {list.length === 0 && (
+        <div className="pe-empty">
+          No contract sections yet.<br />
+          Start with the clauses every contract needs — cancellation, liability,
+          alcohol service — and mark them “always include”.
+        </div>
+      )}
+
+      {list.map((sec) => (
+        <div key={sec.id} className="pe-req-line">
+          <span style={{ minWidth: 0 }}>
+            <strong>{sec.title}</strong>
+            {sec.always_include && <span className="vin-pill vin-pill-accent" style={{ marginLeft: 6 }}>always</span>}
+            {!sec.active && <span className="vin-pill vin-pill-muted" style={{ marginLeft: 6 }}>inactive</span>}
+            <div className="pe-req-why">
+              <code>{sec.key}</code> · order {sec.sort_order} ·{' '}
+              {(sec.body || '').trim() ? `${sec.body.trim().slice(0, 70)}…` : 'no text yet'}
+            </div>
+          </span>
+          <span style={{ display: 'flex', gap: 6 }}>
+            <button className="vin-btn" onClick={() => setForm({ ...sec })}>Edit</button>
+            <button className="vin-btn vin-btn-danger" onClick={async () => {
+              if (!window.confirm(`Delete “${sec.title}”?\n\nContracts already signed keep their text — they are stored as a snapshot. Any term referencing “${sec.key}” will stop finding it.`)) return;
+              await deleteContractSection(sec.id); load();
+            }}>Delete</button>
+          </span>
+        </div>
+      ))}
+
+      <Drawer open={!!form} title={form?.id ? `Edit ${form.title}` : 'New contract section'}
+              onClose={() => setForm(null)}
+              footer={form && (<>
+                <button className="vin-btn" onClick={() => setForm(null)}>Cancel</button>
+                <button className="vin-btn vin-btn-primary" disabled={!form.title} onClick={save}>Save</button>
+              </>)}>
+        {form && (<>
+          <div><label className="vin-label">Title</label>
+            <input className="vin-input" value={form.title}
+                   onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
+          <div><label className="vin-label">
+            Key — what the terms reference. Changing it orphans any term pointing at the old one.
+          </label>
+            <input className="vin-input" value={form.key}
+                   placeholder="left blank, made from the title"
+                   onChange={(e) => setForm({ ...form, key: e.target.value })} /></div>
+          <div className="vin-drawer-row">
+            <div><label className="vin-label">Order in the contract</label>
+              <input className="vin-input" type="number" value={form.sort_order}
+                     onChange={(e) => setForm({ ...form, sort_order: e.target.value })} /></div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, paddingBottom: 6 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="checkbox" checked={!!form.always_include}
+                       onChange={(e) => setForm({ ...form, always_include: e.target.checked })} />
+                <span>Always</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="checkbox" checked={form.active !== false}
+                       onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+                <span>Active</span>
+              </label>
+            </div>
+          </div>
+          <div><label className="vin-label">Clause text</label>
+            <textarea rows={10} className="vin-textarea" value={form.body || ''}
+                      onChange={(e) => setForm({ ...form, body: e.target.value })} /></div>
+          <p style={{ fontSize: 11.5, color: 'var(--vin-muted)', margin: 0 }}>
+            Editing this does not change a contract already signed — those are stored
+            as a snapshot of exactly what the customer saw.
+          </p>
         </>)}
       </Drawer>
     </>

@@ -3038,6 +3038,34 @@ export async function evaluateEventRequest(id) {
   return d;
 }
 
+export async function getContractSections() {
+  const res = await fetch(`${API}/event-requests/contract-sections`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load contract sections');
+  return d;
+}
+export async function createContractSection(body) {
+  const res = await fetch(`${API}/event-requests/contract-sections`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create section');
+  return d;
+}
+export async function updateContractSection(id, body) {
+  const res = await fetch(`${API}/event-requests/contract-sections/${id}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update section');
+  return d;
+}
+export async function deleteContractSection(id) {
+  const res = await fetch(`${API}/event-requests/contract-sections/${id}`, {
+    method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete section');
+  return d;
+}
+
 export async function getEventRequests(status) {
   const q = status ? `?status=${encodeURIComponent(status)}` : '';
   const res = await fetch(`${API}/event-requests${q}`, { headers: headers() });

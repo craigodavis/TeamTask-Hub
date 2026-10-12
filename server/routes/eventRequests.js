@@ -255,6 +255,80 @@ router.post('/rules/preview', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Contract sections ────────────────────────────────────────────────────────
+// The clause library. Which sections a given contract carries is decided by the
+// terms; this is what they choose FROM. Editing a section here never alters a
+// contract already signed — that is rendered to a snapshot with a hash of exactly
+// what was shown.
+
+router.get('/contract-sections', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM kindred_web.event_contract_sections
+        WHERE company_id = $1 ORDER BY sort_order, title`, [req.companyId]);
+    res.json({ sections: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// A key is a handle, not prose: lower case, no spaces, so a rule can reference it
+// and a later rename of the title cannot break that reference.
+const slugKey = (v) => String(v || '').trim().toLowerCase()
+  .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+
+router.post('/contract-sections', requireManager, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const title = (b.title || '').trim();
+    if (!title) return res.status(400).json({ error: 'Give the section a title.' });
+    const key = slugKey(b.key || title);
+    if (!key) return res.status(400).json({ error: 'Could not make a key from that title — add one.' });
+    const { rows } = await query(
+      `INSERT INTO kindred_web.event_contract_sections
+         (company_id, key, title, body, sort_order, always_include, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.companyId, key, title, b.body || '', parseInt(b.sort_order, 10) || 0,
+       !!b.always_include, b.active !== false]);
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') {
+      return res.status(409).json({ error: 'A section with that key already exists.' });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put('/contract-sections/:id', requireManager, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const sets = [], vals = [];
+    const put = (col, v) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+    if (b.title !== undefined) put('title', String(b.title).trim());
+    if (b.key !== undefined) put('key', slugKey(b.key));
+    if (b.body !== undefined) put('body', b.body || '');
+    if (b.sort_order !== undefined) put('sort_order', parseInt(b.sort_order, 10) || 0);
+    if (b.always_include !== undefined) put('always_include', !!b.always_include);
+    if (b.active !== undefined) put('active', !!b.active);
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id, req.companyId);
+    const { rows } = await query(
+      `UPDATE kindred_web.event_contract_sections SET ${sets.join(', ')}, updated_at = now()
+        WHERE id = $${vals.length - 1} AND company_id = $${vals.length} RETURNING *`, vals);
+    if (!rows.length) return res.status(404).json({ error: 'No such section' });
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'That key is already in use.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/contract-sections/:id', requireManager, async (req, res) => {
+  try {
+    await query(`DELETE FROM kindred_web.event_contract_sections
+                  WHERE id = $1 AND company_id = $2`, [req.params.id, req.companyId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Evaluate a real request and freeze the outcome ───────────────────────────
 // Stored by value. Editing a threshold afterwards must never rewrite what this
 // booking was told — the same rule the tier quote already follows.
