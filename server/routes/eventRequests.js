@@ -10,6 +10,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
+import { evaluate, EFFECT_TYPES } from '../lib/eventRules.js';
 import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
   KEYS, money, outstanding, allSatisfied,
@@ -153,6 +154,182 @@ router.get('/', requireManager, async (req, res) => {
     // instead of retyping a URL from memory.
     res.json({ requests: rows.map(shape), form_url: EVENT_REQUEST_URL });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Rules ────────────────────────────────────────────────────────────────────
+// The thresholds live here, not in code. See docs/PRIVATE_EVENTS.md.
+
+router.get('/rules', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT r.*, l.name AS location_name
+         FROM kindred_web.event_rules r
+         LEFT JOIN locations l ON l.id = r.location_id
+        WHERE r.company_id = $1
+        ORDER BY r.effect_type, r.priority, r.created_at`, [req.companyId]);
+    res.json({ rules: rows, effectTypes: EFFECT_TYPES });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+const RULE_FIELDS = ['name', 'active', 'priority', 'min_guests', 'max_guests',
+  'location_id', 'during_business_hours', 'day_of_week_mask', 'lead_days_min',
+  'lead_days_max', 'effect_type', 'amount_cents', 'amount_pct', 'due_offset_days',
+  'customer_text'];
+
+// '' from an unset <select> is not a value — it means "don't care" and must reach
+// the database as NULL, or the CHECK constraints reject it and a blank numeric
+// silently becomes 0, which is a real threshold.
+function cleanRule(b) {
+  const out = {};
+  for (const f of RULE_FIELDS) {
+    if (!(f in b)) continue;
+    let v = b[f];
+    if (v === '' || v === undefined) v = null;
+    if (['priority','min_guests','max_guests','day_of_week_mask','lead_days_min',
+         'lead_days_max','amount_cents','due_offset_days'].includes(f) && v !== null) {
+      v = parseInt(v, 10);
+      if (Number.isNaN(v)) v = null;
+    }
+    if (f === 'active' && v !== null) v = !!v;
+    if (f === 'during_business_hours' && v !== null && v !== true && v !== false) v = null;
+    out[f] = v;
+  }
+  return out;
+}
+
+router.post('/rules', requireManager, async (req, res) => {
+  try {
+    const b = cleanRule(req.body || {});
+    if (!b.name) return res.status(400).json({ error: 'Give the rule a name — it is what explains the charge.' });
+    if (!EFFECT_TYPES.includes(b.effect_type)) {
+      return res.status(400).json({ error: `effect_type must be one of: ${EFFECT_TYPES.join(', ')}` });
+    }
+    const cols = ['company_id'], vals = [req.companyId], ph = ['$1'];
+    for (const [k, v] of Object.entries(b)) { cols.push(k); vals.push(v); ph.push('$' + vals.length); }
+    const { rows } = await query(
+      `INSERT INTO kindred_web.event_rules (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING *`, vals);
+    res.status(201).json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/rules/:id', requireManager, async (req, res) => {
+  try {
+    const b = cleanRule(req.body || {});
+    if (b.effect_type && !EFFECT_TYPES.includes(b.effect_type)) {
+      return res.status(400).json({ error: 'Unknown effect type' });
+    }
+    const sets = [], vals = [];
+    for (const [k, v] of Object.entries(b)) { vals.push(v); sets.push(`${k} = $${vals.length}`); }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id, req.companyId);
+    const { rows } = await query(
+      `UPDATE kindred_web.event_rules SET ${sets.join(', ')}, updated_at = now()
+        WHERE id = $${vals.length - 1} AND company_id = $${vals.length} RETURNING *`, vals);
+    if (!rows.length) return res.status(404).json({ error: 'No such rule' });
+    res.json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/rules/:id', requireManager, async (req, res) => {
+  try {
+    await query(`DELETE FROM kindred_web.event_rules WHERE id = $1 AND company_id = $2`,
+      [req.params.id, req.companyId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Try a hypothetical booking against the rules without saving anything. This is how
+// you check a threshold does what you meant before a customer meets it.
+router.post('/rules/preview', requireManager, async (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json(await evaluate(req.companyId, {
+      guests: b.guests != null ? parseInt(b.guests, 10) : null,
+      locationId: b.location_id || null,
+      eventDate: b.event_date || null,
+      startTime: b.start_time || null,
+      endTime: b.end_time || null,
+    }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Evaluate a real request and freeze the outcome ───────────────────────────
+// Stored by value. Editing a threshold afterwards must never rewrite what this
+// booking was told — the same rule the tier quote already follows.
+router.post('/:id/evaluate', requireManager, async (req, res) => {
+  try {
+    const cur = (await query(
+      `SELECT * FROM kindred_web.event_requests WHERE id = $1`, [req.params.id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'No such request' });
+
+    const out = await evaluate(req.companyId, {
+      guests: cur.guests,
+      locationId: cur.location_id,
+      eventDate: cur.event_date ? String(cur.event_date).slice(0, 10) : null,
+      startTime: cur.start_time, endTime: cur.end_time,
+    });
+
+    await query(
+      `UPDATE kindred_web.event_requests
+          SET requirements = $2, rules_evaluated_at = now(),
+              deposit_required = $3, insurance_required = $4, updated_at = now()
+        WHERE id = $1`,
+      [cur.id, JSON.stringify(out), !!out.deposit.required, !!out.insurance.required]);
+
+    res.json(out);
+  } catch (e) { console.error('evaluate', e); res.status(500).json({ error: e.message }); }
+});
+
+// ── Calendar ─────────────────────────────────────────────────────────────────
+/**
+ * Private-event requests in a date range, each with whatever ELSE is already on
+ * that date. Nothing currently stops a private booking being approved at the Creek
+ * on a night a musician is booked there, and the public calendar has proven not to
+ * be a complete picture - five Thursdays at the Creek were missing from it entirely.
+ */
+router.get('/calendar', requireManager, async (req, res) => {
+  try {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
+    if (!from || !to) return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD)' });
+
+    const reqs = (await query(
+      `SELECT r.*, l.name AS location_name
+         FROM kindred_web.event_requests r
+         LEFT JOIN locations l ON l.id = r.location_id
+        WHERE r.event_date BETWEEN $1::date AND $2::date
+        ORDER BY r.event_date, r.start_time NULLS LAST`, [from, to])).rows;
+
+    // Public events on the same dates, for conflict detection.
+    const events = (await query(
+      `SELECT e.id, e.title, e.start_at, e.end_at, e.location_id,
+              l.name AS location_name, COALESCE(e.stage, e.status) AS stage
+         FROM events e
+         LEFT JOIN locations l ON l.id = e.location_id
+        WHERE e.start_at::date BETWEEN $1::date AND $2::date
+        ORDER BY e.start_at`, [from, to])).rows;
+
+    const byDate = {};
+    for (const e of events) {
+      const d = e.start_at.toISOString().slice(0, 10);
+      (byDate[d] ??= []).push(e);
+    }
+
+    res.json({
+      requests: reqs.map((r) => {
+        const d = String(r.event_date).slice(0, 10);
+        const sameDay = byDate[d] || [];
+        return {
+          ...shape(r),
+          event_date: d,
+          // Same venue is a hard clash; same day elsewhere is worth knowing about.
+          conflicts: sameDay.filter((e) => r.location_id && e.location_id === r.location_id),
+          sameDayEvents: sameDay,
+        };
+      }),
+      events,
+    });
+  } catch (e) { console.error('pe calendar', e); res.status(500).json({ error: e.message }); }
 });
 
 /**

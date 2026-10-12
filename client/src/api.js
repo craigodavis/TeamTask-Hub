@@ -2990,6 +2990,54 @@ export async function downloadOptIns({ from, to, venue } = {}) {
 export async function duplicateEvent(id) { return pj(await fetch(`${API}/events/${id}/duplicate`, { method: 'POST', headers: headers() })); }
 
 // ---- Special Event Requests (Marketing → Event Requests) ------------------
+// ── Private Events ───────────────────────────────────────────────────────────
+export async function getPrivateEventCalendar(from, to) {
+  const res = await fetch(`${API}/event-requests/calendar?from=${from}&to=${to}`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load calendar');
+  return d;
+}
+export async function getEventRules() {
+  const res = await fetch(`${API}/event-requests/rules`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load rules');
+  return d;
+}
+export async function createEventRule(body) {
+  const res = await fetch(`${API}/event-requests/rules`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create rule');
+  return d;
+}
+export async function updateEventRule(id, body) {
+  const res = await fetch(`${API}/event-requests/rules/${id}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update rule');
+  return d;
+}
+export async function deleteEventRule(id) {
+  const res = await fetch(`${API}/event-requests/rules/${id}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete rule');
+  return d;
+}
+// Try a hypothetical booking against the rules without saving it.
+export async function previewEventRules(body) {
+  const res = await fetch(`${API}/event-requests/rules/preview`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Preview failed');
+  return d;
+}
+export async function evaluateEventRequest(id) {
+  const res = await fetch(`${API}/event-requests/${id}/evaluate`, { method: 'POST', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Evaluation failed');
+  return d;
+}
+
 export async function getEventRequests(status) {
   const q = status ? `?status=${encodeURIComponent(status)}` : '';
   const res = await fetch(`${API}/event-requests${q}`, { headers: headers() });

@@ -1,0 +1,65 @@
+/*
+ * Private Events — on the shared Vintly tokens (styles/vintly.css).
+ * Calendar first, because the question is almost always "what is already on that
+ * date", not "show me a list of requests".
+ */
+.pe { color: var(--vin-text); }
+
+.pe-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.pe-month { font-size: 16px; font-weight: 500; min-width: 170px; }
+.pe-tabs { display: flex; gap: 6px; }
+
+/* ── Colour key ───────────────────────────────────────────────────────────────
+   Colour by the EARLIEST UNMET REQUIREMENT, not by a fixed stage, so a small
+   event with no requirements goes straight from red to green and that reads as
+   correct rather than as a missing step. */
+.pe-key { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--vin-muted); }
+.pe-key span { display: flex; align-items: center; gap: 5px; }
+.pe-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.pe-dot-new        { background: #c0392b; }
+.pe-dot-proposed   { background: #d99a0b; }
+.pe-dot-signed     { background: #e2761b; }
+.pe-dot-unpaid     { background: #2a6fb5; }
+.pe-dot-confirmed  { background: #3c8c3c; }
+.pe-dot-declined   { background: var(--vin-muted); }
+
+.pe-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+  background: var(--vin-border); border: 0.5px solid var(--vin-border);
+  border-radius: var(--vin-radius); overflow: hidden; }
+.pe-dow { background: var(--vin-surface-1); padding: 6px 8px; font-size: 11px;
+  color: var(--vin-muted); text-align: center; }
+.pe-cell { background: var(--vin-surface-2); min-height: 92px; padding: 5px 6px;
+  display: flex; flex-direction: column; gap: 3px; }
+.pe-cell.is-empty { background: var(--vin-surface-1); }
+.pe-daynum { font-size: 11px; color: var(--vin-muted); }
+.pe-cell.is-today .pe-daynum { color: var(--vin-text-accent); font-weight: 600; }
+
+.pe-chip {
+  font-size: 11px; line-height: 1.3; padding: 3px 6px; border-radius: 5px;
+  cursor: pointer; color: #fff; text-align: left; border: none; width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pe-chip-new { background: #c0392b; } .pe-chip-proposed { background: #d99a0b; }
+.pe-chip-signed { background: #e2761b; } .pe-chip-unpaid { background: #2a6fb5; }
+.pe-chip-confirmed { background: #3c8c3c; } .pe-chip-declined { background: #8a8a85; }
+
+/* A public event on the same day. Outlined, not filled — it is context, not a
+   request you can act on, but it is how you avoid approving a private booking at
+   the Creek on a night a musician is already playing there. */
+.pe-chip-event {
+  background: transparent; color: var(--vin-text-2);
+  border: 0.5px solid var(--vin-border-strong);
+}
+.pe-clash { color: var(--vin-text-danger); font-weight: 600; }
+
+.pe-req-line { display: flex; justify-content: space-between; gap: 10px;
+  padding: 7px 0; border-bottom: 0.5px solid var(--vin-border); font-size: 13px; }
+.pe-req-line:last-child { border-bottom: none; }
+.pe-req-why { font-size: 11.5px; color: var(--vin-muted); }
+
+.pe-empty { padding: 2rem 1rem; text-align: center; color: var(--vin-muted); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .pe-cell { min-height: 64px; }
+  .pe-chip { font-size: 10px; }
+}

@@ -26,6 +26,7 @@ import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
 import Reservations from './pages/Reservations';
 import EventRequests from './pages/EventRequests';
+import PrivateEvents from './pages/PrivateEvents';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
@@ -184,6 +185,13 @@ function App() {
           <Route path="/events" element={
             can(user, 'marketing.events')
               ? <Events /> : <Navigate to="/" replace />} />
+          <Route
+            path="/marketing/private-events"
+            element={
+              user?.role === 'owner' || user?.role === 'manager'
+                ? <PrivateEvents /> : <Navigate to="/" replace />
+            }
+          />
           <Route
             path="/marketing/event-requests"
             element={
