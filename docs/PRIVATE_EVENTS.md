@@ -66,52 +66,108 @@ the Creek opens 16:00 Tue–Fri, the Winery 12:00.
 
 ---
 
-## 3. Rules
+## 3. Terms
 
-### Why a narrow table, not an engine
+### Why one row per condition set, not one per effect
 
-A general condition/action engine is quick to start and impossible to answer
-questions about once there are fifteen rules and a customer asks why they were
-charged a deposit. This table is deliberately limited to the conditions the
-business actually uses.
+The first version of this had one row per **effect**: a deposit row, an insurance row,
+a contract row, each with its own conditions. Craig rejected it, and he was right. The
+way the business actually thinks is:
+
+> if over X people at a certain location during business hours or after hours, then
+> the rate could change, availability change, deposit change, security deposit change,
+> min wine purchase change, insurance required change, contract content sections
+> change, and the need for a contract at all change.
+
+That is **one condition set producing a whole package**. Splitting it across eight rows
+meant eight copies of the same conditions that could drift apart with nobody noticing.
 
 ```
-event_rules
-  id, company_id, name, active, priority        -- lower priority wins
+event_terms
+  id, company_id, name, active
 
-  -- conditions; NULL means "don't care"
+  -- conditions; NULL means "any"
   min_guests, max_guests
   location_id                   -- NULL = either venue
   during_business_hours         -- NULL = either, true, false
-  day_of_week_mask              -- NULL = any day
-  lead_days_min, lead_days_max  -- how far ahead the booking is
 
-  -- effect
-  effect_type                   -- deposit | payment | contract | insurance
-                                -- | staffing | surcharge | block
-  amount_cents, amount_pct
-  due_offset_days               -- negative = before the event
-  customer_text                 -- what the proposal says
+  -- outcomes; NULL means "this row says nothing about it"
+  availability                  -- available | on_request | unavailable
+  base_price_cents              -- flat rental fee
+  min_wine_purchase_cents
+  booking_deposit_cents         -- flat; wins over the pct when both are set
+  booking_deposit_pct           -- % of the rental fee
+  security_deposit_cents        -- refundable, damage
+  balance_due_days_before
+  planning_meeting_days
+  insurance_required
+  contract_required
+  contract_section_keys[]       -- which clauses this adds
+  setup_task_keys[]             -- staff run-sheet steps
+  parking_attendant_over
+  notes_to_customer
 
   created_at, updated_at
 ```
 
-### Evaluation
+Three condition dimensions only: **headcount × venue × inside-or-outside opening
+hours**. Nothing else has ever come up. Day-of-week and lead-time conditions were in
+the first draft and were removed unused.
 
-1. Gather every rule whose conditions match the booking.
-2. **One winner per `effect_type`**, by priority.
-3. The winning set becomes the booking's **requirements**.
+### Resolution: narrowest match wins, per field
 
-Worked example — the no-deposit case:
+1. Gather every active row whose conditions match the booking.
+2. Order them **most specific first**, where specificity is the number of *dimensions*
+   pinned (0–3). Ties break on the tighter guest band, then on `created_at`, so the
+   order is total and stable — two rows must never swap places between page loads and
+   change a quote.
+3. For each outcome, take the **first row that has an opinion** about it.
 
-| Priority | Guests | Hours | Effect | Customer text |
-|---|---|---|---|---|
-| 10 | 1–20 | during | deposit: none | — |
-| 20 | 1–20 | outside | deposit $X | "after-hours events require a deposit" |
-| 30 | 21–50 | any | deposit $Y | … |
-| 40 | 51+ | any | deposit $Z + 50% at −30 days | … |
+Rows therefore **layer**, the way CSS does. A broad row sets the house position, a
+narrow row states only what differs.
 
-A 15-person daytime event matches rule 10 and gets **no deposit**.
+Specificity counts dimensions and not columns, which matters: counting columns would
+score `min_guests`+`max_guests` as 2 and let the 10–24 band outrank a row pinning
+headcount *and* hours — quietly putting a contract and a deposit back on a small
+daytime party. `server/lib/eventTerms.test.mjs` holds that case.
+
+Worked example — the seeded set, derived from the live `event_tiers` rows:
+
+| Row | Guests | Hours | States |
+|---|---|---|---|
+| Lawn Gathering | 10–24 | any | $550 rental, $300 min wine, $200 deposit, contract, no insurance |
+| Large Group | 25–50 | any | $1,100 rental, $600 min wine, $500 deposit, contract, insurance |
+| Small gathering during open hours | ≤15 | during | no deposit, no security deposit, no contract, no insurance |
+
+A 12-person daytime event matches the first and the third. The third pins two
+dimensions so it wins the contract, deposit and insurance questions; the rental fee and
+the min wine purchase fall through to Lawn Gathering. So: **$550 lawn fee, $300 of
+wine, no contract, no deposit** — which is Craig's "15 people may not even need a
+contract" without a 15 appearing anywhere in the code.
+
+The same party after hours matches only Lawn Gathering, and the contract and deposit
+come back.
+
+### Unknowns are not zeroes
+
+A blank outcome means "nothing configured" and renders as `—`, never as `$0`. A zero is
+a decision ("no deposit here"); a blank is an absence. The same distinction applies to
+the hours answer: a request with no time given resolves to `null`, and a row requiring
+`during_business_hours` either way will not match it — otherwise a request submitted
+without a time silently picks up after-hours pricing.
+
+### Provenance
+
+`sources` names the row that supplied each field, so "why am I being charged a security
+deposit" is answerable with a row name rather than a number. Removing a row deactivates
+it rather than deleting it, because a quote already given points back at its id.
+
+### Still duplicated
+
+The public pricing page reads the old `event_tiers` table; these rows drive what we
+quote and contract. Both are editable, which means they can drift. One of the two has
+to go, and it should be `event_tiers` — the website should read the broad `event_terms`
+rows. Not done yet.
 
 > **Record it as a decision, not an absence.** Store `deposit_required = false`
 > *with the id of the rule that decided it*. NULL cannot distinguish "we decided no
@@ -146,7 +202,7 @@ The existing tier code already does this and says why:
 > "The quote is taken NOW and stored by value: tiers get edited, and what we told
 > this guest must not change under them afterwards."
 
-**Rules need identical treatment.** Editing a deposit threshold must never rewrite
+**Terms need identical treatment.** Editing a deposit threshold must never rewrite
 the terms of a booking already quoted or signed. The evaluated rule set, the
 amounts, and the resolved hours are all frozen onto the proposal.
 
@@ -154,12 +210,12 @@ amounts, and the resolved hours are all frozen onto the proposal.
 
 ## 4. The state machine
 
-Not linear. Contract, deposit and insurance are **requirements generated by rules**,
+Not linear. Contract, deposit and insurance are **requirements generated by the terms**,
 not fixed stages.
 
-> **A booking is confirmed when every requirement its rules generated has been met.**
+> **A booking is confirmed when every requirement its terms generated has been met.**
 
-- 15 people, daytime → rules generate nothing → accepting the proposal confirms it
+- 15 people, daytime → the terms require nothing → accepting the proposal confirms it
   immediately.
 - 150 people, Saturday evening → contract + insurance + deposit + 50% at −30 days →
   stays unconfirmed until all four are satisfied.
@@ -187,7 +243,7 @@ event_proposals
   id, request_id, version
   proposed_date, start_time, end_time, location_id, guests
   price_cents, min_alcohol_cents
-  rules_snapshot (jsonb)        -- the frozen evaluated rule set
+  requirements (jsonb)          -- the frozen evaluated terms
   hours_snapshot (jsonb)        -- resolved opens/closes for that date+venue
   requirements (jsonb)          -- deposit/contract/insurance/payments derived
   body_html                     -- exactly what was sent
@@ -353,7 +409,7 @@ double-booked.
 ## 11. Build order
 
 1. Fields and validation — time window, location, phone required
-2. `event_rules` + evaluation + snapshotting
+2. `event_terms` + evaluation + snapshotting
 3. Calendar with conflict detection
 4. Proposals
 5. Correspondence journal (outbound first, then inbound matching)

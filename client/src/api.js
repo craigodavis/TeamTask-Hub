@@ -2997,35 +2997,37 @@ export async function getPrivateEventCalendar(from, to) {
   if (!res.ok) throw new Error(d.error || 'Failed to load calendar');
   return d;
 }
-export async function getEventRules() {
-  const res = await fetch(`${API}/event-requests/rules`, { headers: headers() });
+export async function getEventTerms() {
+  const res = await fetch(`${API}/event-requests/terms`, { headers: headers() });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(d.error || 'Failed to load rules');
+  if (!res.ok) throw new Error(d.error || 'Failed to load terms');
   return d;
 }
-export async function createEventRule(body) {
-  const res = await fetch(`${API}/event-requests/rules`, {
+export async function createEventTerm(body) {
+  const res = await fetch(`${API}/event-requests/terms`, {
     method: 'POST', headers: headers(), body: JSON.stringify(body) });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(d.error || 'Failed to create rule');
+  if (!res.ok) throw new Error(d.error || 'Failed to create terms');
   return d;
 }
-export async function updateEventRule(id, body) {
-  const res = await fetch(`${API}/event-requests/rules/${id}`, {
+export async function updateEventTerm(id, body) {
+  const res = await fetch(`${API}/event-requests/terms/${id}`, {
     method: 'PUT', headers: headers(), body: JSON.stringify(body) });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(d.error || 'Failed to update rule');
+  if (!res.ok) throw new Error(d.error || 'Failed to update terms');
   return d;
 }
-export async function deleteEventRule(id) {
-  const res = await fetch(`${API}/event-requests/rules/${id}`, { method: 'DELETE', headers: headers() });
+// Deactivates rather than deletes — a quote already given points back at the row to
+// explain itself.
+export async function deleteEventTerm(id) {
+  const res = await fetch(`${API}/event-requests/terms/${id}`, { method: 'DELETE', headers: headers() });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(d.error || 'Failed to delete rule');
+  if (!res.ok) throw new Error(d.error || 'Failed to remove terms');
   return d;
 }
-// Try a hypothetical booking against the rules without saving it.
-export async function previewEventRules(body) {
-  const res = await fetch(`${API}/event-requests/rules/preview`, {
+// Try a hypothetical booking without saving it.
+export async function previewEventTerms(body) {
+  const res = await fetch(`${API}/event-requests/terms/preview`, {
     method: 'POST', headers: headers(), body: JSON.stringify(body) });
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(d.error || 'Preview failed');
@@ -3063,6 +3065,39 @@ export async function deleteContractSection(id) {
     method: 'DELETE', headers: headers() });
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(d.error || 'Failed to delete section');
+  return d;
+}
+
+export async function getSetupTasks() {
+  const res = await fetch(`${API}/event-requests/setup-tasks`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load setup steps');
+  return d;
+}
+export async function createSetupTask(body) {
+  const res = await fetch(`${API}/event-requests/setup-tasks`, {
+    method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to create step');
+  return d;
+}
+export async function updateSetupTask(id, body) {
+  const res = await fetch(`${API}/event-requests/setup-tasks/${id}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to update step');
+  return d;
+}
+export async function deleteSetupTask(id) {
+  const res = await fetch(`${API}/event-requests/setup-tasks/${id}`, { method: 'DELETE', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete step');
+  return d;
+}
+export async function getRunSheet(id) {
+  const res = await fetch(`${API}/event-requests/${id}/run-sheet`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load run sheet');
   return d;
 }
 

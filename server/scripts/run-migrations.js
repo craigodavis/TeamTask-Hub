@@ -4903,6 +4903,94 @@ The date is not held until the first payment and the security deposit are receiv
   // after_hours_availability is computed per venue from the hours table now, so the
   // seeded constant is dead. Removed rather than left to be edited with no effect.
   `DELETE FROM kindred_web.event_contract_values WHERE key = 'after_hours_availability'`,
+
+  // ── Terms replace the rules table ──────────────────────────────────────────
+  // The rules model was wrong and Craig said so: one row per EFFECT meant "over 50
+  // at the Creek after hours" needed eight near-identical rows whose conditions could
+  // silently drift apart. His model is one condition set producing a whole package of
+  // terms, which is event_tiers with two more dimensions.
+  `DROP TABLE IF EXISTS kindred_web.event_rules`,
+
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_terms (
+     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id    UUID NOT NULL,
+     name          TEXT NOT NULL,
+     active        BOOLEAN NOT NULL DEFAULT true,
+
+     -- conditions; NULL means "any"
+     min_guests    INTEGER,
+     max_guests    INTEGER,
+     location_id   UUID,
+     during_business_hours BOOLEAN,
+
+     -- outcomes
+     -- Every outcome is NULLABLE and NULL means "this row says nothing about it", so
+     -- a narrow row can override one amount and inherit the rest. A NOT NULL boolean
+     -- would make every row silently assert contract_required = false.
+     availability  TEXT,
+     base_price_cents        INTEGER,   -- flat rental fee, as event_tiers already prices it
+     min_wine_purchase_cents INTEGER,
+     security_deposit_cents  INTEGER,   -- refundable, damage
+     booking_deposit_cents   INTEGER,   -- flat; wins over the pct when both are set
+     booking_deposit_pct     NUMERIC(5,2),
+     balance_due_days_before INTEGER,
+     planning_meeting_days   INTEGER,
+     insurance_required      BOOLEAN,
+     contract_required      BOOLEAN,
+     contract_section_keys   TEXT[],
+     setup_task_keys         TEXT[],
+     parking_attendant_over  INTEGER,
+     notes_to_customer       TEXT,
+
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  // Three states, not a boolean: "we will not host that" and "ring us, we are not
+  // quoting it online" are different answers and need different handling.
+  `ALTER TABLE kindred_web.event_terms DROP CONSTRAINT IF EXISTS event_terms_availability`,
+  `ALTER TABLE kindred_web.event_terms ADD CONSTRAINT event_terms_availability
+     CHECK (availability IS NULL OR availability IN ('available','on_request','unavailable'))`,
+  `ALTER TABLE kindred_web.event_terms DROP CONSTRAINT IF EXISTS event_terms_guest_range`,
+  `ALTER TABLE kindred_web.event_terms ADD CONSTRAINT event_terms_guest_range
+     CHECK (min_guests IS NULL OR max_guests IS NULL OR max_guests >= min_guests)`,
+  `CREATE INDEX IF NOT EXISTS event_terms_lookup
+     ON kindred_web.event_terms (company_id, active)`,
+  // Seeded FROM the live event_tiers rows rather than retyped, so the starting numbers
+  // are Craig's real prices and nothing here is invented. The tiers carry no venue and
+  // no hours condition, which is exactly what they were missing.
+  //
+  // One deliberate change: the tiers overlap at exactly 25 guests (10-25 and 25-50), so
+  // a 25-person booking matched both and the narrower band would have won it for the
+  // cheaper tier. The upper bound drops by one where another tier starts on it.
+  `INSERT INTO kindred_web.event_terms
+     (company_id, name, min_guests, max_guests, base_price_cents, min_wine_purchase_cents,
+      booking_deposit_cents, insurance_required, contract_required, planning_meeting_days,
+      notes_to_customer)
+   SELECT c.id, t.title, t.min_guests,
+          CASE WHEN EXISTS (SELECT 1 FROM kindred_web.event_tiers n
+                             WHERE n.id <> t.id AND n.min_guests = t.max_guests)
+               THEN t.max_guests - 1 ELSE t.max_guests END,
+          t.base_price_cents, t.min_alcohol_cents,
+          CASE WHEN t.deposit_required THEN t.deposit_cents ELSE 0 END,
+          t.insurance_required,
+          true,               -- the tiers predate the question; a tiered booking gets a contract
+          t.planning_meeting_days, t.rules
+     FROM companies c CROSS JOIN kindred_web.event_tiers t
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_terms x WHERE x.company_id = c.id)`,
+
+  // Craig: "If the event only has 15 people and it's during business hours, no deposit
+  // will be requested" and "15 people may not even need a contract." It pins two
+  // dimensions (guests and hours) where the tiers pin one, so it wins both fields and
+  // leaves the rental fee to whichever tier the headcount lands in.
+  `INSERT INTO kindred_web.event_terms
+     (company_id, name, max_guests, during_business_hours, availability,
+      booking_deposit_cents, security_deposit_cents, insurance_required, contract_required)
+   SELECT c.id, 'Small gathering during open hours', 15, true, 'available',
+          0, 0, false, false
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_terms x
+                       WHERE x.company_id = c.id AND x.name = 'Small gathering during open hours')`,
+
 ];
 
 export async function runMigrations() {

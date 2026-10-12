@@ -9,7 +9,7 @@
  * change it: editing a clause afterwards affects future contracts only.
  */
 import { query } from '../db.js';
-import { rentalType } from './eventRules.js';
+import { rentalType } from './eventTerms.js';
 
 const RENTAL_LABEL = {
   during: 'Business hours',

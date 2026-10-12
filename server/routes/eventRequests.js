@@ -10,7 +10,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
-import { evaluate, EFFECT_TYPES } from '../lib/eventRules.js';
+import { evaluate, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
@@ -159,95 +159,132 @@ router.get('/', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Rules ────────────────────────────────────────────────────────────────────
-// The thresholds live here, not in code. See docs/PRIVATE_EVENTS.md.
+// ── Terms ────────────────────────────────────────────────────────────────────
+// Guests x venue x business-hours -> the whole package. See docs/PRIVATE_EVENTS.md.
+// No threshold lives in code; every number here is a database row Craig can edit.
 
-router.get('/rules', requireManager, async (req, res) => {
+router.get('/terms', requireManager, async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT r.*, l.name AS location_name
-         FROM kindred_web.event_rules r
-         LEFT JOIN locations l ON l.id = r.location_id
-        WHERE r.company_id = $1
-        ORDER BY r.effect_type, r.priority, r.created_at`, [req.companyId]);
-    res.json({ rules: rows, effectTypes: EFFECT_TYPES });
+      `SELECT t.*, l.name AS location_name
+         FROM kindred_web.event_terms t
+         LEFT JOIN locations l ON l.id = t.location_id
+        WHERE t.company_id = $1
+        ORDER BY t.min_guests NULLS FIRST, t.max_guests NULLS LAST, t.created_at`,
+      [req.companyId]);
+    res.json({ terms: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-const RULE_FIELDS = ['name', 'active', 'priority', 'min_guests', 'max_guests',
-  'location_id', 'during_business_hours', 'day_of_week_mask', 'lead_days_min',
-  'lead_days_max', 'effect_type', 'amount_cents', 'amount_pct', 'due_offset_days',
-  'customer_text'];
+const TERM_FIELDS = [
+  'name', 'active',
+  ...CONDITIONS,
+  ...SCALAR_OUTCOMES, ...LIST_OUTCOMES,
+];
 
-// '' from an unset <select> is not a value — it means "don't care" and must reach
-// the database as NULL, or the CHECK constraints reject it and a blank numeric
-// silently becomes 0, which is a real threshold.
-function cleanRule(b) {
+const TERM_INTS = ['min_guests', 'max_guests', 'min_wine_purchase_cents',
+  'base_price_cents', 'security_deposit_cents', 'booking_deposit_cents',
+  'balance_due_days_before', 'planning_meeting_days', 'parking_attendant_over'];
+
+// '' from an unset input is not a value — it means "no opinion" and must reach the
+// database as NULL. A blank numeric coerced to 0 would read as a real decision:
+// security_deposit_cents = 0 says "no deposit here", which is not the same as "this
+// row does not say".
+function cleanTerm(b) {
   const out = {};
-  for (const f of RULE_FIELDS) {
+  for (const f of TERM_FIELDS) {
     if (!(f in b)) continue;
     let v = b[f];
     if (v === '' || v === undefined) v = null;
-    if (['priority','min_guests','max_guests','day_of_week_mask','lead_days_min',
-         'lead_days_max','amount_cents','due_offset_days'].includes(f) && v !== null) {
+    if (TERM_INTS.includes(f) && v !== null) {
       v = parseInt(v, 10);
       if (Number.isNaN(v)) v = null;
     }
+    if (f === 'booking_deposit_pct' && v !== null) {
+      v = Number(v);
+      if (!Number.isFinite(v)) v = null;
+    }
     if (f === 'active' && v !== null) v = !!v;
-    if (f === 'during_business_hours' && v !== null && v !== true && v !== false) v = null;
+    for (const bool of ['during_business_hours', 'insurance_required', 'contract_required']) {
+      if (f === bool && v !== null && v !== true && v !== false) v = null;
+    }
+    if (LIST_OUTCOMES.includes(f)) {
+      v = Array.isArray(v) ? v.filter(Boolean).map(String) : null;
+    }
     out[f] = v;
   }
   return out;
 }
 
-router.post('/rules', requireManager, async (req, res) => {
+function validateTerm(b) {
+  if (b.min_guests != null && b.max_guests != null && b.max_guests < b.min_guests) {
+    return 'The guest range runs backwards — max is below min.';
+  }
+  if (b.booking_deposit_pct != null && (b.booking_deposit_pct < 0 || b.booking_deposit_pct > 100)) {
+    return 'The booking deposit is a percentage, so it has to be between 0 and 100.';
+  }
+  if (b.availability != null && !['available', 'on_request', 'unavailable'].includes(b.availability)) {
+    return 'Availability must be available, on_request or unavailable.';
+  }
+  return null;
+}
+
+router.post('/terms', requireManager, async (req, res) => {
   try {
-    const b = cleanRule(req.body || {});
-    if (!b.name) return res.status(400).json({ error: 'Give the rule a name — it is what explains the charge.' });
-    if (!EFFECT_TYPES.includes(b.effect_type)) {
-      return res.status(400).json({ error: `effect_type must be one of: ${EFFECT_TYPES.join(', ')}` });
+    const b = cleanTerm(req.body || {});
+    if (!b.name) {
+      return res.status(400).json({ error: 'Give it a name — the name is what explains the charge to a customer.' });
     }
+    const bad = validateTerm(b);
+    if (bad) return res.status(400).json({ error: bad });
+
     const cols = ['company_id'], vals = [req.companyId], ph = ['$1'];
     for (const [k, v] of Object.entries(b)) { cols.push(k); vals.push(v); ph.push('$' + vals.length); }
     const { rows } = await query(
-      `INSERT INTO kindred_web.event_rules (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING *`, vals);
+      `INSERT INTO kindred_web.event_terms (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING *`, vals);
     res.status(201).json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/rules/:id', requireManager, async (req, res) => {
+router.put('/terms/:id', requireManager, async (req, res) => {
   try {
-    const b = cleanRule(req.body || {});
-    if (b.effect_type && !EFFECT_TYPES.includes(b.effect_type)) {
-      return res.status(400).json({ error: 'Unknown effect type' });
-    }
+    const b = cleanTerm(req.body || {});
+    const bad = validateTerm(b);
+    if (bad) return res.status(400).json({ error: bad });
+
     const sets = [], vals = [];
     for (const [k, v] of Object.entries(b)) { vals.push(v); sets.push(`${k} = $${vals.length}`); }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id, req.companyId);
     const { rows } = await query(
-      `UPDATE kindred_web.event_rules SET ${sets.join(', ')}, updated_at = now()
+      `UPDATE kindred_web.event_terms SET ${sets.join(', ')}, updated_at = now()
         WHERE id = $${vals.length - 1} AND company_id = $${vals.length} RETURNING *`, vals);
-    if (!rows.length) return res.status(404).json({ error: 'No such rule' });
+    if (!rows.length) return res.status(404).json({ error: 'No such terms row' });
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.delete('/rules/:id', requireManager, async (req, res) => {
+// Deactivate rather than delete. A proposal already quoted carries a frozen copy of
+// its terms, but `sources` points at these ids to explain the quote, and deleting the
+// row turns that explanation into a dangling id.
+router.delete('/terms/:id', requireManager, async (req, res) => {
   try {
-    await query(`DELETE FROM kindred_web.event_rules WHERE id = $1 AND company_id = $2`,
+    const { rows } = await query(
+      `UPDATE kindred_web.event_terms SET active = false, updated_at = now()
+        WHERE id = $1 AND company_id = $2 RETURNING id`,
       [req.params.id, req.companyId]);
-    res.json({ ok: true });
+    if (!rows.length) return res.status(404).json({ error: 'No such terms row' });
+    res.json({ ok: true, deactivated: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Try a hypothetical booking against the rules without saving anything. This is how
-// you check a threshold does what you meant before a customer meets it.
-router.post('/rules/preview', requireManager, async (req, res) => {
+// Try a hypothetical booking without saving anything — this is how you check a
+// threshold does what you meant before a customer runs into it.
+router.post('/terms/preview', requireManager, async (req, res) => {
   try {
     const b = req.body || {};
     res.json(await evaluate(req.companyId, {
-      guests: b.guests != null ? parseInt(b.guests, 10) : null,
+      guests: b.guests != null && b.guests !== '' ? parseInt(b.guests, 10) : null,
       locationId: b.location_id || null,
       eventDate: b.event_date || null,
       startTime: b.start_time || null,
@@ -495,7 +532,9 @@ router.post('/:id/evaluate', requireManager, async (req, res) => {
           SET requirements = $2, rules_evaluated_at = now(),
               deposit_required = $3, insurance_required = $4, updated_at = now()
         WHERE id = $1`,
-      [cur.id, JSON.stringify(out), !!out.deposit.required, !!out.insurance.required]);
+      [cur.id, JSON.stringify(out),
+        (out.booking_deposit_cents ?? 0) > 0 || (out.security_deposit_cents ?? 0) > 0,
+        !!out.insurance_required]);
 
     res.json(out);
   } catch (e) { console.error('evaluate', e); res.status(500).json({ error: e.message }); }

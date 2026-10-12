@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getPrivateEventCalendar, getEventRules, createEventRule, updateEventRule,
-  deleteEventRule, previewEventRules, evaluateEventRequest, updateEventRequest,
+  getPrivateEventCalendar, getEventTerms, createEventTerm, updateEventTerm,
+  deleteEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
 } from '../api';
@@ -25,11 +25,14 @@ function stateOf(r) {
   if (r.status === 'declined' || r.status === 'withdrawn') return 'declined';
   if (r.status === 'new' || !r.rules_evaluated_at) return 'new';
   const need = r.requirements || {};
-  if (need.contract?.required && !r.contract_executed_at) {
+  // Terms that say we will not host this, or will not quote it without a manager,
+  // stay red: it needs a human, which is exactly what red already means here.
+  if (need.availability && need.availability !== 'available') return 'new';
+  if (need.contract_required && !r.contract_executed_at) {
     return r.contract_customer_signed_at ? 'signed' : 'proposed';
   }
-  if (need.deposit?.required && !r.deposit_paid_at) return 'unpaid';
-  if (need.insurance?.required && !r.insurance_ok) return 'unpaid';
+  if ((need.due_now_cents ?? 0) > 0 && !r.deposit_paid_at) return 'unpaid';
+  if (need.insurance_required && !r.insurance_ok) return 'unpaid';
   if (r.status === 'approved' || r.approved_at) return 'confirmed';
   return 'proposed';
 }
@@ -51,8 +54,8 @@ export function PrivateEvents() {
       {/* One flat row. Event Requests used to be its own sidebar entry; it belongs
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Tiers & pricing'],
-          ['copy', 'Message'], ['rules', 'Rules'], ['contract', 'Contract']].map(([k, l]) => (
+        {[['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Website tiers'],
+          ['copy', 'Message'], ['terms', 'Terms'], ['contract', 'Contract']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
@@ -62,7 +65,7 @@ export function PrivateEvents() {
       {tab === 'requests' && <Requests onError={setErr} />}
       {tab === 'tiers' && <Tiers onError={setErr} />}
       {tab === 'copy' && <Copy onError={setErr} />}
-      {tab === 'rules' && <RulesTab />}
+      {tab === 'terms' && <TermsTab />}
       {tab === 'contract' && <ContractSectionsTab />}
     </div>
   );
@@ -153,7 +156,7 @@ function CalendarTab() {
                   <button className="vin-btn vin-btn-danger" disabled={busy}
                           onClick={() => setStatus(sel, 'declined')}>Decline</button>
                   <button className="vin-btn" disabled={busy} onClick={() => runEvaluate(sel)}>
-                    {sel.rules_evaluated_at ? 'Re-check rules' : 'Check rules'}
+                    {sel.rules_evaluated_at ? 'Re-check terms' : 'Check terms'}
                   </button>
                   <button className="vin-btn vin-btn-primary" disabled={busy}
                           onClick={() => setStatus(sel, 'approved')}>Approve</button>
@@ -200,119 +203,165 @@ function RequestDetail({ r }) {
         <div className="vin-label">Requirements</div>
         {!need ? (
           <p style={{ fontSize: 13, color: 'var(--vin-muted)', margin: 0 }}>
-            Not checked yet — press “Check rules”.
+            Not checked yet — press “Check terms”.
             {(!r.start_time || !r.location_id) &&
-              ' Note this request has no time or venue, so hours-based rules cannot apply.'}
+              ' This request has no time or venue, so anything that depends on opening hours cannot apply.'}
           </p>
-        ) : (
-          <>
-            {['deposit', 'contract', 'insurance'].map((k) => (
-              <div className="pe-req-line" key={k}>
-                <span style={{ textTransform: 'capitalize' }}>{k}</span>
-                <span style={{ textAlign: 'right' }}>
-                  <strong>{need[k]?.required ? 'Required' : 'Not required'}</strong>
-                  {k === 'deposit' && need.deposit?.amountCents ? ` — ${money(need.deposit.amountCents)}` : ''}
-                  {/* Which rule decided, so "no deposit" reads as a decision rather
-                      than as something nobody got round to. */}
-                  <div className="pe-req-why">{need[k]?.ruleName || need[k]?.reason || ''}</div>
-                </span>
-              </div>
-            ))}
-            {need.payments?.length > 0 && need.payments.map((p, i) => (
-              <div className="pe-req-line" key={i}>
-                <span>Payment</span>
-                <span style={{ textAlign: 'right' }}>
-                  <strong>{p.amountPct ? `${p.amountPct}%` : money(p.amountCents)}</strong>
-                  <div className="pe-req-why">
-                    {p.dueOffsetDays != null ? `due ${Math.abs(p.dueOffsetDays)} days before` : ''} · {p.name}
-                  </div>
-                </span>
-              </div>
-            ))}
-            <p className="pe-req-why" style={{ marginTop: 8 }}>
-              During business hours:{' '}
-              {need.duringBusinessHours === null ? 'unknown (no time or venue given)'
-                : need.duringBusinessHours ? 'yes' : 'no'}
-              {need.matched?.length ? ` · ${need.matched.length} rule(s) matched` : ' · no rules matched'}
-            </p>
-          </>
-        )}
+        ) : <TermsResult t={need} />}
       </div>
     </>
   );
 }
 
-function RulesTab() {
-  const [rules, setRules] = useState([]);
+/** Cents <-> dollars for the inputs, so nobody types 55000 meaning $550. */
+const toDollars = (c) => (c == null || c === '' ? '' : String(c / 100));
+const toCents = (d) => (d === '' || d == null ? '' : Math.round(Number(d) * 100));
+
+/**
+ * One row = one condition set (guests x venue x hours) -> the whole package of terms.
+ *
+ * Rows layer: the most specific row that has an opinion about a field supplies it, so
+ * "15 or fewer during open hours" can switch the contract off without restating the
+ * rental fee. Blank means "this row says nothing", which is why every number shows
+ * which row it came from.
+ */
+function TermsTab() {
+  const [terms, setTerms] = useState([]);
   const [venues, setVenues] = useState([]);
+  const [sections, setSections] = useState([]);
   const [form, setForm] = useState(null);
   const [err, setErr] = useState('');
   const [preview, setPreview] = useState(null);
   const [trial, setTrial] = useState({ guests: 15, location_id: '', event_date: '', start_time: '', end_time: '' });
 
   const load = useCallback(() => {
-    getEventRules().then((d) => setRules(d.rules || [])).catch((e) => setErr(e.message));
+    getEventTerms().then((d) => setTerms(d.terms || [])).catch((e) => setErr(e.message));
   }, []);
-  useEffect(() => { load(); getLocations('venue').then((d) => setVenues(d.locations || [])).catch(() => {}); }, [load]);
+  useEffect(() => {
+    load();
+    getLocations('venue').then((d) => setVenues(d.locations || [])).catch(() => {});
+    getContractSections().then((d) => setSections(d.sections || [])).catch(() => {});
+  }, [load]);
 
-  const blank = { name: '', active: true, priority: 100, effect_type: 'deposit',
+  const blank = {
+    name: '', active: true,
     min_guests: '', max_guests: '', location_id: '', during_business_hours: '',
-    amount_cents: '', due_offset_days: '', customer_text: '' };
+    availability: '', base_price_cents: '', min_wine_purchase_cents: '',
+    security_deposit_cents: '', booking_deposit_cents: '', booking_deposit_pct: '',
+    balance_due_days_before: '', planning_meeting_days: '', parking_attendant_over: '',
+    insurance_required: '', contract_required: '',
+    contract_section_keys: [], notes_to_customer: '',
+  };
+
+  const edit = (t) => setForm({
+    ...t,
+    during_business_hours: t.during_business_hours == null ? '' : String(t.during_business_hours),
+    insurance_required: t.insurance_required == null ? '' : String(t.insurance_required),
+    contract_required: t.contract_required == null ? '' : String(t.contract_required),
+    availability: t.availability || '',
+    contract_section_keys: t.contract_section_keys || [],
+  });
 
   const save = async () => {
     try {
       const body = { ...form };
-      if (body.during_business_hours === '') body.during_business_hours = null;
-      else body.during_business_hours = body.during_business_hours === 'true';
-      if (form.id) await updateEventRule(form.id, body); else await createEventRule(body);
-      setForm(null); load();
+      // '' has to reach the server as null. A blank coerced to 0 would read as a real
+      // decision: security deposit 0 says "none here", not "this row does not say".
+      for (const k of ['during_business_hours', 'insurance_required', 'contract_required']) {
+        body[k] = body[k] === '' ? null : body[k] === 'true';
+      }
+      if (body.availability === '') body.availability = null;
+      if (form.id) await updateEventTerm(form.id, body); else await createEventTerm(body);
+      setForm(null); setErr(''); load();
     } catch (e) { setErr(e.message); }
   };
 
   const runPreview = async () => {
-    try { setPreview(await previewEventRules(trial)); } catch (e) { setErr(e.message); }
+    try { setErr(''); setPreview(await previewEventTerms(trial)); } catch (e) { setErr(e.message); }
+  };
+
+  // What this row actually asserts, so the list reads as terms and not as a schema.
+  const asserts = (t) => {
+    const out = [];
+    if (t.availability) out.push(t.availability === 'available' ? 'bookable' : t.availability.replace('_', ' '));
+    if (t.base_price_cents != null) out.push(`${money(t.base_price_cents)} rental`);
+    if (t.min_wine_purchase_cents != null) out.push(`${money(t.min_wine_purchase_cents)} min wine`);
+    if (t.booking_deposit_cents != null) {
+      out.push(t.booking_deposit_cents === 0 ? 'no booking deposit' : `${money(t.booking_deposit_cents)} deposit`);
+    } else if (t.booking_deposit_pct != null) out.push(`${Number(t.booking_deposit_pct)}% deposit`);
+    if (t.security_deposit_cents != null) {
+      out.push(t.security_deposit_cents === 0 ? 'no security deposit' : `${money(t.security_deposit_cents)} security`);
+    }
+    if (t.insurance_required != null) out.push(t.insurance_required ? 'insurance' : 'no insurance');
+    if (t.contract_required != null) out.push(t.contract_required ? 'contract' : 'no contract');
+    if (t.contract_section_keys?.length) out.push(`${t.contract_section_keys.length} clause(s)`);
+    if (t.parking_attendant_over != null) out.push(`parking over ${t.parking_attendant_over}`);
+    if (t.planning_meeting_days != null) out.push(`planning ${t.planning_meeting_days}d ahead`);
+    return out;
+  };
+
+  const conditions = (t) => {
+    const out = [];
+    if (t.min_guests != null || t.max_guests != null) {
+      out.push(`${t.min_guests ?? 1}–${t.max_guests ?? '∞'} guests`);
+    } else out.push('any size');
+    out.push(t.location_name || 'either venue');
+    out.push(t.during_business_hours == null ? 'any hours'
+      : t.during_business_hours ? 'during open hours' : 'after hours');
+    return out.join(' · ');
   };
 
   return (
     <>
       <div className="pe-head">
-        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>Add rule</button>
+        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>Add terms</button>
         <span style={{ fontSize: 12, color: 'var(--vin-muted)' }}>
-          {rules.length} rule{rules.length === 1 ? '' : 's'} — lower priority wins, one per effect
+          {terms.filter((t) => t.active).length} active — the most specific row wins each
+          number, so a narrow row only states what differs
         </span>
       </div>
+      {/* Honest about the duplication rather than letting the two drift silently: the
+          public pricing page still reads the old tiers table, these rows drive what we
+          actually quote and contract. One of the two has to go. */}
+      <p className="pe-req-why" style={{ marginTop: 0 }}>
+        These rows decide what we quote and contract. The public pricing page still
+        reads <strong>Website tiers</strong> — if you change a price here, change it there too
+        until we point the website at this table.
+      </p>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
 
-      {rules.length === 0 && (
+      {terms.length === 0 && (
         <div className="pe-empty">
-          No rules yet, so no booking generates any requirement.<br />
-          Start with a deposit rule — e.g. “no deposit, 1–20 guests, during hours”.
+          Nothing configured, so no booking gets a price or a requirement.<br />
+          Start broad — one row per guest band — then add narrow rows for a venue or for after hours.
         </div>
       )}
 
-      {rules.map((r) => (
-        <div key={r.id} className="pe-req-line">
+      {terms.map((t) => (
+        <div key={t.id} className="pe-req-line" style={{ opacity: t.active ? 1 : 0.55 }}>
           <span>
-            <strong>{r.name}</strong>{!r.active && <em style={{ color: 'var(--vin-muted)' }}> (inactive)</em>}
-            <div className="pe-req-why">
-              {r.effect_type} · priority {r.priority}
-              {r.min_guests != null || r.max_guests != null ? ` · ${r.min_guests ?? 0}–${r.max_guests ?? '∞'} guests` : ''}
-              {r.during_business_hours != null ? (r.during_business_hours ? ' · during hours' : ' · outside hours') : ''}
-              {r.location_name ? ` · ${r.location_name}` : ''}
-              {r.amount_cents != null ? ` · ${money(r.amount_cents)}` : ''}
+            <strong>{t.name}</strong>
+            {!t.active && <em style={{ color: 'var(--vin-muted)' }}> (inactive)</em>}
+            <div className="pe-req-why">{conditions(t)}</div>
+            <div className="pe-req-why" style={{ color: 'var(--vin-text)' }}>
+              {asserts(t).join(' · ') || 'states nothing — this row has no effect'}
             </div>
           </span>
           <span style={{ display: 'flex', gap: 6 }}>
-            <button className="vin-btn" onClick={() => setForm({ ...r,
-              during_business_hours: r.during_business_hours == null ? '' : String(r.during_business_hours) })}>Edit</button>
-            <button className="vin-btn vin-btn-danger"
-              onClick={async () => { if (window.confirm(`Delete “${r.name}”?`)) { await deleteEventRule(r.id); load(); } }}>
-              Delete</button>
+            <button className="vin-btn" onClick={() => edit(t)}>Edit</button>
+            {t.active && (
+              <button className="vin-btn vin-btn-danger"
+                onClick={async () => {
+                  if (window.confirm(`Stop applying “${t.name}”? Quotes already given keep their own copy.`)) {
+                    await deleteEventTerm(t.id); load();
+                  }
+                }}>Remove</button>
+            )}
           </span>
         </div>
       ))}
 
-      {/* Try a booking against the rules before a customer meets them. */}
+      {/* Try a booking before a customer runs into it. */}
       <div style={{ marginTop: 20, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
         <div className="vin-label">Try a booking</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -336,21 +385,10 @@ function RulesTab() {
                    onChange={(e) => setTrial({ ...trial, end_time: e.target.value })} /></div>
           <button className="vin-btn" onClick={runPreview}>Check</button>
         </div>
-        {preview && (
-          <div style={{ marginTop: 10, fontSize: 13 }}>
-            <div>During business hours: <strong>
-              {preview.duringBusinessHours === null ? 'unknown' : preview.duringBusinessHours ? 'yes' : 'no'}</strong></div>
-            <div>Deposit: <strong>{preview.deposit.required ? money(preview.deposit.amountCents) : 'not required'}</strong>
-              <span className="pe-req-why"> — {preview.deposit.ruleName || preview.deposit.reason}</span></div>
-            <div>Contract: <strong>{preview.contract.required ? 'required' : 'not required'}</strong>
-              <span className="pe-req-why"> — {preview.contract.ruleName || preview.contract.reason}</span></div>
-            <div>Insurance: <strong>{preview.insurance.required ? 'required' : 'not required'}</strong>
-              <span className="pe-req-why"> — {preview.insurance.ruleName || preview.insurance.reason}</span></div>
-          </div>
-        )}
+        {preview && <TermsResult t={preview} />}
       </div>
 
-      <Drawer open={!!form} title={form?.id ? `Edit ${form.name}` : 'New rule'}
+      <Drawer open={!!form} title={form?.id ? form.name : 'New terms'}
               onClose={() => setForm(null)}
               footer={form && (<>
                 <button className="vin-btn" onClick={() => setForm(null)}>Cancel</button>
@@ -360,23 +398,14 @@ function RulesTab() {
           <div><label className="vin-label">Name — this is what explains the charge to a customer</label>
             <input className="vin-input" value={form.name}
                    onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-          <div className="vin-drawer-row">
-            <div><label className="vin-label">Effect</label>
-              <select className="vin-select" value={form.effect_type}
-                      onChange={(e) => setForm({ ...form, effect_type: e.target.value })}>
-                {['deposit','payment','contract','insurance','staffing','surcharge','block']
-                  .map((t) => <option key={t} value={t}>{t}</option>)}
-              </select></div>
-            <div><label className="vin-label">Priority (lower wins)</label>
-              <input className="vin-input" type="number" value={form.priority}
-                     onChange={(e) => setForm({ ...form, priority: e.target.value })} /></div>
-          </div>
+
+          <div className="vin-label" style={{ marginTop: 14 }}>Applies when</div>
           <div className="vin-drawer-row">
             <div><label className="vin-label">Min guests</label>
-              <input className="vin-input" type="number" value={form.min_guests ?? ''}
+              <input className="vin-input" type="number" placeholder="any" value={form.min_guests ?? ''}
                      onChange={(e) => setForm({ ...form, min_guests: e.target.value })} /></div>
             <div><label className="vin-label">Max guests</label>
-              <input className="vin-input" type="number" value={form.max_guests ?? ''}
+              <input className="vin-input" type="number" placeholder="any" value={form.max_guests ?? ''}
                      onChange={(e) => setForm({ ...form, max_guests: e.target.value })} /></div>
           </div>
           <div className="vin-drawer-row">
@@ -386,25 +415,113 @@ function RulesTab() {
                 <option value="">Either</option>
                 {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select></div>
-            <div><label className="vin-label">Business hours</label>
+            <div><label className="vin-label">Hours</label>
               <select className="vin-select" value={form.during_business_hours ?? ''}
                       onChange={(e) => setForm({ ...form, during_business_hours: e.target.value })}>
                 <option value="">Either</option>
-                <option value="true">During hours only</option>
-                <option value="false">Outside hours only</option>
+                <option value="true">During open hours</option>
+                <option value="false">After hours</option>
+              </select></div>
+          </div>
+
+          <div className="vin-label" style={{ marginTop: 16 }}>
+            Then — leave anything blank that this row should not decide
+          </div>
+          <div><label className="vin-label">Availability</label>
+            <select className="vin-select" value={form.availability || ''}
+                    onChange={(e) => setForm({ ...form, availability: e.target.value })}>
+              <option value="">Doesn’t say</option>
+              <option value="available">Bookable</option>
+              <option value="on_request">By request only — needs a manager to agree</option>
+              <option value="unavailable">Not available</option>
+            </select></div>
+          <div className="vin-drawer-row">
+            <div><label className="vin-label">Rental fee ($)</label>
+              <input className="vin-input" type="number" step="0.01" placeholder="—"
+                     value={toDollars(form.base_price_cents)}
+                     onChange={(e) => setForm({ ...form, base_price_cents: toCents(e.target.value) })} /></div>
+            <div><label className="vin-label">Min wine purchase ($)</label>
+              <input className="vin-input" type="number" step="0.01" placeholder="—"
+                     value={toDollars(form.min_wine_purchase_cents)}
+                     onChange={(e) => setForm({ ...form, min_wine_purchase_cents: toCents(e.target.value) })} /></div>
+          </div>
+          <div className="vin-drawer-row">
+            <div><label className="vin-label">Booking deposit ($) — 0 means none</label>
+              <input className="vin-input" type="number" step="0.01" placeholder="—"
+                     value={toDollars(form.booking_deposit_cents)}
+                     onChange={(e) => setForm({ ...form, booking_deposit_cents: toCents(e.target.value) })} /></div>
+            <div><label className="vin-label">Security deposit ($) — refundable</label>
+              <input className="vin-input" type="number" step="0.01" placeholder="—"
+                     value={toDollars(form.security_deposit_cents)}
+                     onChange={(e) => setForm({ ...form, security_deposit_cents: toCents(e.target.value) })} /></div>
+          </div>
+          <div className="vin-drawer-row">
+            <div><label className="vin-label">…or deposit as % of rental</label>
+              <input className="vin-input" type="number" step="1" placeholder="—"
+                     value={form.booking_deposit_pct ?? ''}
+                     onChange={(e) => setForm({ ...form, booking_deposit_pct: e.target.value })} /></div>
+            <div><label className="vin-label">Balance due days before</label>
+              <input className="vin-input" type="number" placeholder="—"
+                     value={form.balance_due_days_before ?? ''}
+                     onChange={(e) => setForm({ ...form, balance_due_days_before: e.target.value })} /></div>
+          </div>
+          <p className="pe-req-why" style={{ margin: '2px 0 10px' }}>
+            A dollar deposit wins over the percentage when both are set.
+          </p>
+          <div className="vin-drawer-row">
+            <div><label className="vin-label">Insurance</label>
+              <select className="vin-select" value={form.insurance_required ?? ''}
+                      onChange={(e) => setForm({ ...form, insurance_required: e.target.value })}>
+                <option value="">Doesn’t say</option>
+                <option value="true">Required</option>
+                <option value="false">Not required</option>
+              </select></div>
+            <div><label className="vin-label">Contract</label>
+              <select className="vin-select" value={form.contract_required ?? ''}
+                      onChange={(e) => setForm({ ...form, contract_required: e.target.value })}>
+                <option value="">Doesn’t say</option>
+                <option value="true">Required</option>
+                <option value="false">Not required</option>
               </select></div>
           </div>
           <div className="vin-drawer-row">
-            <div><label className="vin-label">Amount (cents) — 0 means explicitly none</label>
-              <input className="vin-input" type="number" value={form.amount_cents ?? ''}
-                     onChange={(e) => setForm({ ...form, amount_cents: e.target.value })} /></div>
-            <div><label className="vin-label">Due days before event</label>
-              <input className="vin-input" type="number" value={form.due_offset_days ?? ''}
-                     onChange={(e) => setForm({ ...form, due_offset_days: e.target.value })} /></div>
+            <div><label className="vin-label">Planning meeting, days ahead</label>
+              <input className="vin-input" type="number" placeholder="—"
+                     value={form.planning_meeting_days ?? ''}
+                     onChange={(e) => setForm({ ...form, planning_meeting_days: e.target.value })} /></div>
+            <div><label className="vin-label">Parking attendant over</label>
+              <input className="vin-input" type="number" placeholder="—"
+                     value={form.parking_attendant_over ?? ''}
+                     onChange={(e) => setForm({ ...form, parking_attendant_over: e.target.value })} /></div>
           </div>
-          <div><label className="vin-label">Customer text — appears in the proposal</label>
-            <textarea rows={2} className="vin-textarea" value={form.customer_text || ''}
-                      onChange={(e) => setForm({ ...form, customer_text: e.target.value })} /></div>
+
+          {sections.length > 0 && (
+            <div>
+              <label className="vin-label">Contract clauses this adds</label>
+              <div style={{ display: 'grid', gap: 4, maxHeight: 190, overflowY: 'auto' }}>
+                {sections.map((sec) => {
+                  const on = (form.contract_section_keys || []).includes(sec.key);
+                  return (
+                    <label key={sec.key} style={{ display: 'flex', gap: 8, fontSize: 13, alignItems: 'baseline' }}>
+                      <input type="checkbox" checked={on} onChange={(e) => {
+                        const cur = new Set(form.contract_section_keys || []);
+                        if (e.target.checked) cur.add(sec.key); else cur.delete(sec.key);
+                        setForm({ ...form, contract_section_keys: [...cur] });
+                      }} />
+                      <span>{sec.heading || sec.key}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="pe-req-why">
+                Leave all unticked for “this row doesn’t decide the clauses”.
+              </p>
+            </div>
+          )}
+
+          <div><label className="vin-label">Note to the customer — appears in the proposal</label>
+            <textarea rows={3} className="vin-textarea" value={form.notes_to_customer || ''}
+                      onChange={(e) => setForm({ ...form, notes_to_customer: e.target.value })} /></div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             <input type="checkbox" checked={form.active !== false}
                    onChange={(e) => setForm({ ...form, active: e.target.checked })} />
@@ -413,6 +530,73 @@ function RulesTab() {
         </>)}
       </Drawer>
     </>
+  );
+}
+
+/**
+ * The resolved package, with the row that supplied each number.
+ *
+ * The provenance is the point: "why am I being charged a security deposit" has to be
+ * answerable with a row name, and a blank has to read as "nothing configured" rather
+ * than as a decision to charge nothing.
+ */
+function TermsResult({ t }) {
+  const line = (label, value, src) => (
+    <div className="pe-req-line" key={label}>
+      <span>{label}</span>
+      <span style={{ textAlign: 'right' }}>
+        <strong>{value}</strong>
+        <div className="pe-req-why">{src ? src.name : 'nothing configured'}</div>
+      </span>
+    </div>
+  );
+  const s = t.sources || {};
+  const amt = (c) => (c == null ? '—' : c === 0 ? 'none' : money(c));
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <p className="pe-req-why" style={{ marginTop: 0 }}>
+        {t.guests ?? '?'} guests ·{' '}
+        {t.duringBusinessHours === null ? 'hours unknown — no time or venue given'
+          : t.duringBusinessHours ? 'during open hours' : 'after hours'}
+        {t.matched?.length ? ` · ${t.matched.length} row(s) applied` : ' · no rows applied'}
+      </p>
+      {t.availability !== 'available' && (
+        <div className="vin-pill vin-pill-danger" style={{ display: 'block', padding: 10, marginBottom: 8 }}>
+          {t.availability === 'unavailable'
+            ? 'Not available — this booking should be declined.'
+            : 'By request only — a manager has to agree before quoting.'}
+        </div>
+      )}
+      {line('Rental', t.base_price_cents == null ? '—' : money(t.base_price_cents), s.base_price_cents)}
+      {line('Min wine purchase', amt(t.min_wine_purchase_cents), s.min_wine_purchase_cents)}
+      {line('Booking deposit', amt(t.booking_deposit_cents),
+        s.booking_deposit_cents || s.booking_deposit_pct)}
+      {line('Security deposit', amt(t.security_deposit_cents), s.security_deposit_cents)}
+      {t.due_now_cents != null && (
+        <div className="pe-req-line"><span>Due up front</span>
+          <span style={{ textAlign: 'right' }}><strong>{money(t.due_now_cents)}</strong>
+            <div className="pe-req-why">booking deposit + security deposit</div></span></div>
+      )}
+      {line('Contract', t.contract_required ? 'Required' : 'Not required', s.contract_required)}
+      {line('Insurance', t.insurance_required ? 'Required' : 'Not required', s.insurance_required)}
+      {t.balance_due_days_before != null &&
+        line('Balance due', `${t.balance_due_days_before} days before`, s.balance_due_days_before)}
+      {t.planning_meeting_days != null &&
+        line('Planning meeting', `${t.planning_meeting_days} days ahead`, s.planning_meeting_days)}
+      {t.parking_attendant_over != null && (t.guests ?? 0) > t.parking_attendant_over &&
+        line('Parking attendant', 'Required', s.parking_attendant_over)}
+      {t.contract_required && (
+        line('Contract clauses', t.contract_section_keys?.length
+          ? `${t.contract_section_keys.length} selected` : 'all defaults', s.contract_section_keys)
+      )}
+      {t.notes_to_customer && (
+        <div style={{ marginTop: 8 }}>
+          <div className="vin-label">Note to the customer</div>
+          <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{t.notes_to_customer}</div>
+        </div>
+      )}
+    </div>
   );
 }
 
