@@ -4595,6 +4595,59 @@ const MIGRATIONS = [
   // is why no UI edit had ever succeeded - the only four rows in the table came from
   // scripts. An audit actor has no business being length-capped anyway.
   `ALTER TABLE menu_item_changes ALTER COLUMN actor TYPE TEXT`,
+
+  // ── Private Events ─────────────────────────────────────────────────────────
+  // See docs/PRIVATE_EVENTS.md. A booking is confirmed when every requirement its
+  // rules generated has been met - contract, deposit and insurance are all rule
+  // effects, not fixed stages, so a 15-person daytime event confirms on acceptance
+  // while a 150-person Saturday waits on four things.
+
+  // The enquiry had no time and no venue, which meant no hours-based rule could
+  // ever run and nothing could detect a double-booking. A window, not a point:
+  // "is this during business hours" cannot be answered from a start time alone.
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS start_time TIME`,
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS end_time TIME`,
+  // FK to the real venue rows rather than a creek|winery enum, which would diverge
+  // from locations immediately. Winery/Creek both carry is_venue.
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS location_id UUID`,
+
+  // The outcome of rule evaluation, frozen. deposit_required already exists as a
+  // boolean; these say WHICH rule decided, so "no deposit" reads as a decision
+  // rather than as something nobody got round to.
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS rules_evaluated_at TIMESTAMPTZ`,
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS requirements JSONB`,
+
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_rules (
+     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id   UUID NOT NULL,
+     name         TEXT NOT NULL,
+     active       BOOLEAN NOT NULL DEFAULT true,
+     priority     INTEGER NOT NULL DEFAULT 100,
+     min_guests   INTEGER,
+     max_guests   INTEGER,
+     location_id  UUID,
+     during_business_hours BOOLEAN,
+     day_of_week_mask      INTEGER,
+     lead_days_min INTEGER,
+     lead_days_max INTEGER,
+     effect_type  TEXT NOT NULL,
+     amount_cents INTEGER,
+     amount_pct   NUMERIC(5,2),
+     due_offset_days INTEGER,
+     customer_text TEXT,
+     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  // Constrained so a typo cannot produce an effect nothing handles - the evaluator
+  // switches on this and would silently drop an unknown one.
+  `ALTER TABLE kindred_web.event_rules DROP CONSTRAINT IF EXISTS event_rules_effect_valid`,
+  `ALTER TABLE kindred_web.event_rules ADD CONSTRAINT event_rules_effect_valid
+     CHECK (effect_type IN ('deposit','payment','contract','insurance','staffing','surcharge','block'))`,
+  `ALTER TABLE kindred_web.event_rules DROP CONSTRAINT IF EXISTS event_rules_guest_range`,
+  `ALTER TABLE kindred_web.event_rules ADD CONSTRAINT event_rules_guest_range
+     CHECK (min_guests IS NULL OR max_guests IS NULL OR max_guests >= min_guests)`,
+  `CREATE INDEX IF NOT EXISTS event_rules_lookup
+     ON kindred_web.event_rules (company_id, active, effect_type, priority)`,
 ];
 
 export async function runMigrations() {
