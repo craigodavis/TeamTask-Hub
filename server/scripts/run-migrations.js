@@ -4675,6 +4675,59 @@ const MIGRATIONS = [
   // unanswerable.
   `CREATE UNIQUE INDEX IF NOT EXISTS event_contract_sections_key
      ON kindred_web.event_contract_sections (company_id, key)`,
+
+  // Setup steps — "water station", "put out the long tables". Same shape as the
+  // contract sections and for the same reason: which steps apply varies by size and
+  // by whether the event is in or out of hours, and that condition belongs in ONE
+  // place (the terms band), not repeated on every task. A task says WHAT to do; the
+  // band says WHEN it applies.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_setup_tasks (
+     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id     UUID NOT NULL,
+     key            TEXT NOT NULL,
+     title          TEXT NOT NULL,
+     instructions   TEXT NOT NULL DEFAULT '',
+     area           TEXT,                -- bar / grounds / kitchen, for grouping the sheet
+     lead_minutes   INTEGER,             -- how long before doors it needs doing
+     sort_order     INTEGER NOT NULL DEFAULT 0,
+     always_include BOOLEAN NOT NULL DEFAULT false,
+     active         BOOLEAN NOT NULL DEFAULT true,
+     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS event_setup_tasks_key
+     ON kindred_web.event_setup_tasks (company_id, key)`,
+
+  // "Type of event" is on the contract header Craig supplied but was collected
+  // nowhere — not on the form, not in the table.
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS event_type TEXT`,
+  // His header also allows "both" for the venue, which a single location_id cannot
+  // express. A flag beside it rather than a second FK: the booking is still
+  // primarily somewhere, and every rule that keys on a venue still has one to read.
+  `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS both_venues BOOLEAN NOT NULL DEFAULT false`,
+
+  // The clause that opens every contract. Seeded rather than hard-coded so it can
+  // be edited like any other section; {{tokens}} are filled from the booking at
+  // render time and frozen into the signed snapshot.
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'parties_and_event_details', '1. Parties and Event Details',
+     'This agreement is between Kindred Vineyards ("Kindred") and the person or organization named below ("Renter"), and covers the single event described here.' || chr(10) || chr(10) ||
+     '| Item | Details |' || chr(10) ||
+     '| --- | --- |' || chr(10) ||
+     '| Renter name | {{renter_name}} |' || chr(10) ||
+     '| Phone / email | {{renter_phone}} / {{renter_email}} |' || chr(10) ||
+     '| Event date | {{event_date}} |' || chr(10) ||
+     '| Event start and end time | {{event_times}} |' || chr(10) ||
+     '| Location | {{location}} |' || chr(10) ||
+     '| Rental type | {{rental_type}} |' || chr(10) ||
+     '| Number of guests | {{guests}} |' || chr(10) ||
+     '| Type of event | {{event_type}} |',
+     10, true, true
+     FROM companies c
+    WHERE NOT EXISTS (
+      SELECT 1 FROM kindred_web.event_contract_sections s
+       WHERE s.company_id = c.id AND s.key = 'parties_and_event_details')`,
 ];
 
 export async function runMigrations() {

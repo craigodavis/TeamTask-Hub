@@ -11,6 +11,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, EFFECT_TYPES } from '../lib/eventRules.js';
+import { renderContract } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
   KEYS, money, outstanding, allSatisfied,
@@ -327,6 +328,129 @@ router.delete('/contract-sections/:id', requireManager, async (req, res) => {
                   WHERE id = $1 AND company_id = $2`, [req.params.id, req.companyId]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/event-requests/:id/contract — the contract as this booking would see it.
+// Read-only preview: nothing is stored until it is sent, and nothing can change once
+// signed, because signing freezes a snapshot and its hash.
+router.get('/:id/contract', requireManager, async (req, res) => {
+  try {
+    const r = (await query(
+      `SELECT r.*, l.name AS location_name
+         FROM kindred_web.event_requests r
+         LEFT JOIN locations l ON l.id = r.location_id
+        WHERE r.id = $1`, [req.params.id])).rows[0];
+    if (!r) return res.status(404).json({ error: 'No such request' });
+    const extra = Array.isArray(req.query.sections)
+      ? req.query.sections
+      : (req.query.sections ? String(req.query.sections).split(',') : []);
+    res.json(await renderContract(req.companyId, r, extra));
+  } catch (e) { console.error('contract render', e); res.status(500).json({ error: e.message }); }
+});
+
+// ── Setup tasks ──────────────────────────────────────────────────────────────
+// What staff physically do before an event. Same library pattern as the contract
+// sections: the task says what to do, the terms band says when it applies.
+
+router.get('/setup-tasks', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM kindred_web.event_setup_tasks
+        WHERE company_id = $1 ORDER BY sort_order, title`, [req.companyId]);
+    res.json({ tasks: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/setup-tasks', requireManager, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const title = (b.title || '').trim();
+    if (!title) return res.status(400).json({ error: 'Give the step a title.' });
+    const key = slugKey(b.key || title);
+    if (!key) return res.status(400).json({ error: 'Could not make a key from that title — add one.' });
+    const { rows } = await query(
+      `INSERT INTO kindred_web.event_setup_tasks
+         (company_id, key, title, instructions, area, lead_minutes, sort_order, always_include, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.companyId, key, title, b.instructions || '', (b.area || '').trim() || null,
+       b.lead_minutes === '' || b.lead_minutes == null ? null : parseInt(b.lead_minutes, 10),
+       parseInt(b.sort_order, 10) || 0, !!b.always_include, b.active !== false]);
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'A step with that key already exists.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put('/setup-tasks/:id', requireManager, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const sets = [], vals = [];
+    const put = (col, v) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+    if (b.title !== undefined) put('title', String(b.title).trim());
+    if (b.key !== undefined) put('key', slugKey(b.key));
+    if (b.instructions !== undefined) put('instructions', b.instructions || '');
+    if (b.area !== undefined) put('area', (b.area || '').trim() || null);
+    if (b.lead_minutes !== undefined) {
+      put('lead_minutes', b.lead_minutes === '' || b.lead_minutes == null ? null : parseInt(b.lead_minutes, 10));
+    }
+    if (b.sort_order !== undefined) put('sort_order', parseInt(b.sort_order, 10) || 0);
+    if (b.always_include !== undefined) put('always_include', !!b.always_include);
+    if (b.active !== undefined) put('active', !!b.active);
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id, req.companyId);
+    const { rows } = await query(
+      `UPDATE kindred_web.event_setup_tasks SET ${sets.join(', ')}, updated_at = now()
+        WHERE id = $${vals.length - 1} AND company_id = $${vals.length} RETURNING *`, vals);
+    if (!rows.length) return res.status(404).json({ error: 'No such step' });
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'That key is already in use.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/setup-tasks/:id', requireManager, async (req, res) => {
+  try {
+    await query(`DELETE FROM kindred_web.event_setup_tasks WHERE id = $1 AND company_id = $2`,
+      [req.params.id, req.companyId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── The staff run sheet ──────────────────────────────────────────────────────
+/**
+ * Everything about one booking, in one printable payload: who, when, where, the
+ * terms, and the setup steps that apply.
+ *
+ * Returned as data rather than rendered HTML so the page can print it with the
+ * house styles. Until the terms band exists, the steps are the "always include"
+ * ones — correct rather than empty, and it fills out as bands are defined.
+ */
+router.get('/:id/run-sheet', requireManager, async (req, res) => {
+  try {
+    const r = (await query(
+      `SELECT r.*, l.name AS location_name
+         FROM kindred_web.event_requests r
+         LEFT JOIN locations l ON l.id = r.location_id
+        WHERE r.id = $1`, [req.params.id])).rows[0];
+    if (!r) return res.status(404).json({ error: 'No such request' });
+
+    const steps = (await query(
+      `SELECT * FROM kindred_web.event_setup_tasks
+        WHERE company_id = $1 AND active AND always_include
+        ORDER BY COALESCE(area,''), sort_order, title`, [req.companyId])).rows;
+
+    // Anything else on that date, so whoever reads the sheet knows what they are
+    // sharing the day with.
+    const alsoOn = (await query(
+      `SELECT e.title, e.start_at, l.name AS location_name
+         FROM events e LEFT JOIN locations l ON l.id = e.location_id
+        WHERE e.start_at::date = $1::date ORDER BY e.start_at`,
+      [String(r.event_date).slice(0, 10)])).rows;
+
+    res.json({ request: shape(r), steps, alsoOn });
+  } catch (e) { console.error('run-sheet', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── Evaluate a real request and freeze the outcome ───────────────────────────

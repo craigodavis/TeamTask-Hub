@@ -59,6 +59,38 @@ export async function duringBusinessHours(companyId, locationId, date, startTime
   return day.intervals.some((iv) => from >= hm(iv.opens) && to <= hm(iv.closes));
 }
 
+/**
+ * Three-way: does the window sit inside opening hours, outside, or across both?
+ *
+ * duringBusinessHours answers yes/no because a rule has to match one or the other.
+ * The contract header needs the third answer — Craig's "Business hours, after hours,
+ * or both" — because an event running 15:00–19:00 at the Creek genuinely spans the
+ * 16:00 opening and calling it simply "after hours" on a contract would be wrong.
+ *
+ * Returns 'during' | 'after' | 'both' | null (unknown).
+ */
+export async function rentalType(companyId, locationId, date, startTime, endTime) {
+  if (!locationId || !date || !startTime || !endTime) return null;
+
+  const [rules, specials] = await Promise.all([
+    query(`SELECT * FROM kindred_web.hours WHERE company_id = $1 AND location_id = $2`, [companyId, locationId]),
+    query(`SELECT * FROM kindred_web.hours_special WHERE company_id = $1 AND location_id = $2`, [companyId, locationId]),
+  ]);
+
+  let day;
+  try { day = resolveDay(rules.rows, specials.rows, date); } catch { return null; }
+  if (!day || day.closed || !day.intervals?.length) return 'after';
+
+  const hm = (t) => String(t).slice(0, 5);
+  const from = hm(startTime);
+  const to = hm(endTime);
+
+  if (day.intervals.some((iv) => from >= hm(iv.opens) && to <= hm(iv.closes))) return 'during';
+  // Any overlap at all, without being wholly contained, means it spans both.
+  const overlaps = day.intervals.some((iv) => from < hm(iv.closes) && to > hm(iv.opens));
+  return overlaps ? 'both' : 'after';
+}
+
 /** Sunday = 0, matching EXTRACT(DOW) and the day_of_week column in hours. */
 function dowBit(dateStr) {
   const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00`);
