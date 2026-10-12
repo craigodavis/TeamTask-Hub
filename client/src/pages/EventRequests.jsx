@@ -50,25 +50,8 @@ const toForm = (t) => ({
 export default function EventRequests() {
   const [tab, setTab] = useState('requests');
   const [error, setError] = useState('');
-  // Served by the API rather than hardcoded here, so this is literally the URL the
-  // phone agent texts callers — see server/lib/publicLinks.js.
-  const [formUrl, setFormUrl] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    getEventRequests().then((d) => setFormUrl(d.form_url || '')).catch(() => {});
-  }, []);
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(formUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // Clipboard is blocked outside a secure context and on some mobile browsers.
-      // The link is selectable text either way, so say nothing and let them copy it.
-    }
-  };
+  // The form link is rendered by the Requests panel itself now, so it follows the
+  // panel into Private Events instead of living in a header that stayed behind.
   return (
     <div className="evr">
       <header className="evr-head">
@@ -78,18 +61,6 @@ export default function EventRequests() {
             Special event enquiries from the website, the tiers that price them, and the
             copy guests read.
           </p>
-          {/* The thing staff come here wanting: the link to send someone who asks
-              about hosting an event. Shown as text, not just a button, so it can be
-              read down the phone as well as pasted. */}
-          {formUrl && (
-            <div className="evr-link">
-              <span className="evr-link-label">Send customers this link</span>
-              <a href={formUrl} target="_blank" rel="noreferrer" className="evr-link-url">{formUrl}</a>
-              <button type="button" className="evr-link-copy" onClick={copyLink}>
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-          )}
         </div>
         <nav className="evr-tabs">
           {[['requests', 'Requests'], ['tiers', 'Tiers & pricing'], ['copy', 'Message']].map(([k, label]) => (
@@ -107,16 +78,63 @@ export default function EventRequests() {
   );
 }
 
+/**
+ * The public form link, with a copy button.
+ *
+ * This lives WITH the requests panel rather than in a page header. It used to sit in
+ * the EventRequests page header, and when the panel was folded into Private Events as
+ * a tab the header stayed behind — so the one thing staff come to this screen wanting
+ * silently disappeared. Attached to the panel, it travels wherever the panel is shown.
+ *
+ * Rendered as readable text and not only a button, because it gets read down the phone
+ * as often as it gets pasted.
+ */
+function FormLink({ url }) {
+  const [state, setState] = useState('idle');
+  if (!url) return null;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setState('copied');
+      setTimeout(() => setState('idle'), 1800);
+    } catch {
+      // Clipboard access is blocked outside a secure context and on some mobile
+      // browsers. Saying so beats a button that silently does nothing — the URL is
+      // selectable text, so there is always a way through.
+      setState('failed');
+    }
+  };
+
+  return (
+    <div className="evr-formlink">
+      <span className="evr-formlink-label">Send customers this link</span>
+      <a href={url} target="_blank" rel="noreferrer" className="evr-formlink-url">{url}</a>
+      <button type="button" className="evr-formlink-copy" onClick={copy}>
+        {state === 'copied' ? 'Copied' : state === 'failed' ? 'Select it to copy' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------- requests */
 
 export function Requests({ onError }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
+  // Comes back with the list, so showing it costs no extra request. Served by the API
+  // rather than hardcoded, which makes it literally the URL the phone agent texts
+  // callers — see server/lib/publicLinks.js.
+  const [formUrl, setFormUrl] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setRows((await getEventRequests(filter || undefined)).requests); }
+    try {
+      const d = await getEventRequests(filter || undefined);
+      setRows(d.requests);
+      setFormUrl(d.form_url || '');
+    }
     catch (e) { onError(e.message); }
     finally { setLoading(false); }
   }, [filter, onError]);
@@ -131,6 +149,7 @@ export function Requests({ onError }) {
 
   return (
     <>
+      <FormLink url={formUrl} />
       <div className="evr-filters">
         <label>
           Status
