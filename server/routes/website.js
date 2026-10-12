@@ -164,6 +164,36 @@ websiteRouter.post('/event-request', async (req, res) => {
     if (!Number.isFinite(guests) || guests < 1) return res.status(400).json({ error: 'How many people are you expecting?' });
     if (guests > 2000) return res.status(400).json({ error: 'Please call us — that is larger than we can quote online.' });
 
+    // Phone is now required. It was collected but optional, which left 33 of 44
+    // talent records without one and would do the same here — and an event enquiry
+    // we cannot ring back is barely an enquiry.
+    const phone = (b.phone || '').trim();
+    if (phone.replace(/\D/g, '').length < 10) {
+      return res.status(400).json({ error: 'Please give us a phone number we can reach you on.' });
+    }
+
+    // A window, not a point. Every hours-based rule depends on it: "is this during
+    // business hours" cannot be answered from a start time alone, and the two venues
+    // open at different times — the Creek at 16:00 Tue-Fri, the Winery at noon.
+    const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const startTime = String(b.startTime || '').slice(0, 5);
+    const endTime = String(b.endTime || '').slice(0, 5);
+    if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
+      return res.status(400).json({ error: 'Please give a start and end time for your event.' });
+    }
+    if (endTime <= startTime) {
+      return res.status(400).json({ error: 'The end time needs to be after the start time.' });
+    }
+
+    // The form sends the public slug; the id never leaves the server.
+    const venueSlug = String(b.venue || '').trim().toLowerCase();
+    if (!venueSlug) return res.status(400).json({ error: 'Please choose which of our places you would like.' });
+    const venue = (await query(
+      `SELECT id, name FROM locations
+        WHERE company_id = $1 AND lower(web_slug) = $2 AND deleted_at IS NULL`,
+      [await kindredCompanyId(), venueSlug])).rows[0];
+    if (!venue) return res.status(400).json({ error: 'Please choose which of our places you would like.' });
+
     // The quote is taken NOW and stored by value: tiers get edited, and what we
     // told this guest must not change under them afterwards.
     const tier = await tierForGuests(guests);
@@ -172,15 +202,17 @@ websiteRouter.post('/event-request', async (req, res) => {
       `INSERT INTO kindred_web.event_requests
          (first_name, last_name, email, phone, address, event_date, guests, notes,
           tier_id, quoted_base_cents, quoted_min_alcohol_cents, quoted_deposit_cents,
-          deposit_required, insurance_required, token, meta)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+          deposit_required, insurance_required, token, meta,
+          start_time, end_time, location_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
       [first.slice(0, 120), last.slice(0, 120), b.email.trim().toLowerCase().slice(0, 255),
-       (b.phone || '').trim().slice(0, 40) || null, (b.address || '').trim().slice(0, 2000) || null,
+       phone.slice(0, 40), (b.address || '').trim().slice(0, 2000) || null,
        date, guests, (b.notes || '').trim().slice(0, 5000) || null,
        tier?.id || null, tier?.base_price_cents ?? null, tier?.min_alcohol_cents ?? null,
        tier?.deposit_required ? tier.deposit_cents : null,
        !!tier?.deposit_required, !!tier?.insurance_required, newToken(),
-       JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null })],
+       JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null }),
+       startTime, endTime, venue.id],
     );
     const saved = rows[0];
 
