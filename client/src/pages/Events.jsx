@@ -23,6 +23,41 @@ const fmtDT = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: 'shor
 // the Creek came back as 12:30 PM after one unrelated change to its title.
 const toLocalInput = (iso) => (iso ? String(iso).slice(0, 16) : '');
 
+/**
+ * Keeping an event's two dates consistent.
+ *
+ * An end before its start is always a typo, and there is one way it happens:
+ * moving the event's date and leaving the end behind. "70s & 80s Night" was
+ * entered for 7 November with its end still on 7 October, and disappeared from
+ * the website without a word — the list treats the later of the two as "has
+ * this happened yet".
+ *
+ * Two quiet guards beat one loud one. shiftEnd carries the end along when the
+ * start moves, keeping the event's length, so the common path cannot produce a
+ * bad pair at all. dateRangeError describes a pair that is still wrong, to be
+ * shown beside the field while it is wrong — not as a dialog after the fact,
+ * which arrives once the work is done, has to be dismissed before it can be
+ * acted on, and does not say which field is at fault.
+ *
+ * Both take the 'YYYY-MM-DDTHH:mm' strings the datetime-local inputs use.
+ */
+const pad2 = (n) => String(n).padStart(2, '0');
+const parseInput = (s) => { if (!s) return null; const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d; };
+const asInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+function shiftEnd(prevStart, nextStart, end) {
+  const p = parseInput(prevStart), n = parseInput(nextStart), e = parseInput(end);
+  if (!p || !n || !e) return end;
+  if (e < p) return end; // already inconsistent — shifting would only bury it
+  return asInput(new Date(e.getTime() + (n.getTime() - p.getTime())));
+}
+
+function dateRangeError(start, end) {
+  const s = parseInput(start), e = parseInput(end);
+  if (!s || !e) return '';
+  return e < s ? 'This ends before it starts. Check the end date — moving an event leaves the end behind.' : '';
+}
+
 export default function Events() {
   const [tab, setTab] = useState('events');
   return (
@@ -74,8 +109,11 @@ function EventsTab() {
       if (m) { next.title = `Sunset Music Series: ${m.name}`; next._auto = true; }
     }
     if (k === 'title') next._auto = false;
+    // Moving the start carries the end with it, keeping the event's length.
+    if (k === 'start_at') next.end_at = shiftEnd(f.start_at, v, f.end_at);
     return next;
   });
+  const newDateErr = dateRangeError(form.start_at, form.end_at);
 
   const save = async () => {
     setErr(''); setSaving(true);
@@ -154,7 +192,11 @@ function EventsTab() {
         <h3 style={{ marginTop: 0 }}>Add event</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12 }}>
           <div><label style={lbl}>Starts</label><input type="datetime-local" style={inp} value={form.start_at} onChange={(e) => set('start_at', e.target.value)} /></div>
-          <div><label style={lbl}>Ends</label><input type="datetime-local" style={inp} value={form.end_at} onChange={(e) => set('end_at', e.target.value)} /></div>
+          <div><label style={lbl}>Ends</label>
+            <input type="datetime-local" style={{ ...inp, borderColor: newDateErr ? '#c0392b' : undefined }}
+                   value={form.end_at} onChange={(e) => set('end_at', e.target.value)} />
+            {newDateErr && <div style={{ color: '#c0392b', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{newDateErr}</div>}
+          </div>
           <div><label style={lbl}>Musician</label>
             <select style={inp} value={form.musician_id} onChange={(e) => set('musician_id', e.target.value)}>
               <option value="">— none —</option>
@@ -189,7 +231,7 @@ function EventsTab() {
         </div>
         {err && <p style={{ color: 'crimson' }}>{err}</p>}
         <div style={{ marginTop: 14 }}>
-          <button style={btn(true)} disabled={saving || !form.start_at || !form.title} onClick={save}>{saving ? 'Saving…' : 'Add event'}</button>
+          <button style={btn(true)} disabled={saving || !form.start_at || !form.title || !!newDateErr} onClick={save}>{saving ? 'Saving…' : 'Add event'}</button>
           <span style={{ marginLeft: 10, opacity: 0.6, fontSize: 12 }}>Website publishing goes live in the next step; for now events are saved in TeamHub.</span>
         </div>
       </div>
@@ -1188,14 +1230,26 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
     start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', sticky: !!ev.sticky, image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
-  const setField = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  const [saveErr, setSaveErr] = useState('');
+  const setField = (k, v) => setF((x) => (
+    // Moving the start carries the end with it, keeping the event's length.
+    k === 'start_at' ? { ...x, start_at: v, end_at: shiftEnd(x.start_at, v, x.end_at) } : { ...x, [k]: v }
+  ));
+  const dateErr = dateRangeError(f.start_at, f.end_at);
   const saveDetails = async () => {
     const body = {};
     for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url']) body[k] = f[k] === '' ? null : f[k];
     // Separate from the loop above: that turns '' into null, and false is not ''
     // — but a checkbox that cannot be turned back off is worse than no checkbox.
     body.sticky = !!f.sticky;
-    await updateEvent(ev.id, body); setSavedD(true); setTimeout(() => setSavedD(false), 1200);
+    // updateEvent throws on a non-2xx. Without this catch a rejected save said
+    // nothing at all — no message, and the "Saved" tick simply never appeared,
+    // which reads as success. A guard nobody can see is not a guard.
+    setSaveErr('');
+    try {
+      await updateEvent(ev.id, body);
+      setSavedD(true); setTimeout(() => setSavedD(false), 1200);
+    } catch (e) { setSaveErr(e.message || 'Could not save.'); }
   };
   const loadTasks = () => getEventTasks(ev.id).then((t) => setTasks(Array.isArray(t) ? t : [])).catch(() => {});
   const loadPromo = () => getPromoTasks(ev.id).then((p) => setPromo(Array.isArray(p) ? p : [])).catch(() => {});
@@ -1309,7 +1363,11 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Title</label><input style={inp} value={f.title} onChange={(e) => setField('title', e.target.value)} /></div>
           <div><label style={lbl}>Starts</label><input type="datetime-local" style={inp} value={f.start_at} onChange={(e) => setField('start_at', e.target.value)} /></div>
-          <div><label style={lbl}>Ends</label><input type="datetime-local" style={inp} value={f.end_at} onChange={(e) => setField('end_at', e.target.value)} /></div>
+          <div><label style={lbl}>Ends</label>
+            <input type="datetime-local" style={{ ...inp, borderColor: dateErr ? '#c0392b' : undefined }}
+                   value={f.end_at} onChange={(e) => setField('end_at', e.target.value)} />
+            {dateErr && <div style={{ color: '#c0392b', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{dateErr}</div>}
+          </div>
           <div><label style={lbl}>Musician</label>
             <select style={inp} value={f.musician_id || ''} onChange={(e) => setField('musician_id', e.target.value)}>
               <option value="">— none —</option>
@@ -1383,8 +1441,10 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
           </div>
         </div>
         <div style={{ marginTop: 12 }}>
-          <button style={btn(true)} onClick={saveDetails}>Save details</button>
+          <button style={btn(true)} disabled={!!dateErr} onClick={saveDetails}>Save details</button>
           {savedD && <span style={{ marginLeft: 10, color: '#137a2f', fontWeight: 600 }}>✓ saved</span>}
+          {dateErr && <span style={{ marginLeft: 10, color: '#c0392b', fontSize: 13 }}>Fix the end date to save.</span>}
+          {saveErr && <span style={{ marginLeft: 10, color: '#c0392b', fontSize: 13 }}>{saveErr}</span>}
         </div>
       </div>
       )}
@@ -1543,7 +1603,14 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
 
 function SpreadsheetView({ events, musicians, locations, onOpen, onChanged }) {
   const sorted = [...events].sort((a, b) => new Date(b.start_at) - new Date(a.start_at));
-  const save = async (id, patch) => { await updateEvent(id, patch); onChanged && onChanged(); };
+  // The grid has no room for a message beside the cell and no end-date column to
+  // put one under, so this is the one place the interruption is the right shape:
+  // the edit is rejected and the reason is said out loud. Everywhere there is
+  // room, the message sits next to the field instead.
+  const save = async (id, patch) => {
+    try { await updateEvent(id, patch); } catch (e) { window.alert(e.message || 'Could not save that change.'); }
+    onChanged && onChanged();
+  };
   const th = { padding: '4px 6px', borderBottom: '2px solid var(--border,#ddd)', fontSize: 12, opacity: 0.6, textAlign: 'left' };
   const td = { padding: '2px 6px', borderBottom: '1px solid var(--border,#eee)', fontSize: 13 };
   const ci = { border: '1px solid transparent', background: 'transparent', fontSize: 13, padding: 3, color: 'inherit', width: '100%' };
