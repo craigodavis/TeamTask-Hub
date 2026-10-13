@@ -137,9 +137,13 @@ websiteRouter.get('/event-tiers', async (_req, res) => {
       query(`SELECT * FROM kindred_web.event_terms WHERE company_id = $1 AND active`, [companyId]),
     ]);
 
-    // The published bands are the distinct guest ranges anyone has configured.
+    // A published band is a row that sets a PRICE. Rows that only modify terms —
+    // "15 or fewer during open hours needs no contract" — are not price bands and
+    // must not appear as one: they would advertise a band with whatever price
+    // happened to fall through from a wider row, which is not an offer we make.
     const bands = [];
     for (const t of termRows.rows) {
+      if (t.hourly_rate_cents == null && t.base_price_cents == null) continue;
       if (t.min_guests == null && t.max_guests == null) continue;
       const key = `${t.min_guests ?? ''}-${t.max_guests ?? ''}`;
       if (!bands.some((b) => b.key === key)) {
