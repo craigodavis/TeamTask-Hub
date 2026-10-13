@@ -3138,24 +3138,6 @@ export async function updateEventRequest(id, patch) {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not update');
   return res.json();
 }
-export async function getEventTiers() {
-  const res = await fetch(`${API}/event-requests/tiers`, { headers: headers() });
-  if (!res.ok) throw new Error('Failed to load tiers');
-  return res.json();
-}
-export async function saveEventTier(tier) {
-  const isNew = !tier.id;
-  const res = await fetch(`${API}/event-requests/tiers${isNew ? '' : `/${tier.id}`}`, {
-    method: isNew ? 'POST' : 'PUT', headers: headers(), body: JSON.stringify(tier),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save the tier');
-  return res.json();
-}
-export async function deleteEventTier(id) {
-  const res = await fetch(`${API}/event-requests/tiers/${id}`, { method: 'DELETE', headers: headers() });
-  if (!res.ok) throw new Error('Could not delete the tier');
-  return res.json();
-}
 export async function getEventRequestSettings() {
   const res = await fetch(`${API}/event-requests/settings`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to load settings');

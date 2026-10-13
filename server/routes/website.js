@@ -10,7 +10,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { availableTimes, createBooking, customFields } from '../lib/resosClient.js';
 import {
-  KEYS as EVENT_KEYS, tierForGuests, newToken, money, BOOKING_WINDOW, resolveWindow,
+  KEYS as EVENT_KEYS, newToken, money, BOOKING_WINDOW, resolveWindow,
   alertRecipients, newRequestSms,
 } from '../lib/eventRequests.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
@@ -427,25 +427,38 @@ websiteRouter.post('/event-request', async (req, res) => {
       return res.status(400).json({ error: 'Please choose which of our places you would like.' });
     }
 
-    // The quote is taken NOW and stored by value: tiers get edited, and what we
-    // told this guest must not change under them afterwards.
-    const tier = await tierForGuests(guests);
+    // The quote is taken NOW and stored by value: terms get edited, and what we told
+    // this guest must not change under them afterwards.
+    //
+    // Evaluated here rather than left for staff to press a button on later. The
+    // enquiry arrives with its terms already frozen, which is both more honest — this
+    // is the quote the customer was shown on the page a second ago — and one less
+    // step on the board before anyone can act on it.
+    const companyId = await kindredCompanyId();
+    const terms = await evaluate(companyId, {
+      guests,
+      locationId: venue?.id || null,
+      eventDate: date,
+      startTime,
+      endTime,
+    });
 
     const { rows } = await query(
       `INSERT INTO kindred_web.event_requests
          (first_name, last_name, email, phone, address, event_date, guests, notes,
-          tier_id, quoted_base_cents, quoted_min_alcohol_cents, quoted_deposit_cents,
+          quoted_base_cents, quoted_min_alcohol_cents, quoted_deposit_cents,
           deposit_required, insurance_required, token, meta,
-          start_time, end_time, location_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+          start_time, end_time, location_id, requirements, rules_evaluated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NOW())
+       RETURNING *`,
       [first.slice(0, 120), last.slice(0, 120), b.email.trim().toLowerCase().slice(0, 255),
        phone.slice(0, 40), (b.address || '').trim().slice(0, 2000) || null,
        date, guests, (b.notes || '').trim().slice(0, 5000) || null,
-       tier?.id || null, tier?.base_price_cents ?? null, tier?.min_alcohol_cents ?? null,
-       tier?.deposit_required ? tier.deposit_cents : null,
-       !!tier?.deposit_required, !!tier?.insurance_required, newToken(),
+       terms.rental_total_cents ?? null, terms.min_wine_purchase_cents ?? null,
+       terms.due_now_cents ?? null,
+       (terms.due_now_cents ?? 0) > 0, !!terms.insurance_required, newToken(),
        JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null }),
-       startTime, endTime, venue?.id || null],
+       startTime, endTime, venue?.id || null, JSON.stringify(terms)],
     );
     const saved = rows[0];
 

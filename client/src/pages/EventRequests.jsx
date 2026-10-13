@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   getEventRequests, updateEventRequest,
-  getEventTiers, saveEventTier, deleteEventTier,
   getEventRequestSettings, saveEventRequestSettings,
 } from '../api';
 import './EventRequests.css';
@@ -247,128 +246,6 @@ export function Requests({ onError }) {
 }
 
 /* ----------------------------------------------------------------- tiers */
-
-export function Tiers({ onError }) {
-  const [tiers, setTiers] = useState([]);
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setTiers((await getEventTiers()).tiers); }
-    catch (e) { onError(e.message); }
-    finally { setLoading(false); }
-  }, [onError]);
-  useEffect(() => { load(); }, [load]);
-
-  const save = async () => {
-    try { await saveEventTier(editing); setEditing(null); await load(); }
-    catch (e) { onError(e.message); }
-  };
-  const remove = async (id) => {
-    if (!window.confirm('Delete this tier? Requests already quoted from it keep their prices.')) return;
-    try { await deleteEventTier(id); await load(); } catch (e) { onError(e.message); }
-  };
-
-  const band = (t) => `${t.min_guests}–${t.max_guests ?? '∞'}`;
-
-  return (
-    <>
-      <div className="evr-filters">
-        <button className="evr-approve" onClick={() => setEditing({ ...BLANK_TIER })}>Add a tier</button>
-      </div>
-
-      {loading ? <p className="evr-empty">Loading…</p>
-        : !tiers.length ? <p className="evr-empty">No tiers yet. Add one so the form can quote.</p>
-        : (
-          <div className="evr-table-wrap">
-            <table className="evr-table">
-              <thead>
-                <tr>
-                  <th>Guests</th><th>Name</th><th>Venue fee</th><th>Min. bar</th>
-                  <th>Deposit</th><th>Insurance</th><th>Meeting</th><th />
-                </tr>
-              </thead>
-              <tbody>
-                {tiers.map((t) => (
-                  <tr key={t.id}>
-                    <td className="nowrap">{band(t)}</td>
-                    <td>{t.title || '—'}</td>
-                    <td>${dollars(t.base_price_cents)}</td>
-                    <td>${dollars(t.min_alcohol_cents)}</td>
-                    <td>{t.deposit_required ? `$${dollars(t.deposit_cents)}` : '—'}</td>
-                    <td>{t.insurance_required ? 'Required' : '—'}</td>
-                    <td className="nowrap">{t.planning_meeting_days ? `${t.planning_meeting_days}d before` : '—'}</td>
-                    <td className="nowrap">
-                      <button className="evr-link" onClick={() => setEditing(toForm(t))}>Edit</button>
-                      <button className="evr-link danger" onClick={() => remove(t.id)}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-      {editing && (
-        <div className="evr-modal" role="dialog" aria-label="Edit tier">
-          <div className="evr-modal-box">
-            <h3>{editing.id ? 'Edit tier' : 'New tier'}</h3>
-            <div className="evr-grid">
-              <label>Min guests<input type="number" min="1" value={editing.min_guests}
-                onChange={(e) => setEditing({ ...editing, min_guests: e.target.value })} /></label>
-              <label>Max guests <span className="hint">blank = and above</span>
-                <input type="number" value={editing.max_guests}
-                  onChange={(e) => setEditing({ ...editing, max_guests: e.target.value })} /></label>
-              <label className="wide">Name <span className="hint">shown to the guest</span>
-                <input value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></label>
-              <label>Venue fee ($)<input value={editing.base_price}
-                onChange={(e) => setEditing({ ...editing, base_price: e.target.value })} /></label>
-              <label>Min. bar purchase ($)<input value={editing.min_alcohol}
-                onChange={(e) => setEditing({ ...editing, min_alcohol: e.target.value })} /></label>
-              <label className="wide">Rules<textarea rows="3" value={editing.rules}
-                onChange={(e) => setEditing({ ...editing, rules: e.target.value })} /></label>
-
-              <label className="wide check">
-                <input type="checkbox" checked={editing.deposit_required}
-                  onChange={(e) => setEditing({ ...editing, deposit_required: e.target.checked })} />
-                Security deposit required
-              </label>
-              {editing.deposit_required && (
-                <>
-                  <label>Deposit ($)<input value={editing.deposit}
-                    onChange={(e) => setEditing({ ...editing, deposit: e.target.value })} /></label>
-                  <label className="wide">Deposit description <span className="hint">the guest reads this</span>
-                    <textarea rows="2" value={editing.deposit_description}
-                      onChange={(e) => setEditing({ ...editing, deposit_description: e.target.value })} /></label>
-                </>
-              )}
-
-              <label className="wide check">
-                <input type="checkbox" checked={editing.insurance_required}
-                  onChange={(e) => setEditing({ ...editing, insurance_required: e.target.checked })} />
-                Proof of insurance required
-              </label>
-              {editing.insurance_required && (
-                <label className="wide">Insurance description <span className="hint">the guest reads this</span>
-                  <textarea rows="2" value={editing.insurance_description}
-                    onChange={(e) => setEditing({ ...editing, insurance_description: e.target.value })} /></label>
-              )}
-
-              <label className="wide">Planning meeting <span className="hint">days before the event we should have met</span>
-                <input type="number" min="0" value={editing.planning_meeting_days}
-                  onChange={(e) => setEditing({ ...editing, planning_meeting_days: e.target.value })} /></label>
-            </div>
-            <div className="evr-modal-actions">
-              <button className="evr-approve" onClick={save}>Save</button>
-              <button className="evr-link" onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
 
 /* ------------------------------------------------------------------ copy */
 

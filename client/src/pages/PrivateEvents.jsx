@@ -7,7 +7,7 @@ import {
   updateContractSection, deleteContractSection,
 } from '../api';
 import Drawer from '../components/Drawer';
-import { Requests, Tiers, Copy } from './EventRequests';
+import { Requests, Copy } from './EventRequests';
 import '../styles/vintly.css';
 import './PrivateEvents.css';
 
@@ -55,8 +55,8 @@ export function PrivateEvents() {
       {/* One flat row. Event Requests used to be its own sidebar entry; it belongs
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Website tiers'],
-          ['copy', 'Message'], ['terms', 'Terms'], ['contract', 'Contract']].map(([k, l]) => (
+        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests'],
+          ['terms', 'Terms'], ['copy', 'Message'], ['contract', 'Contract']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
@@ -65,7 +65,6 @@ export function PrivateEvents() {
       {tab === 'flow' && <FlowTab />}
       {tab === 'calendar' && <CalendarTab />}
       {tab === 'requests' && <Requests onError={setErr} />}
-      {tab === 'tiers' && <Tiers onError={setErr} />}
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'terms' && <TermsTab />}
       {tab === 'contract' && <ContractSectionsTab />}
@@ -530,13 +529,9 @@ function TermsTab() {
           number, so a narrow row only states what differs
         </span>
       </div>
-      {/* Honest about the duplication rather than letting the two drift silently: the
-          public pricing page still reads the old tiers table, these rows drive what we
-          actually quote and contract. One of the two has to go. */}
       <p className="pe-req-why" style={{ marginTop: 0 }}>
-        These rows decide what we quote and contract. The public pricing page still
-        reads <strong>Website tiers</strong> — if you change a price here, change it there too
-        until we point the website at this table.
+        One source for everything: the public price list, the quote a customer sees,
+        this board and the contract all read these rows.
       </p>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
 

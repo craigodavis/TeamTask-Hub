@@ -33,79 +33,12 @@ const centsFrom = (v) => {
 /* ------------------------------------------------------------------- tiers */
 
 // GET /api/event-requests/tiers
-router.get('/tiers', requireManager, async (_req, res) => {
-  try {
-    const { rows } = await query(
-      `SELECT * FROM kindred_web.event_tiers ORDER BY min_guests, sort_order`);
-    res.json({ tiers: rows });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+// The event_tiers table and its editor are gone. It held guest bands and a flat
+// price, and event_terms replaced it: same bands, plus venue and opening hours, and
+// it is what the public price list, the quote, the board and the contract all read.
+// Leaving a second editor would have meant two tables answering "what does this
+// cost" with nothing keeping them in step.
 
-// POST /api/event-requests/tiers — create
-router.post('/tiers', requireManager, async (req, res) => {
-  try {
-    const b = req.body || {};
-    const min = parseInt(b.min_guests, 10);
-    if (!Number.isFinite(min) || min < 1) return res.status(400).json({ error: 'Minimum guests must be at least 1.' });
-    const max = b.max_guests === '' || b.max_guests == null ? null : parseInt(b.max_guests, 10);
-    if (max != null && max < min) return res.status(400).json({ error: 'Maximum guests cannot be below the minimum.' });
-
-    const { rows } = await query(
-      `INSERT INTO kindred_web.event_tiers
-         (min_guests, max_guests, title, base_price_cents, min_alcohol_cents, rules,
-          deposit_required, deposit_cents, deposit_description,
-          insurance_required, insurance_description, planning_meeting_days, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-      [min, max, b.title || null, centsFrom(b.base_price), centsFrom(b.min_alcohol), b.rules || null,
-       !!b.deposit_required, centsFrom(b.deposit), b.deposit_description || null,
-       !!b.insurance_required, b.insurance_description || null,
-       Number.isFinite(parseInt(b.planning_meeting_days, 10)) ? parseInt(b.planning_meeting_days, 10) : null,
-       parseInt(b.sort_order, 10) || 0],
-    );
-    res.json({ tier: rows[0] });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// PUT /api/event-requests/tiers/:id — update
-router.put('/tiers/:id', requireManager, async (req, res) => {
-  try {
-    const b = req.body || {};
-    const min = parseInt(b.min_guests, 10);
-    if (!Number.isFinite(min) || min < 1) return res.status(400).json({ error: 'Minimum guests must be at least 1.' });
-    const max = b.max_guests === '' || b.max_guests == null ? null : parseInt(b.max_guests, 10);
-    if (max != null && max < min) return res.status(400).json({ error: 'Maximum guests cannot be below the minimum.' });
-
-    const { rows } = await query(
-      `UPDATE kindred_web.event_tiers SET
-         min_guests=$1, max_guests=$2, title=$3, base_price_cents=$4, min_alcohol_cents=$5, rules=$6,
-         deposit_required=$7, deposit_cents=$8, deposit_description=$9,
-         insurance_required=$10, insurance_description=$11, planning_meeting_days=$12,
-         sort_order=$13, updated_at=NOW()
-       WHERE id=$14 RETURNING *`,
-      [min, max, b.title || null, centsFrom(b.base_price), centsFrom(b.min_alcohol), b.rules || null,
-       !!b.deposit_required, centsFrom(b.deposit), b.deposit_description || null,
-       !!b.insurance_required, b.insurance_description || null,
-       Number.isFinite(parseInt(b.planning_meeting_days, 10)) ? parseInt(b.planning_meeting_days, 10) : null,
-       parseInt(b.sort_order, 10) || 0, req.params.id],
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'Tier not found' });
-    res.json({ tier: rows[0] });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// DELETE /api/event-requests/tiers/:id
-// Requests keep their quoted figures by value, so removing a tier cannot change
-// what an existing guest was promised — the FK is ON DELETE SET NULL.
-router.delete('/tiers/:id', requireManager, async (req, res) => {
-  try {
-    await query(`DELETE FROM kindred_web.event_tiers WHERE id = $1`, [req.params.id]);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-/* ---------------------------------------------------------------- settings */
-
-// GET /api/event-requests/settings — the editable copy.
 router.get('/settings', requireManager, async (_req, res) => {
   try {
     const { rows } = await query(
@@ -774,13 +707,17 @@ router.patch('/:id', requireManager, async (req, res) => {
         if (justApproved) {
           set('approved_at', new Date());
           set('approved_by', req.userId || null);
-          // The lead time is read from the tier NOW rather than at submission,
-          // because it is our operational deadline, not part of the guest's
-          // quote — if we decide big events need three weeks, that should apply.
-          const tier = cur.tier_id
-            ? (await query(`SELECT planning_meeting_days FROM kindred_web.event_tiers WHERE id = $1`, [cur.tier_id])).rows[0]
-            : null;
-          const days = tier?.planning_meeting_days;
+          // The lead time is read from the terms as they stand NOW, not from the
+          // frozen snapshot, because it is our operational deadline rather than part
+          // of the guest's quote — if we decide big events need three weeks, that
+          // should apply to one approved today.
+          const live = await evaluate(req.companyId, {
+            guests: cur.guests,
+            locationId: cur.location_id,
+            eventDate: isoDate(cur.event_date),
+            startTime: cur.start_time, endTime: cur.end_time,
+          });
+          const days = live.planning_meeting_days;
           if (Number.isFinite(days) && days > 0) {
             set('planning_meeting_due', new Date(new Date(cur.event_date).getTime() - days * 86400000)
               .toISOString().slice(0, 10));
