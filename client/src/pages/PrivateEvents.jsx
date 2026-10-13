@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
-  getPrivateEventCalendar, getPrivateEventBoard, getEventTerms, createEventTerm, updateEventTerm,
+  getPrivateEventCalendar, getPrivateEventBoard, sendEventContract,
+  getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
@@ -235,6 +236,7 @@ function FlowTab() {
   const [data, setData] = useState(null);
   const [bucket, setBucket] = useState(null);
   const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(null);
 
   const load = useCallback(() => {
@@ -251,14 +253,24 @@ function FlowTab() {
 
   // What the one button on a row does. Chasing is a conversation, which has no
   // data layer yet, so it opens the request rather than pretending to send.
-  const doAction = (row) => {
+  const doAction = async (row) => {
     const k = row.action?.key;
     if (k === 'contract') {
-      if (row.gates.find((g) => g.key === 'contract')?.turn === 'ours'
-          && row.gates.find((g) => g.key === 'contract')?.label === 'Counter-sign') {
+      const g = row.gates.find((x) => x.key === 'contract');
+      if (g?.turn === 'ours' && g.label === 'Counter-sign') {
         return act(row, { contract_executed: true });
       }
-      return act(row, { contract_sent: true });
+      // Sends a real email. The server stamps "sent" only if it went, so a failure
+      // must surface here rather than silently moving the booking to "with them".
+      setBusy(row.id);
+      try {
+        const out = await sendEventContract(row.id);
+        setErr('');
+        setNote(`Contract emailed to ${out.sentTo}.`);
+        load();
+      } catch (e) { setErr(e.message); }
+      finally { setBusy(null); }
+      return null;
     }
     if (k === 'insurance') return act(row, { insurance_ok: true });
     if (k === 'deposit') return act(row, { deposit_paid: true });
@@ -266,8 +278,10 @@ function FlowTab() {
     return null;
   };
 
-  if (err) return <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>;
-  if (!data) return <div className="pe-empty">Loading…</div>;
+  if (!data) {
+    return err ? <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>
+      : <div className="pe-empty">Loading…</div>;
+  }
 
   const rows = bucket ? data.rows.filter((r) => r.buckets.includes(bucket)) : data.rows;
   const BOXES = [
@@ -284,6 +298,10 @@ function FlowTab() {
 
   return (
     <>
+      {/* An error here is about one action, not the whole board, so it sits above
+          the rows rather than replacing them. */}
+      {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
+      {note && <p className="vin-pill" style={{ display: 'block' }}>{note}</p>}
       <div className="pe-tallies">
         <button className={`pe-tally${bucket === null ? ' on' : ''}`} onClick={() => setBucket(null)}>
           <span className="pe-tally-n" style={{ color: data.needsYou ? 'var(--vin-text-danger)' : undefined }}>

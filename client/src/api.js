@@ -2997,6 +2997,15 @@ export async function getPrivateEventCalendar(from, to) {
   if (!res.ok) throw new Error(d.error || 'Failed to load calendar');
   return d;
 }
+// Renders the contract and emails it. The timestamp is only stamped server-side if
+// the mail actually went, so a failure here leaves the booking needing us.
+export async function sendEventContract(id) {
+  const res = await fetch(`${API}/event-requests/${id}/send-contract`, {
+    method: 'POST', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not send the contract');
+  return d;
+}
 // The board: every live booking, what it still owes, whose move it is.
 export async function getPrivateEventBoard() {
   const res = await fetch(`${API}/event-requests/board`, { headers: headers() });

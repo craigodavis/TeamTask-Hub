@@ -12,6 +12,7 @@ import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard } from '../lib/eventBoard.js';
+import { sendMail } from '../mail.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
@@ -521,6 +522,77 @@ router.get('/:id/run-sheet', requireManager, async (req, res) => {
 
     res.json({ request: shape(r), steps, alsoOn });
   } catch (e) { console.error('run-sheet', e); res.status(500).json({ error: e.message }); }
+});
+
+// ── Send the contract ────────────────────────────────────────────────────────
+// The board used to mark a contract "sent" with a bare timestamp and no email, so a
+// booking moved to "with them" while the customer had been told nothing. A state
+// that records something we did not do is worse than no state at all: nobody chases
+// it, because the board says it is their move.
+//
+// So the timestamp is stamped ONLY if the mail actually went. A failed send leaves
+// the booking exactly where it was, needing us.
+
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+router.post('/:id/send-contract', requireManager, async (req, res) => {
+  try {
+    const cur = (await query(
+      `SELECT r.*, l.name AS location_name
+         FROM kindred_web.event_requests r
+         LEFT JOIN locations l ON l.id = r.location_id
+        WHERE r.id = $1`, [req.params.id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Request not found' });
+    if (!cur.email) {
+      return res.status(400).json({ error: 'No email address on this enquiry, so there is nowhere to send it.' });
+    }
+
+    // Which clauses this booking carries was decided when its terms were frozen.
+    // Reading the terms table now could send a contract that differs from the one
+    // the quote was based on.
+    const extraKeys = cur.requirements?.contract_section_keys || [];
+    const { sections } = await renderContract(req.companyId, cur, extraKeys);
+    if (!sections.length) {
+      return res.status(400).json({ error: 'No contract sections are active, so there is nothing to send.' });
+    }
+
+    const name = `${cur.first_name || ''} ${cur.last_name || ''}`.trim();
+    const html = `<div style="font-family:Georgia,serif;max-width:640px;line-height:1.5">`
+      + `<p>${esc(name) || 'Hello'},</p>`
+      + `<p>Here is the agreement for your event at Kindred Vineyards. `
+      + `Please read it through — reply to this email with any questions, and let us `
+      + `know you are happy with it and we will get it signed.</p>`
+      + sections.map((sec) =>
+          `<h3 style="margin:22px 0 6px;font-size:15px">${esc(sec.title)}</h3>`
+          + `<div style="white-space:pre-wrap">${esc(sec.body)}</div>`).join('')
+      + `</div>`;
+
+    const text = `${name},\n\nHere is the agreement for your event at Kindred Vineyards. `
+      + `Please read it through — reply to this email with any questions.\n\n`
+      + sections.map((sec) => `${sec.title}\n${'-'.repeat(sec.title.length)}\n${sec.body}`).join('\n\n');
+
+    const sent = await sendMail({
+      to: cur.email,
+      subject: 'Your event at Kindred Vineyards — agreement',
+      text, html,
+    }, req.companyId);
+
+    // sendMail reports failure by return value, not by throwing, so this has to be
+    // checked. Treating it as fire-and-forget is how the board came to lie.
+    if (sent && sent.sent === false) {
+      return res.status(502).json({ error: `The email did not send: ${sent.error || 'unknown error'}` });
+    }
+
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests
+          SET contract_sent_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [cur.id]);
+    res.json({ ok: true, sentTo: cur.email, sections: sections.length, request: shape(rows[0]) });
+  } catch (e) {
+    console.error('send-contract', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Evaluate a real request and freeze the outcome ───────────────────────────
