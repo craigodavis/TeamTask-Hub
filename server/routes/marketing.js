@@ -35,6 +35,23 @@ const SETTINGS = {
     default: 10,
     parse: (v) => Math.min(Math.max(parseInt(v, 10) || 10, 1), 100),
   },
+  club_testimonials_enabled: {
+    default: false,
+    parse: (v) => v === true || v === 'true' || v === 1 || v === '1',
+  },
+  // Seconds a quote holds before the next one. Not a "speed": speed is a
+  // property of the animation, and the slide itself is near-instant — what
+  // matters is how long there is to read. The floor is 3s because anything
+  // less cannot be read by anyone, and the ceiling stops a typo parking the
+  // carousel on one quote for an hour.
+  //
+  // This is a BASE time. The page extends it for longer quotes, because a
+  // forty-word testimonial given the same six seconds as a six-word one is a
+  // quote nobody finishes.
+  club_testimonials_seconds: {
+    default: 7,
+    parse: (v) => Math.min(Math.max(parseInt(v, 10) || 7, 3), 30),
+  },
 };
 
 async function readSetting(key) {
@@ -127,4 +144,68 @@ marketingRouter.post('/reservations/:venue/test', async (req, res) => {
     if (!key) return res.status(400).json({ ok: false, message: 'No API key set for this venue yet.' });
     res.json(await resosPing(base, key));
   } catch (e) { res.status(500).json({ ok: false, message: e.message }); }
+});
+
+/* ---------------------------------------------------------- testimonials */
+/*
+ * CRUD for the wine-club testimonial carousel. Mounted under /api/marketing,
+ * which already carries websiteContentWatch — so saving one asks the website to
+ * rebuild on its own, the same way editing hours or images does. The carousel is
+ * rendered into the page at build time, and that is what keeps it current.
+ */
+
+const trim = (v, max) => {
+  const s = String(v ?? '').trim();
+  return s ? s.slice(0, max) : null;
+};
+
+// GET /api/marketing/testimonials — all of them, published or not.
+marketingRouter.get('/testimonials', async (_req, res) => {
+  try {
+    const r = await query(
+      `SELECT * FROM kindred_web.testimonials ORDER BY sort_order, created_at`);
+    res.json({ testimonials: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/marketing/testimonials
+marketingRouter.post('/testimonials', async (req, res) => {
+  try {
+    const quote = trim(req.body?.quote, 2000);
+    if (!quote) return res.status(400).json({ error: 'A quote is required.' });
+    const r = await query(
+      `INSERT INTO kindred_web.testimonials
+         (quote, author_name, author_detail, image_url, active, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [quote, trim(req.body?.author_name, 120), trim(req.body?.author_detail, 160),
+       trim(req.body?.image_url, 1000), req.body?.active !== false,
+       parseInt(req.body?.sort_order, 10) || 0]);
+    res.json({ testimonial: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/marketing/testimonials/:id
+marketingRouter.put('/testimonials/:id', async (req, res) => {
+  try {
+    const quote = trim(req.body?.quote, 2000);
+    if (!quote) return res.status(400).json({ error: 'A quote is required.' });
+    const r = await query(
+      `UPDATE kindred_web.testimonials SET
+         quote=$1, author_name=$2, author_detail=$3, image_url=$4,
+         active=$5, sort_order=$6, updated_at=NOW()
+       WHERE id=$7 RETURNING *`,
+      [quote, trim(req.body?.author_name, 120), trim(req.body?.author_detail, 160),
+       trim(req.body?.image_url, 1000), req.body?.active !== false,
+       parseInt(req.body?.sort_order, 10) || 0, req.params.id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Testimonial not found' });
+    res.json({ testimonial: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/marketing/testimonials/:id
+marketingRouter.delete('/testimonials/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM kindred_web.testimonials WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });

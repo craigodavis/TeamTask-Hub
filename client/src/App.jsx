@@ -52,6 +52,7 @@ import { ScanReceipt } from './pages/ScanReceipt';
 import { MediaHub } from './pages/MediaHub';
 import { HoursEditor } from './pages/HoursEditor';
 import { WebsiteSettings } from './pages/WebsiteSettings';
+import { Testimonials } from './pages/Testimonials';
 
 function LegacyWasteEntryRedirect() {
   const { entryId } = useParams();
@@ -277,7 +278,7 @@ function App() {
             }
           />
           <Route
-            path="/marketing/settings"
+            path="/marketing/website/settings"
             element={
               can(user, 'marketing.website') ? (
                 <WebsiteSettings />
@@ -286,6 +287,19 @@ function App() {
               )
             }
           />
+          <Route
+            path="/marketing/website/testimonials"
+            element={
+              can(user, 'marketing.website') ? (
+                <Testimonials />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          {/* Settings moved under Website. Anyone's bookmark or muscle memory
+              still lands somewhere useful rather than on the dashboard. */}
+          <Route path="/marketing/settings" element={<Navigate to="/marketing/website/settings" replace />} />
           <Route
             path="/quickbooks"
             element={

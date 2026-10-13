@@ -213,6 +213,36 @@
   border-left: 2px solid var(--border);
 }
 
+/* Third level — Marketing › Website › Testimonials. Same rail treatment as the
+   level above so the nesting reads as nesting, indented from its parent rather
+   than from the sidebar edge. `button.nav-sub-item` is the expandable parent,
+   which needs the pointer the base rule withholds from non-links. */
+.nav-sub-group.nav-sub-group-deep {
+  margin-left: 1rem;
+  margin-right: 0;
+}
+
+button.nav-sub-item.nav-sub-parent {
+  cursor: pointer;
+  justify-content: space-between;
+}
+
+button.nav-sub-item.nav-sub-parent:hover {
+  background: var(--bg);
+  color: var(--primary);
+}
+
+button.nav-sub-item.nav-sub-parent.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.nav-sub-parent-chev {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  margin-left: auto;
+}
+
 .nav-sub-item {
   display: flex;
   align-items: center;

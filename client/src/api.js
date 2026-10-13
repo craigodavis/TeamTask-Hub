@@ -3150,3 +3150,40 @@ export async function saveEventRequestSettings(body) {
   if (!res.ok) throw new Error('Could not save');
   return res.json();
 }
+
+/* ---- wine-club testimonials (Marketing → Website → Testimonials) ---- */
+
+export async function getTestimonials() {
+  const res = await fetch(`${API}/marketing/testimonials`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load testimonials');
+  return (await res.json()).testimonials || [];
+}
+
+export async function createTestimonial(body) {
+  const res = await fetch(`${API}/marketing/testimonials`, {
+    method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to add testimonial');
+  return d.testimonial;
+}
+
+export async function updateTestimonial(id, body) {
+  const res = await fetch(`${API}/marketing/testimonials/${id}`, {
+    method: 'PUT', headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save testimonial');
+  return d.testimonial;
+}
+
+export async function deleteTestimonial(id) {
+  const res = await fetch(`${API}/marketing/testimonials/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to delete testimonial');
+  return d;
+}

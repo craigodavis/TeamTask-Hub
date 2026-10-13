@@ -270,6 +270,25 @@ const STATEMENTS = [
   `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS planning_meeting_booked BOOLEAN NOT NULL DEFAULT FALSE`,
   `ALTER TABLE kindred_web.event_requests ADD COLUMN IF NOT EXISTS planning_meeting_at TIMESTAMPTZ`,
 
+  // Testimonials shown on the wine-club page. Quotes from real members, so the
+  // table carries who said it as well as what they said — an unattributed quote
+  // reads as marketing copy, which is the opposite of the point.
+  //
+  // `active` rather than deleting: a member's words come down for a season and
+  // go back up, and retyping them loses the exact wording they gave us.
+  `CREATE TABLE IF NOT EXISTS kindred_web.testimonials (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quote         TEXT NOT NULL,
+    author_name   VARCHAR(120),
+    author_detail VARCHAR(160),
+    image_url     TEXT,
+    active        BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kw_testimonials_live ON kindred_web.testimonials(active, sort_order, created_at)`,
+
   // Widen folder for nested FileBird paths (only if an older, narrower table exists).
   `DO $$ BEGIN
      IF EXISTS (

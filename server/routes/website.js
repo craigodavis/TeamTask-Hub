@@ -554,7 +554,26 @@ websiteRouter.get('/venues', async (_req, res) => {
 websiteRouter.get('/settings', async (_req, res) => {
   try {
     const events_list_count = Number(await getSetting('events_list_count', 10)) || 10;
-    res.json({ events_list_count });
+    const club_testimonials_enabled = (await getSetting('club_testimonials_enabled', false)) === true;
+    const club_testimonials_seconds = Number(await getSetting('club_testimonials_seconds', 7)) || 7;
+    res.json({ events_list_count, club_testimonials_enabled, club_testimonials_seconds });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/testimonials — the live ones, in the order staff set.
+// Hidden entirely when the carousel is switched off, so the page cannot show a
+// section the setting says is off even if it asks for the list directly.
+websiteRouter.get('/testimonials', async (_req, res) => {
+  try {
+    const enabled = (await getSetting('club_testimonials_enabled', false)) === true;
+    if (!enabled) return res.json({ enabled: false, seconds: 7, testimonials: [] });
+    const seconds = Number(await getSetting('club_testimonials_seconds', 7)) || 7;
+    const r = await query(
+      `SELECT id, quote, author_name, author_detail, image_url
+         FROM kindred_web.testimonials
+        WHERE active = TRUE
+        ORDER BY sort_order, created_at`);
+    res.json({ enabled: true, seconds, testimonials: absMediaAll(r.rows) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -63,6 +63,11 @@ function isMarketingPath(pathname) {
   return pathname.startsWith('/marketing') || pathname.startsWith('/events');
 }
 
+// The Website group inside Marketing: the public site's own content and settings.
+function isWebsitePath(pathname) {
+  return pathname.startsWith('/marketing/website') || pathname.startsWith('/marketing/settings');
+}
+
 export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
@@ -73,6 +78,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const [tastingRoomExpanded, setTastingRoomExpanded] =
     useState(() => isTastingRoomPath(location.pathname));
   const [marketingExpanded, setMarketingExpanded] = useState(() => isMarketingPath(location.pathname));
+  const [websiteExpanded, setWebsiteExpanded] = useState(() => isWebsitePath(location.pathname));
 
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -330,14 +336,36 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                     <span className="nav-sub-icon">★</span>
                     <span>Loyalty</span>
                   </Link>
-                  <Link
-                    to="/marketing/settings"
-                    className={`nav-sub-item${location.pathname.startsWith('/marketing/settings') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
+                  <button
+                    type="button"
+                    className={`nav-sub-item nav-sub-parent${isWebsitePath(location.pathname) ? ' active' : ''}`}
+                    onClick={() => setWebsiteExpanded((v) => !v)}
+                    aria-expanded={websiteExpanded}
                   >
-                    <span className="nav-sub-icon">⚙️</span>
-                    <span>Website Settings</span>
-                  </Link>
+                    <span className="nav-sub-icon">🌐</span>
+                    <span>Website</span>
+                    <span className="nav-sub-parent-chev">{websiteExpanded ? '−' : '+'}</span>
+                  </button>
+                  {websiteExpanded && (
+                    <div className="nav-sub-group nav-sub-group-deep">
+                      <Link
+                        to="/marketing/website/testimonials"
+                        className={`nav-sub-item${location.pathname.startsWith('/marketing/website/testimonials') ? ' active' : ''}`}
+                        onClick={() => { if (isMobile()) setCollapsed(true); }}
+                      >
+                        <span className="nav-sub-icon">💬</span>
+                        <span>Testimonials</span>
+                      </Link>
+                      <Link
+                        to="/marketing/website/settings"
+                        className={`nav-sub-item${location.pathname.startsWith('/marketing/website/settings') ? ' active' : ''}`}
+                        onClick={() => { if (isMobile()) setCollapsed(true); }}
+                      >
+                        <span className="nav-sub-icon">⚙️</span>
+                        <span>Settings</span>
+                      </Link>
+                    </div>
+                  )}
                   </>
                   )}
                 </div>
