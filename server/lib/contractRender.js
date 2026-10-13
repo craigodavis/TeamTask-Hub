@@ -100,6 +100,12 @@ export async function tokensFor(companyId, r) {
     ? `${fmtTime(r.start_time)} – ${fmtTime(r.end_time)}`
     : '—';
 
+  // The agreed numbers, from the frozen snapshot rather than the live terms table —
+  // the contract has to state what this booking was quoted, not what the price list
+  // says today.
+  const t = r.requirements || {};
+  const band = t.sources?.base_price_cents?.name || t.sources?.hourly_rate_cents?.name || null;
+
   return {
     // Computed, so it overrides the seeded default and always matches the app.
     after_hours_availability: await afterHoursSentence(companyId, r.location_id),
@@ -113,7 +119,34 @@ export async function tokensFor(companyId, r) {
     rental_type: type ? RENTAL_LABEL[type] : '—',
     guests: r.guests != null ? String(r.guests) : '—',
     event_type: r.event_type || '—',
+
+    // Everything the guest was shown on the form, so the contract can restate the
+    // deal rather than gesture at it. An em dash where a number is genuinely absent,
+    // never a zero: "no deposit" and "nobody set a deposit" are different facts.
+    hours: t.hours != null ? String(t.hours) : '—',
+    hourly_rate: cash(t.hourly_rate_cents),
+    venue_fee: cash(t.rental_total_cents),
+    min_wine_purchase: cash(t.min_wine_purchase_cents),
+    booking_deposit: cash(t.booking_deposit_cents),
+    security_deposit: cash(t.security_deposit_cents),
+    due_to_confirm: cash(t.due_now_cents),
+    balance_due_days: t.balance_due_days_before != null ? String(t.balance_due_days_before) : '—',
+    planning_meeting_days: t.planning_meeting_days != null ? String(t.planning_meeting_days) : '—',
+    insurance_required: t.insurance_required ? 'Yes' : 'No',
+    tier_name: band || '—',
+    // Degrades to a phrase, not a dash: this sentence has to read as a sentence even
+    // on a booking evaluated before the band ceiling was recorded.
+    tier_max_guests: t.band_max_guests != null ? `${t.band_max_guests} guests` : 'the agreed guest count',
+    // What they told us when they asked, which is part of what we agreed to.
+    special_requests: (r.notes || '').trim() || 'None noted.',
   };
+}
+
+/** Cents as money, or an em dash. Never a zero standing in for "not set". */
+function cash(cents) {
+  if (cents == null) return '—';
+  const n = cents / 100;
+  return `$${n.toFixed(2).replace(/\.00$/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
 
 /** The editable business constants — rates, drink minimum, curfew, thresholds. */

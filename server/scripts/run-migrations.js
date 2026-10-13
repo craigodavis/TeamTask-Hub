@@ -5052,6 +5052,94 @@ The date is not held until the first payment and the security deposit are receiv
   // renter signature, whether from a double tap or a replayed link.
   `CREATE UNIQUE INDEX IF NOT EXISTS event_sig_one_per_party
      ON kindred_web.event_contract_signatures (request_id, party)`,
+
+  // ── The contract states the deal, not just the rules ───────────────────────
+  // Craig: the contract needs tokens for everything shown on the form — price, wine
+  // minimum, deposit, insurance — plus the gratuity, the card on file, what happens
+  // when the guest count rises, and no credit for no-shows.
+  //
+  // Section 3 carried a generic rate card: two rows of list prices that said nothing
+  // about THIS booking. A contract is for one event, so it now states that event's
+  // agreed figures, which come from the frozen snapshot rather than the live terms.
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'overage_per_person', '$15',
+            'Minimum wine purchase increases per extra guest', 130 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'overage_per_person')`,
+
+  `UPDATE kindred_web.event_contract_sections
+      SET body = $BODY$
+Rental is billed per booked hour, and the event carries a minimum wine purchase.
+
+| Your event | |
+| --- | --- |
+| Venue | {{location}} |
+| Date | {{event_date}} |
+| Time | {{event_times}} ({{hours}} hours) |
+| Guests | {{guests}} |
+| Rental type | {{rental_type}} |
+| Venue fee | {{venue_fee}} |
+| Minimum wine purchase | {{min_wine_purchase}} |
+| Deposit to hold the date | {{due_to_confirm}} |
+| Proof of insurance required | {{insurance_required}} |
+
+Tables, chairs and servers are included, and there are no cleaning fees. Each event includes {{free_setup_hours}} free hour of setup. Wine club members receive their club discount on the rental.
+
+If the minimum wine purchase is not met, Kindred sells the difference to the Renter in unopened bottles. The minimum can be met with a hosted tab or with individual guest purchases.
+$BODY$, updated_at = now()
+    WHERE key = 'rates_and_minimum'`,
+
+  `UPDATE kindred_web.event_contract_sections
+      SET body = $BODY$
+- A {{gratuity_pct}} gratuity for staff is collected with the final payment on the day of the event, charged to the card held on file.
+- Outside food and non-alcoholic beverages are allowed, and outside caterers are welcome.
+- Outside alcohol is not permitted. Wine and other alcohol must be purchased from Kindred.
+- Kindred offers pizza by the slice for groups up to {{pizza_max_guests}}, and Italian sodas and a water machine are available on site.
+- No open flames or BBQs.
+$BODY$, updated_at = now()
+    WHERE key = 'gratuity_food_beverage'`,
+
+  // The card on file was already required for payment; it now also carries the
+  // gratuity, so the obligation and its use are stated in the same breath.
+  `UPDATE kindred_web.event_contract_sections
+      SET body = replace(body,
+            'A valid card must be on file.',
+            'A valid card must be kept on file for the duration of the booking. It is used for the final payment and for the gratuity on the day of the event.'),
+          updated_at = now()
+    WHERE key = 'payment_in_advance'`,
+
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'guest_numbers', '4. Guest Numbers', $BODY$The venue fee above is based on {{guests}} guests, and covers up to {{tier_max_guests}}.
+
+If the final guest count goes above {{tier_max_guests}}, the venue fee moves to the rate for the larger group, and the minimum wine purchase increases by {{overage_per_person}} for each guest above the number this agreement is based on.
+
+Kindred plans staffing, seating and stock against the agreed guest count. No credit or refund is given for guests who do not attend, because the minimum has already been planned and bought against.$BODY$, 35, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'guest_numbers')`,
+
+
+  // Inserting Guest Numbers at position 4 left two sections numbered 4 and every
+  // later heading off by one. The numbers are part of the title text, so they have
+  // to be rewritten — a contract that jumps 4, 4, 6 reads as a document nobody
+  // checked, which is the opposite of what a contract is for.
+  `UPDATE kindred_web.event_contract_sections SET title = '5. Payment in Advance',
+     sort_order = 50, updated_at = now() WHERE key = 'payment_in_advance'`,
+  `UPDATE kindred_web.event_contract_sections SET title = '6. Security Deposit',
+     sort_order = 60, updated_at = now() WHERE key = 'security_deposit'`,
+  `UPDATE kindred_web.event_contract_sections SET title = '7. Gratuity, Food and Beverage',
+     sort_order = 70, updated_at = now() WHERE key = 'gratuity_food_beverage'`,
+  `UPDATE kindred_web.event_contract_sections SET title = '8. Parking Attendant',
+     sort_order = 80, updated_at = now() WHERE key = 'parking_attendant'`,
+  `UPDATE kindred_web.event_contract_sections SET title = '9. Setup, Teardown and Noise',
+     sort_order = 90, updated_at = now() WHERE key = 'setup_teardown_noise'`,
+  `UPDATE kindred_web.event_contract_sections SET title = '10. Damages, Liability and General Terms',
+     sort_order = 100, updated_at = now() WHERE key = 'damages_liability'`,
+  `UPDATE kindred_web.event_contract_sections SET title = '11. Signatures',
+     sort_order = 110, updated_at = now() WHERE key = 'signatures'`,
+  `UPDATE kindred_web.event_contract_sections SET sort_order = 40, updated_at = now()
+    WHERE key = 'guest_numbers'`,
 ];
 
 export async function runMigrations() {

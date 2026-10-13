@@ -223,6 +223,11 @@ export function resolveTerms(rows, booking, inHours) {
   if (terms.contract_required == null) terms.contract_required = false;
   if (terms.insurance_required == null) terms.insurance_required = false;
 
+  // The guest band that set the price, carried on the snapshot so a contract can say
+  // "this rate covers up to N guests" without going back to a table that may since
+  // have changed or been deleted.
+  const priceRow = matched.find((t) => !isEmpty(t.hourly_rate_cents) || !isEmpty(t.base_price_cents));
+
   const hours = booking.startTime && booking.endTime
     ? hoursBetween(booking.startTime, booking.endTime) : null;
 
@@ -252,6 +257,8 @@ export function resolveTerms(rows, booking, inHours) {
     ...terms,
     rental_total_cents: rentalCents,
     rental_basis: rentalBasis,
+    band_min_guests: priceRow?.min_guests ?? null,
+    band_max_guests: priceRow?.max_guests ?? null,
     booking_deposit_cents: bookingDepositCents,
     // What the customer owes up front vs on the day, so the screen and the contract
     // do not each do this arithmetic differently.
