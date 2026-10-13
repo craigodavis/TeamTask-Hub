@@ -157,11 +157,22 @@ export function newRequestSms(reqRow) {
  */
 export const BOOKING_WINDOW = {
   earliest: '10:00',   // earliest an event may start
-  latest: '19:00',     // latest an event may START
-  closes: '22:00',     // everything finished by
+  closes: '22:00',     // nothing runs past this, ever — the one hard rule
   stepMinutes: 30,
   maxHours: 4,
 };
+
+/**
+ * The latest an event may start: one step before closing.
+ *
+ * Derived rather than configured. A separate "latest start" was a second number
+ * that had to agree with the close, and when it was set to 7PM it quietly made
+ * after-hours bookings unreachable — the Creek is still open to the public at 7
+ * most nights, so nothing booked through the form could ever land after hours.
+ * Deriving it means the 10PM close is the only rule anyone has to maintain.
+ */
+export const latestStart = () =>
+  hhmmOf(minutesOfDay(BOOKING_WINDOW.closes) - BOOKING_WINDOW.stepMinutes);
 
 /** "13:30" -> 810. Null for anything that is not a time on our grid. */
 export function minutesOfDay(hhmm) {
@@ -183,15 +194,15 @@ export const hhmmOf = (mins) =>
 export function resolveWindow(startTime, hours) {
   const start = minutesOfDay(startTime);
   const open = minutesOfDay(BOOKING_WINDOW.earliest);
-  const lastStart = minutesOfDay(BOOKING_WINDOW.latest);
   const closes = minutesOfDay(BOOKING_WINDOW.closes);
+  const lastStart = closes - BOOKING_WINDOW.stepMinutes;
 
   if (start == null) return { error: 'Please choose a start time.' };
   if (start % BOOKING_WINDOW.stepMinutes !== 0) {
     return { error: 'Please choose a start time on the hour or the half hour.' };
   }
   if (start < open || start > lastStart) {
-    return { error: `Events start between ${BOOKING_WINDOW.earliest} and ${BOOKING_WINDOW.latest}.` };
+    return { error: `Events start between ${BOOKING_WINDOW.earliest} and ${latestStart()}.` };
   }
 
   const h = Number(hours);
@@ -203,8 +214,8 @@ export function resolveWindow(startTime, hours) {
     return { error: `We book up to ${BOOKING_WINDOW.maxHours} hours through the form. Ring us for anything longer.` };
   }
 
-  // Two separate limits, and the tighter one wins: a 7PM start cannot run the full
-  // four hours, because everything is finished by 10.
+  // Two limits, and the tighter one wins: a late start cannot run the full four
+  // hours, because nothing runs past the close.
   const end = start + Math.round(h * 60);
   if (end > closes) {
     return { error: `Everything finishes by ${BOOKING_WINDOW.closes}, so that is longer than we can fit from ${startTime}.` };

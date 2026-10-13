@@ -10,7 +10,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { availableTimes, createBooking, customFields } from '../lib/resosClient.js';
 import {
-  KEYS as EVENT_KEYS, newToken, money, BOOKING_WINDOW, resolveWindow,
+  KEYS as EVENT_KEYS, newToken, money, BOOKING_WINDOW, latestStart, resolveWindow,
   alertRecipients, newRequestSms,
 } from '../lib/eventRequests.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
@@ -191,7 +191,13 @@ websiteRouter.get('/event-tiers', async (_req, res) => {
     res.set('Cache-Control', 'public, max-age=60');
     // The booking window rides along with the price list so the form builds its
     // dropdowns from the same numbers this server validates against.
-    res.json({ intro: typeof intro === 'string' ? intro : '', venues, booking: BOOKING_WINDOW });
+    // latest is derived from the close, so the form gets one number it can trust
+    // rather than two that have to agree.
+    res.json({
+      intro: typeof intro === 'string' ? intro : '',
+      venues,
+      booking: { ...BOOKING_WINDOW, latest: latestStart() },
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
