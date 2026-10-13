@@ -14,9 +14,9 @@ import { evaluate, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eve
 import { board, closedBoard } from '../lib/eventBoard.js';
 import { sendMail } from '../mail.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
-import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
+import { EVENT_REQUEST_URL, EVENT_CONTRACT_URL } from '../lib/publicLinks.js';
 import {
-  KEYS, money, outstanding, allSatisfied,
+  KEYS, money, outstanding, allSatisfied, newToken,
   alertRecipients, planningMeetingSms, shortDate,
 } from '../lib/eventRequests.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
@@ -557,24 +557,45 @@ router.post('/:id/send-contract', requireManager, async (req, res) => {
       return res.status(400).json({ error: 'No contract sections are active, so there is nothing to send.' });
     }
 
-    const name = `${cur.first_name || ''} ${cur.last_name || ''}`.trim();
-    const html = `<div style="font-family:Georgia,serif;max-width:640px;line-height:1.5">`
-      + `<p>${esc(name) || 'Hello'},</p>`
-      + `<p>Here is the agreement for your event at Kindred Vineyards. `
-      + `Please read it through — reply to this email with any questions, and let us `
-      + `know you are happy with it and we will get it signed.</p>`
-      + sections.map((sec) =>
-          `<h3 style="margin:22px 0 6px;font-size:15px">${esc(sec.title)}</h3>`
-          + `<div style="white-space:pre-wrap">${esc(sec.body)}</div>`).join('')
-      + `</div>`;
+    // The link is the credential, so it must exist and must still be alive. Resending
+    // extends it rather than minting a new one: a customer who kept the first email
+    // should not find that link dead because someone pressed Resend.
+    let token = cur.token;
+    if (!token) {
+      token = newToken();
+      await query(`UPDATE kindred_web.event_requests SET token = $2 WHERE id = $1`, [cur.id, token]);
+    }
+    await query(
+      `UPDATE kindred_web.event_requests SET token_expires_at = NOW() + INTERVAL '180 days'
+        WHERE id = $1`, [cur.id]);
 
-    const text = `${name},\n\nHere is the agreement for your event at Kindred Vineyards. `
-      + `Please read it through — reply to this email with any questions.\n\n`
-      + sections.map((sec) => `${sec.title}\n${'-'.repeat(sec.title.length)}\n${sec.body}`).join('\n\n');
+    const url = `${EVENT_CONTRACT_URL}?t=${encodeURIComponent(token)}`;
+    const name = `${cur.first_name || ''} ${cur.last_name || ''}`.trim();
+    const when = [isoDate(cur.event_date),
+      cur.start_time ? `${String(cur.start_time).slice(0, 5)}–${String(cur.end_time || '').slice(0, 5)}` : null,
+      cur.location_name].filter(Boolean).join(' · ');
+
+    // A link, not the contract itself. Signing happens on the page, and a contract
+    // pasted into an email is one nobody can sign and everybody can edit.
+    const html = `<div style="font-family:Georgia,serif;max-width:620px;line-height:1.55">`
+      + `<p>${esc(name) || 'Hello'},</p>`
+      + `<p>Your agreement for ${esc(when) || 'your event'} is ready to read and sign.</p>`
+      + `<p><a href="${esc(url)}" style="display:inline-block;padding:11px 20px;`
+      + `background:#0F5361;color:#fff;text-decoration:none;border-radius:6px">`
+      + `Read and sign the agreement</a></p>`
+      + `<p style="font-size:13px;color:#666">`
+      + `Or paste this into your browser:<br>${esc(url)}</p>`
+      + `<p style="font-size:13px;color:#666">`
+      + `The link is personal to your booking — please do not forward it. `
+      + `Any questions, just reply to this email.</p></div>`;
+
+    const text = `${name},\n\nYour agreement for ${when || 'your event'} is ready to read and sign:\n\n`
+      + `${url}\n\nThe link is personal to your booking — please do not forward it. `
+      + `Any questions, just reply to this email.`;
 
     const sent = await sendMail({
       to: cur.email,
-      subject: 'Your event at Kindred Vineyards — agreement',
+      subject: 'Your agreement for Kindred Vineyards',
       text, html,
     }, req.companyId);
 

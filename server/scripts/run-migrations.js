@@ -5018,6 +5018,40 @@ The date is not held until the first payment and the security deposit are receiv
   // back to the flat fee, so pricing keeps working untouched until each rate is set.
   `ALTER TABLE kindred_web.event_terms
      ADD COLUMN IF NOT EXISTS hourly_rate_cents INTEGER`,
+
+  // ── Online contract signing ────────────────────────────────────────────────
+  // Craig: "the contract should be online and they sign and we collect their
+  // signature online."
+  //
+  // contract_snapshot is the point of this table. The clause library is editable, so
+  // a signature that merely points at event_contract_sections would mean the agreed
+  // text changes under it — and the one question that matters later is "what exactly
+  // did they agree to". The rendered sections are frozen here at the moment of
+  // signing, with a sha256 over them so a later edit to this row is detectable.
+  //
+  // One row per party: the renter signs, then we counter-sign, and
+  // contract_executed_at is set only when both exist.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_contract_signatures (
+     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id  UUID NOT NULL,
+     request_id  UUID NOT NULL REFERENCES kindred_web.event_requests(id) ON DELETE CASCADE,
+     party       TEXT NOT NULL,
+     signed_name TEXT NOT NULL,
+     signature_data TEXT,
+     signed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+     ip          TEXT,
+     user_agent  TEXT,
+     contract_snapshot JSONB NOT NULL,
+     contract_sha256   TEXT NOT NULL,
+     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE kindred_web.event_contract_signatures DROP CONSTRAINT IF EXISTS event_sig_party`,
+  `ALTER TABLE kindred_web.event_contract_signatures ADD CONSTRAINT event_sig_party
+     CHECK (party IN ('renter','kindred'))`,
+  // One signature per party per booking: a second POST must not create a second
+  // renter signature, whether from a double tap or a replayed link.
+  `CREATE UNIQUE INDEX IF NOT EXISTS event_sig_one_per_party
+     ON kindred_web.event_contract_signatures (request_id, party)`,
 ];
 
 export async function runMigrations() {

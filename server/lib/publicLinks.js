@@ -8,3 +8,7 @@
  */
 export const EVENT_REQUEST_URL =
   process.env.EVENT_REQUEST_URL || 'https://www.kindredvineyards.com/events/request/';
+
+/** Where a customer reads and signs their agreement. The token is appended. */
+export const EVENT_CONTRACT_URL =
+  process.env.EVENT_CONTRACT_URL || 'https://www.kindredvineyards.com/events/contract/';

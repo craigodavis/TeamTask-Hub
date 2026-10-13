@@ -16,6 +16,9 @@ import {
 import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { resolveTerms, evaluate } from '../lib/eventTerms.js';
+import { renderContract, isoDate } from '../lib/contractRender.js';
+import { clientIpOf } from './mcpDb.js';
+import crypto from 'node:crypto';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
@@ -237,6 +240,117 @@ websiteRouter.get('/event-quote', async (req, res) => {
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── The contract the customer reads and signs ────────────────────────────────
+//
+// Reached by a token emailed to them: 32 bytes of randomness, so the link itself is
+// the credential. Nothing here takes an id, and nothing returns another booking's
+// details — a guessed or forwarded link must not become a way to read the diary.
+
+async function requestByToken(token) {
+  if (!token || String(token).length < 20) return null;
+  const { rows } = await query(
+    `SELECT r.*, l.name AS location_name
+       FROM kindred_web.event_requests r
+       LEFT JOIN locations l ON l.id = r.location_id
+      WHERE r.token = $1`, [String(token)]);
+  return rows[0] || null;
+}
+
+websiteRouter.get('/event-contract', async (req, res) => {
+  try {
+    const r = await requestByToken(req.query.token);
+    // The same answer for a wrong token and an expired one, so the endpoint cannot
+    // be used to find out which tokens exist.
+    if (!r) return res.status(404).json({ error: 'That link is not valid. Please ask us for a new one.' });
+    if (r.token_expires_at && new Date(r.token_expires_at) < new Date()) {
+      return res.status(410).json({ error: 'That link has expired. Please ask us for a new one.' });
+    }
+
+    const companyId = await kindredCompanyId();
+    const sig = (await query(
+      `SELECT party, signed_name, signed_at FROM kindred_web.event_contract_signatures
+        WHERE request_id = $1 ORDER BY signed_at`, [r.id])).rows;
+
+    const renter = sig.find((x) => x.party === 'renter');
+    // Once signed, the text shown is the SNAPSHOT, not a fresh render: what they see
+    // afterwards has to be what they agreed to, even if the clause library moves on.
+    let sections;
+    if (renter) {
+      sections = (await query(
+        `SELECT contract_snapshot FROM kindred_web.event_contract_signatures
+          WHERE request_id = $1 AND party = 'renter'`, [r.id])).rows[0].contract_snapshot;
+    } else {
+      sections = (await renderContract(companyId, r, r.requirements?.contract_section_keys || [])).sections;
+    }
+
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      event: {
+        name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+        date: r.event_date ? String(isoDate(r.event_date)) : null,
+        startTime: r.start_time ? String(r.start_time).slice(0, 5) : null,
+        endTime: r.end_time ? String(r.end_time).slice(0, 5) : null,
+        venue: r.location_name || null,
+        guests: r.guests,
+      },
+      sections,
+      signed: renter ? { name: renter.signed_name, at: renter.signed_at } : null,
+      countersigned: sig.some((x) => x.party === 'kindred'),
+    });
+  } catch (e) { console.error('event-contract', e); res.status(500).json({ error: e.message }); }
+});
+
+websiteRouter.post('/event-contract/sign', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const r = await requestByToken(b.token);
+    if (!r) return res.status(404).json({ error: 'That link is not valid. Please ask us for a new one.' });
+    if (r.token_expires_at && new Date(r.token_expires_at) < new Date()) {
+      return res.status(410).json({ error: 'That link has expired. Please ask us for a new one.' });
+    }
+
+    const name = String(b.name || '').trim();
+    if (name.length < 2) return res.status(400).json({ error: 'Please type your full name to sign.' });
+    if (b.agreed !== true) return res.status(400).json({ error: 'Please tick the box to agree before signing.' });
+
+    // A drawn signature is optional — a phone keyboard is more reliable than a
+    // finger on glass — but it is stored when given.
+    let drawn = typeof b.signature === 'string' ? b.signature : null;
+    if (drawn && (!drawn.startsWith('data:image/png;base64,') || drawn.length > 200000)) drawn = null;
+
+    const companyId = await kindredCompanyId();
+    const { sections } = await renderContract(companyId, r, r.requirements?.contract_section_keys || []);
+    if (!sections.length) return res.status(400).json({ error: 'There is no agreement to sign yet.' });
+
+    const snapshot = JSON.stringify(sections);
+    const sha = crypto.createHash('sha256').update(snapshot).digest('hex');
+
+    try {
+      await query(
+        `INSERT INTO kindred_web.event_contract_signatures
+           (company_id, request_id, party, signed_name, signature_data, ip, user_agent,
+            contract_snapshot, contract_sha256)
+         VALUES ($1,$2,'renter',$3,$4,$5,$6,$7::jsonb,$8)`,
+        [companyId, r.id, name, drawn, clientIpOf(req),
+         String(req.headers['user-agent'] || '').slice(0, 500), snapshot, sha]);
+    } catch (e) {
+      // The unique index is the guard, not a prior SELECT: two taps can both pass a
+      // check and only one can win an index.
+      if (e.code === '23505') {
+        return res.status(409).json({ error: 'This agreement has already been signed.' });
+      }
+      throw e;
+    }
+
+    await query(
+      `UPDATE kindred_web.event_requests
+          SET contract_customer_signed_at = NOW(), updated_at = NOW()
+        WHERE id = $1`, [r.id]);
+
+    res.json({ ok: true, signedAt: new Date().toISOString() });
+  } catch (e) { console.error('event-contract-sign', e); res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/website/event-request — the public form.
