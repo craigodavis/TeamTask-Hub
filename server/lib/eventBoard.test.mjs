@@ -51,7 +51,9 @@ is('full: in two buckets at once', r.buckets.sort(), ['contracts', 'outstanding'
 r = boardRow(base({ requirements: full, contract_sent_at: '2026-10-03' }), TODAY);
 is('sent: contract turn', gate(r, 'contract').turn, 'theirs');
 is('sent: row turn', r.turn, 'theirs');
-is('sent: action is a chase', r.action.label, 'Chase');
+// Never "Chase": the button has to name what it does, and what it does is send again.
+is('sent: action resends', r.action.label, 'Resend contract');
+is('sent: action kind', r.action.kind, 'send_contract');
 
 // They signed; the holdup is us again.
 r = boardRow(base({ requirements: full, contract_sent_at: '2026-10-03', contract_customer_signed_at: '2026-10-09' }), TODAY);
@@ -61,7 +63,7 @@ is('signed: action', r.action.label, 'Counter-sign');
 // Insurance uploaded is not insurance accepted.
 r = boardRow(base({ requirements: { ...full, contract_required: false }, insurance_uploaded_at: '2026-10-05' }), TODAY);
 is('uploaded insurance needs us', gate(r, 'insurance').turn, 'ours');
-is('uploaded insurance action', r.action.label, 'Check insurance');
+is('uploaded insurance action', r.action.label, 'Mark insurance OK');
 
 // Everything satisfied.
 r = boardRow(base({ requirements: full, contract_executed_at: '2026-10-05',
@@ -99,6 +101,13 @@ const mixed = buildBoard([
 ], TODAY);
 is('mixed: ours', mixed.counts.contracts.ours, 1);
 is('mixed: theirs', mixed.counts.contracts.theirs, 1);
+
+// A deposit we are waiting on must never be actioned by a button that does not say
+// it is recording a payment.
+r = boardRow(base({ requirements: { contract_required: false, insurance_required: false, due_now_cents: 50000 } }), TODAY);
+is('awaiting deposit: label names the act', r.action.label, 'Mark deposit paid');
+is('awaiting deposit: kind', r.action.kind, 'deposit_paid');
+is('awaiting deposit: turn is still theirs', r.turn, 'theirs');
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

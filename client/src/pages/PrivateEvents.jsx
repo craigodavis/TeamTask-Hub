@@ -251,31 +251,45 @@ function FlowTab() {
     finally { setBusy(null); }
   };
 
-  // What the one button on a row does. Chasing is a conversation, which has no
-  // data layer yet, so it opens the request rather than pretending to send.
+  /**
+   * The button dispatches on an explicit kind, never on a gate key.
+   *
+   * It used to map the key to whichever action belonged to our side of that gate,
+   * so a button labelled "Chase" on a deposit row recorded the deposit as paid.
+   * The server now names the act; this only has to carry it out.
+   */
   const doAction = async (row) => {
-    const k = row.action?.key;
-    if (k === 'contract') {
-      const g = row.gates.find((x) => x.key === 'contract');
-      if (g?.turn === 'ours' && g.label === 'Counter-sign') {
-        return act(row, { contract_executed: true });
-      }
-      // Sends a real email. The server stamps "sent" only if it went, so a failure
-      // must surface here rather than silently moving the booking to "with them".
+    const kind = row.action?.kind;
+    if (kind === 'send_contract') {
       setBusy(row.id);
       try {
         const out = await sendEventContract(row.id);
         setErr('');
         setNote(`Contract emailed to ${out.sentTo}.`);
         load();
-      } catch (e) { setErr(e.message); }
+      } catch (e) { setErr(e.message); setNote(''); }
       finally { setBusy(null); }
-      return null;
+      return;
     }
-    if (k === 'insurance') return act(row, { insurance_ok: true });
-    if (k === 'deposit') return act(row, { deposit_paid: true });
-    if (k === 'approval') return act(row, { status: 'approved' });
-    return null;
+    const patch = {
+      evaluate: null,
+      approve: { status: 'approved' },
+      countersign: { contract_executed: true },
+      insurance_ok: { insurance_ok: true },
+      deposit_paid: { deposit_paid: true },
+    }[kind];
+
+    if (kind === 'evaluate') {
+      setBusy(row.id);
+      try { await evaluateEventRequest(row.id); setErr(''); load(); }
+      catch (e) { setErr(e.message); }
+      finally { setBusy(null); }
+      return;
+    }
+    // Recording money or an approval is not undoable from this screen, so it asks.
+    if ((kind === 'deposit_paid' || kind === 'insurance_ok')
+        && !window.confirm(`${row.action.label} for ${row.name}?`)) return;
+    if (patch) await act(row, patch);
   };
 
   if (!data) {

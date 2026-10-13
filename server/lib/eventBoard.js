@@ -122,12 +122,38 @@ export function bucketsFor(r, gates) {
   return [...out];
 }
 
-/** The single thing to do next, which is whichever gate is waiting on us. */
-function nextAction(gates) {
-  const mine = gates.find((g) => g.state === 'outstanding' && g.turn === 'ours');
-  if (mine) return { key: mine.key, label: mine.label };
-  const theirs = gates.find((g) => g.state === 'outstanding' && g.turn === 'theirs');
-  return theirs ? { key: theirs.key, label: 'Chase' } : null;
+/**
+ * The single thing to do next.
+ *
+ * Every action names what it DOES. The first version labelled the
+ * waiting-on-them case "Chase" while still carrying the gate's key, and the client
+ * mapped that key to the our-move action — so "Chase" on a deposit row recorded the
+ * deposit as paid, and on an insurance row approved the certificate sight unseen. A
+ * button that quietly records money you have not received is worse than no button.
+ *
+ * There is no messaging yet, so nothing here can actually chase anyone. What staff
+ * genuinely can do while waiting is resend the contract, or record something that
+ * has arrived — and both now say exactly that.
+ */
+function nextAction(gates, r) {
+  const outstanding = (k) => gates.find((g) => g.key === k && g.state === 'outstanding');
+
+  if (outstanding('terms')) return { kind: 'evaluate', label: 'Check terms' };
+  if (outstanding('approval')) return { kind: 'approve', label: 'Approve' };
+
+  const contract = outstanding('contract');
+  if (contract) {
+    if (r.contract_customer_signed_at) return { kind: 'countersign', label: 'Counter-sign' };
+    // Sent but unsigned is still a send: the one useful thing when a customer says
+    // the email never arrived, which is exactly how this gap was found.
+    return { kind: 'send_contract', label: r.contract_sent_at ? 'Resend contract' : 'Send contract' };
+  }
+
+  const insurance = outstanding('insurance');
+  if (insurance) return { kind: 'insurance_ok', label: 'Mark insurance OK' };
+
+  if (outstanding('deposit')) return { kind: 'deposit_paid', label: 'Mark deposit paid' };
+  return null;
 }
 
 export function boardRow(r, today) {
@@ -151,7 +177,7 @@ export function boardRow(r, today) {
     gates,
     buckets: bucketsFor(r, gates),
     turn,
-    action: nextAction(gates),
+    action: nextAction(gates, r),
   };
 }
 
