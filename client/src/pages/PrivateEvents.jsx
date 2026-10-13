@@ -415,7 +415,7 @@ function TermsTab() {
   const blank = {
     name: '', active: true,
     min_guests: '', max_guests: '', location_id: '', during_business_hours: '',
-    availability: '', base_price_cents: '', min_wine_purchase_cents: '',
+    availability: '', hourly_rate_cents: '', base_price_cents: '', min_wine_purchase_cents: '',
     security_deposit_cents: '', booking_deposit_cents: '', booking_deposit_pct: '',
     balance_due_days_before: '', planning_meeting_days: '', parking_attendant_over: '',
     insurance_required: '', contract_required: '',
@@ -453,7 +453,8 @@ function TermsTab() {
   const asserts = (t) => {
     const out = [];
     if (t.availability) out.push(t.availability === 'available' ? 'bookable' : t.availability.replace('_', ' '));
-    if (t.base_price_cents != null) out.push(`${money(t.base_price_cents)} rental`);
+    if (t.hourly_rate_cents != null) out.push(`${money(t.hourly_rate_cents)}/hour`);
+    else if (t.base_price_cents != null) out.push(`${money(t.base_price_cents)} flat`);
     if (t.min_wine_purchase_cents != null) out.push(`${money(t.min_wine_purchase_cents)} min wine`);
     if (t.booking_deposit_cents != null) {
       out.push(t.booking_deposit_cents === 0 ? 'no booking deposit' : `${money(t.booking_deposit_cents)} deposit`);
@@ -605,10 +606,10 @@ function TermsTab() {
               <option value="unavailable">Not available</option>
             </select></div>
           <div className="vin-drawer-row">
-            <div><label className="vin-label">Rental fee ($)</label>
+            <div><label className="vin-label">Venue fee ($ per hour)</label>
               <input className="vin-input" type="number" step="0.01" placeholder="—"
-                     value={toDollars(form.base_price_cents)}
-                     onChange={(e) => setForm({ ...form, base_price_cents: toCents(e.target.value) })} /></div>
+                     value={toDollars(form.hourly_rate_cents)}
+                     onChange={(e) => setForm({ ...form, hourly_rate_cents: toCents(e.target.value) })} /></div>
             <div><label className="vin-label">Min wine purchase ($)</label>
               <input className="vin-input" type="number" step="0.01" placeholder="—"
                      value={toDollars(form.min_wine_purchase_cents)}
@@ -637,6 +638,18 @@ function TermsTab() {
           <p className="pe-req-why" style={{ margin: '2px 0 10px' }}>
             A dollar deposit wins over the percentage when both are set.
           </p>
+          {form.base_price_cents != null && form.base_price_cents !== '' && (
+            <div>
+              <label className="vin-label">Old flat fee ($) — used only until an hourly rate is set</label>
+              <input className="vin-input" type="number" step="0.01"
+                     value={toDollars(form.base_price_cents)}
+                     onChange={(e) => setForm({ ...form, base_price_cents: toCents(e.target.value) })} />
+              <p className="pe-req-why">
+                Clear this once the hourly rate is right. It was not converted
+                automatically because that needs a number of hours nobody has stated.
+              </p>
+            </div>
+          )}
           <div className="vin-drawer-row">
             <div><label className="vin-label">Insurance</label>
               <select className="vin-select" value={form.insurance_required ?? ''}
@@ -737,7 +750,11 @@ function TermsResult({ t }) {
             : 'By request only — a manager has to agree before quoting.'}
         </div>
       )}
-      {line('Rental', t.base_price_cents == null ? '—' : money(t.base_price_cents), s.base_price_cents)}
+      {line('Venue fee',
+        t.rental_total_cents != null
+          ? `${money(t.rental_total_cents)}${t.rental_basis === 'hourly' && t.hours ? ` (${t.hours}h × ${money(t.hourly_rate_cents)})` : ''}`
+          : t.hourly_rate_cents != null ? `${money(t.hourly_rate_cents)}/hour — needs times` : '—',
+        s.hourly_rate_cents || s.base_price_cents)}
       {line('Min wine purchase', amt(t.min_wine_purchase_cents), s.min_wine_purchase_cents)}
       {line('Booking deposit', amt(t.booking_deposit_cents),
         s.booking_deposit_cents || s.booking_deposit_pct)}

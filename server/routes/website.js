@@ -15,6 +15,7 @@ import {
 } from '../lib/eventRequests.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
+import { resolveTerms, evaluate } from '../lib/eventTerms.js';
 import { makeC7Client } from '../lib/commerce7Client.js';
 import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
@@ -117,30 +118,119 @@ websiteRouter.post('/contact', async (req, res) => {
 // GET /api/website/event-tiers — what an event of N people costs and requires.
 // Public on purpose: it is the price list, and the form shows it before anyone
 // hands over their details. Only the guest-facing fields; nothing internal.
+//
+// Served from event_terms, NOT from the old event_tiers table. Two tables both
+// answering "what does this cost" is how the website ends up advertising one price
+// while the contract says another — and only terms knows about venue and opening
+// hours, which is what a per-hour fee that differs after hours needs.
+//
+// The rate card is built by running the real resolver over representative bookings
+// rather than by reading rows directly. Layering means the price for a band is not
+// in any single row — a narrow row can set the rate while a broad one sets the wine
+// minimum — so reading rows would quote something nobody would ever be charged.
 websiteRouter.get('/event-tiers', async (_req, res) => {
   try {
-    const { rows } = await query(
-      `SELECT min_guests, max_guests, title, base_price_cents, min_alcohol_cents, rules,
-              deposit_required, deposit_cents, deposit_description,
-              insurance_required, insurance_description
-         FROM kindred_web.event_tiers ORDER BY min_guests`);
+    const companyId = await kindredCompanyId();
+    const [venueRows, termRows] = await Promise.all([
+      query(`SELECT id, web_slug AS venue, name FROM locations
+              WHERE company_id = $1 AND web_slug IS NOT NULL ORDER BY name`, [companyId]),
+      query(`SELECT * FROM kindred_web.event_terms WHERE company_id = $1 AND active`, [companyId]),
+    ]);
+
+    // The published bands are the distinct guest ranges anyone has configured.
+    const bands = [];
+    for (const t of termRows.rows) {
+      if (t.min_guests == null && t.max_guests == null) continue;
+      const key = `${t.min_guests ?? ''}-${t.max_guests ?? ''}`;
+      if (!bands.some((b) => b.key === key)) {
+        bands.push({ key, minGuests: t.min_guests, maxGuests: t.max_guests });
+      }
+    }
+    bands.sort((a, b) => (a.minGuests ?? 0) - (b.minGuests ?? 0));
+
+    const priced = (venueId, band, during) => {
+      // A guest count inside the band, so the band's own row is the one that matches.
+      const guests = band.minGuests ?? band.maxGuests ?? 1;
+      const t = resolveTerms(termRows.rows, { guests, locationId: venueId }, during);
+      if (t.availability === 'unavailable') return null;
+      return {
+        availability: t.availability,
+        hourlyRate: t.hourly_rate_cents != null ? money(t.hourly_rate_cents) : null,
+        flatRate: t.hourly_rate_cents == null && t.base_price_cents != null
+          ? money(t.base_price_cents) : null,
+        minAlcohol: t.min_wine_purchase_cents != null ? money(t.min_wine_purchase_cents) : null,
+        deposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
+        securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
+        insuranceRequired: !!t.insurance_required,
+        contractRequired: !!t.contract_required,
+        notes: t.notes_to_customer || null,
+      };
+    };
+
+    const venues = venueRows.rows.map((v) => ({
+      venue: v.venue,
+      name: v.name,
+      bands: bands.map((band) => ({
+        minGuests: band.minGuests,
+        maxGuests: band.maxGuests,
+        // Priced both ways, because the same party costs differently after hours and
+        // the customer should see that before they pick a time, not after.
+        during: priced(v.id, band, true),
+        after: priced(v.id, band, false),
+      })).filter((b) => b.during || b.after),
+    }));
+
     const intro = await getSetting(EVENT_KEYS.intro, '');
     res.set('Cache-Control', 'public, max-age=60');
+    res.json({ intro: typeof intro === 'string' ? intro : '', venues });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/event-quote — what THIS booking would cost.
+//
+// The rate card above cannot answer it: whether a window falls inside opening hours
+// depends on the venue's hours for that date, including seasonal rows, and that lives
+// on the server. Re-deriving it in browser JavaScript would be a second copy of the
+// rule that silently disagrees with the one staff see.
+websiteRouter.get('/event-quote', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const q = req.query || {};
+    const guests = parseInt(q.guests, 10);
+    if (!Number.isFinite(guests) || guests < 1) return res.json({ quote: null });
+
+    let locationId = null;
+    if (q.venue) {
+      const v = await query(
+        `SELECT id FROM locations WHERE company_id = $1 AND web_slug = $2`,
+        [companyId, String(q.venue).toLowerCase()]);
+      locationId = v.rows[0]?.id || null;
+    }
+
+    const t = await evaluate(companyId, {
+      guests,
+      locationId,
+      eventDate: q.date ? String(q.date).slice(0, 10) : null,
+      startTime: q.start ? String(q.start).slice(0, 5) : null,
+      endTime: q.end ? String(q.end).slice(0, 5) : null,
+    });
+
+    res.set('Cache-Control', 'no-store');
     res.json({
-      intro: typeof intro === 'string' ? intro : '',
-      tiers: rows.map((t) => ({
-        minGuests: t.min_guests,
-        maxGuests: t.max_guests,
-        title: t.title,
-        basePrice: money(t.base_price_cents),
-        minAlcohol: money(t.min_alcohol_cents),
-        rules: t.rules,
-        depositRequired: t.deposit_required,
-        deposit: t.deposit_required ? money(t.deposit_cents) : null,
-        depositDescription: t.deposit_required ? t.deposit_description : null,
-        insuranceRequired: t.insurance_required,
-        insuranceDescription: t.insurance_required ? t.insurance_description : null,
-      })),
+      quote: {
+        availability: t.availability,
+        duringBusinessHours: t.duringBusinessHours,
+        hours: t.hours,
+        hourlyRate: t.hourly_rate_cents != null ? money(t.hourly_rate_cents) : null,
+        venueFee: t.rental_total_cents != null ? money(t.rental_total_cents) : null,
+        minAlcohol: t.min_wine_purchase_cents != null ? money(t.min_wine_purchase_cents) : null,
+        deposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
+        securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
+        dueNow: t.due_now_cents ? money(t.due_now_cents) : null,
+        insuranceRequired: !!t.insurance_required,
+        contractRequired: !!t.contract_required,
+        notes: t.notes_to_customer || null,
+      },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

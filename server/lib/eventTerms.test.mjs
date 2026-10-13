@@ -4,7 +4,7 @@ const CREEK = 'creek-uuid', WINERY = 'winery-uuid';
 const row = (o) => ({
   id: o.name, active: true, created_at: '2026-01-01',
   min_guests: null, max_guests: null, location_id: null, during_business_hours: null,
-  availability: null, base_price_cents: null, min_wine_purchase_cents: null,
+  availability: null, hourly_rate_cents: null, base_price_cents: null, min_wine_purchase_cents: null,
   security_deposit_cents: null, booking_deposit_cents: null, booking_deposit_pct: null,
   balance_due_days_before: null, planning_meeting_days: null, insurance_required: null,
   contract_required: null, contract_section_keys: null, setup_task_keys: null,
@@ -95,6 +95,33 @@ is('spec: all three', specificity({ min_guests: 1, location_id: CREEK, during_bu
 
 // Guests unknown must not satisfy a bounded row.
 is('no headcount vs bounded row', termMatches({ min_guests: 10, max_guests: 24 }, { guests: null }, true), false);
+
+// ── Per-hour venue fee ───────────────────────────────────────────────────────
+const hourly = [row({ name: 'Creek after hours', location_id: CREEK, during_business_hours: false,
+  hourly_rate_cents: 25000, booking_deposit_pct: 50 })];
+r = resolveTerms(hourly, { guests: 40, locationId: CREEK, startTime: '18:00', endTime: '22:00' }, false);
+is('hourly: 4 hours at $250', r.rental_total_cents, 100000);
+is('hourly: basis', r.rental_basis, 'hourly');
+is('hourly: deposit is 50% of the TOTAL, not the rate', r.booking_deposit_cents, 50000);
+
+r = resolveTerms(hourly, { guests: 40, locationId: CREEK, startTime: '18:00', endTime: '20:30' }, false);
+is('hourly: half hours count', r.rental_total_cents, 62500);
+
+// An hourly rate with no times cannot be totalled, and must not read as free.
+r = resolveTerms(hourly, { guests: 40, locationId: CREEK }, false);
+is('hourly: no times given', r.rental_total_cents, null);
+is('hourly: no deposit either', r.booking_deposit_cents, null);
+
+// Rows with no hourly rate keep working on the old flat fee.
+r = resolveTerms(SEED, { guests: 12, locationId: CREEK }, false);
+is('flat fallback: total', r.rental_total_cents, 55000);
+is('flat fallback: basis', r.rental_basis, 'flat');
+
+// An hourly rate on a narrower row beats the flat fee on a broader one.
+const mixed = [...SEED, row({ name: 'Creek hourly', location_id: CREEK, hourly_rate_cents: 20000 })];
+r = resolveTerms(mixed, { guests: 12, locationId: CREEK, startTime: '18:00', endTime: '21:00' }, false);
+is('hourly beats flat', r.rental_total_cents, 60000);
+is('hourly beats flat: basis', r.rental_basis, 'hourly');
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

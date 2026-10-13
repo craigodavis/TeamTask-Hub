@@ -30,6 +30,7 @@ import { resolveDay } from './hoursResolver.js';
 /** Outcome columns, most specific row wins each one independently. */
 export const SCALAR_OUTCOMES = [
   'availability',
+  'hourly_rate_cents',
   'base_price_cents',
   'min_wine_purchase_cents',
   'security_deposit_cents',
@@ -225,13 +226,22 @@ export function resolveTerms(rows, booking, inHours) {
   const hours = booking.startTime && booking.endTime
     ? hoursBetween(booking.startTime, booking.endTime) : null;
 
+  // The venue fee is per hour. The flat base_price_cents is the fallback for rows
+  // whose hourly rate has not been set yet, so pricing never silently drops to
+  // nothing mid-changeover. An hourly rate with no times given cannot be totalled —
+  // that reads as "we need your times", not as a free booking.
+  const rentalCents = terms.hourly_rate_cents != null
+    ? (hours != null ? Math.round(terms.hourly_rate_cents * hours) : null)
+    : (terms.base_price_cents ?? null);
+  const rentalBasis = terms.hourly_rate_cents != null ? 'hourly' : 'flat';
+
   // A flat deposit beats a percentage when both are set: the tiers quote flat amounts
   // ($200, $500) and the contract's 50/50 wording is the fallback for anything that
   // only has a percentage.
   const bookingDepositCents = terms.booking_deposit_cents != null
     ? terms.booking_deposit_cents
-    : (terms.base_price_cents != null && terms.booking_deposit_pct != null
-        ? Math.round(terms.base_price_cents * terms.booking_deposit_pct / 100)
+    : (rentalCents != null && terms.booking_deposit_pct != null
+        ? Math.round(rentalCents * terms.booking_deposit_pct / 100)
         : null);
 
   return {
@@ -240,6 +250,8 @@ export function resolveTerms(rows, booking, inHours) {
     guests: booking.guests ?? null,
     hours,
     ...terms,
+    rental_total_cents: rentalCents,
+    rental_basis: rentalBasis,
     booking_deposit_cents: bookingDepositCents,
     // What the customer owes up front vs on the day, so the screen and the contract
     // do not each do this arithmetic differently.

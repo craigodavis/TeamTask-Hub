@@ -5006,6 +5006,18 @@ The date is not held until the first payment and the security deposit are receiv
      ADD COLUMN IF NOT EXISTS contract_sent_at TIMESTAMPTZ,
      ADD COLUMN IF NOT EXISTS contract_customer_signed_at TIMESTAMPTZ,
      ADD COLUMN IF NOT EXISTS contract_executed_at TIMESTAMPTZ`,
+
+  // ── Venue fee becomes a per-hour rate ──────────────────────────────────────
+  // Craig: "Venue fee on the website tiers should be per hour." A flat fee cannot
+  // express a four-hour booking costing more than a two-hour one, which is what the
+  // form now has the data to know — it collects a start and an end time.
+  //
+  // base_price_cents is KEPT, not dropped or divided. Converting $550 flat into an
+  // hourly rate needs a number of hours nobody has stated, and inventing one would
+  // silently reprice every enquiry. The evaluator prefers the hourly rate and falls
+  // back to the flat fee, so pricing keeps working untouched until each rate is set.
+  `ALTER TABLE kindred_web.event_terms
+     ADD COLUMN IF NOT EXISTS hourly_rate_cents INTEGER`,
 ];
 
 export async function runMigrations() {
