@@ -5140,6 +5140,139 @@ Kindred plans staffing, seating and stock against the agreed guest count. No cre
      sort_order = 110, updated_at = now() WHERE key = 'signatures'`,
   `UPDATE kindred_web.event_contract_sections SET sort_order = 40, updated_at = now()
     WHERE key = 'guest_numbers'`,
+
+  // Titles stop carrying their own number; the contract numbers them by position.
+  // Storing the number in the title meant every insertion was a silent renumbering
+  // bug waiting to happen, and one already got through.
+  `UPDATE kindred_web.event_contract_sections
+      SET title = regexp_replace(title, '^[0-9]+\\.\\s*', ''), updated_at = now()
+    WHERE title ~ '^[0-9]+\\.'`,
+
+  // ── Craig's clauses: date changes, cancellations, decorations, insurance,
+  //    alcohol, conduct ────────────────────────────────────────────────────────
+  // Supplied as prose and reworded to fit Kindred: the source text referred to an
+  // Estate House, a bridal suite and groom's quarters, which these two venues do not
+  // have, so the wording speaks to the property generally. Every policy number is a
+  // constant rather than prose, so a threshold can be changed without reopening a
+  // legal clause and risking the sentence around it.
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'insurance_min_guests', '50', 'Insurance required at this guest count and above', 140 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'insurance_min_guests')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'insurance_amount', '$1,000,000', 'Liability cover required', 150 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'insurance_amount')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'insurance_days_before', '30', 'Certificate of insurance due this many days before', 160 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'insurance_days_before')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'cancellation_fee', '$100', 'Kept when a cancelled date is re-booked', 170 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'cancellation_fee')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'decorate_hours_prior', 'one', 'Hours before the event the Renter may decorate', 180 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'decorate_hours_prior')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'decorations_out_by', 'midnight', 'Decorations removed by', 190 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'decorations_out_by')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'bar_closes_before', 'one hour', 'Bar closes this long before the music ends', 200 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'bar_closes_before')`,
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'supervise_under_age', '16', 'Children under this age must be supervised', 210 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'supervise_under_age')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'date_changes', 'Date Changes', $BODY$If the Renter has to move the date, Kindred Vineyards will make every effort to transfer the booking and its reservations to the new date.
+
+Any costs that are non-refundable or non-transferable remain the responsibility of the Renter.
+
+The Renter understands that late changes can affect what Kindred is able to deliver, and that Kindred is not responsible for any compromise in quality that results from them.$BODY$, 65, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'date_changes')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'cancellations', 'Cancellations', $BODY$All payments made to date are non-refundable.
+
+Cancellations and changes to a reservation must be made in writing. The Renter is responsible for confirming that Kindred Vineyards has received them.
+
+Kindred will make every effort to re-book the date. If it is re-booked and that payment has cleared, the rental, taxes and the security deposit are refunded, less a {{cancellation_fee}} cancellation fee. If it is not re-booked, all monies paid are forfeited.$BODY$, 68, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'cancellations')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'alcohol_substances', 'Alcohol and Other Substances', $BODY$All beer and wine is served by Kindred Vineyards. Hard alcohol is not permitted.
+
+Beer is keg only and must be purchased through Kindred Vineyards. Bottles and cans are not permitted.
+
+The bar closes {{bar_closes_before}} before the music ends. At that point all alcoholic drinks are collected and held securely until they leave the premises.
+
+Illegal substances are not permitted anywhere on the property at any time.
+
+Red wine is not permitted indoors.$BODY$, 75, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'alcohol_substances')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'decorations', 'Decorations', $BODY$The Renter may decorate their own reserved space from {{decorate_hours_prior}} hour before the event with flowers, electric lanterns or lights. Anything beyond that needs Kindred's approval in advance. Artificial rose petals are not permitted.
+
+Nothing may be hung using tape, wire, nails or screws anywhere on the property.
+
+All decorations must be removed by {{decorations_out_by}} on the night of the event and without leaving damage, unless other arrangements have been agreed in writing.
+
+Birdseed and bubbles are permitted outdoors only, for farewells. Rice, confetti, flower petals, balloons, glitter, pyrotechnics and sparklers are not permitted indoors or outdoors without prior written approval.$BODY$, 78, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'decorations')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'insurance', 'Insurance', $BODY$Insurance required for this booking: {{insurance_required}}.
+
+Where the guest count is {{insurance_min_guests}} or more, the Renter shall maintain Commercial General Liability Insurance, including Host Liquor Liability, of not less than {{insurance_amount}} combined single limit for bodily injury and property damage.
+
+The policy shall name Kindred Vineyards as an additional insured. A certificate of insurance with the endorsement must be provided at least {{insurance_days_before}} days before the event.$BODY$, 85, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'insurance')`,
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'guests_conduct', 'Guests and Conduct', $BODY$Children under {{supervise_under_age}} must be supervised at all times.
+
+Kindred Vineyards is a non-smoking venue. Smoking is permitted only in the designated areas outside.
+
+Kindred uses live, video and still photography to promote the venue. Photographs taken at Kindred by the Renter's photographer are the shared property of Kindred Vineyards and may be used for promotion. Boudoir and nude photography are not permitted anywhere on the property.$BODY$, 95, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'guests_conduct')`,
+  // Payment methods and the card's role, folded into the section that already
+  // covers payment rather than added as a competing one.
+  `UPDATE kindred_web.event_contract_sections
+      SET body = body || E'\n\nPayment may be made by cash, certified check or credit card. A card is kept on file for the deposit and for settlement of the final bill. The card used for the final payment may be changed on the day.',
+          updated_at = now()
+    WHERE key = 'payment_in_advance'
+      AND body NOT LIKE '%certified check%'`,
+
+  // Damage responsibility belongs with the liability clause, not with cancellations.
+  `UPDATE kindred_web.event_contract_sections
+      SET body = body || E'\n\nDamage caused by any guest, outside service provider or other attendee is the responsibility of the person booking the facility.',
+          updated_at = now()
+    WHERE key = 'damages_liability'
+      AND body NOT LIKE '%outside service provider%'`,
+
+  // "for farewells" was the last of the wedding wording to survive the rewrite.
+  `UPDATE kindred_web.event_contract_sections
+      SET body = replace(body, 'permitted outdoors only, for farewells.', 'permitted outdoors only.'),
+          updated_at = now()
+    WHERE key = 'decorations'`,
 ];
 
 export async function runMigrations() {

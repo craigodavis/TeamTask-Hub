@@ -182,10 +182,21 @@ export async function renderContract(companyId, request, extraKeys = []) {
   // event without the clause wording changing.
   const defaults = await contractValues(companyId);
   const tokens = { ...defaults, ...(await tokensFor(companyId, request)) };
+  // Numbered here, by position, rather than stored in the title.
+  //
+  // The numbers used to be part of the title text, so inserting a section at
+  // position 4 left two sections numbered 4 and every later heading off by one —
+  // which happened, and a contract that reads 4, 4, 6 is one nobody checked.
+  // Numbering at render time means a section can be added, removed or reordered
+  // without anybody having to remember to renumber the rest.
   return {
     tokens,
-    sections: rows.map((s) => ({
-      key: s.key, title: s.title, body: fill(s.body, tokens),
+    sections: rows.map((s, i) => ({
+      key: s.key,
+      number: i + 1,
+      title: s.title,
+      heading: `${i + 1}. ${s.title}`,
+      body: fill(s.body, tokens),
     })),
   };
 }
