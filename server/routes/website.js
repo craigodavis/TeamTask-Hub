@@ -462,10 +462,52 @@ websiteRouter.post('/event-request', async (req, res) => {
     );
     const saved = rows[0];
 
+    // Tell the guest we have it. Until now they received nothing at all — staff got
+    // an SMS and the person who filled the form heard silence, which reads exactly
+    // like a form that did not work. It repeats what they asked for so they can see
+    // we read it right, and says plainly that it is not a booking yet.
+    try {
+      const when = [
+        date,
+        startTime ? `${startTime}–${endTime}` : null,
+        venue?.name || null,
+      ].filter(Boolean).join(' · ');
+      const money0 = (c) => (c == null ? null : money(c));
+      const lines = [
+        ['What', `${guests} guests`],
+        ['When', when || 'to be confirmed'],
+        ['Venue fee', money0(terms.rental_total_cents)],
+        ['Minimum wine purchase', money0(terms.min_wine_purchase_cents)],
+        ['Deposit to confirm', money0(terms.due_now_cents)],
+      ].filter(([, v]) => v);
+
+      await sendMail({
+        to: saved.email,
+        subject: 'We have your event enquiry — Kindred Vineyards',
+        text: `${first},\n\nThank you — we have your enquiry and one of us will be in `
+          + `touch shortly.\n\n`
+          + lines.map(([k, v]) => `${k}: ${v}`).join('\n')
+          + `\n\nThis is an enquiry, not a confirmed booking — nothing is held until `
+          + `we have written back to you.\n\nKindred Vineyards`,
+        html: `<div style="font-family:Georgia,serif;max-width:600px;line-height:1.55">`
+          + `<p>${first},</p><p>Thank you — we have your enquiry and one of us will be `
+          + `in touch shortly.</p><table style="border-collapse:collapse">`
+          + lines.map(([k, v]) =>
+              `<tr><td style="padding:3px 18px 3px 0;color:#666">${k}</td>`
+              + `<td style="padding:3px 0">${v}</td></tr>`).join('')
+          + `</table><p style="font-size:13px;color:#666">This is an enquiry, not a `
+          + `confirmed booking — nothing is held until we have written back to you.</p>`
+          + `<p>Kindred Vineyards</p></div>`,
+      }, companyId);
+    } catch (e) {
+      // Never allowed to fail the submit: the enquiry is saved, and a mail outage
+      // must not tell a guest their request did not go through.
+      console.error('[event-request] guest acknowledgement failed for', saved.email, e.message);
+    }
+
     // Alert after the row is committed, and never allowed to fail the submit —
     // a guest who filled in the form has done their part whatever Twilio does.
     try {
-      const companyId = await kindredCompanyId();
       const people = await alertRecipients(companyId);
       if (people.length) {
         await sendSmsToUsers(companyId, people.map((p) => p.id), newRequestSms(saved), null);

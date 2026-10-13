@@ -568,10 +568,12 @@ router.post('/:id/countersign', requireManager, async (req, res) => {
       return res.status(400).json({ error: 'The customer has not signed it yet, so there is nothing to counter-sign.' });
     }
 
+    // display_name, not name: this table has no name column, and the mistake only
+    // showed up as a 500 when somebody actually pressed the button.
     const who = req.userId
-      ? (await query(`SELECT name, email FROM users WHERE id = $1`, [req.userId])).rows[0]
+      ? (await query(`SELECT display_name, email FROM users WHERE id = $1`, [req.userId])).rows[0]
       : null;
-    const signedName = who?.name || who?.email || 'Kindred Vineyards';
+    const signedName = who?.display_name || who?.email || 'Kindred Vineyards';
 
     try {
       await query(
