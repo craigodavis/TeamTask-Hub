@@ -156,9 +156,11 @@ export function newRequestSms(reqRow) {
  * rule already showed how that ends: the page offers something the server refuses.
  */
 export const BOOKING_WINDOW = {
-  earliest: '10:00',
-  latest: '22:00',
+  earliest: '10:00',   // earliest an event may start
+  latest: '19:00',     // latest an event may START
+  closes: '22:00',     // everything finished by
   stepMinutes: 30,
+  maxHours: 4,
 };
 
 /** "13:30" -> 810. Null for anything that is not a time on our grid. */
@@ -181,22 +183,31 @@ export const hhmmOf = (mins) =>
 export function resolveWindow(startTime, hours) {
   const start = minutesOfDay(startTime);
   const open = minutesOfDay(BOOKING_WINDOW.earliest);
-  const close = minutesOfDay(BOOKING_WINDOW.latest);
+  const lastStart = minutesOfDay(BOOKING_WINDOW.latest);
+  const closes = minutesOfDay(BOOKING_WINDOW.closes);
+
   if (start == null) return { error: 'Please choose a start time.' };
   if (start % BOOKING_WINDOW.stepMinutes !== 0) {
     return { error: 'Please choose a start time on the hour or the half hour.' };
   }
-  if (start < open || start > close) {
+  if (start < open || start > lastStart) {
     return { error: `Events start between ${BOOKING_WINDOW.earliest} and ${BOOKING_WINDOW.latest}.` };
   }
+
   const h = Number(hours);
   if (!Number.isFinite(h) || h <= 0) return { error: 'Please choose how many hours you need.' };
   if ((h * 60) % BOOKING_WINDOW.stepMinutes !== 0) {
     return { error: 'Please choose a length in half hours.' };
   }
+  if (h > BOOKING_WINDOW.maxHours) {
+    return { error: `We book up to ${BOOKING_WINDOW.maxHours} hours through the form. Ring us for anything longer.` };
+  }
+
+  // Two separate limits, and the tighter one wins: a 7PM start cannot run the full
+  // four hours, because everything is finished by 10.
   const end = start + Math.round(h * 60);
-  if (end > close) {
-    return { error: `Everything finishes by ${BOOKING_WINDOW.latest}, so that is longer than we can fit from ${startTime}.` };
+  if (end > closes) {
+    return { error: `Everything finishes by ${BOOKING_WINDOW.closes}, so that is longer than we can fit from ${startTime}.` };
   }
   return { startTime: hhmmOf(start), endTime: hhmmOf(end) };
 }
