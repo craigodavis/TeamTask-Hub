@@ -13,6 +13,7 @@ import { requireManager } from '../middleware/auth.js';
 import { evaluate, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard } from '../lib/eventBoard.js';
 import { sendMail } from '../mail.js';
+import { clientIpOf } from './mcpDb.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL, EVENT_CONTRACT_URL } from '../lib/publicLinks.js';
 import {
@@ -614,6 +615,50 @@ router.post('/:id/send-contract', requireManager, async (req, res) => {
     console.error('send-contract', e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Our counter-signature ────────────────────────────────────────────────────
+// Executed means BOTH parties signed. Setting contract_executed_at on its own would
+// record an agreement with only one signature behind it, so this writes our row
+// against the same frozen text the renter agreed to — not a fresh render, which
+// could by then say something else.
+router.post('/:id/countersign', requireManager, async (req, res) => {
+  try {
+    const cur = (await query(
+      `SELECT * FROM kindred_web.event_requests WHERE id = $1`, [req.params.id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Request not found' });
+
+    const renter = (await query(
+      `SELECT contract_snapshot, contract_sha256 FROM kindred_web.event_contract_signatures
+        WHERE request_id = $1 AND party = 'renter'`, [cur.id])).rows[0];
+    if (!renter) {
+      return res.status(400).json({ error: 'The customer has not signed it yet, so there is nothing to counter-sign.' });
+    }
+
+    const who = req.userId
+      ? (await query(`SELECT name, email FROM users WHERE id = $1`, [req.userId])).rows[0]
+      : null;
+    const signedName = who?.name || who?.email || 'Kindred Vineyards';
+
+    try {
+      await query(
+        `INSERT INTO kindred_web.event_contract_signatures
+           (company_id, request_id, party, signed_name, ip, user_agent,
+            contract_snapshot, contract_sha256)
+         VALUES ($1,$2,'kindred',$3,$4,$5,$6::jsonb,$7)`,
+        [req.companyId, cur.id, signedName, clientIpOf(req),
+         String(req.headers['user-agent'] || '').slice(0, 500),
+         JSON.stringify(renter.contract_snapshot), renter.contract_sha256]);
+    } catch (e) {
+      if (e.code !== '23505') throw e;   // already counter-signed; fall through
+    }
+
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests
+          SET contract_executed_at = COALESCE(contract_executed_at, NOW()), updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [cur.id]);
+    res.json({ ok: true, signedName, request: shape(rows[0]) });
+  } catch (e) { console.error('countersign', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── Evaluate a real request and freeze the outcome ───────────────────────────

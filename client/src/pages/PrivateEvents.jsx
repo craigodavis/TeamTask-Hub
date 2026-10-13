@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
-  getPrivateEventCalendar, getPrivateEventBoard, sendEventContract,
+  getPrivateEventCalendar, getPrivateEventBoard, sendEventContract, countersignEventContract,
   getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getLocations, getContractSections, createContractSection,
@@ -271,10 +271,18 @@ function FlowTab() {
       finally { setBusy(null); }
       return;
     }
+    if (kind === 'countersign') {
+      setBusy(row.id);
+      try {
+        const out = await countersignEventContract(row.id);
+        setErr(''); setNote(`Counter-signed by ${out.signedName}.`); load();
+      } catch (e) { setErr(e.message); setNote(''); }
+      finally { setBusy(null); }
+      return;
+    }
     const patch = {
       evaluate: null,
       approve: { status: 'approved' },
-      countersign: { contract_executed: true },
       insurance_ok: { insurance_ok: true },
       deposit_paid: { deposit_paid: true },
     }[kind];

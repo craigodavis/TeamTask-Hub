@@ -3006,6 +3006,14 @@ export async function sendEventContract(id) {
   if (!res.ok) throw new Error(d.error || 'Could not send the contract');
   return d;
 }
+// Records OUR signature against the same frozen text the customer agreed to.
+export async function countersignEventContract(id) {
+  const res = await fetch(`${API}/event-requests/${id}/countersign`, {
+    method: 'POST', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not counter-sign');
+  return d;
+}
 // The board: every live booking, what it still owes, whose move it is.
 export async function getPrivateEventBoard() {
   const res = await fetch(`${API}/event-requests/board`, { headers: headers() });
