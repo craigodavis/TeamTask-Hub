@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
   getPrivateEventCalendar, getPrivateEventBoard, sendEventContract, countersignEventContract,
   getEventTerms, createEventTerm, updateEventTerm,
-  deleteEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
+  deleteEventTerm, duplicateEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
 } from '../api';
@@ -554,6 +554,12 @@ function TermsTab() {
           </span>
           <span style={{ display: 'flex', gap: 6 }}>
             <button className="vin-btn" onClick={() => edit(t)}>Edit</button>
+            {/* Opens the copy straight away: nobody duplicates a row in order to
+                leave it exactly as it was. */}
+            <button className="vin-btn" onClick={async () => {
+              try { const copy = await duplicateEventTerm(t.id); load(); edit(copy); }
+              catch (e) { setErr(e.message); }
+            }}>Copy</button>
             {t.active && (
               <button className="vin-btn vin-btn-danger"
                 onClick={async () => {
@@ -593,7 +599,8 @@ function TermsTab() {
         {preview && <TermsResult t={preview} />}
       </div>
 
-      <Drawer open={!!form} title={form?.id ? form.name : 'New terms'}
+      <Drawer open={!!form}
+              title={form?.id ? (form.active === false ? `${form.name} · off` : form.name) : 'New terms'}
               onClose={() => setForm(null)}
               footer={form && (<>
                 <button className="vin-btn" onClick={() => setForm(null)}>Cancel</button>

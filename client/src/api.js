@@ -3041,6 +3041,15 @@ export async function updateEventTerm(id, body) {
   if (!res.ok) throw new Error(d.error || 'Failed to update terms');
   return d;
 }
+// Copies a row so a new band or venue starts from one that already works. The copy
+// comes back inactive, so it cannot affect a quote until it is switched on.
+export async function duplicateEventTerm(id) {
+  const res = await fetch(`${API}/event-requests/terms/${id}/duplicate`, {
+    method: 'POST', headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not copy these terms');
+  return d;
+}
 // Deactivates rather than deletes — a quote already given points back at the row to
 // explain itself.
 export async function deleteEventTerm(id) {

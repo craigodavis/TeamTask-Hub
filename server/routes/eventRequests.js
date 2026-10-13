@@ -211,6 +211,29 @@ router.put('/terms/:id', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Copy a row so a new band or venue starts from one that already works, rather than
+// from sixteen blank fields.
+//
+// The copy arrives INACTIVE on purpose. An active duplicate would join the
+// resolution the instant it was created — harmless while it is identical, but the
+// moment someone edits a guest range or a venue it starts deciding real quotes,
+// possibly before they have finished. Switching it on is the deliberate last step.
+router.post('/terms/:id/duplicate', requireManager, async (req, res) => {
+  try {
+    const cols = ['name', ...CONDITIONS, ...SCALAR_OUTCOMES, ...LIST_OUTCOMES];
+    const { rows } = await query(
+      `INSERT INTO kindred_web.event_terms (company_id, active, ${cols.join(',')})
+       SELECT company_id, false,
+              left(name || ' (copy)', 200), ${cols.slice(1).join(',')}
+         FROM kindred_web.event_terms
+        WHERE id = $1 AND company_id = $2
+       RETURNING *`,
+      [req.params.id, req.companyId]);
+    if (!rows.length) return res.status(404).json({ error: 'No such terms row' });
+    res.status(201).json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Deactivate rather than delete. A proposal already quoted carries a frozen copy of
 // its terms, but `sources` points at these ids to explain the quote, and deleting the
 // row turns that explanation into a dangling id.
