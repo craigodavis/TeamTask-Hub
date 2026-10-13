@@ -439,6 +439,7 @@ function TermsTab() {
   const [sections, setSections] = useState([]);
   const [form, setForm] = useState(null);
   const [err, setErr] = useState('');
+  const [notice, setNotice] = useState('');
   const [preview, setPreview] = useState(null);
   const [trial, setTrial] = useState({ guests: 15, location_id: '', event_date: '', start_time: '', end_time: '' });
 
@@ -534,6 +535,7 @@ function TermsTab() {
         this board and the contract all read these rows.
       </p>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+      {notice && <p className="pe-req-why" style={{ marginTop: 0 }}>{notice}</p>}
 
       {terms.length === 0 && (
         <div className="pe-empty">
@@ -560,14 +562,21 @@ function TermsTab() {
               try { const copy = await duplicateEventTerm(t.id); load(); edit(copy); }
               catch (e) { setErr(e.message); }
             }}>Copy</button>
-            {t.active && (
-              <button className="vin-btn vin-btn-danger"
-                onClick={async () => {
-                  if (window.confirm(`Stop applying “${t.name}”? Quotes already given keep their own copy.`)) {
-                    await deleteEventTerm(t.id); load();
+            <button className="vin-btn vin-btn-danger"
+              onClick={async () => {
+                // Says what is being let go of. Quotes already given keep their own
+                // frozen copy, including the name of the row that set each number,
+                // so deleting this cannot make an old quote unexplainable.
+                if (!window.confirm(`Delete “${t.name}”?\n\nBookings already quoted keep their own copy of the numbers and of this name, so nothing already quoted changes.`)) return;
+                try {
+                  const out = await deleteEventTerm(t.id);
+                  setErr('');
+                  load();
+                  if (out.quotedCount) {
+                    setNotice(`Deleted “${out.name}”. ${out.quotedCount} ${out.quotedCount === 1 ? 'booking keeps its' : 'bookings keep their'} frozen copy.`);
                   }
-                }}>Remove</button>
-            )}
+                } catch (e) { setErr(e.message); }
+              }}>Delete</button>
           </span>
         </div>
       ))}

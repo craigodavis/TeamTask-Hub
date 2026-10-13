@@ -234,17 +234,28 @@ router.post('/terms/:id/duplicate', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Deactivate rather than delete. A proposal already quoted carries a frozen copy of
-// its terms, but `sources` points at these ids to explain the quote, and deleting the
-// row turns that explanation into a dangling id.
+// Delete, properly.
+//
+// The earlier version deactivated instead, on the theory that a quote needs this row
+// to explain itself. It does not: the frozen snapshot records {id, NAME} for every
+// number, so the name a quote displays is already a copy. Deleting the row leaves
+// that explanation intact and only orphans an id nothing dereferences.
+//
+// Keeping dead rows greyed out forever was caution that cost clutter and bought
+// nothing. The count of bookings ever quoted from it is returned so the confirmation
+// can say what is being let go of.
 router.delete('/terms/:id', requireManager, async (req, res) => {
   try {
+    const used = await query(
+      `SELECT count(*)::int AS n FROM kindred_web.event_requests
+        WHERE requirements::text LIKE '%' || $1 || '%'`, [req.params.id]);
+
     const { rows } = await query(
-      `UPDATE kindred_web.event_terms SET active = false, updated_at = now()
-        WHERE id = $1 AND company_id = $2 RETURNING id`,
+      `DELETE FROM kindred_web.event_terms WHERE id = $1 AND company_id = $2 RETURNING name`,
       [req.params.id, req.companyId]);
     if (!rows.length) return res.status(404).json({ error: 'No such terms row' });
-    res.json({ ok: true, deactivated: true });
+
+    res.json({ ok: true, deleted: true, name: rows[0].name, quotedCount: used.rows[0].n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
