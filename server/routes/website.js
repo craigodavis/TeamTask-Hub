@@ -10,7 +10,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { availableTimes, createBooking, customFields } from '../lib/resosClient.js';
 import {
-  KEYS as EVENT_KEYS, tierForGuests, newToken, money,
+  KEYS as EVENT_KEYS, tierForGuests, newToken, money, BOOKING_WINDOW, resolveWindow,
   alertRecipients, newRequestSms,
 } from '../lib/eventRequests.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
@@ -189,7 +189,9 @@ websiteRouter.get('/event-tiers', async (_req, res) => {
 
     const intro = await getSetting(EVENT_KEYS.intro, '');
     res.set('Cache-Control', 'public, max-age=60');
-    res.json({ intro: typeof intro === 'string' ? intro : '', venues });
+    // The booking window rides along with the price list so the form builds its
+    // dropdowns from the same numbers this server validates against.
+    res.json({ intro: typeof intro === 'string' ? intro : '', venues, booking: BOOKING_WINDOW });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -391,11 +393,22 @@ websiteRouter.post('/event-request', async (req, res) => {
     let startTime = String(b.startTime || '').slice(0, 5);
     let endTime = String(b.endTime || '').slice(0, 5);
     if (!legacyForm) {
-      if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
-        return res.status(400).json({ error: 'Please give a start and end time for your event.' });
-      }
-      if (endTime <= startTime) {
-        return res.status(400).json({ error: 'The end time needs to be after the start time.' });
+      // The form asks "how many hours", because that is what a customer knows and
+      // what the per-hour price multiplies. The end is derived, and checked against
+      // the window here as well as in the page: a direct POST is not bound by a
+      // dropdown's options.
+      if (b.hours !== undefined) {
+        const w = resolveWindow(startTime, b.hours);
+        if (w.error) return res.status(400).json({ error: w.error });
+        startTime = w.startTime;
+        endTime = w.endTime;
+      } else {
+        if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
+          return res.status(400).json({ error: 'Please give a start time and how long you need.' });
+        }
+        if (endTime <= startTime) {
+          return res.status(400).json({ error: 'The end time needs to be after the start time.' });
+        }
       }
     } else if (!hhmm.test(startTime) || !hhmm.test(endTime)) {
       startTime = null; endTime = null;

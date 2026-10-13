@@ -144,3 +144,59 @@ export function newRequestSms(reqRow) {
   const who = `${reqRow.first_name} ${reqRow.last_name}`.trim();
   return `Kindred: new event request — ${who}, ${reqRow.guests} guests, ${shortDate(reqRow.event_date)}. Review in Team.`;
 }
+
+/**
+ * When a private event may start and finish, and the granularity we ask for.
+ *
+ * Craig: minutes only on the hour and half hour, nothing after 10PM or before 10AM.
+ *
+ * Defined once and served to the public form in the pricing response, so the page
+ * builds its dropdowns from the same numbers the server validates against. Baking
+ * the window into the page as well would be a second copy of a rule, and the band
+ * rule already showed how that ends: the page offers something the server refuses.
+ */
+export const BOOKING_WINDOW = {
+  earliest: '10:00',
+  latest: '22:00',
+  stepMinutes: 30,
+};
+
+/** "13:30" -> 810. Null for anything that is not a time on our grid. */
+export function minutesOfDay(hhmm) {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(hhmm || ''));
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+export const hhmmOf = (mins) =>
+  `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
+/**
+ * Check a start time and a duration against the window.
+ *
+ * Returns { startTime, endTime } or { error }. The end is COMPUTED from the hours
+ * rather than asked for: the form asks "how many hours", because that is the thing
+ * a customer knows and it is what the per-hour price multiplies.
+ */
+export function resolveWindow(startTime, hours) {
+  const start = minutesOfDay(startTime);
+  const open = minutesOfDay(BOOKING_WINDOW.earliest);
+  const close = minutesOfDay(BOOKING_WINDOW.latest);
+  if (start == null) return { error: 'Please choose a start time.' };
+  if (start % BOOKING_WINDOW.stepMinutes !== 0) {
+    return { error: 'Please choose a start time on the hour or the half hour.' };
+  }
+  if (start < open || start > close) {
+    return { error: `Events start between ${BOOKING_WINDOW.earliest} and ${BOOKING_WINDOW.latest}.` };
+  }
+  const h = Number(hours);
+  if (!Number.isFinite(h) || h <= 0) return { error: 'Please choose how many hours you need.' };
+  if ((h * 60) % BOOKING_WINDOW.stepMinutes !== 0) {
+    return { error: 'Please choose a length in half hours.' };
+  }
+  const end = start + Math.round(h * 60);
+  if (end > close) {
+    return { error: `Everything finishes by ${BOOKING_WINDOW.latest}, so that is longer than we can fit from ${startTime}.` };
+  }
+  return { startTime: hhmmOf(start), endTime: hhmmOf(end) };
+}
