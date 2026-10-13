@@ -11,6 +11,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
+import { board, closedBoard } from '../lib/eventBoard.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL } from '../lib/publicLinks.js';
 import {
@@ -157,6 +158,17 @@ router.get('/', requireManager, async (req, res) => {
     // instead of retyping a URL from memory.
     res.json({ requests: rows.map(shape), form_url: EVENT_REQUEST_URL });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Board ────────────────────────────────────────────────────────────────────
+// The default screen: every live booking, what it still owes, and whose move it is.
+// Sorted by how soon the event is, because that is how this work goes wrong.
+
+router.get('/board', requireManager, async (req, res) => {
+  try {
+    const [live, closed] = await Promise.all([board(req.companyId), closedBoard()]);
+    res.json({ ...live, closed, form_url: EVENT_REQUEST_URL });
+  } catch (e) { console.error('board', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── Terms ────────────────────────────────────────────────────────────────────
@@ -648,6 +660,19 @@ router.patch('/:id', requireManager, async (req, res) => {
       set('insurance_ok', !!b.insurance_ok);
       set('insurance_ok_at', b.insurance_ok ? new Date() : null);
       set('insurance_ok_by', b.insurance_ok ? (req.userId || null) : null);
+    }
+
+    // Three separate marks because three different people are waiting at each
+    // point: us to send, them to sign, us to counter-sign. A single "signed" flag
+    // would lose whose move it is, which is the one thing the board exists to say.
+    // Sent as booleans and stamped here, so the clock is the server's.
+    for (const [flag, col] of [
+      ['contract_sent', 'contract_sent_at'],
+      ['contract_customer_signed', 'contract_customer_signed_at'],
+      ['contract_executed', 'contract_executed_at'],
+      ['deposit_paid', 'deposit_paid_at'],
+    ]) {
+      if (b[flag] !== undefined) set(col, b[flag] ? new Date() : null);
     }
 
     if (!sets.length) return res.json({ request: shape(cur) });

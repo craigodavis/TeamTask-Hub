@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
-  getPrivateEventCalendar, getEventTerms, createEventTerm, updateEventTerm,
+  getPrivateEventCalendar, getPrivateEventBoard, getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
@@ -43,7 +43,7 @@ const LABEL = {
 };
 
 export function PrivateEvents() {
-  const [tab, setTab] = useState('calendar');
+  const [tab, setTab] = useState('flow');
   const [err, setErr] = useState('');
   return (
     <div className="pe">
@@ -54,13 +54,14 @@ export function PrivateEvents() {
       {/* One flat row. Event Requests used to be its own sidebar entry; it belongs
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Website tiers'],
+        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests'], ['tiers', 'Website tiers'],
           ['copy', 'Message'], ['terms', 'Terms'], ['contract', 'Contract']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
       </div>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+      {tab === 'flow' && <FlowTab />}
       {tab === 'calendar' && <CalendarTab />}
       {tab === 'requests' && <Requests onError={setErr} />}
       {tab === 'tiers' && <Tiers onError={setErr} />}
@@ -209,6 +210,174 @@ function RequestDetail({ r }) {
           </p>
         ) : <TermsResult t={need} />}
       </div>
+    </>
+  );
+}
+
+/**
+ * The board — the default screen.
+ *
+ * The strip at the top is a FILTER, not a set of destinations. Clicking a box
+ * narrows the list beneath it instead of navigating, so you never lose your place,
+ * and a new member of staff sees the shape of the process every time they land
+ * without a separate screen to go and find.
+ *
+ * The dashed branch is load-bearing. Bookings whose terms require no contract never
+ * pass through that stage, and without somewhere to count them they would be absent
+ * from this screen entirely — which is exactly how one gets forgotten.
+ *
+ * Boxes filter on "has this outstanding", not "is at this stage", so a booking that
+ * is unsigned AND owes a deposit appears under both and the counts overlap. That is
+ * why the labels read "2 unsigned" rather than "2 in contracts": the second implies
+ * an exclusive place to be, and then the numbers stop adding up.
+ */
+function FlowTab() {
+  const [data, setData] = useState(null);
+  const [bucket, setBucket] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(null);
+
+  const load = useCallback(() => {
+    getPrivateEventBoard().then(setData).catch((e) => setErr(e.message));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (row, patch) => {
+    setBusy(row.id);
+    try { await updateEventRequest(row.id, patch); load(); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(null); }
+  };
+
+  // What the one button on a row does. Chasing is a conversation, which has no
+  // data layer yet, so it opens the request rather than pretending to send.
+  const doAction = (row) => {
+    const k = row.action?.key;
+    if (k === 'contract') {
+      if (row.gates.find((g) => g.key === 'contract')?.turn === 'ours'
+          && row.gates.find((g) => g.key === 'contract')?.label === 'Counter-sign') {
+        return act(row, { contract_executed: true });
+      }
+      return act(row, { contract_sent: true });
+    }
+    if (k === 'insurance') return act(row, { insurance_ok: true });
+    if (k === 'deposit') return act(row, { deposit_paid: true });
+    if (k === 'approval') return act(row, { status: 'approved' });
+    return null;
+  };
+
+  if (err) return <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>;
+  if (!data) return <div className="pe-empty">Loading…</div>;
+
+  const rows = bucket ? data.rows.filter((r) => r.buckets.includes(bucket)) : data.rows;
+  const BOXES = [
+    ['requests', 'Requests'], ['proposals', 'Proposals'],
+    ['contracts', 'Contracts'], ['outstanding', 'Outstanding'],
+  ];
+  const sub = (k) => {
+    const c = data.counts[k] || {};
+    if (c.unwired) return 'not wired yet';
+    if (!c.total) return 'nothing';
+    if (c.ours && c.theirs) return `${c.ours} you · ${c.theirs} them`;
+    return c.ours ? `${c.ours} need you` : `${c.theirs} with them`;
+  };
+
+  return (
+    <>
+      <div className="pe-tallies">
+        <button className={`pe-tally${bucket === null ? ' on' : ''}`} onClick={() => setBucket(null)}>
+          <span className="pe-tally-n" style={{ color: data.needsYou ? 'var(--vin-text-danger)' : undefined }}>
+            {data.needsYou}</span>
+          <span>Need you</span>
+        </button>
+        <div className="pe-tally"><span className="pe-tally-n">{data.withThem}</span><span>With them</span></div>
+        <div className="pe-tally"><span className="pe-tally-n">{data.settled}</span><span>Settled</span></div>
+      </div>
+
+      {/* The strip. On a phone the arrows do not survive the width, so it falls
+          back to a row of chips — the counts and the branch are what matter. */}
+      <div className="pe-strip">
+        {BOXES.map(([k, label], i) => (
+          <Fragment key={k}>
+            {i > 0 && <span className="pe-strip-arrow" aria-hidden="true">→</span>}
+            <button className={`pe-box${bucket === k ? ' on' : ''}${data.counts[k]?.ours ? ' urgent' : ''}`}
+                    onClick={() => setBucket(bucket === k ? null : k)}>
+              <strong>{label}</strong>
+              <span>{sub(k)}</span>
+            </button>
+          </Fragment>
+        ))}
+      </div>
+      <button className={`pe-branch${bucket === 'no_contract' ? ' on' : ''}`}
+              onClick={() => setBucket(bucket === 'no_contract' ? null : 'no_contract')}>
+        ⌞ No contract needed · {data.counts.no_contract?.total || 0}
+      </button>
+
+      <div className="pe-filterbar">
+        <span>Showing</span>
+        <strong>{bucket ? BOXES.concat([['no_contract', 'No contract needed']])
+          .find(([k]) => k === bucket)?.[1] : 'Everything live'} · {rows.length}</strong>
+        {bucket && <button className="vin-btn" onClick={() => setBucket(null)}>Show all</button>}
+      </div>
+
+      {rows.length === 0 && (
+        <div className="pe-empty">
+          {bucket ? 'Nothing in that one.'
+            : data.closed?.length ? 'Nothing live. Everything is settled or closed.'
+            : 'No enquiries yet. The board fills itself as requests come in.'}
+        </div>
+      )}
+
+      {rows.map((r) => (
+        <div key={r.id} className="pe-boardrow">
+          <div className="pe-boardrow-top">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <strong>{r.name}</strong>
+              <div className="pe-req-why">
+                {r.event_date || 'no date'}
+                {r.start_time ? ` ${r.start_time}–${r.end_time || ''}` : ''}
+                {r.venue ? ` · ${r.venue}` : ''}
+                {r.guests != null ? ` · ${r.guests} guests` : ''}
+              </div>
+            </div>
+            {/* Days to the event, not a stage. This is how the work goes wrong. */}
+            <span className={`pe-days${r.days_to_event != null && r.days_to_event <= 14 ? ' near' : ''}`}>
+              {r.days_to_event == null ? '—'
+                : r.days_to_event < 0 ? `${Math.abs(r.days_to_event)}d ago`
+                : `${r.days_to_event} days`}
+            </span>
+            {r.action && (
+              <button className="vin-btn" disabled={busy === r.id} onClick={() => doAction(r)}>
+                {busy === r.id ? '…' : r.action.label}
+              </button>
+            )}
+          </div>
+          <div className="pe-gates">
+            {r.gates.map((g) => (
+              <span key={g.key} className={`pe-gate ${g.state}`}>
+                {g.label}{g.state === 'not_required' ? ' —' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {data.closed?.length > 0 && (
+        <details className="pe-closed">
+          <summary>Closed · {data.closed.length}</summary>
+          {data.closed.map((c) => (
+            <div key={c.id} className="pe-req-line">
+              <span>
+                <strong>{c.name}</strong>
+                <div className="pe-req-why">
+                  {c.event_date || 'no date'} · {c.status}
+                  {c.reason ? ` · ${c.reason}` : ''}
+                </div>
+              </span>
+            </div>
+          ))}
+        </details>
+      )}
     </>
   );
 }

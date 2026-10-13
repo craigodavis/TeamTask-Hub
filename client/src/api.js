@@ -2997,6 +2997,13 @@ export async function getPrivateEventCalendar(from, to) {
   if (!res.ok) throw new Error(d.error || 'Failed to load calendar');
   return d;
 }
+// The board: every live booking, what it still owes, whose move it is.
+export async function getPrivateEventBoard() {
+  const res = await fetch(`${API}/event-requests/board`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load the board');
+  return d;
+}
 export async function getEventTerms() {
   const res = await fetch(`${API}/event-requests/terms`, { headers: headers() });
   const d = await res.json().catch(() => ({}));

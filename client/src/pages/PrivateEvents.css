@@ -93,3 +93,68 @@
   .pe-sheet .step { border-bottom: 1px solid #ccc; break-inside: avoid; }
   .pe-no-print { display: none !important; }
 }
+
+/* ── Board ───────────────────────────────────────────────────────────────────
+   The default screen. The strip is a filter, not navigation, so selection shows
+   as a held state rather than as a page change. */
+.pe-tallies { display: flex; gap: 10px; margin-bottom: 14px; }
+.pe-tally {
+  flex: 1; display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: var(--vin-surface-1); border: 0; border-radius: 10px; padding: 10px 12px;
+  font: inherit; font-size: 12px; color: var(--vin-muted);
+}
+button.pe-tally { cursor: pointer; }
+button.pe-tally.on { outline: 1px solid var(--vin-border-strong); }
+.pe-tally-n { font-size: 22px; font-weight: 500; color: var(--vin-text); }
+
+.pe-strip { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+.pe-strip-arrow { align-self: center; color: var(--vin-muted); font-size: 13px; }
+.pe-box {
+  flex: 1 1 120px; display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: var(--vin-surface-2); border: 0.5px solid var(--vin-border); border-radius: 10px;
+  padding: 9px 11px; font: inherit; cursor: pointer; color: var(--vin-text);
+}
+.pe-box span { font-size: 11.5px; color: var(--vin-muted); }
+.pe-box.urgent { border-color: var(--vin-text-danger); }
+.pe-box.urgent span { color: var(--vin-text-danger); }
+.pe-box.on { border-width: 2px; border-color: var(--vin-text-accent); }
+
+/* The branch hangs below the strip because that is where it belongs in the flow —
+   it leaves the first box and rejoins at the last. */
+.pe-branch {
+  margin-top: 6px; background: none; border: 0; padding: 4px 2px;
+  font: inherit; font-size: 12px; color: var(--vin-muted); cursor: pointer;
+}
+.pe-branch.on { color: var(--vin-text); text-decoration: underline; }
+
+.pe-filterbar {
+  display: flex; align-items: center; gap: 8px; margin: 14px 0 4px;
+  font-size: 12px; color: var(--vin-muted);
+}
+.pe-filterbar strong { color: var(--vin-text); font-weight: 500; }
+
+.pe-boardrow { border-bottom: 0.5px solid var(--vin-border); padding: 11px 2px; }
+.pe-boardrow-top { display: flex; align-items: center; gap: 10px; }
+.pe-days { font-size: 12.5px; color: var(--vin-muted); white-space: nowrap; }
+.pe-days.near { color: var(--vin-text-danger); }
+
+.pe-gates { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+.pe-gate {
+  font-size: 11.5px; padding: 2px 8px; border-radius: 6px;
+  background: var(--vin-surface-1); color: var(--vin-muted);
+}
+.pe-gate.outstanding { background: var(--vin-bg-danger); color: var(--vin-text-danger); }
+.pe-gate.done { background: var(--vin-bg-success); color: var(--vin-text-success); }
+/* Deliberately the quietest of the three: "not required" is a decision that was
+   made, not a thing anybody has to look at. */
+.pe-gate.not_required { opacity: 0.6; }
+
+.pe-closed { margin-top: 18px; }
+.pe-closed summary { font-size: 12px; color: var(--vin-muted); cursor: pointer; }
+
+@media (max-width: 620px) {
+  /* The arrows cannot survive this width; the counts and the branch can. */
+  .pe-strip-arrow { display: none; }
+  .pe-box { flex: 1 1 calc(50% - 6px); }
+  .pe-tally-n { font-size: 19px; }
+}

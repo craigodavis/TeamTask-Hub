@@ -4991,6 +4991,21 @@ The date is not held until the first payment and the security deposit are receiv
     WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_terms x
                        WHERE x.company_id = c.id AND x.name = 'Small gathering during open hours')`,
 
+
+  // ── Contract tracking on a request ─────────────────────────────────────────
+  // The client already branched on contract_executed_at and
+  // contract_customer_signed_at. Neither column existed, so those tests read
+  // undefined and the contract stage could never be reached — a booking went
+  // straight from approved to confirmed however the terms read.
+  //
+  // Three timestamps because three different people are waiting at each point:
+  // us to send it, them to sign it, us to counter-sign. Collapsing them into one
+  // "signed" flag loses whose move it is, which is the whole question the board
+  // exists to answer.
+  `ALTER TABLE kindred_web.event_requests
+     ADD COLUMN IF NOT EXISTS contract_sent_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS contract_customer_signed_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS contract_executed_at TIMESTAMPTZ`,
 ];
 
 export async function runMigrations() {
