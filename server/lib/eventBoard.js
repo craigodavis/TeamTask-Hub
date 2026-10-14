@@ -19,6 +19,7 @@
  * live terms table, so editing a term never rewrites what a booking was already told.
  */
 import { query } from '../db.js';
+import { effectiveTerms } from './eventTerms.js';
 
 /** Buckets the strip filters by. 'proposals' has no data layer yet — see below. */
 export const BUCKETS = ['requests', 'proposals', 'contracts', 'outstanding', 'no_contract'];
@@ -48,7 +49,10 @@ export function daysUntil(dateStr, today) {
  * seeing within a week.
  */
 export function gatesFor(r) {
-  const req = r.requirements || {};
+  // Effective, not evaluated: a waived insurance requirement or a reduced deposit has
+  // to change what the board asks for, or staff keep chasing something we agreed to
+  // drop.
+  const req = effectiveTerms(r);
   const evaluated = !!r.rules_evaluated_at;
   const gates = [];
 

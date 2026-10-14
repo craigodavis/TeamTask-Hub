@@ -9,6 +9,7 @@
  * change it: editing a clause afterwards affects future contracts only.
  */
 import { query } from '../db.js';
+import { effectiveTerms } from './eventTerms.js';
 import { rentalType } from './eventTerms.js';
 
 const RENTAL_LABEL = {
@@ -100,10 +101,20 @@ export async function tokensFor(companyId, r) {
     ? `${fmtTime(r.start_time)} – ${fmtTime(r.end_time)}`
     : '—';
 
-  // The agreed numbers, from the frozen snapshot rather than the live terms table —
-  // the contract has to state what this booking was quoted, not what the price list
-  // says today.
-  const t = r.requirements || {};
+  // The agreed numbers: the frozen snapshot with any per-booking changes laid over
+  // it. Not the live terms table — a contract states what this booking agreed, not
+  // what the price list says today.
+  const t = effectiveTerms(r);
+
+  // Only what we agreed to. A request the customer made and we rejected has no place
+  // in the agreement, and one approved with changes goes in with OUR wording.
+  const agreed = (await query(
+    `SELECT body, agreed_text FROM kindred_web.event_special_requests
+      WHERE request_id = $1 AND status IN ('approved','modified')
+      ORDER BY created_at`, [r.id])).rows;
+  const agreedText = agreed.length
+    ? agreed.map((a) => `- ${(a.agreed_text || a.body).trim()}`).join('\n')
+    : 'None.';
   const band = t.sources?.base_price_cents?.name || t.sources?.hourly_rate_cents?.name || null;
 
   return {
@@ -137,8 +148,9 @@ export async function tokensFor(companyId, r) {
     // Degrades to a phrase, not a dash: this sentence has to read as a sentence even
     // on a booking evaluated before the band ceiling was recorded.
     tier_max_guests: t.band_max_guests != null ? `${t.band_max_guests} guests` : 'the agreed guest count',
-    // What they told us when they asked, which is part of what we agreed to.
-    special_requests: (r.notes || '').trim() || 'None noted.',
+    // Only the approved ones. The raw note from the form is a request, not a term.
+    agreed_items: agreedText,
+    special_requests: agreedText,
   };
 }
 
@@ -170,12 +182,21 @@ export function fill(body, tokens) {
  * keys the terms band selects, in sort order, tokens filled.
  */
 export async function renderContract(companyId, request, extraKeys = []) {
+  // The agreed-additions clause appears only when something was agreed. An empty
+  // "Agreed Additions: None." reads like an oversight; its absence reads like
+  // nothing was asked for, which is the truth.
+  const anyAgreed = (await query(
+    `SELECT 1 FROM kindred_web.event_special_requests
+      WHERE request_id = $1 AND status IN ('approved','modified') LIMIT 1`,
+    [request.id])).rows.length > 0;
+  const keys = anyAgreed ? [...extraKeys, 'agreed_additions'] : extraKeys;
+
   const { rows } = await query(
     `SELECT * FROM kindred_web.event_contract_sections
       WHERE company_id = $1 AND active
         AND (always_include OR key = ANY($2::text[]))
       ORDER BY sort_order, title`,
-    [companyId, extraKeys]
+    [companyId, keys]
   );
   // Constants first, booking second: a per-booking value always wins over the
   // company default, which is what lets a terms band later override a rate for one

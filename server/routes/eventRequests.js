@@ -10,7 +10,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
-import { evaluate, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
+import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard } from '../lib/eventBoard.js';
 import { sendMail } from '../mail.js';
 import { clientIpOf } from './mcpDb.js';
@@ -490,6 +490,102 @@ router.get('/:id/run-sheet', requireManager, async (req, res) => {
 
     res.json({ request: shape(r), steps, alsoOn });
   } catch (e) { console.error('run-sheet', e); res.status(500).json({ error: e.message }); }
+});
+
+// ── The back and forth ───────────────────────────────────────────────────────
+
+// Per-booking changes. Stored apart from the evaluated terms rather than over them,
+// so "what are we charging" and "why is it different" are both still answerable.
+router.put('/:id/overrides', requireManager, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const clean = {};
+    for (const k of OVERRIDABLE) {
+      if (!(k in body)) continue;
+      let v = body[k];
+      if (v === '' || v === undefined) v = null;      // cleared, not zero
+      if (k.endsWith('_cents') || k.endsWith('_days') || k.endsWith('_days_before')) {
+        if (v !== null) { v = parseInt(v, 10); if (Number.isNaN(v)) v = null; }
+      }
+      if (k === 'insurance_required' || k === 'contract_required') {
+        v = v === null ? null : !!v;
+      }
+      clean[k] = v;
+    }
+    // A key set to null means "no override", not "override with nothing" — otherwise
+    // clearing a box would pin the field to null instead of releasing it to the terms.
+    for (const k of Object.keys(clean)) if (clean[k] === null) delete clean[k];
+
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests SET overrides = $2::jsonb, updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id, Object.keys(clean).length ? JSON.stringify(clean) : null]);
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    res.json({ ok: true, overrides: rows[0].overrides, effective: effectiveTerms(rows[0]) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/:id/staff-notes', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests SET staff_notes = $2, updated_at = NOW()
+        WHERE id = $1 RETURNING staff_notes`,
+      [req.params.id, String(req.body?.staff_notes ?? '').slice(0, 10000) || null]);
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    res.json({ ok: true, staff_notes: rows[0].staff_notes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/:id/special-requests', requireManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM kindred_web.event_special_requests
+        WHERE request_id = $1 ORDER BY created_at`, [req.params.id]);
+    res.json({ items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Staff can add one too — what was asked for on the phone belongs in the same place
+// as what was typed on the form, or half the agreement lives in somebody's memory.
+router.post('/:id/special-requests', requireManager, async (req, res) => {
+  try {
+    const body = String(req.body?.body || '').trim();
+    if (!body) return res.status(400).json({ error: 'Say what was asked for.' });
+    const { rows } = await query(
+      `INSERT INTO kindred_web.event_special_requests
+         (company_id, request_id, source, body, status)
+       VALUES ($1,$2,'staff',$3,'pending') RETURNING *`,
+      [req.companyId, req.params.id, body]);
+    res.status(201).json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Approve, modify or reject. Only approved and modified reach the contract, and a
+// modification carries OUR wording rather than theirs.
+router.put('/special-requests/:sid', requireManager, async (req, res) => {
+  try {
+    const status = String(req.body?.status || '');
+    if (!['pending', 'approved', 'modified', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be approved, modified or rejected.' });
+    }
+    const agreed = String(req.body?.agreed_text || '').trim() || null;
+    if (status === 'modified' && !agreed) {
+      return res.status(400).json({ error: 'Write the wording you are agreeing to.' });
+    }
+    const { rows } = await query(
+      `UPDATE kindred_web.event_special_requests
+          SET status = $2,
+              agreed_text = CASE WHEN $2 = 'modified' THEN $3
+                                 WHEN $2 = 'approved' THEN NULL ELSE agreed_text END,
+              decision_note = $4,
+              decided_at = CASE WHEN $2 = 'pending' THEN NULL ELSE NOW() END,
+              decided_by = $5, updated_at = NOW()
+        WHERE id = $1 AND company_id = $6 RETURNING *`,
+      [req.params.sid, status, agreed, String(req.body?.decision_note || '').trim() || null,
+       req.userId || null, req.companyId]);
+    if (!rows.length) return res.status(404).json({ error: 'No such request' });
+    res.json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Send the contract ────────────────────────────────────────────────────────

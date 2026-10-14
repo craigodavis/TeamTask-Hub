@@ -283,3 +283,46 @@ export function hoursBetween(startTime, endTime) {
   if (a == null || b == null || b <= a) return null;
   return (b - a) / 60;
 }
+
+/** Fields staff may change for a single booking. Conditions are not among them. */
+export const OVERRIDABLE = [
+  'hourly_rate_cents', 'base_price_cents', 'rental_total_cents',
+  'min_wine_purchase_cents', 'booking_deposit_cents', 'security_deposit_cents',
+  'balance_due_days_before', 'planning_meeting_days',
+  'insurance_required', 'contract_required', 'availability', 'notes_to_customer',
+];
+
+/**
+ * What this booking is actually on: the evaluated terms with any per-booking changes
+ * laid over them.
+ *
+ * The two are stored apart rather than merged on save. Writing an override straight
+ * over the snapshot would answer "what are we charging" and destroy "why is it
+ * different from the price list", and the second question is the one that gets asked
+ * months later when nobody remembers the conversation.
+ *
+ * due_now_cents is recomputed rather than carried across: it is the sum of the two
+ * deposits, so overriding a deposit and leaving the total alone would put a figure on
+ * the proposal that does not add up.
+ */
+export function effectiveTerms(request) {
+  const base = request?.requirements || {};
+  const over = request?.overrides || {};
+  const out = { ...base };
+
+  for (const k of OVERRIDABLE) {
+    if (Object.prototype.hasOwnProperty.call(over, k) && over[k] !== undefined) out[k] = over[k];
+  }
+  out.overridden = OVERRIDABLE.filter((k) =>
+    Object.prototype.hasOwnProperty.call(over, k) && over[k] !== undefined
+    && JSON.stringify(over[k]) !== JSON.stringify(base[k]));
+
+  if (out.overridden.includes('hourly_rate_cents') && !out.overridden.includes('rental_total_cents')) {
+    out.rental_total_cents = out.hourly_rate_cents != null && out.hours != null
+      ? Math.round(out.hourly_rate_cents * out.hours) : out.rental_total_cents;
+  }
+  out.due_now_cents =
+    (out.booking_deposit_cents ?? 0) + (out.security_deposit_cents ?? 0) || null;
+
+  return out;
+}

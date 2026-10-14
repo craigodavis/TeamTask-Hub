@@ -5273,6 +5273,69 @@ Kindred uses live, video and still photography to promote the venue. Photographs
       SET body = replace(body, 'permitted outdoors only, for farewells.', 'permitted outdoors only.'),
           updated_at = now()
     WHERE key = 'decorations'`,
+
+  // ── The back and forth: overrides, notes, special requests, proposals ──────
+  //
+  // overrides holds ONLY the fields staff changed for this one booking, kept apart
+  // from the evaluated requirements rather than written over them. A single edited
+  // blob cannot answer "why was this one $400 less" six months later; two layers can,
+  // because what the terms said and what we agreed are both still there.
+  `ALTER TABLE kindred_web.event_requests
+     ADD COLUMN IF NOT EXISTS overrides JSONB,
+     ADD COLUMN IF NOT EXISTS staff_notes TEXT,
+     ADD COLUMN IF NOT EXISTS proposal_sent_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS proposal_accepted_at TIMESTAMPTZ`,
+
+  // Special requests go through approval. A customer asking for something is not the
+  // same as us agreeing to it, and only what we agreed may reach the contract —
+  // which is why the wording that goes into the agreement is its own column: a
+  // request approved "with modifications" is OUR sentence, not theirs.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_special_requests (
+     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id  UUID NOT NULL,
+     request_id  UUID NOT NULL REFERENCES kindred_web.event_requests(id) ON DELETE CASCADE,
+     source      TEXT NOT NULL DEFAULT 'customer',
+     body        TEXT NOT NULL,
+     status      TEXT NOT NULL DEFAULT 'pending',
+     agreed_text TEXT,
+     decision_note TEXT,
+     decided_at  TIMESTAMPTZ,
+     decided_by  UUID,
+     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE kindred_web.event_special_requests DROP CONSTRAINT IF EXISTS esr_status`,
+  `ALTER TABLE kindred_web.event_special_requests ADD CONSTRAINT esr_status
+     CHECK (status IN ('pending','approved','modified','rejected'))`,
+  `ALTER TABLE kindred_web.event_special_requests DROP CONSTRAINT IF EXISTS esr_source`,
+  `ALTER TABLE kindred_web.event_special_requests ADD CONSTRAINT esr_source
+     CHECK (source IN ('customer','staff'))`,
+  `CREATE INDEX IF NOT EXISTS esr_by_request
+     ON kindred_web.event_special_requests (request_id, created_at)`,
+
+  // The note a guest typed on the form is the first special request they made. It is
+  // carried in as one, so it goes through the same approval as anything they ask for
+  // later instead of sitting in a field nobody ever decided on.
+  `INSERT INTO kindred_web.event_special_requests (company_id, request_id, source, body, status)
+   SELECT c.id, r.id, 'customer', r.notes, 'pending'
+     FROM kindred_web.event_requests r CROSS JOIN companies c
+    WHERE r.notes IS NOT NULL AND btrim(r.notes) <> ''
+      AND r.status NOT IN ('declined','withdrawn')
+      AND NOT EXISTS (SELECT 1 FROM kindred_web.event_special_requests x
+                       WHERE x.request_id = r.id)`,
+
+  // Carries what was actually agreed into the agreement. Not always_include: it is
+  // added only when there is something to put in it.
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'agreed_additions', 'Agreed Additions', $BODY$The following were agreed between Kindred Vineyards and the Renter for this event:
+
+{{agreed_items}}
+
+Anything not listed here has not been agreed, and remains subject to Kindred's approval.$BODY$, 45, false, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'agreed_additions')`,
 ];
 
 export async function runMigrations() {
