@@ -17,6 +17,7 @@ import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { resolveTerms, evaluate, effectiveTerms } from '../lib/eventTerms.js';
 import { venueAvailability } from '../lib/eventAvailability.js';
+import { journal } from '../lib/eventJournal.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { clientIpOf } from './mcpDb.js';
 import crypto from 'node:crypto';
@@ -340,6 +341,7 @@ websiteRouter.post('/event-proposal/request', async (req, res) => {
       `INSERT INTO kindred_web.event_special_requests
          (company_id, request_id, source, body, status)
        VALUES ($1,$2,'customer',$3,'pending')`, [companyId, r.id, body]);
+    await journal(companyId, r.id, 'special_request', { detail: body.slice(0, 160), actorName: 'the customer' });
     res.json({ ok: true });
   } catch (e) { console.error('event-proposal-request', e); res.status(500).json({ error: e.message }); }
 });
@@ -359,6 +361,8 @@ websiteRouter.post('/event-proposal/decline', async (req, res) => {
           SET proposal_declined_at = NOW(), proposal_decline_reason = $2,
               proposal_accepted_at = NULL, updated_at = NOW()
         WHERE id = $1`, [r.id, reason]);
+    await journal(await kindredCompanyId(), r.id, 'proposal_declined',
+      { detail: reason.slice(0, 160), actorName: 'the customer' });
     res.json({ ok: true });
   } catch (e) { console.error('event-proposal-decline', e); res.status(500).json({ error: e.message }); }
 });
@@ -376,6 +380,7 @@ websiteRouter.post('/event-proposal/accept', async (req, res) => {
       `UPDATE kindred_web.event_requests
           SET proposal_accepted_at = COALESCE(proposal_accepted_at, NOW()), updated_at = NOW()
         WHERE id = $1 RETURNING proposal_accepted_at`, [r.id]);
+    await journal(await kindredCompanyId(), r.id, 'proposal_accepted', { actorName: 'the customer' });
     res.json({ ok: true, acceptedAt: rows[0].proposal_accepted_at });
   } catch (e) { console.error('event-proposal-accept', e); res.status(500).json({ error: e.message }); }
 });
@@ -487,6 +492,7 @@ websiteRouter.post('/event-contract/sign', async (req, res) => {
           SET contract_customer_signed_at = NOW(), updated_at = NOW()
         WHERE id = $1`, [r.id]);
 
+    await journal(companyId, r.id, 'contract_signed', { detail: `signed by ${name}`, actorName: name });
     res.json({ ok: true, signedAt: new Date().toISOString() });
   } catch (e) { console.error('event-contract-sign', e); res.status(500).json({ error: e.message }); }
 });
@@ -616,6 +622,8 @@ websiteRouter.post('/event-request', async (req, res) => {
        startTime, endTime, venue?.id || null, JSON.stringify(terms)],
     );
     const saved = rows[0];
+    await journal(companyId, saved.id, 'request_received',
+      { detail: `${guests} guests${venue ? ' at ' + venue.name : ''}`, actorName: 'the customer' });
 
     // Tell the guest we have it. Until now they received nothing at all — staff got
     // an SMS and the person who filled the form heard silence, which reads exactly

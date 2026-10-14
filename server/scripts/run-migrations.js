@@ -5343,6 +5343,44 @@ Anything not listed here has not been agreed, and remains subject to Kindred's a
   `ALTER TABLE kindred_web.event_requests
      ADD COLUMN IF NOT EXISTS proposal_declined_at TIMESTAMPTZ,
      ADD COLUMN IF NOT EXISTS proposal_decline_reason TEXT`,
+
+  // ── A journal for every private event, and the ResOS step ──────────────────
+  //
+  // Craig: "We need to log a journal of all actions and make that journal available
+  // for each event. If someone forgets to book resos, we could be screwed."
+  //
+  // Both halves of that are the same problem. The journal is the record of what was
+  // done and by whom; the ResOS flag is the one action whose absence is invisible
+  // until the day, when twenty people arrive and there are no tables. So it becomes
+  // a step the board asks for rather than something somebody is supposed to remember.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_request_activity (
+     id         BIGSERIAL PRIMARY KEY,
+     company_id UUID NOT NULL,
+     request_id UUID NOT NULL REFERENCES kindred_web.event_requests(id) ON DELETE CASCADE,
+     action     TEXT NOT NULL,
+     detail     TEXT,
+     meta       JSONB,
+     actor_id   UUID,
+     actor_name TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS event_request_activity_by_request
+     ON kindred_web.event_request_activity (request_id, created_at DESC)`,
+
+  `ALTER TABLE kindred_web.event_requests
+     ADD COLUMN IF NOT EXISTS resos_booked_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS resos_booked_by UUID,
+     ADD COLUMN IF NOT EXISTS resos_reference TEXT`,
+
+  // Who hears about what. One row per person per action, so somebody can take the
+  // contract signings without also taking every new enquiry — a single "notify the
+  // managers" list is how people end up muting the lot.
+  `CREATE TABLE IF NOT EXISTS kindred_web.event_notify (
+     company_id UUID NOT NULL,
+     user_id    UUID NOT NULL,
+     action     TEXT NOT NULL,
+     PRIMARY KEY (company_id, user_id, action)
+   )`,
 ];
 
 export async function runMigrations() {

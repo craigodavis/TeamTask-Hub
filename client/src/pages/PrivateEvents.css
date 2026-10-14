@@ -158,3 +158,17 @@ button.pe-tally.on { outline: 1px solid var(--vin-border-strong); }
   .pe-box { flex: 1 1 calc(50% - 6px); }
   .pe-tally-n { font-size: 19px; }
 }
+
+/* Who hears about what. Scrolls sideways rather than squeezing: with eight people
+   the columns would be unreadable at phone width, and a checkbox you cannot hit is
+   worse than one you have to scroll to. */
+.pe-notify-wrap { overflow-x: auto; margin-top: 10px; }
+.pe-notify { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.pe-notify th, .pe-notify td { padding: 7px 12px; border-bottom: 0.5px solid var(--vin-border); }
+.pe-notify thead th {
+  text-align: center; font-weight: 500; font-size: 12px; color: var(--vin-muted);
+  white-space: nowrap; border-bottom: 1px solid var(--vin-border);
+}
+.pe-notify thead th:first-child, .pe-notify tbody td:first-child { text-align: left; white-space: nowrap; }
+.pe-notify tbody td { text-align: center; }
+.pe-notify tbody tr:hover { background: var(--vin-surface-1); }

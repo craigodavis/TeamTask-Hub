@@ -3057,6 +3057,32 @@ export async function saveEventOverrides(id, overrides) {
   if (!res.ok) throw new Error(d.error || 'Could not save the changes');
   return d;
 }
+export async function getEventJournal(id) {
+  const res = await fetch(`${API}/event-requests/${id}/journal`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load the journal');
+  return d;
+}
+export async function markResosBooked(id, reference, booked = true) {
+  const res = await fetch(`${API}/event-requests/${id}/resos`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ booked, reference }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not record that');
+  return d;
+}
+export async function getNotifySettings() {
+  const res = await fetch(`${API}/event-requests/notify-settings`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load settings');
+  return d;
+}
+export async function saveNotifySettings(chosen) {
+  const res = await fetch(`${API}/event-requests/notify-settings`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ chosen }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not save settings');
+  return d;
+}
 // The board: every live booking, what it still owes, whose move it is.
 export async function getPrivateEventBoard() {
   const res = await fetch(`${API}/event-requests/board`, { headers: headers() });

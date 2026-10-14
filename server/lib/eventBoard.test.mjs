@@ -10,7 +10,8 @@ const base = (o) => ({
   deposit_paid_at: null, location_name: 'Creek',
   // Past the proposal by default: these cases are about what happens AFTER the price
   // is agreed. The proposal stage has its own cases below.
-  proposal_sent_at: '2026-10-01', proposal_accepted_at: '2026-10-02', ...o,
+  proposal_sent_at: '2026-10-01', proposal_accepted_at: '2026-10-02',
+  resos_booked_at: '2026-10-03', ...o,
 });
 
 let fails = 0;
@@ -159,6 +160,25 @@ is('declined: says so', r.gates.find((g) => g.key === 'proposal').label, 'They t
 is('declined: next step is to revise', r.action.label, 'Revise the proposal');
 is('declined: the reason travels', r.gates.find((g) => g.key === 'proposal').reason,
    'Too much for the wine minimum');
+
+// ── Reserving the tables is a step, not a memory ─────────────────────────────
+r = boardRow(base({ requirements: { contract_required: false, insurance_required: false, due_now_cents: 50000 },
+  deposit_paid_at: '2026-10-05', resos_booked_at: null }), TODAY);
+is('deposit in, tables not booked', r.action.label, 'Reserve tables in ResOS');
+is('it is our move', r.turn, 'ours');
+
+// Before the deposit it is not yet asked for — nothing is held until the money is.
+r = boardRow(base({ requirements: { contract_required: false, insurance_required: false, due_now_cents: 50000 },
+  deposit_paid_at: null, resos_booked_at: null }), TODAY);
+is('no deposit yet: tables not asked for', r.gates.some((g) => g.key === 'resos'), false);
+
+// A booking that owes nothing still needs tables.
+r = boardRow(base({ requirements: { contract_required: false, insurance_required: false },
+  deposit_paid_at: null, resos_booked_at: null }), TODAY);
+is('free booking still needs tables', r.action.label, 'Reserve tables in ResOS');
+
+r = boardRow(base({ requirements: { contract_required: false, insurance_required: false } }), TODAY);
+is('tables booked: nothing left', r.action, null);
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

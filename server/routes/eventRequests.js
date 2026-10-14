@@ -12,6 +12,8 @@ import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard, CLOSED_STATUSES } from '../lib/eventBoard.js';
+import { journal, journalFor, NOTIFIABLE } from '../lib/eventJournal.js';
+import { pool } from '../db.js';
 import { sendMail } from '../mail.js';
 import { clientIpOf } from './mcpDb.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
@@ -516,6 +518,80 @@ router.get('/:id/run-sheet', requireManager, async (req, res) => {
   } catch (e) { console.error('run-sheet', e); res.status(500).json({ error: e.message }); }
 });
 
+// ── Journal, ResOS and who hears about it ────────────────────────────────────
+
+router.get('/:id/journal', requireManager, async (req, res) => {
+  try { res.json({ entries: await journalFor(req.params.id) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// The step that is invisible until the day. Marked by hand because ResOS bookings
+// are made in ResOS — the point is that somebody confirms it was done, with their
+// name against it, not that the system guesses.
+router.post('/:id/resos', requireManager, async (req, res) => {
+  try {
+    const booked = req.body?.booked !== false;
+    const reference = String(req.body?.reference || '').trim().slice(0, 200) || null;
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests
+          SET resos_booked_at = $2, resos_booked_by = $3, resos_reference = $4, updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id, booked ? new Date() : null, booked ? (req.userId || null) : null,
+       booked ? reference : null]);
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    if (booked) {
+      await journal(req.companyId, req.params.id, 'resos_booked',
+        { detail: reference ? `ResOS ${reference}` : null, actorId: req.userId || null,
+          actorName: await actorName(req) });
+    } else {
+      await journal(req.companyId, req.params.id, 'resos_cleared',
+        { actorId: req.userId || null, actorName: await actorName(req), notify: false });
+    }
+    res.json({ ok: true, request: shape(rows[0]) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/** Who is on the hook for which action. */
+router.get('/notify-settings', requireManager, async (req, res) => {
+  try {
+    const people = (await query(
+      `SELECT id, display_name, email, phone FROM users
+        WHERE company_id = $1 AND is_active IS NOT FALSE
+        ORDER BY display_name`, [req.companyId])).rows;
+    const chosen = (await query(
+      `SELECT user_id, action FROM kindred_web.event_notify WHERE company_id = $1`,
+      [req.companyId])).rows;
+    res.json({ actions: NOTIFIABLE, people, chosen });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/notify-settings', requireManager, async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.chosen) ? req.body.chosen : [];
+    const valid = rows.filter((r) => r && r.user_id && NOTIFIABLE[r.action]);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`DELETE FROM kindred_web.event_notify WHERE company_id = $1`, [req.companyId]);
+      for (const r of valid) {
+        await client.query(
+          `INSERT INTO kindred_web.event_notify (company_id, user_id, action)
+           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [req.companyId, r.user_id, r.action]);
+      }
+      await client.query('COMMIT');
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
+    res.json({ ok: true, saved: valid.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/** The name to put against an action, so the journal reads as people and not ids. */
+async function actorName(req) {
+  if (!req.userId) return null;
+  const r = await query(`SELECT display_name, email FROM users WHERE id = $1`, [req.userId]);
+  return r.rows[0]?.display_name || r.rows[0]?.email || null;
+}
+
 // ── The back and forth ───────────────────────────────────────────────────────
 
 // Per-booking changes. Stored apart from the evaluated terms rather than over them,
@@ -555,6 +631,8 @@ router.put('/:id/overrides', requireManager, async (req, res) => {
         WHERE id = $1 RETURNING *`,
       [req.params.id, Object.keys(clean).length ? JSON.stringify(clean) : null]);
     if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    await journal(req.companyId, req.params.id, 'terms_changed',
+      { meta: clean, actorId: req.userId || null, actorName: await actorName(req), notify: false });
     res.json({ ok: true, overrides: rows[0].overrides, effective: effectiveTerms(rows[0]) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -618,6 +696,9 @@ router.put('/special-requests/:sid', requireManager, async (req, res) => {
       [req.params.sid, status, agreed, String(req.body?.decision_note || '').trim() || null,
        req.userId || null, req.companyId]);
     if (!rows.length) return res.status(404).json({ error: 'No such request' });
+    await journal(req.companyId, rows[0].request_id, `ask_${status}`,
+      { detail: (rows[0].agreed_text || rows[0].body || '').slice(0, 160),
+        actorId: req.userId || null, actorName: await actorName(req), notify: false });
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -676,6 +757,8 @@ router.post('/:id/send-proposal', requireManager, async (req, res) => {
           SET proposal_sent_at = NOW(), proposal_declined_at = NULL,
               proposal_decline_reason = NULL, updated_at = NOW()
         WHERE id = $1 RETURNING *`, [cur.id]);
+    await journal(req.companyId, cur.id, 'proposal_sent',
+      { detail: `to ${cur.email}`, actorId: req.userId || null, actorName: await actorName(req) });
     res.json({ ok: true, sentTo: cur.email, total: t.rental_total_cents, request: shape(rows[0]) });
   } catch (e) { console.error('send-proposal', e); res.status(500).json({ error: e.message }); }
 });
@@ -781,6 +864,8 @@ router.post('/:id/send-contract', requireManager, async (req, res) => {
       `UPDATE kindred_web.event_requests
           SET contract_sent_at = NOW(), updated_at = NOW()
         WHERE id = $1 RETURNING *`, [cur.id]);
+    await journal(req.companyId, cur.id, 'contract_sent',
+      { detail: `to ${cur.email}`, actorId: req.userId || null, actorName: await actorName(req) });
     res.json({ ok: true, sentTo: cur.email, sections: sections.length, request: shape(rows[0]) });
   } catch (e) {
     console.error('send-contract', e);
@@ -830,6 +915,8 @@ router.post('/:id/countersign', requireManager, async (req, res) => {
       `UPDATE kindred_web.event_requests
           SET contract_executed_at = COALESCE(contract_executed_at, NOW()), updated_at = NOW()
         WHERE id = $1 RETURNING *`, [cur.id]);
+    await journal(req.companyId, cur.id, 'contract_executed',
+      { detail: `by ${signedName}`, actorId: req.userId || null, actorName: signedName });
     res.json({ ok: true, signedName, request: shape(rows[0]) });
   } catch (e) { console.error('countersign', e); res.status(500).json({ error: e.message }); }
 });
@@ -1020,6 +1107,23 @@ router.patch('/:id', requireManager, async (req, res) => {
       } catch (e) {
         console.error('[event-requests] approval SMS failed:', e.message);
       }
+    }
+
+    // One place for every PATCH-driven action, so a status change cannot happen
+    // without the journal hearing about it.
+    const who = await actorName(req);
+    if (b.status && b.status !== cur.status) {
+      await journal(req.companyId, cur.id, b.status,
+        { detail: b.declined_reason || null, actorId: req.userId || null, actorName: who });
+    }
+    if (b.insurance_ok === true && !cur.insurance_ok) {
+      await journal(req.companyId, cur.id, 'insurance_ok', { actorId: req.userId || null, actorName: who });
+    }
+    if (b.deposit_paid === true && !cur.deposit_paid_at) {
+      await journal(req.companyId, cur.id, 'deposit_paid', { actorId: req.userId || null, actorName: who });
+    }
+    if (b.contract_customer_signed === true && !cur.contract_customer_signed_at) {
+      await journal(req.companyId, cur.id, 'contract_signed', { actorId: req.userId || null, actorName: who });
     }
 
     res.json({ request: shape(updated) });

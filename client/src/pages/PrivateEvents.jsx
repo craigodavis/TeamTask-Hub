@@ -5,6 +5,7 @@ import {
   getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, duplicateEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getSpecialRequests, addSpecialRequest, decideSpecialRequest, saveStaffNotes, saveEventOverrides,
+  getEventJournal, markResosBooked, getNotifySettings, saveNotifySettings,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
 } from '../api';
@@ -58,7 +59,7 @@ export function PrivateEvents() {
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
         {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests inbox'],
-          ['terms', 'Terms'], ['copy', 'Message'], ['contract', 'Contract']].map(([k, l]) => (
+          ['terms', 'Terms'], ['copy', 'Message'], ['contract', 'Contract'], ['settings', 'Settings']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
@@ -70,6 +71,7 @@ export function PrivateEvents() {
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'terms' && <TermsTab />}
       {tab === 'contract' && <ContractSectionsTab />}
+      {tab === 'settings' && <SettingsTab />}
     </div>
   );
 }
@@ -382,6 +384,139 @@ function StaffNotes({ r }) {
  * went quiet and is being cleared off the list. They read differently a year later,
  * so they are separate buttons rather than one with a dropdown.
  */
+/**
+ * Who hears about what, by text.
+ *
+ * A grid rather than one "notify the managers" list: somebody can take contract
+ * signings without also taking every new enquiry. A single list is how people end up
+ * muting the lot, and then nobody hears about the one that mattered.
+ */
+function SettingsTab() {
+  const [data, setData] = useState(null);
+  const [chosen, setChosen] = useState(new Set());
+  const [err, setErr] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const key = (u, a) => `${u}|${a}`;
+  useEffect(() => {
+    getNotifySettings().then((d) => {
+      setData(d);
+      setChosen(new Set((d.chosen || []).map((c) => key(c.user_id, c.action))));
+    }).catch((e) => setErr(e.message));
+  }, []);
+
+  if (err) return <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>;
+  if (!data) return <div className="pe-empty">Loading…</div>;
+
+  const actions = Object.entries(data.actions);
+  // Only people who can actually receive a text. Showing the rest would offer a
+  // choice that silently does nothing.
+  const people = (data.people || []).filter((p) => p.phone);
+  const without = (data.people || []).length - people.length;
+
+  const toggle = (u, a) => {
+    const k = key(u, a);
+    const next = new Set(chosen);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setChosen(next); setSaved(false);
+  };
+
+  const save = async () => {
+    try {
+      await saveNotifySettings([...chosen].map((k) => {
+        const [user_id, action] = k.split('|');
+        return { user_id, action };
+      }));
+      setErr(''); setSaved(true);
+    } catch (e) { setErr(e.message); }
+  };
+
+  return (
+    <>
+      <div className="vin-label">Who gets a text, and when</div>
+      <p className="pe-req-why" style={{ marginTop: 0 }}>
+        Every action on a booking is journaled. These are the ones that also send a
+        text at the moment they happen.
+      </p>
+
+      <div className="pe-notify-wrap">
+        <table className="pe-notify">
+          <thead>
+            <tr>
+              <th>Action</th>
+              {people.map((p) => <th key={p.id}>{p.display_name || p.email}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {actions.map(([a, label]) => (
+              <tr key={a}>
+                <td>{label}</td>
+                {people.map((p) => (
+                  <td key={p.id}>
+                    <input type="checkbox" checked={chosen.has(key(p.id, a))}
+                           onChange={() => toggle(p.id, a)}
+                           aria-label={`${label} to ${p.display_name || p.email}`} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {without > 0 && (
+        <p className="pe-req-why">
+          {without} {without === 1 ? 'person has' : 'people have'} no phone number on file
+          and {without === 1 ? 'is' : 'are'} not listed — texts cannot reach them.
+        </p>
+      )}
+      <button className="vin-btn vin-btn-primary" style={{ marginTop: 10 }} onClick={save}>
+        {saved ? 'Saved' : 'Save'}
+      </button>
+    </>
+  );
+}
+
+/** What has happened to this booking, newest first. */
+function Journal({ requestId }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => { getEventJournal(requestId).then((d) => setRows(d.entries || [])).catch(() => setRows([])); },
+    [requestId]);
+  if (!rows) return null;
+  if (!rows.length) return null;
+
+  const LABEL = {
+    request_received: 'Enquiry received', approved: 'Approved', declined: 'Declined',
+    cancelled: 'Cancelled', new: 'Reopened', complete: 'Marked finished',
+    proposal_sent: 'Proposal sent', proposal_accepted: 'Proposal accepted',
+    proposal_declined: 'Proposal turned down', special_request: 'They asked for something',
+    ask_approved: 'Request agreed', ask_modified: 'Request agreed, reworded',
+    ask_rejected: 'Request declined', ask_pending: 'Request reopened',
+    contract_sent: 'Contract sent', contract_signed: 'Contract signed by customer',
+    contract_executed: 'Contract counter-signed', deposit_paid: 'Deposit received',
+    insurance_ok: 'Insurance accepted', resos_booked: 'Tables reserved in ResOS',
+    resos_cleared: 'ResOS booking cleared', terms_changed: 'Terms changed',
+  };
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
+      <div className="vin-label">Journal</div>
+      {rows.map((e, i) => (
+        <div key={i} className="pe-req-line">
+          <span>
+            <strong>{LABEL[e.action] || e.action}</strong>
+            {e.detail && <div className="pe-req-why">{e.detail}</div>}
+          </span>
+          <span style={{ textAlign: 'right' }}>
+            <div className="pe-req-why">{new Date(e.created_at).toLocaleString()}</div>
+            {e.actor_name && <div className="pe-req-why">{e.actor_name}</div>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RequestDrawer({ request, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -432,6 +567,7 @@ function RequestDrawer({ request, onClose, onChanged }) {
             )}>
       {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
       <RequestDetail r={row} />
+      <Journal requestId={row.id} />
     </Drawer>
   );
 }
@@ -533,6 +669,18 @@ function FlowTab() {
     // Opens the asks for a decision rather than doing anything: a ruling on what
     // somebody requested is a judgement, not a button press.
     if (kind === 'review_asks') { setReviewing(row); return; }
+    if (kind === 'resos_booked') {
+      // Asks for the ResOS reference rather than just ticking a box: a tick records
+      // that somebody said they did it, a reference records something checkable.
+      const ref = window.prompt(
+        `Tables reserved in ResOS for ${row.name}?\n\nPaste the ResOS booking reference if you have one.`);
+      if (ref === null) return;
+      setBusy(row.id);
+      try { await markResosBooked(row.id, ref); setErr(''); setNote('Tables marked as reserved.'); load(); }
+      catch (e) { setErr(e.message); }
+      finally { setBusy(null); }
+      return;
+    }
     if (kind === 'send_proposal') {
       setBusy(row.id);
       try {

@@ -140,6 +140,17 @@ export function gatesFor(r) {
     gates.push({ key: 'insurance', label: 'Insurance', state: 'outstanding', turn: 'theirs' });
   }
 
+  // Reserving the tables in ResOS. Craig: "If someone forgets to book resos, we
+  // could be screwed." It becomes a step the board asks for once the deposit is in,
+  // rather than something somebody is meant to remember — its absence is invisible
+  // until the day, when the guests arrive and there are no tables.
+  const depositIn = !!r.deposit_paid_at || !(req.due_now_cents > 0);
+  if (r.proposal_accepted_at && depositIn && !r.resos_booked_at) {
+    gates.push({ key: 'resos', label: 'Reserve tables in ResOS', state: 'outstanding', turn: 'ours' });
+  } else if (r.resos_booked_at) {
+    gates.push({ key: 'resos', label: 'Tables reserved', state: 'done', turn: null });
+  }
+
   const dueCents = req.due_now_cents
     ?? ((req.booking_deposit_cents ?? 0) + (req.security_deposit_cents ?? 0))
     ?? 0;
@@ -166,7 +177,7 @@ export function bucketsFor(r, gates) {
   if (gate('asks')) out.add('proposals');
   if (gate('contract')?.state === 'outstanding') out.add('contracts');
   if (gate('contract')?.state === 'not_required' && r.rules_evaluated_at) out.add('no_contract');
-  for (const k of ['insurance', 'deposit']) {
+  for (const k of ['insurance', 'deposit', 'resos']) {
     if (gate(k)?.state === 'outstanding') out.add('outstanding');
   }
   return [...out];
@@ -185,7 +196,7 @@ export function bucketsFor(r, gates) {
  * genuinely can do while waiting is resend the contract, or record something that
  * has arrived — and both now say exactly that.
  */
-const GATE_ORDER = ['terms', 'approval', 'proposal', 'asks', 'contract', 'insurance', 'deposit'];
+const GATE_ORDER = ['terms', 'approval', 'proposal', 'asks', 'contract', 'insurance', 'deposit', 'resos'];
 
 /**
  * The gate that governs this booking: the first outstanding one in sequence.
@@ -234,6 +245,7 @@ function nextAction(gates, r) {
   if (insurance) return { kind: 'insurance_ok', label: 'Mark insurance OK' };
 
   if (outstanding('deposit')) return { kind: 'deposit_paid', label: 'Mark deposit paid' };
+  if (outstanding('resos')) return { kind: 'resos_booked', label: 'Reserve tables in ResOS' };
   return null;
 }
 
