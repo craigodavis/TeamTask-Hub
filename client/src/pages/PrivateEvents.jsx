@@ -294,16 +294,25 @@ function SpecialRequests({ requestId, onChanged }) {
 
   if (!items) return <p className="pe-req-why">Loading…</p>;
 
-  const LABEL = { pending: 'Not decided', approved: 'Agreed', modified: 'Agreed, reworded', rejected: 'Declined' };
+  const LABEL = { pending: 'Needs an answer', approved: 'Agreed',
+    modified: 'Agreed, reworded', rejected: 'Declined', dismissed: 'Not a request' };
 
   return (
     <div style={{ marginTop: 16 }}>
-      <div className="vin-label">Special requests</div>
+      {/* Loud when undecided, quiet once answered — an unanswered question from a
+          customer is the thing in here with a clock on it. */}
+      <div className="vin-label">
+        What they asked
+        {items.some((i) => i.status === 'pending') && (
+          <span className="pe-asks-flag">needs an answer</span>
+        )}
+      </div>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
       {items.length === 0 && <p className="pe-req-why">Nothing asked for yet.</p>}
 
       {items.map((it) => (
-        <div key={it.id} className="pe-boardrow" style={{ padding: '10px 2px' }}>
+        <div key={it.id} className={`pe-boardrow pe-ask${it.status === 'pending' ? ' pending' : ''}`}
+             style={{ padding: '10px 2px' }}>
           <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{it.body}</div>
           <div className="pe-req-why">
             {it.source === 'staff' ? 'added by us' : 'from the customer'} · {LABEL[it.status]}
@@ -337,6 +346,12 @@ function SpecialRequests({ requestId, onChanged }) {
               </button>
               {it.status !== 'rejected' && (
                 <button className="vin-btn vin-btn-danger" onClick={() => decide(it, 'rejected')}>Decline</button>
+              )}
+              {it.status === 'pending' && (
+                // Not everything typed into that box is a request — "Occasion:
+                // birthday" is information. Clearing it is one click, because a
+                // queue full of non-decisions is how people stop reading the queue.
+                <button className="vin-btn" onClick={() => decide(it, 'dismissed')}>Not a request</button>
               )}
               {it.status !== 'pending' && (
                 <button className="vin-btn" onClick={() => decide(it, 'pending')}>Undo</button>
@@ -507,8 +522,8 @@ function Journal({ requestId }) {
   };
 
   return (
-    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
-      <div className="vin-label">Journal</div>
+    <details className="pe-fold" style={{ marginTop: 16 }}>
+      <summary>Journal · {rows.length}</summary>
       {rows.map((e, i) => (
         <div key={i} className="pe-req-line">
           <span>
@@ -521,7 +536,7 @@ function Journal({ requestId }) {
           </span>
         </div>
       ))}
-    </div>
+    </details>
   );
 }
 
@@ -580,50 +595,67 @@ function RequestDrawer({ request, onClose, onChanged }) {
   );
 }
 
+/**
+ * One booking, ordered by what a person opening it has to do.
+ *
+ * It used to lead with twelve rows of terms — venue fee, minimums, deposits, each
+ * labelled "Large Group" — above the two things that actually need a human. That is
+ * backwards: the provenance answers "why is it this much", which nobody asks until a
+ * number looks wrong, while an unanswered question from the customer is the thing
+ * with a clock on it.
+ *
+ * So: what they asked, what is ours to do, who and when, and the money folded away
+ * behind a disclosure. The record is all still here, one click further down.
+ */
 function RequestDetail({ r }) {
   const need = r.requirements;
+  const money1 = (c) => (c == null ? null : money(c));
+  const t = need || {};
+
   return (
     <>
-      {/* Conflicts first. This is the thing that stops a private booking being
-          approved at the Creek on a night a musician is already playing there. */}
       {r.conflicts?.length > 0 && (
         <div className="vin-pill vin-pill-danger" style={{ display: 'block', padding: 10 }}>
-          <strong>Clash at {r.location_name}:</strong>{' '}
-          {r.conflicts.map((c) => c.title).join(', ')}
-        </div>
-      )}
-      {r.conflicts?.length === 0 && r.sameDayEvents?.length > 0 && (
-        <div className="vin-pill vin-pill-accent" style={{ display: 'block', padding: 10 }}>
-          Also on that date (other venue): {r.sameDayEvents.map((c) => c.title).join(', ')}
+          Clashes at {r.location_name}: {r.conflicts.map((c) => c.title).join(', ')}
         </div>
       )}
 
-      <div>
-        <div className="pe-req-line"><span>Date</span><strong>{r.event_date}</strong></div>
-        <div className="pe-req-line"><span>Time</span>
-          <strong>{r.start_time ? `${String(r.start_time).slice(0,5)}–${String(r.end_time||'').slice(0,5)}` : 'not given'}</strong></div>
-        <div className="pe-req-line"><span>Venue</span><strong>{r.location_name || 'not given'}</strong></div>
-        <div className="pe-req-line"><span>Guests</span><strong>{r.guests}</strong></div>
-        <div className="pe-req-line"><span>Email</span><strong>{r.email}</strong></div>
-        <div className="pe-req-line"><span>Phone</span><strong>{r.phone || '—'}</strong></div>
-      </div>
-
-      {r.notes && <div><div className="vin-label">Notes</div>
-        <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{r.notes}</div></div>}
-
-      <div>
-        <div className="vin-label">Requirements</div>
-        {!need ? (
-          <p style={{ fontSize: 13, color: 'var(--vin-muted)', margin: 0 }}>
-            Not checked yet — press “Check terms”.
-            {(!r.start_time || !r.location_id) &&
-              ' This request has no time or venue, so anything that depends on opening hours cannot apply.'}
-          </p>
-        ) : <TermsResult t={need} />}
-      </div>
-
-      <Steps r={r} />
       <SpecialRequests requestId={r.id} />
+      <Steps r={r} />
+
+      <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
+        <div className="pe-req-line"><span>When</span>
+          <strong>{r.event_date}{r.start_time
+            ? ` · ${String(r.start_time).slice(0, 5)}–${String(r.end_time || '').slice(0, 5)}` : ''}</strong></div>
+        <div className="pe-req-line"><span>Where</span>
+          <strong>{r.location_name || 'not given'} · {r.guests} guests</strong></div>
+        <div className="pe-req-line"><span>Contact</span>
+          <strong style={{ fontWeight: 400, fontSize: 13 }}>
+            <a href={`mailto:${r.email}`}>{r.email}</a>
+            {r.phone && <> · <a href={`tel:${r.phone}`}>{r.phone}</a></>}
+          </strong></div>
+      </div>
+
+      {/* One line, not twelve. The breakdown is a click away for the day somebody
+          asks why. */}
+      <details className="pe-fold" style={{ marginTop: 14 }}>
+        <summary>
+          {!need ? 'Terms not worked out yet — press “Check terms”'
+            : <>
+                {money1(t.rental_total_cents) || '—'} venue fee
+                {t.min_wine_purchase_cents ? ` · ${money1(t.min_wine_purchase_cents)} wine minimum` : ''}
+                {t.due_now_cents ? ` · ${money1(t.due_now_cents)} up front` : ''}
+              </>}
+        </summary>
+        {need
+          ? <TermsResult t={need} />
+          : <p className="pe-req-why">
+              {(!r.start_time || !r.location_id)
+                ? 'This request has no time or venue, so anything depending on opening hours cannot apply.'
+                : 'Nothing has been worked out for this booking yet.'}
+            </p>}
+      </details>
+
       <StaffNotes r={r} />
     </>
   );

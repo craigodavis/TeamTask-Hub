@@ -5405,6 +5405,15 @@ If the deposit is not received by that date, or if the date, guest count, venue 
      FROM companies c
     WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
                        WHERE x.company_id = c.id AND x.key = 'quote_validity')`,
+
+  // "Not a request" — the note was information, not something to rule on.
+  //
+  // Distinct from rejected, which means we considered it and said no. A birthday
+  // mentioned in passing is neither, and lumping the two together would make the
+  // record of what we declined untrue.
+  `ALTER TABLE kindred_web.event_special_requests DROP CONSTRAINT IF EXISTS esr_status`,
+  `ALTER TABLE kindred_web.event_special_requests ADD CONSTRAINT esr_status
+     CHECK (status IN ('pending','approved','modified','rejected','dismissed'))`,
 ];
 
 export async function runMigrations() {

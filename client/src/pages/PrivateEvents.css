@@ -188,3 +188,20 @@ button.pe-tally.on { outline: 1px solid var(--vin-border-strong); }
 }
 .pe-step:last-child { border-bottom: 0; }
 .pe-step input { margin-top: 2px; }
+
+/* A disclosure for the record: present, but not competing with the decision. */
+.pe-fold > summary {
+  cursor: pointer; font-size: 13px; color: var(--vin-text-2);
+  padding: 8px 0; border-top: 0.5px solid var(--vin-border); list-style: none;
+}
+.pe-fold > summary::-webkit-details-marker { display: none; }
+.pe-fold > summary::before { content: '▸ '; color: var(--vin-muted); }
+.pe-fold[open] > summary::before { content: '▾ '; }
+.pe-fold > summary:hover { color: var(--vin-text); }
+
+.pe-asks-flag {
+  margin-left: 8px; font-size: 11px; letter-spacing: 0; text-transform: none;
+  padding: 2px 8px; border-radius: 10px;
+  background: var(--vin-bg-danger); color: var(--vin-text-danger);
+}
+.pe-ask.pending { border-left: 2px solid var(--vin-text-danger); padding-left: 9px !important; }

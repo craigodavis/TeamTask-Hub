@@ -630,6 +630,21 @@ websiteRouter.post('/event-request', async (req, res) => {
        startTime, endTime, venue?.id || null, JSON.stringify(terms)],
     );
     const saved = rows[0];
+
+    // What they typed in the box becomes a request to be answered, not a note in a
+    // field. It was only ever stored on the row, so nothing flagged it, nothing
+    // decided it, and it could never reach the contract — the backfill fixed the old
+    // ones and the live path was never wired, which is the kind of gap that only
+    // shows up when somebody asks why nobody replied.
+    const asked = (b.notes || '').trim();
+    if (asked) {
+      await query(
+        `INSERT INTO kindred_web.event_special_requests
+           (company_id, request_id, source, body, status)
+         VALUES ($1,$2,'customer',$3,'pending')`,
+        [companyId, saved.id, asked.slice(0, 5000)]);
+    }
+
     await journal(companyId, saved.id, 'request_received',
       { detail: `${guests} guests${venue ? ' at ' + venue.name : ''}`, actorName: 'the customer' });
 

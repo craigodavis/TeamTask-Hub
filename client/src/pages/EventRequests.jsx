@@ -222,8 +222,14 @@ export function Requests({ onError, onOpen }) {
                     ? <button type="button" className="evr-open" onClick={() => onOpen(r)}>{r.name}</button>
                     : r.name}
                   {Number(r.pending_requests) > 0 && (
-                    <span className="evr-badge" title="Things they have asked for that nobody has decided">
-                      {r.pending_requests} to decide
+                    // What they asked, not just how many. "1 to decide" tells you
+                    // there is something; "can we bring a cake" tells you whether to
+                    // open it now.
+                    <span className="evr-badge" title={r.first_pending || ''}>
+                      {r.first_pending
+                        ? `“${String(r.first_pending).replace(/\s+/g, ' ').slice(0, 44)}${String(r.first_pending).length > 44 ? '…' : ''}”`
+                        : `${r.pending_requests} to decide`}
+                      {Number(r.pending_requests) > 1 && ` +${r.pending_requests - 1}`}
                     </span>
                   )}
                 </h3>

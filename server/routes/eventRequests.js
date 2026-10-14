@@ -100,7 +100,10 @@ router.get('/', requireManager, async (req, res) => {
       const { rows } = await query(
         `SELECT r.*, l.name AS location_name,
                 (SELECT count(*) FROM kindred_web.event_special_requests s
-                  WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests
+                  WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests,
+                  (SELECT s.body FROM kindred_web.event_special_requests s
+                    WHERE s.request_id = r.id AND s.status = 'pending'
+                    ORDER BY s.created_at LIMIT 1) AS first_pending
            FROM kindred_web.event_requests r
            LEFT JOIN locations l ON l.id = r.location_id
           WHERE r.id = ANY($1::uuid[])
@@ -132,7 +135,10 @@ router.get('/', requireManager, async (req, res) => {
     const { rows } = await query(
       `SELECT r.*, l.name AS location_name,
               (SELECT count(*) FROM kindred_web.event_special_requests s
-                WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests
+                WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests,
+                (SELECT s.body FROM kindred_web.event_special_requests s
+                  WHERE s.request_id = r.id AND s.status = 'pending'
+                  ORDER BY s.created_at LIMIT 1) AS first_pending
          FROM kindred_web.event_requests r
          LEFT JOIN locations l ON l.id = r.location_id
         ${where}
@@ -699,8 +705,8 @@ router.post('/:id/special-requests', requireManager, async (req, res) => {
 router.put('/special-requests/:sid', requireManager, async (req, res) => {
   try {
     const status = String(req.body?.status || '');
-    if (!['pending', 'approved', 'modified', 'rejected'].includes(status)) {
-      return res.status(400).json({ error: 'Status must be approved, modified or rejected.' });
+    if (!['pending', 'approved', 'modified', 'rejected', 'dismissed'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be approved, modified, rejected or dismissed.' });
     }
     const agreed = String(req.body?.agreed_text || '').trim() || null;
     if (status === 'modified' && !agreed) {
