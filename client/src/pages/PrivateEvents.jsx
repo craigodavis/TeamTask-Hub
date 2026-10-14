@@ -58,16 +58,19 @@ export function PrivateEvents() {
       {/* One flat row. Event Requests used to be its own sidebar entry; it belongs
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests inbox'],
-          ['terms', 'Terms'], ['copy', 'Message'], ['contract', 'Contract'], ['settings', 'Settings']].map(([k, l]) => (
+        {/* Requests inbox is not here on purpose: it is a screen of its own, reached
+            from the Requests box on Flow. A tab AND a box would be two doors to one
+            room, and the one you did not use would quietly go stale. */}
+        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['terms', 'Terms'],
+          ['copy', 'Message'], ['contract', 'Contract'], ['settings', 'Settings']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
         ))}
       </div>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
-      {tab === 'flow' && <FlowTab />}
+      {tab === 'flow' && <FlowTab onGoTo={setTab} />}
       {tab === 'calendar' && <CalendarTab />}
-      {tab === 'requests' && <RequestsInbox onError={setErr} />}
+      {tab === 'requests' && <RequestsInbox onError={setErr} onBack={() => setTab('flow')} />}
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'terms' && <TermsTab />}
       {tab === 'contract' && <ContractSectionsTab />}
@@ -77,11 +80,16 @@ export function PrivateEvents() {
 }
 
 /** The inbox, with the same slide-out the calendar uses. */
-function RequestsInbox({ onError }) {
+function RequestsInbox({ onError, onBack }) {
   const [sel, setSel] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   return (
     <>
+      {onBack && (
+        <button className="vin-btn" style={{ marginBottom: 12 }} onClick={onBack}>
+          ← Back to flow
+        </button>
+      )}
       <Requests key={reloadKey} onError={onError} onOpen={setSel} />
       <RequestDrawer request={sel} onClose={() => setSel(null)}
                      onChanged={() => { setSel(null); setReloadKey((k) => k + 1); }} />
@@ -703,7 +711,7 @@ function Steps({ r }) {
  * why the labels read "2 unsigned" rather than "2 in contracts": the second implies
  * an exclusive place to be, and then the numbers stop adding up.
  */
-function FlowTab() {
+function FlowTab({ onGoTo }) {
   const [data, setData] = useState(null);
   const [bucket, setBucket] = useState(null);
   const [err, setErr] = useState('');
@@ -848,7 +856,12 @@ function FlowTab() {
           <Fragment key={k}>
             {i > 0 && <span className="pe-strip-arrow" aria-hidden="true">→</span>}
             <button className={`pe-box${bucket === k ? ' on' : ''}${data.counts[k]?.ours ? ' urgent' : ''}`}
-                    onClick={() => setBucket(bucket === k ? null : k)}>
+                    onClick={() => (k === 'requests'
+                      // The inbox is its own screen, with filters and sorting the
+                      // board does not have. Filtering the board down to it would be
+                      // a worse version of a thing that already exists.
+                      ? onGoTo?.('requests')
+                      : setBucket(bucket === k ? null : k))}>
               <strong>{label}</strong>
               <span>{sub(k)}</span>
             </button>
