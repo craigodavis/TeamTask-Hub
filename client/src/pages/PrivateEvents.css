@@ -172,3 +172,12 @@ button.pe-tally.on { outline: 1px solid var(--vin-border-strong); }
 .pe-notify thead th:first-child, .pe-notify tbody td:first-child { text-align: left; white-space: nowrap; }
 .pe-notify tbody td { text-align: center; }
 .pe-notify tbody tr:hover { background: var(--vin-surface-1); }
+
+/* The name on a board row is the way into the slide-out. Styled as the heading it
+   already was, not as a button: it names the booking, and a button would compete
+   with the one action beside it. */
+.pe-rowopen {
+  background: none; border: 0; padding: 0; font: inherit; font-weight: 500;
+  color: inherit; cursor: pointer; text-align: left;
+}
+.pe-rowopen:hover { text-decoration: underline; }

@@ -644,6 +644,7 @@ function FlowTab() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(null);
   const [reviewing, setReviewing] = useState(null);
+  const [opened, setOpened] = useState(null);
 
   const load = useCallback(() => {
     getPrivateEventBoard().then(setData).catch((e) => setErr(e.message));
@@ -801,7 +802,12 @@ function FlowTab() {
         <div key={r.id} className="pe-boardrow">
           <div className="pe-boardrow-top">
             <div style={{ flex: 1, minWidth: 0 }}>
-              <strong>{r.name}</strong>
+              {/* The name opens the slide-out, the same one the calendar and the
+                  inbox use. A button rather than a click on the row, so it reaches
+                  the keyboard and does not swallow the action beside it. */}
+              <button type="button" className="pe-rowopen" onClick={() => setOpened(r)}>
+                {r.name}
+              </button>
               <div className="pe-req-why">
                 {r.event_date || 'no date'}
                 {r.start_time ? ` ${r.start_time}–${r.end_time || ''}` : ''}
@@ -830,6 +836,10 @@ function FlowTab() {
           </div>
         </div>
       ))}
+
+      {/* The full request, reached by clicking any row on the board. */}
+      <RequestDrawer request={opened} onClose={() => setOpened(null)}
+                     onChanged={() => { setOpened(null); load(); }} />
 
       <Drawer open={!!reviewing} title={reviewing ? `${reviewing.name} — what they asked for` : ''}
               onClose={() => { setReviewing(null); load(); }}

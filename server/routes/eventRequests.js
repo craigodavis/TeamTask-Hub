@@ -578,7 +578,7 @@ router.get('/notify-settings', requireManager, async (req, res) => {
   try {
     const people = (await query(
       `SELECT id, display_name, email, phone FROM users
-        WHERE company_id = $1 AND is_active IS NOT FALSE
+        WHERE company_id = $1 AND deleted_at IS NULL
         ORDER BY display_name`, [req.companyId])).rows;
     const chosen = (await query(
       `SELECT user_id, action FROM kindred_web.event_notify WHERE company_id = $1`,
