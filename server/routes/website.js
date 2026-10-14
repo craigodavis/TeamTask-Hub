@@ -564,6 +564,11 @@ websiteRouter.post('/event-request', async (req, res) => {
       startTime = null; endTime = null;
     }
 
+    // What kind of event. Stored as free text behind a dropdown rather than an enum:
+    // "Other" then needs no second column, and the list can change without a
+    // migration — which matters, because the list will change.
+    const eventType = String(b.eventType || '').trim().slice(0, 120) || null;
+
     // The form sends the public slug; the id never leaves the server.
     let venue = null;
     const venueSlug = String(b.venue || '').trim().toLowerCase();
@@ -617,8 +622,8 @@ websiteRouter.post('/event-request', async (req, res) => {
          (first_name, last_name, email, phone, address, event_date, guests, notes,
           quoted_base_cents, quoted_min_alcohol_cents, quoted_deposit_cents,
           deposit_required, insurance_required, token, meta,
-          start_time, end_time, location_id, requirements, rules_evaluated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NOW())
+          start_time, end_time, location_id, requirements, event_type, rules_evaluated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20,NOW())
        RETURNING *`,
       [first.slice(0, 120), last.slice(0, 120), b.email.trim().toLowerCase().slice(0, 255),
        phone.slice(0, 40), (b.address || '').trim().slice(0, 2000) || null,
@@ -627,7 +632,7 @@ websiteRouter.post('/event-request', async (req, res) => {
        terms.due_now_cents ?? null,
        (terms.due_now_cents ?? 0) > 0, !!terms.insurance_required, newToken(),
        JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] || null }),
-       startTime, endTime, venue?.id || null, JSON.stringify(terms)],
+       startTime, endTime, venue?.id || null, JSON.stringify(terms), eventType],
     );
     const saved = rows[0];
 

@@ -629,6 +629,9 @@ function RequestDetail({ r }) {
       <Steps r={r} />
 
       <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
+        {r.event_type && (
+          <div className="pe-req-line"><span>Occasion</span><strong>{r.event_type}</strong></div>
+        )}
         <div className="pe-req-line"><span>When</span>
           <strong>{r.event_date}{r.start_time
             ? ` · ${String(r.start_time).slice(0, 5)}–${String(r.end_time || '').slice(0, 5)}` : ''}</strong></div>

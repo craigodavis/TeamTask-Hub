@@ -251,6 +251,7 @@ export function Requests({ onError, onOpen, initialFilter }) {
                     : ' · no time given'}
                   {r.location_name ? ` · ${r.location_name}` : ' · no venue given'}
                   {' · '}{r.guests} {r.guests === 1 ? 'guest' : 'guests'}
+                  {r.event_type ? ` · ${r.event_type}` : ''}
                 </p>
               </div>
               <span className={`evr-pill ${r.status}`}>{r.status}</span>
