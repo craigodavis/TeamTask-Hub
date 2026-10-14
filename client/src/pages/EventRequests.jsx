@@ -118,10 +118,14 @@ function FormLink({ url }) {
 
 /* -------------------------------------------------------------- requests */
 
-export function Requests({ onError }) {
+export function Requests({ onError, onOpen }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Open by default. A cancelled enquiry is kept but stops being something to look
+  // at — an inbox that still shows everything you have dealt with is not an inbox.
   const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState('newest');
+  const [search, setSearch] = useState('');
   // Comes back with the list, so showing it costs no extra request. Served by the API
   // rather than hardcoded, which makes it literally the URL the phone agent texts
   // callers — see server/lib/publicLinks.js.
@@ -130,13 +134,13 @@ export function Requests({ onError }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await getEventRequests(filter || undefined);
+      const d = await getEventRequests(filter || undefined, sort);
       setRows(d.requests);
       setFormUrl(d.form_url || '');
     }
     catch (e) { onError(e.message); }
     finally { setLoading(false); }
-  }, [filter, onError]);
+  }, [filter, sort, onError]);
   useEffect(() => { load(); }, [load]);
 
   const patch = async (id, body) => {
@@ -146,11 +150,46 @@ export function Requests({ onError }) {
     } catch (e) { onError(e.message); }
   };
 
+  const needle = search.trim().toLowerCase();
+  const visible = needle
+    ? rows.filter((r) => [r.name, r.email, r.phone]
+      .some((v) => String(v || '').toLowerCase().includes(needle)))
+    : rows;
+
   return (
     <>
       <FormLink url={formUrl} />
       <div className="evr-filters">
         <label>
+          Show
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="">Open</option>
+            <option value="new">Not yet reviewed</option>
+            <option value="approved">Approved</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="declined">Declined</option>
+            <option value="complete">Finished</option>
+            <option value="all">Everything</option>
+          </select>
+        </label>
+        <label>
+          Sort
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="newest">Newest enquiry</option>
+            <option value="oldest">Oldest enquiry</option>
+            <option value="event_date">Event date</option>
+            <option value="guests">Most guests</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+        <label>
+          Find
+          {/* Filtered here rather than in a query: the list is capped at 500 and a
+              round trip per keystroke buys nothing. */}
+          <input value={search} placeholder="name, email or phone"
+                 onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <label hidden>
           Status
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="">All</option>
@@ -163,12 +202,27 @@ export function Requests({ onError }) {
       </div>
 
       {loading ? <p className="evr-empty">Loading…</p>
-        : !rows.length ? <p className="evr-empty">No requests yet.</p>
-        : rows.map((r) => (
+        : !visible.length ? (
+          <p className="evr-empty">
+            {rows.length ? 'Nothing matches that.' : 'Nothing here — the inbox is clear.'}
+          </p>)
+        : visible.map((r) => (
           <article key={r.id} className={`evr-card status-${r.status}`}>
             <div className="evr-card-head">
+              {/* The whole heading opens the slide-out, the same one the calendar
+                  uses. A button rather than a click handler on the article, so it
+                  reaches the keyboard and does not swallow the actions below it. */}
               <div>
-                <h3>{r.name}</h3>
+                <h3>
+                  {onOpen
+                    ? <button type="button" className="evr-open" onClick={() => onOpen(r)}>{r.name}</button>
+                    : r.name}
+                  {Number(r.pending_requests) > 0 && (
+                    <span className="evr-badge" title="Things they have asked for that nobody has decided">
+                      {r.pending_requests} to decide
+                    </span>
+                  )}
+                </h3>
                 <p className="evr-meta">
                   {fmtDate(r.event_date)}
                   {/* The time block and venue the guest asked for. Older requests

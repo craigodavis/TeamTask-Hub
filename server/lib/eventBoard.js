@@ -24,6 +24,16 @@ import { effectiveTerms } from './eventTerms.js';
 /** Buckets the strip filters by. 'proposals' has no data layer yet — see below. */
 export const BUCKETS = ['requests', 'proposals', 'contracts', 'outstanding', 'no_contract'];
 
+/**
+ * Statuses that take a booking off the live board.
+ *
+ * One list, used by every query that divides live from closed. They were written out
+ * by hand in each place, which is how 'withdrawn' came to be excluded everywhere and
+ * settable nowhere — a status that filtered real rows while being impossible to
+ * reach.
+ */
+export const CLOSED_STATUSES = ['declined', 'withdrawn', 'cancelled'];
+
 const isoDate = (d) => {
   if (!d) return null;
   if (typeof d === 'string') return d.slice(0, 10);
@@ -296,9 +306,9 @@ export async function board(companyId, today = new Date()) {
               WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests
        FROM kindred_web.event_requests r
        LEFT JOIN locations l ON l.id = r.location_id
-      WHERE r.status NOT IN ('declined', 'withdrawn')
+      WHERE r.status <> ALL($1::text[])
       ORDER BY r.event_date NULLS LAST
-      LIMIT 500`, []);
+      LIMIT 500`, [CLOSED_STATUSES]);
   return buildBoard(rows, today);
 }
 
@@ -309,8 +319,8 @@ export async function closedBoard() {
             r.declined_reason, l.name AS location_name
        FROM kindred_web.event_requests r
        LEFT JOIN locations l ON l.id = r.location_id
-      WHERE r.status IN ('declined', 'withdrawn')
-      ORDER BY r.updated_at DESC LIMIT 100`, []);
+      WHERE r.status = ANY($1::text[])
+      ORDER BY r.updated_at DESC LIMIT 100`, [CLOSED_STATUSES]);
   return rows.map((r) => ({
     id: r.id,
     name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),

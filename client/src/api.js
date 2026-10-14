@@ -3177,8 +3177,11 @@ export async function getRunSheet(id) {
   return d;
 }
 
-export async function getEventRequests(status) {
-  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+export async function getEventRequests(status, sort) {
+  const p = new URLSearchParams();
+  if (status) p.set('status', status);
+  if (sort) p.set('sort', sort);
+  const q = p.toString() ? `?${p}` : '';
   const res = await fetch(`${API}/event-requests${q}`, { headers: headers() });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to load requests');
   return res.json();

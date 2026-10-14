@@ -11,7 +11,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
-import { board, closedBoard } from '../lib/eventBoard.js';
+import { board, closedBoard, CLOSED_STATUSES } from '../lib/eventBoard.js';
 import { sendMail } from '../mail.js';
 import { clientIpOf } from './mcpDb.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
@@ -81,14 +81,38 @@ const shape = (r) => ({
 // GET /api/event-requests?status=
 router.get('/', requireManager, async (req, res) => {
   try {
+    // The inbox defaults to what is still live. A cancelled enquiry is kept, not
+    // deleted — it just stops being something to look at, which is the whole point of
+    // cancelling it.
     const status = req.query.status;
+    const vals = [];
+    let where = '';
+    if (status && status !== 'all' && status !== 'open') {
+      vals.push(status); where = `WHERE r.status = $${vals.length}`;
+    } else if (status === 'all') {
+      where = '';
+    } else {
+      vals.push(CLOSED_STATUSES); where = `WHERE r.status <> ALL($${vals.length}::text[])`;
+    }
+
+    const SORTS = {
+      newest: 'r.created_at DESC',
+      oldest: 'r.created_at ASC',
+      event_date: 'r.event_date ASC NULLS LAST',
+      guests: 'r.guests DESC NULLS LAST',
+      name: 'lower(r.last_name) ASC, lower(r.first_name) ASC',
+    };
+    // Whitelisted rather than interpolated: this value arrives in a query string.
+    const order = SORTS[req.query.sort] || SORTS.newest;
+
     const { rows } = await query(
-      `SELECT r.*, l.name AS location_name
+      `SELECT r.*, l.name AS location_name,
+              (SELECT count(*) FROM kindred_web.event_special_requests s
+                WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests
          FROM kindred_web.event_requests r
          LEFT JOIN locations l ON l.id = r.location_id
-        ${status ? 'WHERE r.status = $1' : ''}
-        ORDER BY r.created_at DESC LIMIT 500`,
-      status ? [status] : []);
+        ${where}
+        ORDER BY ${order} LIMIT 500`, vals);
     // Sent with the list so staff can copy the exact link customers receive
     // instead of retyping a URL from memory.
     res.json({ requests: rows.map(shape), form_url: EVENT_REQUEST_URL });
@@ -912,7 +936,11 @@ router.patch('/:id', requireManager, async (req, res) => {
 
     let justApproved = false;
     if (b.status && b.status !== cur.status) {
-      if (!['new', 'approved', 'declined', 'complete'].includes(b.status)) {
+      // 'cancelled' is for an enquiry that simply went quiet — not a decision about
+      // the event, just the inbox being kept honest. Declined is a different thing and
+      // reads differently later: one is us saying no, the other is nobody saying
+      // anything.
+      if (!['new', 'approved', 'declined', 'cancelled', 'complete'].includes(b.status)) {
         return res.status(400).json({ error: 'Unknown status' });
       }
       set('status', b.status);
@@ -941,6 +969,10 @@ router.patch('/:id', requireManager, async (req, res) => {
         }
       }
       if (b.status === 'declined') set('declined_reason', b.declined_reason || null);
+      // Reopening clears the reason, so a cancelled-then-revived enquiry does not
+      // carry a stale explanation for a state it is no longer in.
+      if (b.status === 'cancelled') set('declined_reason', b.declined_reason || null);
+      if (b.status === 'new' || b.status === 'approved') set('declined_reason', null);
     }
 
     if (b.planning_meeting_booked !== undefined) {

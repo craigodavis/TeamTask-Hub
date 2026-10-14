@@ -127,3 +127,16 @@
 }
 
 .evr-formlink-copy:hover { border-color: var(--primary, #1677ff); }
+
+/* The heading is the way in to the slide-out. Styled as text, not a button: it is
+   the name of the thing, and a row of buttons would compete with the actions. */
+.evr-open {
+  background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  cursor: pointer; text-align: left;
+}
+.evr-open:hover { text-decoration: underline; }
+.evr-badge {
+  margin-left: 8px; font-size: 12px; font-weight: 400; padding: 2px 8px;
+  border-radius: 10px; background: var(--bg-danger, #f6e7e3); color: #a12;
+  vertical-align: middle;
+}

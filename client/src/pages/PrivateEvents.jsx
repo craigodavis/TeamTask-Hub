@@ -57,7 +57,7 @@ export function PrivateEvents() {
       {/* One flat row. Event Requests used to be its own sidebar entry; it belongs
           here, and nesting its tabs inside these would be worse than the split. */}
       <div className="pe-tabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests'],
+        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['requests', 'Requests inbox'],
           ['terms', 'Terms'], ['copy', 'Message'], ['contract', 'Contract']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
@@ -66,11 +66,24 @@ export function PrivateEvents() {
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
       {tab === 'flow' && <FlowTab />}
       {tab === 'calendar' && <CalendarTab />}
-      {tab === 'requests' && <Requests onError={setErr} />}
+      {tab === 'requests' && <RequestsInbox onError={setErr} />}
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'terms' && <TermsTab />}
       {tab === 'contract' && <ContractSectionsTab />}
     </div>
+  );
+}
+
+/** The inbox, with the same slide-out the calendar uses. */
+function RequestsInbox({ onError }) {
+  const [sel, setSel] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  return (
+    <>
+      <Requests key={reloadKey} onError={onError} onOpen={setSel} />
+      <RequestDrawer request={sel} onClose={() => setSel(null)}
+                     onChanged={() => { setSel(null); setReloadKey((k) => k + 1); }} />
+    </>
   );
 }
 
@@ -100,16 +113,6 @@ function CalendarTab() {
   for (let d = 1; d <= new Date(month.y, month.m + 1, 0).getDate(); d++) cells.push(d);
   const todayStr = ymd(new Date());
 
-  const runEvaluate = async (r) => {
-    setBusy(true);
-    try { const out = await evaluateEventRequest(r.id); setSel({ ...r, requirements: out, rules_evaluated_at: out.evaluatedAt }); load(); }
-    catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
-  const setStatus = async (r, status) => {
-    setBusy(true);
-    try { await updateEventRequest(r.id, { status }); setSel(null); load(); }
-    catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
 
   return (
     <>
@@ -152,21 +155,7 @@ function CalendarTab() {
 
       {data.requests.length === 0 && <div className="pe-empty">No private event requests this month.</div>}
 
-      <Drawer open={!!sel} title={sel ? `${sel.name} — ${sel.guests} guests` : ''}
-              onClose={() => setSel(null)}
-              footer={sel && (
-                <>
-                  <button className="vin-btn vin-btn-danger" disabled={busy}
-                          onClick={() => setStatus(sel, 'declined')}>Decline</button>
-                  <button className="vin-btn" disabled={busy} onClick={() => runEvaluate(sel)}>
-                    {sel.rules_evaluated_at ? 'Re-check terms' : 'Check terms'}
-                  </button>
-                  <button className="vin-btn vin-btn-primary" disabled={busy}
-                          onClick={() => setStatus(sel, 'approved')}>Approve</button>
-                </>
-              )}>
-        {sel && <RequestDetail r={sel} />}
-      </Drawer>
+      <RequestDrawer request={sel} onClose={() => setSel(null)} onChanged={load} />
     </>
   );
 }
@@ -382,6 +371,71 @@ function StaffNotes({ r }) {
   );
 }
 
+/**
+ * The slide-out for one request, with the decisions that can be made on it.
+ *
+ * Shared by the calendar and the inbox rather than written twice: the same booking
+ * reached two ways should offer the same actions, and a second copy is how one of
+ * them quietly falls behind.
+ *
+ * Cancel is not decline. Declining is us saying no; cancelling is an enquiry that
+ * went quiet and is being cleared off the list. They read differently a year later,
+ * so they are separate buttons rather than one with a dropdown.
+ */
+function RequestDrawer({ request, onClose, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [row, setRow] = useState(request);
+  useEffect(() => { setRow(request); setErr(''); }, [request]);
+
+  if (!row) return <Drawer open={false} onClose={onClose} />;
+
+  const act = async (fn) => {
+    setBusy(true);
+    try { await fn(); setErr(''); onChanged?.(); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const setStatus = (status) => act(async () => {
+    await updateEventRequest(row.id, { status });
+    onClose();
+  });
+
+  const closed = ['declined', 'cancelled', 'withdrawn'].includes(row.status);
+
+  return (
+    <Drawer open={!!row} title={`${row.name} — ${row.guests} guests`} onClose={onClose}
+            footer={(
+              <>
+                {closed ? (
+                  <button className="vin-btn" disabled={busy} onClick={() => setStatus('new')}>
+                    Reopen
+                  </button>
+                ) : (<>
+                  <button className="vin-btn" disabled={busy} onClick={() => setStatus('cancelled')}>
+                    Cancel
+                  </button>
+                  <button className="vin-btn vin-btn-danger" disabled={busy}
+                          onClick={() => setStatus('declined')}>Decline</button>
+                  <button className="vin-btn" disabled={busy}
+                          onClick={() => act(async () => {
+                            const out = await evaluateEventRequest(row.id);
+                            setRow({ ...row, requirements: out, rules_evaluated_at: out.evaluatedAt });
+                          })}>
+                    {row.rules_evaluated_at ? 'Re-check terms' : 'Check terms'}
+                  </button>
+                  <button className="vin-btn vin-btn-primary" disabled={busy}
+                          onClick={() => setStatus('approved')}>Approve</button>
+                </>)}
+              </>
+            )}>
+      {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
+      <RequestDetail r={row} />
+    </Drawer>
+  );
+}
+
 function RequestDetail({ r }) {
   const need = r.requirements;
   return (
@@ -535,7 +589,7 @@ function FlowTab() {
 
   const rows = bucket ? data.rows.filter((r) => r.buckets.includes(bucket)) : data.rows;
   const BOXES = [
-    ['requests', 'Requests'], ['proposals', 'Proposals'],
+    ['requests', 'Requests inbox'], ['proposals', 'Proposals'],
     ['contracts', 'Contracts'], ['outstanding', 'Outstanding'],
   ];
   const sub = (k) => {
