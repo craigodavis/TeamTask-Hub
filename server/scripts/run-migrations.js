@@ -5381,6 +5381,30 @@ Anything not listed here has not been agreed, and remains subject to Kindred's a
      action     TEXT NOT NULL,
      PRIMARY KEY (company_id, user_id, action)
    )`,
+
+  // ── How long a quote stands ────────────────────────────────────────────────
+  // Craig: terms at time of request are good for 7 days and are secured at deposit.
+  //
+  // Both halves matter. Without the first, a quote from March binds us in October;
+  // without the second, somebody who paid a deposit could find the price moved under
+  // them. The window is a constant so it can change, and it is read from the FROZEN
+  // constants, so a booking quoted under a 7-day window keeps it if the window is
+  // later widened.
+  `INSERT INTO kindred_web.event_contract_values (company_id, key, value, label, sort_order)
+     SELECT c.id, 'quote_valid_days', '7', 'Quoted terms hold for this many days', 220 FROM companies c
+      WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_values x
+                         WHERE x.company_id = c.id AND x.key = 'quote_valid_days')`,
+
+  `INSERT INTO kindred_web.event_contract_sections
+     (company_id, key, title, body, sort_order, always_include, active)
+   SELECT c.id, 'quote_validity', 'How Long These Terms Hold', $BODY$The figures above are the terms that applied when this enquiry was made on {{request_date}}.
+
+They hold for {{quote_valid_days}} days from that date — until {{quote_valid_until}} — and are secured once the deposit is received. Kindred's rates and terms may change at any time; a booking already secured by a deposit is not affected.
+
+If the deposit is not received by that date, or if the date, guest count, venue or times change, the event is re-quoted at the rates and terms current at that point.$BODY$, 35, true, true
+     FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
+                       WHERE x.company_id = c.id AND x.key = 'quote_validity')`,
 ];
 
 export async function runMigrations() {

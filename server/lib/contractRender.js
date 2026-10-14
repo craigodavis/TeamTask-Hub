@@ -117,6 +117,15 @@ export async function tokensFor(companyId, r) {
     : 'None.';
   const band = t.sources?.base_price_cents?.name || t.sources?.hourly_rate_cents?.name || null;
 
+  // How long the quote stands. Read from the frozen constants first, so a booking
+  // quoted under a 7-day window keeps it if the window is later changed to 14.
+  const validDays = Number(
+    r.requirements?.constants?.quote_valid_days ?? (await contractValues(companyId)).quote_valid_days ?? 7
+  ) || 7;
+  const requested = r.created_at ? new Date(r.created_at) : null;
+  const validUntil = requested
+    ? new Date(requested.getTime() + validDays * 86400000) : null;
+
   return {
     // Computed, so it overrides the seeded default and always matches the app.
     after_hours_availability: await afterHoursSentence(companyId, r.location_id),
@@ -151,6 +160,9 @@ export async function tokensFor(companyId, r) {
     // Only the approved ones. The raw note from the form is a request, not a term.
     agreed_items: agreedText,
     special_requests: agreedText,
+    request_date: requested ? fmtDate(requested) : '—',
+    quote_valid_days: String(validDays),
+    quote_valid_until: validUntil ? fmtDate(validUntil) : '—',
     // Terms carries a per-booking parking threshold, so the clause should read this
     // booking's, not the house default.
     ...(t.parking_attendant_over != null

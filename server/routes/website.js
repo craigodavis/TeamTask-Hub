@@ -314,6 +314,14 @@ websiteRouter.get('/event-proposal', async (req, res) => {
         contractRequired: !!t.contract_required,
         notes: t.notes_to_customer || null,
       },
+      // How long this stands. Said on the proposal and not only in the contract:
+      // this is the page where somebody decides, and a deadline they meet is worth
+      // more than one they are told about afterwards.
+      validUntil: (() => {
+        const days = Number(r.requirements?.constants?.quote_valid_days ?? 7) || 7;
+        if (!r.created_at) return null;
+        return new Date(new Date(r.created_at).getTime() + days * 86400000).toISOString().slice(0, 10);
+      })(),
       // Their own asks and where each one stands. A declined item is shown as
       // declined rather than quietly dropped — they asked, and they are owed an
       // answer they can see.
