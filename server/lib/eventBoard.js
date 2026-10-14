@@ -248,9 +248,6 @@ export function buildBoard(rows, today) {
       theirs: inBucket.filter((r) => r.turn === 'theirs').length,
     };
   }
-  // No messages table exists yet, so this is reported as unwired rather than as a
-  // confident zero — "nothing waiting" and "we cannot see" must not look the same.
-  counts.proposals = { total: 0, ours: 0, theirs: 0, unwired: true };
 
   live.sort((a, b) => {
     if (a.days_to_event == null) return 1;

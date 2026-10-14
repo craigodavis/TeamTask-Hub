@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
-  getPrivateEventCalendar, getPrivateEventBoard, sendEventContract, countersignEventContract,
+  getPrivateEventCalendar, getPrivateEventBoard, sendEventContract, sendEventProposal,
+  countersignEventContract,
   getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, duplicateEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getSpecialRequests, addSpecialRequest, decideSpecialRequest, saveStaffNotes,
@@ -378,6 +379,15 @@ function FlowTab() {
    */
   const doAction = async (row) => {
     const kind = row.action?.kind;
+    if (kind === 'send_proposal') {
+      setBusy(row.id);
+      try {
+        const out = await sendEventProposal(row.id);
+        setErr(''); setNote(`Proposal emailed to ${out.sentTo}.`); load();
+      } catch (e) { setErr(e.message); setNote(''); }
+      finally { setBusy(null); }
+      return;
+    }
     if (kind === 'send_contract') {
       setBusy(row.id);
       try {
@@ -430,7 +440,6 @@ function FlowTab() {
   ];
   const sub = (k) => {
     const c = data.counts[k] || {};
-    if (c.unwired) return 'not wired yet';
     if (!c.total) return 'nothing';
     if (c.ours && c.theirs) return `${c.ours} you · ${c.theirs} them`;
     return c.ours ? `${c.ours} need you` : `${c.theirs} with them`;
