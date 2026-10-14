@@ -3014,6 +3014,41 @@ export async function countersignEventContract(id) {
   if (!res.ok) throw new Error(d.error || 'Could not counter-sign');
   return d;
 }
+export async function getSpecialRequests(id) {
+  const res = await fetch(`${API}/event-requests/${id}/special-requests`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to load special requests');
+  return d;
+}
+export async function addSpecialRequest(id, body) {
+  const res = await fetch(`${API}/event-requests/${id}/special-requests`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ body }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not add it');
+  return d;
+}
+// Approve, modify or reject. Only approved and modified reach the contract.
+export async function decideSpecialRequest(sid, patch) {
+  const res = await fetch(`${API}/event-requests/special-requests/${sid}`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(patch) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not record that decision');
+  return d;
+}
+export async function saveStaffNotes(id, staff_notes) {
+  const res = await fetch(`${API}/event-requests/${id}/staff-notes`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ staff_notes }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not save the notes');
+  return d;
+}
+export async function saveEventOverrides(id, overrides) {
+  const res = await fetch(`${API}/event-requests/${id}/overrides`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify(overrides) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Could not save the changes');
+  return d;
+}
 // The board: every live booking, what it still owes, whose move it is.
 export async function getPrivateEventBoard() {
   const res = await fetch(`${API}/event-requests/board`, { headers: headers() });

@@ -3,6 +3,7 @@ import {
   getPrivateEventCalendar, getPrivateEventBoard, sendEventContract, countersignEventContract,
   getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, duplicateEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
+  getSpecialRequests, addSpecialRequest, decideSpecialRequest, saveStaffNotes,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
 } from '../api';
@@ -169,6 +170,121 @@ function CalendarTab() {
   );
 }
 
+/**
+ * What the customer asked for, and what we agreed to.
+ *
+ * Every item is decided explicitly. Asking is not agreeing, so nothing reaches the
+ * contract until somebody rules on it — and "modified" carries OUR wording, because
+ * agreeing to a changed version of a request means agreeing to the change, not to
+ * what was asked.
+ */
+function SpecialRequests({ requestId, onChanged }) {
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState('');
+  const [adding, setAdding] = useState('');
+  const [editing, setEditing] = useState(null);   // { id, text }
+
+  const load = useCallback(() => {
+    getSpecialRequests(requestId).then((d) => setItems(d.items || [])).catch((e) => setErr(e.message));
+  }, [requestId]);
+  useEffect(() => { load(); }, [load]);
+
+  const decide = async (it, status, agreed_text) => {
+    try {
+      await decideSpecialRequest(it.id, { status, agreed_text });
+      setEditing(null); setErr(''); load(); onChanged?.();
+    } catch (e) { setErr(e.message); }
+  };
+
+  if (!items) return <p className="pe-req-why">Loading…</p>;
+
+  const LABEL = { pending: 'Not decided', approved: 'Agreed', modified: 'Agreed, reworded', rejected: 'Declined' };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="vin-label">Special requests</div>
+      {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+      {items.length === 0 && <p className="pe-req-why">Nothing asked for yet.</p>}
+
+      {items.map((it) => (
+        <div key={it.id} className="pe-boardrow" style={{ padding: '10px 2px' }}>
+          <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{it.body}</div>
+          <div className="pe-req-why">
+            {it.source === 'staff' ? 'added by us' : 'from the customer'} · {LABEL[it.status]}
+          </div>
+          {it.agreed_text && (
+            <div style={{ fontSize: 13, marginTop: 6, paddingLeft: 10,
+                          borderLeft: '2px solid var(--vin-text-accent)' }}>
+              {it.agreed_text}
+            </div>
+          )}
+
+          {editing?.id === it.id ? (
+            <div style={{ marginTop: 8 }}>
+              <label className="vin-label">What we are agreeing to — this is what goes in the contract</label>
+              <textarea rows={3} className="vin-textarea" value={editing.text}
+                        onChange={(e) => setEditing({ ...editing, text: e.target.value })} />
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <button className="vin-btn vin-btn-primary" disabled={!editing.text.trim()}
+                        onClick={() => decide(it, 'modified', editing.text)}>Agree to this wording</button>
+                <button className="vin-btn" onClick={() => setEditing(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {it.status !== 'approved' && (
+                <button className="vin-btn" onClick={() => decide(it, 'approved')}>Agree as asked</button>
+              )}
+              <button className="vin-btn"
+                      onClick={() => setEditing({ id: it.id, text: it.agreed_text || it.body })}>
+                Agree with changes
+              </button>
+              {it.status !== 'rejected' && (
+                <button className="vin-btn vin-btn-danger" onClick={() => decide(it, 'rejected')}>Decline</button>
+              )}
+              {it.status !== 'pending' && (
+                <button className="vin-btn" onClick={() => decide(it, 'pending')}>Undo</button>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div style={{ marginTop: 10 }}>
+        <label className="vin-label">Add one — what was asked for on the phone belongs here too</label>
+        <textarea rows={2} className="vin-textarea" value={adding}
+                  onChange={(e) => setAdding(e.target.value)} />
+        <button className="vin-btn" disabled={!adding.trim()} style={{ marginTop: 6 }}
+                onClick={async () => {
+                  try { await addSpecialRequest(requestId, adding); setAdding(''); setErr(''); load(); }
+                  catch (e) { setErr(e.message); }
+                }}>Add</button>
+      </div>
+    </div>
+  );
+}
+
+/** Notes only we see. Kept apart from anything the customer wrote or will read. */
+function StaffNotes({ r }) {
+  const [text, setText] = useState(r.staff_notes || '');
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setText(r.staff_notes || ''); setSaved(false); }, [r.id, r.staff_notes]);
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="vin-label">Our notes — the customer never sees these</div>
+      <textarea rows={3} className="vin-textarea" value={text}
+                onChange={(e) => { setText(e.target.value); setSaved(false); }} />
+      {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+      <button className="vin-btn" style={{ marginTop: 6 }}
+              onClick={async () => {
+                try { await saveStaffNotes(r.id, text); setSaved(true); setErr(''); }
+                catch (e) { setErr(e.message); }
+              }}>{saved ? 'Saved' : 'Save notes'}</button>
+    </div>
+  );
+}
+
 function RequestDetail({ r }) {
   const need = r.requirements;
   return (
@@ -210,6 +326,9 @@ function RequestDetail({ r }) {
           </p>
         ) : <TermsResult t={need} />}
       </div>
+
+      <SpecialRequests requestId={r.id} />
+      <StaffNotes r={r} />
     </>
   );
 }
