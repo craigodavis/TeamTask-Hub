@@ -74,10 +74,18 @@ export function gatesFor(r) {
   const costs = (req.rental_total_cents ?? 0) + (req.min_wine_purchase_cents ?? 0)
     + (req.due_now_cents ?? 0);
   if (costs > 0 && !r.proposal_accepted_at) {
-    gates.push(r.proposal_sent_at
-      ? { key: 'proposal', label: 'Awaiting their answer', state: 'outstanding', turn: 'theirs',
-          since: r.proposal_sent_at }
-      : { key: 'proposal', label: 'Send proposal', state: 'outstanding', turn: 'ours' });
+    // A decline comes back to us, not to them. Leaving it as "awaiting their answer"
+    // would park a booking in the customer's court that is sitting in ours, and it
+    // is the one state where somebody is definitely waiting on a reply.
+    if (r.proposal_declined_at) {
+      gates.push({ key: 'proposal', label: 'They turned it down', state: 'outstanding',
+        turn: 'ours', since: r.proposal_declined_at, reason: r.proposal_decline_reason || null });
+    } else {
+      gates.push(r.proposal_sent_at
+        ? { key: 'proposal', label: 'Awaiting their answer', state: 'outstanding', turn: 'theirs',
+            since: r.proposal_sent_at }
+        : { key: 'proposal', label: 'Send proposal', state: 'outstanding', turn: 'ours' });
+    }
   } else if (r.proposal_accepted_at) {
     gates.push({ key: 'proposal', label: 'Proposal accepted', state: 'done', turn: null });
   }
@@ -195,6 +203,7 @@ function nextAction(gates, r) {
   // means nobody reads ten clauses about an amount they were going to argue with.
   const proposal = outstanding('proposal');
   if (proposal) {
+    if (r.proposal_declined_at) return { kind: 'review_asks', label: 'Revise the proposal' };
     return r.proposal_sent_at
       ? { kind: 'send_proposal', label: 'Resend proposal' }
       : { kind: 'send_proposal', label: 'Send proposal' };

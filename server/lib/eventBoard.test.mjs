@@ -150,5 +150,15 @@ is('all decided: contract is next again', r.action.label, 'Send contract');
 r = boardRow(base({ requirements: costed, pending_requests: 1 }), TODAY);
 is('a single ask reads properly', r.gates.find((g) => g.key === 'asks').label, '1 request to decide');
 
+// ── A proposal can be turned down ────────────────────────────────────────────
+r = boardRow(base({ requirements: costed, proposal_sent_at: '2026-10-10',
+  proposal_accepted_at: null, proposal_declined_at: '2026-10-11',
+  proposal_decline_reason: 'Too much for the wine minimum' }), TODAY);
+is('declined: comes back to us', r.turn, 'ours');
+is('declined: says so', r.gates.find((g) => g.key === 'proposal').label, 'They turned it down');
+is('declined: next step is to revise', r.action.label, 'Revise the proposal');
+is('declined: the reason travels', r.gates.find((g) => g.key === 'proposal').reason,
+   'Too much for the wine minimum');
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

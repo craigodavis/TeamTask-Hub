@@ -16,6 +16,7 @@ import {
 import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { resolveTerms, evaluate, effectiveTerms } from '../lib/eventTerms.js';
+import { venueAvailability } from '../lib/eventAvailability.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { clientIpOf } from './mcpDb.js';
 import crypto from 'node:crypto';
@@ -250,6 +251,28 @@ websiteRouter.get('/event-quote', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/website/event-availability — is that venue free, and if not, where else.
+websiteRouter.get('/event-availability', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const q = req.query || {};
+    const w = resolveWindow(String(q.start || ''), q.hours);
+    if (w.error || !q.venue || !q.date) return res.json({ known: false, available: true });
+
+    const v = await query(
+      `SELECT id FROM locations WHERE company_id = $1 AND web_slug = $2`,
+      [companyId, String(q.venue).toLowerCase()]);
+    if (!v.rows.length) return res.json({ known: false, available: true });
+
+    const out = await venueAvailability(companyId, {
+      locationId: v.rows[0].id, date: String(q.date).slice(0, 10),
+      startTime: w.startTime, endTime: w.endTime,
+    });
+    res.set('Cache-Control', 'no-store');
+    res.json(out);
+  } catch (e) { console.error('event-availability', e); res.status(500).json({ error: e.message }); }
+});
+
 // ── The proposal the customer reads, questions and accepts ───────────────────
 // Same tokenised link as the contract. Accepting here is agreeing the PRICE; the
 // clauses come after, so a disagreement about money surfaces before anyone reads
@@ -299,6 +322,7 @@ websiteRouter.get('/event-proposal', async (req, res) => {
         agreed: i.agreed_text || null,
       })),
       acceptedAt: r.proposal_accepted_at,
+      declinedAt: r.proposal_declined_at,
     });
   } catch (e) { console.error('event-proposal', e); res.status(500).json({ error: e.message }); }
 });
@@ -318,6 +342,25 @@ websiteRouter.post('/event-proposal/request', async (req, res) => {
        VALUES ($1,$2,'customer',$3,'pending')`, [companyId, r.id, body]);
     res.json({ ok: true });
   } catch (e) { console.error('event-proposal-request', e); res.status(500).json({ error: e.message }); }
+});
+
+websiteRouter.post('/event-proposal/decline', async (req, res) => {
+  try {
+    const r = await requestByToken(req.body?.token);
+    if (!r) return res.status(404).json({ error: 'That link is not valid.' });
+    const reason = String(req.body?.reason || '').trim().slice(0, 2000);
+    if (reason.length < 3) {
+      return res.status(400).json({ error: 'Tell us what is not working and we will see what we can do.' });
+    }
+    // Declining does not close the booking. It hands it back to us with a reason,
+    // which is the difference between a negotiation and a dead end.
+    await query(
+      `UPDATE kindred_web.event_requests
+          SET proposal_declined_at = NOW(), proposal_decline_reason = $2,
+              proposal_accepted_at = NULL, updated_at = NOW()
+        WHERE id = $1`, [r.id, reason]);
+    res.json({ ok: true });
+  } catch (e) { console.error('event-proposal-decline', e); res.status(500).json({ error: e.message }); }
 });
 
 websiteRouter.post('/event-proposal/accept', async (req, res) => {
@@ -518,6 +561,25 @@ websiteRouter.post('/event-request', async (req, res) => {
     }
     if (!legacyForm && !venue) {
       return res.status(400).json({ error: 'Please choose which of our places you would like.' });
+    }
+
+    // Refused if the space is already taken. The form warns before anyone fills the
+    // rest in, but a warning is a courtesy and this is the door: two parties booked
+    // into one room is the one mistake that cannot be smoothed over on the day.
+    if (!legacyForm && venue && date && startTime && endTime) {
+      const free = await venueAvailability(await kindredCompanyId(), {
+        locationId: venue.id, date, startTime, endTime,
+      });
+      if (!free.available) {
+        return res.status(409).json({
+          error: free.alternative
+            ? `We already have something on at ${venue.name} then. ${free.alternative.name} `
+              + `is free that day — would that work?`
+            : `We already have something on at ${venue.name} then. Give us a ring and we `
+              + `will find you a date that works.`,
+          alternative: free.alternative || null,
+        });
+      }
     }
 
     // The quote is taken NOW and stored by value: terms get edited, and what we told

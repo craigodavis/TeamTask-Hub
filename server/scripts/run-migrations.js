@@ -5336,6 +5336,13 @@ Anything not listed here has not been agreed, and remains subject to Kindred's a
      FROM companies c
     WHERE NOT EXISTS (SELECT 1 FROM kindred_web.event_contract_sections x
                        WHERE x.company_id = c.id AND x.key = 'agreed_additions')`,
+
+  // A proposal can be turned down, and a turned-down proposal needs a reason —
+  // otherwise the next move is a guess. Declining is not withdrawing: the booking
+  // stays live and the answer comes back to us to revise.
+  `ALTER TABLE kindred_web.event_requests
+     ADD COLUMN IF NOT EXISTS proposal_declined_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS proposal_decline_reason TEXT`,
 ];
 
 export async function runMigrations() {

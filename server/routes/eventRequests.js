@@ -516,8 +516,18 @@ router.put('/:id/overrides', requireManager, async (req, res) => {
     // clearing a box would pin the field to null instead of releasing it to the terms.
     for (const k of Object.keys(clean)) if (clean[k] === null) delete clean[k];
 
+    // Changing the terms un-accepts the proposal. An acceptance is an answer to a
+    // specific set of numbers; leaving it standing after the numbers move would hold
+    // someone to terms they never saw, and the board would show agreement where
+    // there is none. Sending the revised proposal is then the next step, which is
+    // what the board will ask for.
     const { rows } = await query(
-      `UPDATE kindred_web.event_requests SET overrides = $2::jsonb, updated_at = NOW()
+      `UPDATE kindred_web.event_requests
+          SET overrides = $2::jsonb,
+              proposal_accepted_at = NULL,
+              proposal_declined_at = NULL,
+              proposal_decline_reason = NULL,
+              updated_at = NOW()
         WHERE id = $1 RETURNING *`,
       [req.params.id, Object.keys(clean).length ? JSON.stringify(clean) : null]);
     if (!rows.length) return res.status(404).json({ error: 'Request not found' });
@@ -638,7 +648,9 @@ router.post('/:id/send-proposal', requireManager, async (req, res) => {
     }
 
     const { rows } = await query(
-      `UPDATE kindred_web.event_requests SET proposal_sent_at = NOW(), updated_at = NOW()
+      `UPDATE kindred_web.event_requests
+          SET proposal_sent_at = NOW(), proposal_declined_at = NULL,
+              proposal_decline_reason = NULL, updated_at = NOW()
         WHERE id = $1 RETURNING *`, [cur.id]);
     res.json({ ok: true, sentTo: cur.email, total: t.rental_total_cents, request: shape(rows[0]) });
   } catch (e) { console.error('send-proposal', e); res.status(500).json({ error: e.message }); }
