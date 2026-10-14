@@ -181,3 +181,10 @@ button.pe-tally.on { outline: 1px solid var(--vin-border-strong); }
   color: inherit; cursor: pointer; text-align: left;
 }
 .pe-rowopen:hover { text-decoration: underline; }
+
+.pe-step {
+  display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px;
+  padding: 7px 0; border-bottom: 0.5px solid var(--vin-border);
+}
+.pe-step:last-child { border-bottom: 0; }
+.pe-step input { margin-top: 2px; }

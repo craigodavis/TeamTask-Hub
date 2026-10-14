@@ -243,43 +243,11 @@ export function Requests({ onError, onOpen }) {
               <span className={`evr-pill ${r.status}`}>{r.status}</span>
             </div>
 
-            <dl className="evr-detail">
-              <dt>Email</dt><dd><a href={`mailto:${r.email}`}>{r.email}</a></dd>
-              {r.phone && <><dt>Phone</dt><dd><a href={`tel:${r.phone}`}>{r.phone}</a></dd></>}
-              {r.address && <><dt>Address</dt><dd>{r.address}</dd></>}
-              {r.quotedBase && <><dt>Venue fee</dt><dd>{r.quotedBase}</dd></>}
-              {r.quotedMinAlcohol && <><dt>Min. bar</dt><dd>{r.quotedMinAlcohol}</dd></>}
-              {r.deposit_required && <><dt>Deposit</dt><dd>{r.quotedDeposit}</dd></>}
-              {r.notes && <><dt>Notes</dt><dd className="evr-notes">{r.notes}</dd></>}
-            </dl>
-
-            {r.status === 'approved' && (
-              <div className="evr-steps">
-                {/* The planning meeting is ours to book, so it sits with the
-                    guest's outstanding items rather than somewhere separate. */}
-                {r.planningMeetingDue && (
-                  <label className="evr-step">
-                    <input type="checkbox" checked={!!r.planning_meeting_booked}
-                           onChange={(e) => patch(r.id, { planning_meeting_booked: e.target.checked })} />
-                    Planning meeting booked <span className="evr-due">by {r.planningMeetingDue}</span>
-                  </label>
-                )}
-                {r.steps.map((s) => s.key === 'deposit' ? (
-                  <span key={s.key} className={`evr-step readonly${s.done ? ' done' : ''}`}>
-                    {s.done ? '✓' : '○'} Security deposit {s.done ? 'paid' : 'outstanding'}
-                  </span>
-                ) : (
-                  <label key={s.key} className="evr-step">
-                    <input type="checkbox" checked={!!r.insurance_ok}
-                           disabled={!r.insurance_uploaded_at}
-                           onChange={(e) => patch(r.id, { insurance_ok: e.target.checked })} />
-                    Proof of insurance accepted
-                    {!r.insurance_uploaded_at && <span className="evr-due">nothing uploaded yet</span>}
-                  </label>
-                ))}
-              </div>
-            )}
-
+            {/* Everything else — contact details, the quote, notes, the outstanding
+                steps — lives in the slide-out. A list you scan to find the one you
+                want should not also be the record of each one: eleven lines a row
+                meant four requests filled a screen and none of them could be
+                compared at a glance. Click the name. */}
             <div className="evr-actions">
               {r.status === 'new' && (
                 <>

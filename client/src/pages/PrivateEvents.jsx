@@ -614,9 +614,75 @@ function RequestDetail({ r }) {
         ) : <TermsResult t={need} />}
       </div>
 
+      <Steps r={r} />
       <SpecialRequests requestId={r.id} />
       <StaffNotes r={r} />
     </>
+  );
+}
+
+/**
+ * The ticks that are ours to make: the planning meeting, the insurance certificate,
+ * the ResOS booking.
+ *
+ * These used to sit on the inbox card. They belong with the request, not in a list
+ * somebody scans — but they had to come WITH it when the card was trimmed, or the
+ * only way to tick the planning meeting would have quietly disappeared.
+ */
+function Steps({ r }) {
+  const [row, setRow] = useState(r);
+  const [err, setErr] = useState('');
+  useEffect(() => { setRow(r); }, [r]);
+
+  const set = async (patch) => {
+    try { const { request } = await updateEventRequest(row.id, patch); setRow(request); setErr(''); }
+    catch (e) { setErr(e.message); }
+  };
+
+  const resos = async () => {
+    const ref = window.prompt('ResOS booking reference (optional)');
+    if (ref === null) return;
+    try { const out = await markResosBooked(row.id, ref); setRow(out.request); setErr(''); }
+    catch (e) { setErr(e.message); }
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="vin-label">Ours to do</div>
+      {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+
+      {row.planningMeetingDue && (
+        <label className="pe-step">
+          <input type="checkbox" checked={!!row.planning_meeting_booked}
+                 onChange={(e) => set({ planning_meeting_booked: e.target.checked })} />
+          <span>Planning meeting booked
+            <span className="pe-req-why"> by {row.planningMeetingDue}</span></span>
+        </label>
+      )}
+
+      <label className="pe-step">
+        <input type="checkbox" checked={!!row.insurance_ok}
+               disabled={!row.insurance_uploaded_at}
+               onChange={(e) => set({ insurance_ok: e.target.checked })} />
+        <span>Proof of insurance accepted
+          {!row.insurance_uploaded_at && <span className="pe-req-why"> — nothing uploaded yet</span>}</span>
+      </label>
+
+      {/* Not a checkbox: it asks for the reference, because a tick records that
+          somebody said they did it and a reference records something checkable. */}
+      <div className="pe-step">
+        <span>
+          {row.resos_booked_at
+            ? <>Tables reserved in ResOS
+                <span className="pe-req-why"> {row.resos_reference || ''} ·{' '}
+                  {new Date(row.resos_booked_at).toLocaleDateString()}</span></>
+            : 'Tables not yet reserved in ResOS'}
+        </span>
+        {!row.resos_booked_at && (
+          <button className="vin-btn" style={{ marginLeft: 10 }} onClick={resos}>Mark reserved</button>
+        )}
+      </div>
+    </div>
   );
 }
 
