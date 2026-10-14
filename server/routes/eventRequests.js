@@ -13,7 +13,7 @@ import { requireManager } from '../middleware/auth.js';
 import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard, completePastEvents, CLOSED_STATUSES } from '../lib/eventBoard.js';
 import { journal, journalFor, NOTIFIABLE } from '../lib/eventJournal.js';
-import { approvalBlockers } from '../lib/eventApproval.js';
+import { approvalBlockers } from '../lib/eventApprovalGate.js';
 import { pool } from '../db.js';
 import { sendMail } from '../mail.js';
 import { clientIpOf } from './mcpDb.js';
