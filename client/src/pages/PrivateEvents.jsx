@@ -711,6 +711,7 @@ function FlowTab() {
   const [busy, setBusy] = useState(null);
   const [reviewing, setReviewing] = useState(null);
   const [opened, setOpened] = useState(null);
+  const [turn, setTurn] = useState(null);
 
   const load = useCallback(() => {
     getPrivateEventBoard().then(setData).catch((e) => setErr(e.message));
@@ -802,7 +803,11 @@ function FlowTab() {
       : <div className="pe-empty">Loading…</div>;
   }
 
-  const rows = bucket ? data.rows.filter((r) => r.buckets.includes(bucket)) : data.rows;
+  // The two filters narrow together: "Proposals that need you" is a real question
+  // and neither axis answers it alone.
+  const rows = data.rows
+    .filter((r) => (bucket ? r.buckets.includes(bucket) : true))
+    .filter((r) => (turn ? r.turn === turn : true));
   const BOXES = [
     ['requests', 'Requests inbox'], ['proposals', 'Proposals'],
     ['contracts', 'Contracts'], ['outstanding', 'Outstanding'],
@@ -822,6 +827,22 @@ function FlowTab() {
           the rows rather than replacing them. */}
       {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
       {note && <p className="vin-pill" style={{ display: 'block' }}>{note}</p>}
+      {/* Whose move it is, across every stage. The strip below says where things are;
+          these say who is holding them, which is the other question — and the one you
+          ask first thing in the morning. Clicking one narrows the list to it. */}
+      <div className="pe-tallies">
+        {[['ours', 'Need you', data.needsYou], ['theirs', 'With them', data.withThem],
+          ['done', 'Settled', data.settled]].map(([k, label, n]) => (
+          <button key={k} className={`pe-tally${turn === k ? ' on' : ''}`}
+                  aria-pressed={turn === k}
+                  onClick={() => setTurn(turn === k ? null : k)}>
+            <span className="pe-tally-n"
+                  style={{ color: k === 'ours' && n ? 'var(--vin-text-danger)' : undefined }}>{n}</span>
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="pe-strip">
         {BOXES.map(([k, label], i) => (
           <Fragment key={k}>
@@ -836,8 +857,14 @@ function FlowTab() {
       </div>
       <div className="pe-filterbar">
         <span>Showing</span>
-        <strong>{bucket ? BOXES.find(([k]) => k === bucket)?.[1] : 'Everything'} · {rows.length}</strong>
-        {bucket && <button className="vin-btn" onClick={() => setBucket(null)}>Show all</button>}
+        <strong>
+          {bucket ? BOXES.find(([k]) => k === bucket)?.[1] : 'Everything'}
+          {turn ? ` · ${{ ours: 'needing you', theirs: 'with them', done: 'settled' }[turn]}` : ''}
+          {' · '}{rows.length}
+        </strong>
+        {(bucket || turn) && (
+          <button className="vin-btn" onClick={() => { setBucket(null); setTurn(null); }}>Show all</button>
+        )}
       </div>
 
       {rows.length === 0 && (
