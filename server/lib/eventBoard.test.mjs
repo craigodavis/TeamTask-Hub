@@ -135,5 +135,20 @@ r = boardRow(base({ requirements: { contract_required: false, insurance_required
 is('free booking: no proposal gate', r.gates.some((g) => g.key === 'proposal'), false);
 is('free booking: nothing to do', r.action, null);
 
+// ── Undecided asks hold the contract ─────────────────────────────────────────
+r = boardRow(base({ requirements: costed, pending_requests: 2 }), TODAY);
+is('undecided asks: they come first', r.action.label, 'Review their requests');
+is('undecided asks: our move', r.turn, 'ours');
+is('undecided asks: counted in proposals', r.buckets.includes('proposals'), true);
+is('undecided asks: gate labelled with the count',
+   r.gates.find((g) => g.key === 'asks').label, '2 requests to decide');
+
+r = boardRow(base({ requirements: costed, pending_requests: 0 }), TODAY);
+is('all decided: contract is next again', r.action.label, 'Send contract');
+
+// One reads as one, not "1 requests".
+r = boardRow(base({ requirements: costed, pending_requests: 1 }), TODAY);
+is('a single ask reads properly', r.gates.find((g) => g.key === 'asks').label, '1 request to decide');
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

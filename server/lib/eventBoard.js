@@ -82,6 +82,17 @@ export function gatesFor(r) {
     gates.push({ key: 'proposal', label: 'Proposal accepted', state: 'done', turn: null });
   }
 
+  // Anything they asked for that nobody has ruled on yet stands between the
+  // proposal and the contract. Sending the agreement first would put our signature
+  // under a document that silently omits what they asked for, and the Agreed
+  // Additions clause would leave it out — the customer would read a contract that
+  // simply does not mention the thing they requested.
+  const undecided = Number(r.pending_requests || 0);
+  if (undecided > 0) {
+    gates.push({ key: 'asks', state: 'outstanding', turn: 'ours',
+      label: undecided === 1 ? '1 request to decide' : `${undecided} requests to decide` });
+  }
+
   // Prefer the frozen snapshot; fall back to the flags the evaluate route also
   // writes, so a booking evaluated before the snapshot existed still reads right.
   const contractRequired = req.contract_required ?? false;
@@ -133,6 +144,8 @@ export function bucketsFor(r, gates) {
 
   if (gate('terms') || gate('approval')) out.add('requests');
   if (gate('proposal')?.state === 'outstanding') out.add('proposals');
+  // An undecided ask belongs with the proposals: it is still the conversation.
+  if (gate('asks')) out.add('proposals');
   if (gate('contract')?.state === 'outstanding') out.add('contracts');
   if (gate('contract')?.state === 'not_required' && r.rules_evaluated_at) out.add('no_contract');
   for (const k of ['insurance', 'deposit']) {
@@ -154,7 +167,7 @@ export function bucketsFor(r, gates) {
  * genuinely can do while waiting is resend the contract, or record something that
  * has arrived — and both now say exactly that.
  */
-const GATE_ORDER = ['terms', 'approval', 'proposal', 'contract', 'insurance', 'deposit'];
+const GATE_ORDER = ['terms', 'approval', 'proposal', 'asks', 'contract', 'insurance', 'deposit'];
 
 /**
  * The gate that governs this booking: the first outstanding one in sequence.
@@ -186,6 +199,9 @@ function nextAction(gates, r) {
       ? { kind: 'send_proposal', label: 'Resend proposal' }
       : { kind: 'send_proposal', label: 'Send proposal' };
   }
+
+  const asks = outstanding('asks');
+  if (asks) return { kind: 'review_asks', label: 'Review their requests' };
 
   const contract = outstanding('contract');
   if (contract) {
@@ -266,7 +282,9 @@ export function buildBoard(rows, today) {
 
 export async function board(companyId, today = new Date()) {
   const { rows } = await query(
-    `SELECT r.*, l.name AS location_name
+    `SELECT r.*, l.name AS location_name,
+            (SELECT count(*) FROM kindred_web.event_special_requests s
+              WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests
        FROM kindred_web.event_requests r
        LEFT JOIN locations l ON l.id = r.location_id
       WHERE r.status NOT IN ('declined', 'withdrawn')

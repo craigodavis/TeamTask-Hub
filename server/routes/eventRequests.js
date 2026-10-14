@@ -671,6 +671,22 @@ router.post('/:id/send-contract', requireManager, async (req, res) => {
     // Which clauses this booking carries was decided when its terms were frozen.
     // Reading the terms table now could send a contract that differs from the one
     // the quote was based on.
+    // Refused while anything they asked for is still undecided. The board already
+    // orders it that way, but the board is a screen and this is the door: a contract
+    // sent now would quietly omit the request from its Agreed Additions, and the
+    // customer would read an agreement that does not mention the thing they asked
+    // for.
+    const undecided = (await query(
+      `SELECT count(*)::int AS n FROM kindred_web.event_special_requests
+        WHERE request_id = $1 AND status = 'pending'`, [cur.id])).rows[0].n;
+    if (undecided > 0) {
+      return res.status(409).json({
+        error: `${undecided} thing${undecided === 1 ? '' : 's'} they asked for `
+          + `${undecided === 1 ? 'has' : 'have'} not been decided yet. Agree or decline `
+          + `${undecided === 1 ? 'it' : 'them'} first — the contract states what was agreed.`,
+      });
+    }
+
     const extraKeys = cur.requirements?.contract_section_keys || [];
     const { sections } = await renderContract(req.companyId, cur, extraKeys);
     if (!sections.length) {

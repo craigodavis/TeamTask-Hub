@@ -357,6 +357,7 @@ function FlowTab() {
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(null);
+  const [reviewing, setReviewing] = useState(null);
 
   const load = useCallback(() => {
     getPrivateEventBoard().then(setData).catch((e) => setErr(e.message));
@@ -379,6 +380,9 @@ function FlowTab() {
    */
   const doAction = async (row) => {
     const kind = row.action?.kind;
+    // Opens the asks for a decision rather than doing anything: a ruling on what
+    // somebody requested is a judgement, not a button press.
+    if (kind === 'review_asks') { setReviewing(row); return; }
     if (kind === 'send_proposal') {
       setBusy(row.id);
       try {
@@ -528,6 +532,12 @@ function FlowTab() {
           </div>
         </div>
       ))}
+
+      <Drawer open={!!reviewing} title={reviewing ? `${reviewing.name} — what they asked for` : ''}
+              onClose={() => { setReviewing(null); load(); }}
+              footer={<button className="vin-btn" onClick={() => { setReviewing(null); load(); }}>Done</button>}>
+        {reviewing && <SpecialRequests requestId={reviewing.id} onChanged={load} />}
+      </Drawer>
 
       {data.closed?.length > 0 && (
         <details className="pe-closed">
