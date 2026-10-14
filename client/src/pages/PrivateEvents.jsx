@@ -48,6 +48,7 @@ const LABEL = {
 
 export function PrivateEvents() {
   const [tab, setTab] = useState('flow');
+  const [inboxFilter, setInboxFilter] = useState(null);
   const [err, setErr] = useState('');
   return (
     <div className="pe">
@@ -68,9 +69,12 @@ export function PrivateEvents() {
         ))}
       </div>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
-      {tab === 'flow' && <FlowTab onGoTo={setTab} />}
+      {tab === 'flow' && (
+        <FlowTab onGoTo={(t, stage, turn) => { setTab(t); setInboxFilter(stage || turn || null); }} />)}
       {tab === 'calendar' && <CalendarTab />}
-      {tab === 'requests' && <RequestsInbox onError={setErr} onBack={() => setTab('flow')} />}
+      {tab === 'requests' && (
+        <RequestsInbox onError={setErr} initialFilter={inboxFilter}
+                       onBack={() => setTab('flow')} />)}
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'terms' && <TermsTab />}
       {tab === 'contract' && <ContractSectionsTab />}
@@ -80,7 +84,7 @@ export function PrivateEvents() {
 }
 
 /** The inbox, with the same slide-out the calendar uses. */
-function RequestsInbox({ onError, onBack }) {
+function RequestsInbox({ onError, onBack, initialFilter }) {
   const [sel, setSel] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   return (
@@ -90,7 +94,8 @@ function RequestsInbox({ onError, onBack }) {
           ← Back to flow
         </button>
       )}
-      <Requests key={reloadKey} onError={onError} onOpen={setSel} />
+      <Requests key={`${reloadKey}:${initialFilter || ''}`} onError={onError}
+                onOpen={setSel} initialFilter={initialFilter} />
       <RequestDrawer request={sel} onClose={() => setSel(null)}
                      onChanged={() => { setSel(null); setReloadKey((k) => k + 1); }} />
     </>
@@ -745,13 +750,11 @@ function Steps({ r }) {
  */
 function FlowTab({ onGoTo }) {
   const [data, setData] = useState(null);
-  const [bucket, setBucket] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(null);
   const [reviewing, setReviewing] = useState(null);
   const [opened, setOpened] = useState(null);
-  const [turn, setTurn] = useState(null);
 
   const load = useCallback(() => {
     getPrivateEventBoard().then(setData).catch((e) => setErr(e.message));
@@ -843,11 +846,6 @@ function FlowTab({ onGoTo }) {
       : <div className="pe-empty">Loading…</div>;
   }
 
-  // The two filters narrow together: "Proposals that need you" is a real question
-  // and neither axis answers it alone.
-  const rows = data.rows
-    .filter((r) => (bucket ? r.buckets.includes(bucket) : true))
-    .filter((r) => (turn ? r.turn === turn : true));
   const BOXES = [
     ['requests', 'Requests inbox'], ['proposals', 'Proposals'],
     ['contracts', 'Contracts'], ['outstanding', 'Outstanding'],
@@ -871,13 +869,11 @@ function FlowTab({ onGoTo }) {
           these say who is holding them, which is the other question — and the one you
           ask first thing in the morning. Clicking one narrows the list to it. */}
       <div className="pe-tallies">
-        {[['ours', 'Need you', data.needsYou], ['theirs', 'With them', data.withThem],
-          ['done', 'Settled', data.settled]].map(([k, label, n]) => (
-          <button key={k} className={`pe-tally${turn === k ? ' on' : ''}`}
-                  aria-pressed={turn === k}
-                  onClick={() => setTurn(turn === k ? null : k)}>
+        {[['attention', 'Need you', data.needsYou], ['with_them', 'With them', data.withThem],
+          ['settled', 'Settled', data.settled]].map(([k, label, n]) => (
+          <button key={k} className="pe-tally" onClick={() => onGoTo?.('requests', null, k)}>
             <span className="pe-tally-n"
-                  style={{ color: k === 'ours' && n ? 'var(--vin-text-danger)' : undefined }}>{n}</span>
+                  style={{ color: k === 'attention' && n ? 'var(--vin-text-danger)' : undefined }}>{n}</span>
             <span>{label}</span>
           </button>
         ))}
@@ -887,101 +883,18 @@ function FlowTab({ onGoTo }) {
         {BOXES.map(([k, label], i) => (
           <Fragment key={k}>
             {i > 0 && <span className="pe-strip-arrow" aria-hidden="true">→</span>}
-            <button className={`pe-box${bucket === k ? ' on' : ''}${data.counts[k]?.ours ? ' urgent' : ''}`}
-                    onClick={() => (k === 'requests'
-                      // The inbox is its own screen, with filters and sorting the
-                      // board does not have. Filtering the board down to it would be
-                      // a worse version of a thing that already exists.
-                      ? onGoTo?.('requests')
-                      : setBucket(bucket === k ? null : k))}>
+            <button className={`pe-box${data.counts[k]?.ours ? ' urgent' : ''}`}
+                    // Every box opens the inbox at that stage. Flow is the map and
+                    // the inbox is the list; keeping a second list under the map meant
+                    // the same bookings rendered twice, in two different ways, and
+                    // only one of them had sorting and search.
+                    onClick={() => onGoTo?.('requests', k)}>
               <strong>{label}</strong>
               <span>{sub(k)}</span>
             </button>
           </Fragment>
         ))}
       </div>
-      <div className="pe-filterbar">
-        <span>Showing</span>
-        <strong>
-          {bucket ? BOXES.find(([k]) => k === bucket)?.[1] : 'Everything'}
-          {turn ? ` · ${{ ours: 'needing you', theirs: 'with them', done: 'settled' }[turn]}` : ''}
-          {' · '}{rows.length}
-        </strong>
-        {(bucket || turn) && (
-          <button className="vin-btn" onClick={() => { setBucket(null); setTurn(null); }}>Show all</button>
-        )}
-      </div>
-
-      {rows.length === 0 && (
-        <div className="pe-empty">
-          {bucket ? 'Nothing in that one.'
-            : 'No enquiries yet. The board fills itself as requests come in.'}
-        </div>
-      )}
-
-      {rows.map((r) => (
-        <div key={r.id} className="pe-boardrow">
-          <div className="pe-boardrow-top">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {/* The name opens the slide-out, the same one the calendar and the
-                  inbox use. A button rather than a click on the row, so it reaches
-                  the keyboard and does not swallow the action beside it. */}
-              <button type="button" className="pe-rowopen" onClick={() => setOpened(r)}>
-                {r.name}
-              </button>
-              <div className="pe-req-why">
-                {r.event_date || 'no date'}
-                {r.start_time ? ` ${r.start_time}–${r.end_time || ''}` : ''}
-                {r.venue ? ` · ${r.venue}` : ''}
-                {r.guests != null ? ` · ${r.guests} guests` : ''}
-              </div>
-            </div>
-            {/* Days to the event, not a stage. This is how the work goes wrong. */}
-            <span className={`pe-days${r.days_to_event != null && r.days_to_event <= 14 ? ' near' : ''}`}>
-              {r.days_to_event == null ? '—'
-                : r.days_to_event < 0 ? `${Math.abs(r.days_to_event)}d ago`
-                : `${r.days_to_event} days`}
-            </span>
-            {r.action && (
-              <button className="vin-btn" disabled={busy === r.id} onClick={() => doAction(r)}>
-                {busy === r.id ? '…' : r.action.label}
-              </button>
-            )}
-          </div>
-          <div className="pe-gates">
-            {r.gates.map((g) => (
-              <span key={g.key} className={`pe-gate ${g.state}`}>
-                {g.label}{g.state === 'not_required' ? ' —' : ''}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      {/* The full request, reached by clicking any row on the board. */}
-      <RequestDrawer request={opened} onClose={() => setOpened(null)}
-                     onChanged={() => { setOpened(null); load(); }} />
-
-      <Drawer open={!!reviewing} title={reviewing ? `${reviewing.name} — what they asked for` : ''}
-              onClose={() => { setReviewing(null); load(); }}
-              footer={<button className="vin-btn" onClick={() => { setReviewing(null); load(); }}>Done</button>}>
-        {reviewing && (<>
-          <SpecialRequests requestId={reviewing.id} onChanged={load} />
-          <Overrides request={reviewing} onSaved={load} />
-          {/* Answering an ask usually means the proposal has changed, so resending
-              is here rather than back on the board. */}
-          <button className="vin-btn" style={{ marginTop: 12 }} disabled={busy === reviewing.id}
-                  onClick={async () => {
-                    setBusy(reviewing.id);
-                    try {
-                      const out = await sendEventProposal(reviewing.id);
-                      setErr(''); setNote(`Updated proposal emailed to ${out.sentTo}.`); load();
-                    } catch (e) { setErr(e.message); }
-                    finally { setBusy(null); }
-                  }}>Resend the proposal</button>
-        </>)}
-      </Drawer>
-
     </>
   );
 }

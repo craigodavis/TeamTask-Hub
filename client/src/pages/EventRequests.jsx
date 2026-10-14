@@ -118,7 +118,7 @@ function FormLink({ url }) {
 
 /* -------------------------------------------------------------- requests */
 
-export function Requests({ onError, onOpen }) {
+export function Requests({ onError, onOpen, initialFilter }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   // Open by default. A cancelled enquiry is kept but stops being something to look
@@ -126,7 +126,7 @@ export function Requests({ onError, onOpen }) {
   // Opens on what needs doing. "Open" is everything still live; this is the subset
   // where the next move is ours, which is the question somebody opening the inbox is
   // actually asking.
-  const [filter, setFilter] = useState('attention');
+  const [filter, setFilter] = useState(initialFilter || 'attention');
   const [sort, setSort] = useState('newest');
   const [search, setSearch] = useState('');
   // Comes back with the list, so showing it costs no extra request. Served by the API
@@ -137,7 +137,9 @@ export function Requests({ onError, onOpen }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await getEventRequests(filter, sort);
+      // The five stages come from the board; everything else is a status.
+      const isStage = ['requests', 'proposals', 'contracts', 'ready', 'completed'].includes(filter);
+      const d = await getEventRequests(isStage ? null : filter, sort, isStage ? filter : null);
       setRows(d.requests);
       setFormUrl(d.form_url || '');
     }
@@ -170,9 +172,14 @@ export function Requests({ onError, onOpen }) {
           anything. */}
       <div className="evr-filters">
         <div className="evr-chips">
-          {[['attention', 'Needs attention'], ['open', 'Open'], ['new', 'Not reviewed'],
-            ['approved', 'Approved'], ['complete', 'Finished'], ['cancelled', 'Cancelled'],
-            ['declined', 'Declined'], ['all', 'Everything']].map(([v, label]) => (
+          {/* The five stages are the same ones on Flow, so clicking a box there lands
+              here on the matching chip — one list, reached two ways, rather than two
+              lists that drift. The rest are states a booking can be parked in. */}
+          {[['attention', 'Needs attention'], ['requests', 'Requests'], ['proposals', 'Proposals'],
+            ['contracts', 'Contracts'], ['ready', 'Ready'], ['completed', 'Completed'],
+            ['with_them', 'With them'], ['settled', 'Settled'], ['open', 'All open'],
+            ['cancelled', 'Cancelled'], ['declined', 'Declined'],
+            ['all', 'Everything']].map(([v, label]) => (
             <button key={v} type="button"
                     className={`evr-chip${filter === v ? ' on' : ''}`}
                     aria-pressed={filter === v}

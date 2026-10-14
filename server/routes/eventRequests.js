@@ -93,9 +93,16 @@ router.get('/', requireManager, async (req, res) => {
     // rather than rebuilt in SQL: the rule about whose turn it is lives in one place,
     // and every time it has been written twice in this feature the two copies have
     // drifted.
-    if (status === 'attention') {
+    // Stage filters come from the board, the same five the Flow tab shows. Asked of
+    // the board rather than rebuilt in SQL: which stage a booking is in is decided by
+    // its gates, and that rule exists once.
+    const stage = req.query.stage;
+    const TURNS = { attention: 'ours', with_them: 'theirs', settled: 'done' };
+    if (TURNS[status] || stage) {
       const live = await board(req.companyId);
-      const ids = live.rows.filter((r) => r.turn === 'ours').map((r) => r.id);
+      const ids = live.rows
+        .filter((r) => (stage ? r.buckets.includes(stage) : r.turn === TURNS[status]))
+        .map((r) => r.id);
       if (!ids.length) return res.json({ requests: [], form_url: EVENT_REQUEST_URL });
       const { rows } = await query(
         `SELECT r.*, l.name AS location_name,

@@ -3203,9 +3203,10 @@ export async function getRunSheet(id) {
   return d;
 }
 
-export async function getEventRequests(status, sort) {
+export async function getEventRequests(status, sort, stage) {
   const p = new URLSearchParams();
-  if (status) p.set('status', status);
+  if (stage) p.set('stage', stage);
+  else if (status) p.set('status', status);
   if (sort) p.set('sort', sort);
   const q = p.toString() ? `?${p}` : '';
   const res = await fetch(`${API}/event-requests${q}`, { headers: headers() });
