@@ -28,11 +28,11 @@ is('small event: contract', gate(r, 'contract').state, 'not_required');
 is('small event: insurance', gate(r, 'insurance').state, 'not_required');
 is('small event: deposit', gate(r, 'deposit').state, 'not_required');
 is('small event: turn', r.turn, 'done');
-is('small event: buckets', r.buckets, ['no_contract']);
+is('small event: ready', r.buckets, ['ready']);
 is('small event: no action', r.action, null);
 
 // It must still be visible somewhere — that is what the branch is for.
-is('small event appears under the branch', r.buckets.includes('no_contract'), true);
+
 
 // Unevaluated: must NOT claim four dashes it has not earned.
 r = boardRow(base({ rules_evaluated_at: null, requirements: null }), TODAY);
@@ -49,7 +49,7 @@ is('full: insurance is theirs', gate(r, 'insurance').turn, 'theirs');
 is('full: deposit is theirs', gate(r, 'deposit').turn, 'theirs');
 is('full: turn is ours', r.turn, 'ours');
 is('full: action', r.action.label, 'Send contract');
-is('full: in two buckets at once', r.buckets.sort(), ['contracts', 'outstanding']);
+is('full: one stage, the furthest reached', r.buckets, ['contracts']);
 
 // Sent, awaiting their signature — now it is THEIR move, so not red.
 r = boardRow(base({ requirements: full, contract_sent_at: '2026-10-03' }), TODAY);
@@ -73,12 +73,12 @@ is('uploaded insurance action', r.action.label, 'Mark insurance OK');
 r = boardRow(base({ requirements: full, contract_executed_at: '2026-10-05',
   insurance_ok: true, deposit_paid_at: '2026-10-06' }), TODAY);
 is('all done: turn', r.turn, 'done');
-is('all done: no buckets', r.buckets, []);
+is('all done: ready', r.buckets, ['ready']);
 
 // Awaiting approval.
 r = boardRow(base({ status: 'new', requirements: { contract_required: false, insurance_required: false } }), TODAY);
 is('new: needs approval', gate(r, 'approval').state, 'outstanding');
-is('new: in requests', r.buckets.includes('requests'), true);
+is('new: in requests', r.buckets, ['requests']);
 
 // Urgency.
 is('days until', daysUntil('2026-10-24', TODAY), 12);
@@ -95,7 +95,7 @@ is('needsYou', board.needsYou, 3);
 
 // Counts overlap on purpose, and proposals is unwired rather than a confident zero.
 is('contracts count', board.counts.contracts.total, 3);
-is('outstanding count', board.counts.outstanding.total, 3);
+
 is('proposals: none outstanding once accepted', board.counts.proposals.total, 0);
 
 // A booking waiting on them still counts, but not as "ours".
@@ -120,7 +120,7 @@ const costed = { contract_required: true, insurance_required: false, due_now_cen
 r = boardRow(base({ requirements: costed, proposal_sent_at: null, proposal_accepted_at: null }), TODAY);
 is('unproposed: asks for the proposal first', r.action.label, 'Send proposal');
 is('unproposed: not the contract', r.gates.find((g) => g.key === 'proposal').turn, 'ours');
-is('unproposed: in the proposals bucket', r.buckets.includes('proposals'), true);
+is('unproposed: in the proposals bucket', r.buckets, ['proposals']);
 
 r = boardRow(base({ requirements: costed, proposal_sent_at: '2026-10-10', proposal_accepted_at: null }), TODAY);
 is('sent, unanswered: their move', r.turn, 'theirs');
@@ -140,7 +140,7 @@ is('free booking: nothing to do', r.action, null);
 r = boardRow(base({ requirements: costed, pending_requests: 2 }), TODAY);
 is('undecided asks: they come first', r.action.label, 'Review their requests');
 is('undecided asks: our move', r.turn, 'ours');
-is('undecided asks: counted in proposals', r.buckets.includes('proposals'), true);
+is('undecided asks: counted in proposals', r.buckets, ['proposals']);
 is('undecided asks: gate labelled with the count',
    r.gates.find((g) => g.key === 'asks').label, '2 requests to decide');
 
@@ -179,6 +179,21 @@ is('free booking still needs tables', r.action.label, 'Reserve tables in ResOS')
 
 r = boardRow(base({ requirements: { contract_required: false, insurance_required: false } }), TODAY);
 is('tables booked: nothing left', r.action, null);
+
+// ── Five stages, one each ────────────────────────────────────────────────────
+r = boardRow(base({ requirements: costed, deposit_paid_at: '2026-10-05',
+  contract_executed_at: '2026-10-05', insurance_ok: true, event_date: '2026-11-20' }), TODAY);
+is('all in place, date ahead: ready', r.buckets, ['ready']);
+
+r = boardRow(base({ status: 'complete', requirements: costed }), TODAY);
+is('finished: completed', r.buckets, ['completed']);
+
+r = boardRow(base({ requirements: costed, deposit_paid_at: '2026-10-01',
+  contract_executed_at: '2026-10-01', insurance_ok: true, event_date: '2026-10-01' }), TODAY);
+is('all in place but the date has passed: completed', r.buckets, ['completed']);
+
+r = boardRow(base({ requirements: costed, deposit_paid_at: null }), TODAY);
+is('deposit outstanding sits under contracts', r.buckets, ['contracts']);
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

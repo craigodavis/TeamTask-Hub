@@ -22,7 +22,19 @@ import { query } from '../db.js';
 import { effectiveTerms } from './eventTerms.js';
 
 /** Buckets the strip filters by. 'proposals' has no data layer yet — see below. */
-export const BUCKETS = ['requests', 'proposals', 'contracts', 'outstanding', 'no_contract'];
+/**
+ * The five stages, and a booking sits in the furthest one it has reached.
+ *
+ * Not overlapping sets any more. The earlier board counted a booking under every
+ * gate it still owed, which was honest but meant the numbers never added up to the
+ * number of bookings — fine as a to-do list, confusing as a pipeline. These are
+ * stages: one each.
+ *
+ * Deposit, insurance and the ResOS booking live under contracts rather than a box of
+ * their own. They are the paperwork of the same stage, and Ready means all of it is
+ * done.
+ */
+export const BUCKETS = ['requests', 'proposals', 'contracts', 'ready', 'completed'];
 
 /**
  * Statuses that take a booking off the live board.
@@ -167,20 +179,22 @@ export function gatesFor(r) {
 }
 
 /** Which strip boxes this booking belongs under. Overlapping, by design. */
-export function bucketsFor(r, gates) {
-  const out = new Set();
+export function bucketsFor(r, gates, today) {
   const gate = (k) => gates.find((g) => g.key === k);
+  const outstanding = (k) => gate(k)?.state === 'outstanding';
 
-  if (gate('terms') || gate('approval')) out.add('requests');
-  if (gate('proposal')?.state === 'outstanding') out.add('proposals');
-  // An undecided ask belongs with the proposals: it is still the conversation.
-  if (gate('asks')) out.add('proposals');
-  if (gate('contract')?.state === 'outstanding') out.add('contracts');
-  if (gate('contract')?.state === 'not_required' && r.rules_evaluated_at) out.add('no_contract');
-  for (const k of ['insurance', 'deposit', 'resos']) {
-    if (gate(k)?.state === 'outstanding') out.add('outstanding');
-  }
-  return [...out];
+  // The event happened. Nothing else about it matters for the board.
+  if (r.status === 'complete') return ['completed'];
+
+  if (outstanding('terms') || outstanding('approval')) return ['requests'];
+  if (outstanding('proposal') || outstanding('asks')) return ['proposals'];
+  if (outstanding('contract') || outstanding('insurance')
+      || outstanding('deposit') || outstanding('resos')) return ['contracts'];
+
+  // Everything is in place. Ready is only ready while the date is still ahead —
+  // afterwards it is completed, which the sweep marks the day after.
+  const days = daysUntil(r.event_date, today);
+  return days != null && days < 0 ? ['completed'] : ['ready'];
 }
 
 /**
@@ -267,7 +281,7 @@ export function boardRow(r, today) {
     guests: r.guests,
     status: r.status,
     gates,
-    buckets: bucketsFor(r, gates),
+    buckets: bucketsFor(r, gates, today),
     turn,
     action: nextAction(gates, r),
   };

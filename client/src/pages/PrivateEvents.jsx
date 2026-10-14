@@ -810,6 +810,8 @@ function FlowTab() {
   const sub = (k) => {
     const c = data.counts[k] || {};
     if (!c.total) return 'nothing';
+    if (k === 'ready') return `${c.total} good to go`;
+    if (k === 'completed') return `${c.total} done`;
     if (c.ours && c.theirs) return `${c.ours} you · ${c.theirs} them`;
     return c.ours ? `${c.ours} need you` : `${c.theirs} with them`;
   };
@@ -820,18 +822,6 @@ function FlowTab() {
           the rows rather than replacing them. */}
       {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
       {note && <p className="vin-pill" style={{ display: 'block' }}>{note}</p>}
-      <div className="pe-tallies">
-        <button className={`pe-tally${bucket === null ? ' on' : ''}`} onClick={() => setBucket(null)}>
-          <span className="pe-tally-n" style={{ color: data.needsYou ? 'var(--vin-text-danger)' : undefined }}>
-            {data.needsYou}</span>
-          <span>Need you</span>
-        </button>
-        <div className="pe-tally"><span className="pe-tally-n">{data.withThem}</span><span>With them</span></div>
-        <div className="pe-tally"><span className="pe-tally-n">{data.settled}</span><span>Settled</span></div>
-      </div>
-
-      {/* The strip. On a phone the arrows do not survive the width, so it falls
-          back to a row of chips — the counts and the branch are what matter. */}
       <div className="pe-strip">
         {BOXES.map(([k, label], i) => (
           <Fragment key={k}>
@@ -844,22 +834,15 @@ function FlowTab() {
           </Fragment>
         ))}
       </div>
-      <button className={`pe-branch${bucket === 'no_contract' ? ' on' : ''}`}
-              onClick={() => setBucket(bucket === 'no_contract' ? null : 'no_contract')}>
-        ⌞ No contract needed · {data.counts.no_contract?.total || 0}
-      </button>
-
       <div className="pe-filterbar">
         <span>Showing</span>
-        <strong>{bucket ? BOXES.concat([['no_contract', 'No contract needed']])
-          .find(([k]) => k === bucket)?.[1] : 'Everything live'} · {rows.length}</strong>
+        <strong>{bucket ? BOXES.find(([k]) => k === bucket)?.[1] : 'Everything'} · {rows.length}</strong>
         {bucket && <button className="vin-btn" onClick={() => setBucket(null)}>Show all</button>}
       </div>
 
       {rows.length === 0 && (
         <div className="pe-empty">
           {bucket ? 'Nothing in that one.'
-            : data.closed?.length ? 'Nothing live. Everything is settled or closed.'
             : 'No enquiries yet. The board fills itself as requests come in.'}
         </div>
       )}
@@ -927,22 +910,6 @@ function FlowTab() {
         </>)}
       </Drawer>
 
-      {data.closed?.length > 0 && (
-        <details className="pe-closed">
-          <summary>Closed · {data.closed.length}</summary>
-          {data.closed.map((c) => (
-            <div key={c.id} className="pe-req-line">
-              <span>
-                <strong>{c.name}</strong>
-                <div className="pe-req-why">
-                  {c.event_date || 'no date'} · {c.status}
-                  {c.reason ? ` · ${c.reason}` : ''}
-                </div>
-              </span>
-            </div>
-          ))}
-        </details>
-      )}
     </>
   );
 }
