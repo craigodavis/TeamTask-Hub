@@ -4,7 +4,7 @@ import {
   countersignEventContract,
   getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, duplicateEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
-  getSpecialRequests, addSpecialRequest, decideSpecialRequest, saveStaffNotes,
+  getSpecialRequests, addSpecialRequest, decideSpecialRequest, saveStaffNotes, saveEventOverrides,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
 } from '../api';
@@ -168,6 +168,102 @@ function CalendarTab() {
         {sel && <RequestDetail r={sel} />}
       </Drawer>
     </>
+  );
+}
+
+/**
+ * Change the proposal for this one booking.
+ *
+ * Every field shows what the terms worked out, and an empty box means "leave it at
+ * that". Typing a number overrides it for this booking only; clearing the box gives
+ * it back to the terms rather than pinning it to nothing. The two are stored apart,
+ * so months later "what are we charging" and "why is it different from the price
+ * list" both still have answers.
+ */
+function Overrides({ request, onSaved }) {
+  const base = request.requirements || {};
+  const over = request.overrides || {};
+  const [form, setForm] = useState(() => ({
+    rental_total_cents: over.rental_total_cents ?? '',
+    min_wine_purchase_cents: over.min_wine_purchase_cents ?? '',
+    booking_deposit_cents: over.booking_deposit_cents ?? '',
+    security_deposit_cents: over.security_deposit_cents ?? '',
+    insurance_required: over.insurance_required === undefined ? '' : String(over.insurance_required),
+    contract_required: over.contract_required === undefined ? '' : String(over.contract_required),
+    notes_to_customer: over.notes_to_customer ?? '',
+  }));
+  const [err, setErr] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const dollars = (c) => (c == null ? '' : String(c / 100));
+  const asCents = (d) => (d === '' || d == null ? '' : Math.round(Number(d) * 100));
+  const was = (k) => (base[k] == null ? 'not set' : `${money(base[k])} from the terms`);
+
+  const money$ = (key, label) => (
+    <div key={key}>
+      <label className="vin-label">{label}</label>
+      <input className="vin-input" type="number" step="0.01" placeholder={was(key)}
+             value={dollars(form[key] === '' ? null : form[key])}
+             onChange={(e) => { setForm({ ...form, [key]: asCents(e.target.value) }); setSaved(false); }} />
+    </div>
+  );
+
+  const yesNo = (key, label) => (
+    <div key={key}>
+      <label className="vin-label">{label}</label>
+      <select className="vin-select" value={form[key]}
+              onChange={(e) => { setForm({ ...form, [key]: e.target.value }); setSaved(false); }}>
+        <option value="">Leave as the terms say ({base[key] ? 'required' : 'not required'})</option>
+        <option value="true">Required</option>
+        <option value="false">Not required</option>
+      </select>
+    </div>
+  );
+
+  const save = async () => {
+    try {
+      const body = {};
+      for (const [k, v] of Object.entries(form)) {
+        if (v === '') continue;
+        body[k] = (k === 'insurance_required' || k === 'contract_required') ? v === 'true' : v;
+      }
+      // Fields left blank are sent as null so the server releases them back to the
+      // terms; sending nothing at all would leave an old override in place.
+      for (const k of Object.keys(form)) if (!(k in body)) body[k] = null;
+      await saveEventOverrides(request.id, body);
+      setErr(''); setSaved(true); onSaved?.();
+    } catch (e) { setErr(e.message); }
+  };
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
+      <div className="vin-label">Change this proposal</div>
+      <p className="pe-req-why" style={{ marginTop: 0 }}>
+        Leave a box empty to keep what the terms worked out. Anything you set here
+        applies to this booking only.
+      </p>
+      <div className="vin-drawer-row">
+        {money$('rental_total_cents', 'Venue fee ($)')}
+        {money$('min_wine_purchase_cents', 'Minimum wine purchase ($)')}
+      </div>
+      <div className="vin-drawer-row">
+        {money$('booking_deposit_cents', 'Booking deposit ($)')}
+        {money$('security_deposit_cents', 'Security deposit ($)')}
+      </div>
+      <div className="vin-drawer-row">
+        {yesNo('insurance_required', 'Insurance')}
+        {yesNo('contract_required', 'Contract')}
+      </div>
+      <div>
+        <label className="vin-label">Note to the customer — appears on the proposal</label>
+        <textarea rows={2} className="vin-textarea" value={form.notes_to_customer || ''}
+                  onChange={(e) => { setForm({ ...form, notes_to_customer: e.target.value }); setSaved(false); }} />
+      </div>
+      {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
+      <button className="vin-btn vin-btn-primary" style={{ marginTop: 8 }} onClick={save}>
+        {saved ? 'Saved — resend the proposal to show them' : 'Save changes'}
+      </button>
+    </div>
   );
 }
 
@@ -536,7 +632,21 @@ function FlowTab() {
       <Drawer open={!!reviewing} title={reviewing ? `${reviewing.name} — what they asked for` : ''}
               onClose={() => { setReviewing(null); load(); }}
               footer={<button className="vin-btn" onClick={() => { setReviewing(null); load(); }}>Done</button>}>
-        {reviewing && <SpecialRequests requestId={reviewing.id} onChanged={load} />}
+        {reviewing && (<>
+          <SpecialRequests requestId={reviewing.id} onChanged={load} />
+          <Overrides request={reviewing} onSaved={load} />
+          {/* Answering an ask usually means the proposal has changed, so resending
+              is here rather than back on the board. */}
+          <button className="vin-btn" style={{ marginTop: 12 }} disabled={busy === reviewing.id}
+                  onClick={async () => {
+                    setBusy(reviewing.id);
+                    try {
+                      const out = await sendEventProposal(reviewing.id);
+                      setErr(''); setNote(`Updated proposal emailed to ${out.sentTo}.`); load();
+                    } catch (e) { setErr(e.message); }
+                    finally { setBusy(null); }
+                  }}>Resend the proposal</button>
+        </>)}
       </Drawer>
 
       {data.closed?.length > 0 && (
