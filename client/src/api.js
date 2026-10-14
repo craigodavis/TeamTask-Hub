@@ -3057,6 +3057,12 @@ export async function saveEventOverrides(id, overrides) {
   if (!res.ok) throw new Error(d.error || 'Could not save the changes');
   return d;
 }
+export async function getApprovalState(id) {
+  const res = await fetch(`${API}/event-requests/${id}/approval`, { headers: headers() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to check');
+  return d;
+}
 export async function getEventJournal(id) {
   const res = await fetch(`${API}/event-requests/${id}/journal`, { headers: headers() });
   const d = await res.json().catch(() => ({}));

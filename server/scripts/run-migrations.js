@@ -5414,6 +5414,17 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   `ALTER TABLE kindred_web.event_special_requests DROP CONSTRAINT IF EXISTS esr_status`,
   `ALTER TABLE kindred_web.event_special_requests ADD CONSTRAINT esr_status
      CHECK (status IN ('pending','approved','modified','rejected','dismissed'))`,
+
+  // A reworded agreement is not an agreement until they have seen the rewording.
+  //
+  // "Agree with changes" is us answering a different question from the one asked —
+  // they wanted noodles, we said noodles from your caterer. Treating that as settled
+  // because WE settled it is how a contract ends up containing a term the customer
+  // never accepted.
+  `ALTER TABLE kindred_web.event_special_requests
+     ADD COLUMN IF NOT EXISTS customer_accepted_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS customer_declined_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS customer_note TEXT`,
 ];
 
 export async function runMigrations() {

@@ -205,3 +205,10 @@ button.pe-tally.on { outline: 1px solid var(--vin-border-strong); }
   background: var(--vin-bg-danger); color: var(--vin-text-danger);
 }
 .pe-ask.pending { border-left: 2px solid var(--vin-text-danger); padding-left: 9px !important; }
+
+.pe-blockers {
+  background: var(--vin-bg-danger); border-radius: var(--vin-radius, 8px);
+  padding: 11px 14px; margin-bottom: 14px; font-size: 13px; color: var(--vin-text-danger);
+}
+.pe-blockers ul { margin: 6px 0 0; padding-left: 18px; }
+.pe-blockers li { margin-bottom: 3px; }

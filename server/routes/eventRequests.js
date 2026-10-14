@@ -13,6 +13,7 @@ import { requireManager } from '../middleware/auth.js';
 import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard, completePastEvents, CLOSED_STATUSES } from '../lib/eventBoard.js';
 import { journal, journalFor, NOTIFIABLE } from '../lib/eventJournal.js';
+import { approvalBlockers } from '../lib/eventApproval.js';
 import { pool } from '../db.js';
 import { sendMail } from '../mail.js';
 import { clientIpOf } from './mcpDb.js';
@@ -555,6 +556,13 @@ router.get('/:id/run-sheet', requireManager, async (req, res) => {
 
 // ── Journal, ResOS and who hears about it ────────────────────────────────────
 
+router.get('/:id/approval', requireManager, async (req, res) => {
+  try {
+    const blockers = await approvalBlockers(req.params.id);
+    res.json({ canApprove: blockers.length === 0, blockers });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/:id/journal', requireManager, async (req, res) => {
   try { res.json({ entries: await journalFor(req.params.id) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -726,6 +734,9 @@ router.put('/special-requests/:sid', requireManager, async (req, res) => {
                                  WHEN $2 = 'approved' THEN NULL ELSE agreed_text END,
               decision_note = $4,
               decided_at = CASE WHEN $2 = 'pending' THEN NULL ELSE NOW() END,
+              -- A new wording is a new question: whatever they said about the last
+              -- one does not carry over.
+              customer_accepted_at = NULL, customer_declined_at = NULL, customer_note = NULL,
               decided_by = $5, updated_at = NOW()
         WHERE id = $1 AND company_id = $6 RETURNING *`,
       [req.params.sid, status, agreed, String(req.body?.decision_note || '').trim() || null,
@@ -1067,6 +1078,15 @@ router.patch('/:id', requireManager, async (req, res) => {
       }
       set('status', b.status);
       if (b.status === 'approved') {
+        // Checked here, not only on the screen. The screen hides the button; this is
+        // the door, and the rule has to hold whichever way the request arrives.
+        const blockers = await approvalBlockers(req.params.id);
+        if (blockers.length) {
+          return res.status(409).json({
+            error: 'Not ready to approve yet: ' + blockers.map((x) => x.text).join('; ') + '.',
+            blockers,
+          });
+        }
         // Approving only counts once. Re-approving an already-approved request
         // must not move a deadline someone has already worked to.
         justApproved = !cur.approved_at;

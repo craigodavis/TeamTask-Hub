@@ -288,7 +288,8 @@ websiteRouter.get('/event-proposal', async (req, res) => {
     }
     const t = effectiveTerms(r);
     const items = (await query(
-      `SELECT id, body, status, agreed_text, created_at
+      `SELECT id, body, status, agreed_text, created_at,
+              customer_accepted_at, customer_declined_at
          FROM kindred_web.event_special_requests
         WHERE request_id = $1 ORDER BY created_at`, [r.id])).rows;
 
@@ -326,9 +327,14 @@ websiteRouter.get('/event-proposal', async (req, res) => {
       // declined rather than quietly dropped — they asked, and they are owed an
       // answer they can see.
       requests: items.map((i) => ({
+        id: i.id,
         body: i.body,
         status: i.status,
         agreed: i.agreed_text || null,
+        // A reworded agreement needs their answer before it counts.
+        needsYourOk: i.status === 'modified' && !i.customer_accepted_at && !i.customer_declined_at,
+        youAccepted: !!i.customer_accepted_at,
+        youRefused: !!i.customer_declined_at,
       })),
       acceptedAt: r.proposal_accepted_at,
       declinedAt: r.proposal_declined_at,
@@ -373,6 +379,30 @@ websiteRouter.post('/event-proposal/decline', async (req, res) => {
       { detail: reason.slice(0, 160), actorName: 'the customer' });
     res.json({ ok: true });
   } catch (e) { console.error('event-proposal-decline', e); res.status(500).json({ error: e.message }); }
+});
+
+websiteRouter.post('/event-proposal/ask-response', async (req, res) => {
+  try {
+    const r = await requestByToken(req.body?.token);
+    if (!r) return res.status(404).json({ error: 'That link is not valid.' });
+    const id = String(req.body?.id || '');
+    const ok = req.body?.accepted === true;
+    const note = String(req.body?.note || '').trim().slice(0, 1000) || null;
+
+    const { rows } = await query(
+      `UPDATE kindred_web.event_special_requests
+          SET customer_accepted_at = $3, customer_declined_at = $4,
+              customer_note = $5, updated_at = NOW()
+        WHERE id = $1 AND request_id = $2 AND status = 'modified'
+        RETURNING body, agreed_text`,
+      [id, r.id, ok ? new Date() : null, ok ? null : new Date(), note]);
+    if (!rows.length) return res.status(404).json({ error: 'No such item.' });
+
+    const companyId = await kindredCompanyId();
+    await journal(companyId, r.id, ok ? 'change_accepted' : 'change_refused',
+      { detail: (rows[0].agreed_text || rows[0].body || '').slice(0, 120), actorName: 'the customer' });
+    res.json({ ok: true });
+  } catch (e) { console.error('ask-response', e); res.status(500).json({ error: e.message }); }
 });
 
 websiteRouter.post('/event-proposal/accept', async (req, res) => {

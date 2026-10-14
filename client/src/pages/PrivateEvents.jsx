@@ -5,7 +5,7 @@ import {
   getEventTerms, createEventTerm, updateEventTerm,
   deleteEventTerm, duplicateEventTerm, previewEventTerms, evaluateEventRequest, updateEventRequest,
   getSpecialRequests, addSpecialRequest, decideSpecialRequest, saveStaffNotes, saveEventOverrides,
-  getEventJournal, markResosBooked, getNotifySettings, saveNotifySettings,
+  getEventJournal, markResosBooked, getNotifySettings, saveNotifySettings, getApprovalState,
   getLocations, getContractSections, createContractSection,
   updateContractSection, deleteContractSection,
 } from '../api';
@@ -326,6 +326,11 @@ function SpecialRequests({ requestId, onChanged }) {
             <div style={{ fontSize: 13, marginTop: 6, paddingLeft: 10,
                           borderLeft: '2px solid var(--vin-text-accent)' }}>
               {it.agreed_text}
+              <div className="pe-req-why">
+                {it.customer_accepted_at ? 'They accepted this wording'
+                  : it.customer_declined_at ? 'They are not happy with this wording'
+                  : 'Waiting for them to accept this wording'}
+              </div>
             </div>
           )}
 
@@ -549,7 +554,17 @@ function RequestDrawer({ request, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [row, setRow] = useState(request);
+  // Approving is the moment we commit to hosting, so the button only exists when it
+  // can be pressed. A disabled one invites a hunt for what is wrong with it; the
+  // reasons say so plainly instead.
+  const [approval, setApproval] = useState(null);
+  const [tick, setTick] = useState(0);
+
   useEffect(() => { setRow(request); setErr(''); }, [request]);
+  useEffect(() => {
+    if (!request?.id) { setApproval(null); return; }
+    getApprovalState(request.id).then(setApproval).catch(() => setApproval(null));
+  }, [request?.id, tick]);
 
   if (!row) return <Drawer open={false} onClose={onClose} />;
 
@@ -588,13 +603,21 @@ function RequestDrawer({ request, onClose, onChanged }) {
                           })}>
                     {row.rules_evaluated_at ? 'Re-check terms' : 'Check terms'}
                   </button>
-                  <button className="vin-btn vin-btn-primary" disabled={busy}
-                          onClick={() => setStatus('approved')}>Approve</button>
+                  {approval?.canApprove && (
+                    <button className="vin-btn vin-btn-primary" disabled={busy}
+                            onClick={() => setStatus('approved')}>Approve</button>
+                  )}
                 </>)}
               </>
             )}>
       {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
-      <RequestDetail r={row} />
+      {approval && !approval.canApprove && row.status === 'new' && (
+        <div className="pe-blockers">
+          <strong>Before this can be approved</strong>
+          <ul>{approval.blockers.map((b, i) => <li key={i}>{b.text}</li>)}</ul>
+        </div>
+      )}
+      <RequestDetail r={row} onAsksChanged={() => setTick((n) => n + 1)} />
       <Journal requestId={row.id} />
     </Drawer>
   );
@@ -612,7 +635,7 @@ function RequestDrawer({ request, onClose, onChanged }) {
  * So: what they asked, what is ours to do, who and when, and the money folded away
  * behind a disclosure. The record is all still here, one click further down.
  */
-function RequestDetail({ r }) {
+function RequestDetail({ r, onAsksChanged }) {
   const need = r.requirements;
   const money1 = (c) => (c == null ? null : money(c));
   const t = need || {};
@@ -625,7 +648,7 @@ function RequestDetail({ r }) {
         </div>
       )}
 
-      <SpecialRequests requestId={r.id} />
+      <SpecialRequests requestId={r.id} onChanged={onAsksChanged} />
       <Steps r={r} />
 
       <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
