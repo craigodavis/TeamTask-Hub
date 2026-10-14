@@ -154,6 +154,70 @@ function splice(doc, tag, body) {
  * @param {{white: object[], red: object[]}} wines  in print order
  * @returns {Promise<Buffer>} the PDF
  */
+
+/**
+ * Shrink a panel's content until it clears the furniture at the foot of the page.
+ *
+ * Panels are a fixed 5.5 x 8.5in with the sheet set to overflow:hidden, and the
+ * ornament and the allergy footnote are absolutely positioned at the bottom. So a
+ * panel that gains an item does not grow or push anything down — its content runs
+ * straight through the logo and then off the page. Adding two cocktails did exactly
+ * that.
+ *
+ * The flowing children are wrapped and zoomed down until their bottom edge clears
+ * the highest piece of furniture. zoom rather than font-size because the template
+ * sets its spacing in points — .item { margin-top: 13pt } — so scaling type alone
+ * would leave the gaps at full size and barely help.
+ *
+ * Binary search over the scale, because each try costs a layout pass and stepping
+ * down in small increments can take forty of them. Never scales up: a half-empty
+ * panel is a design decision, not a gap to fill.
+ */
+async function fitPanels(page) {
+  return page.evaluate(() => {
+    const CLEAR = 10;          // px of air to leave above the furniture
+    const FLOOR_SCALE = 0.55;  // below this it is unreadable; better to let it spill
+    const out = [];
+
+    for (const panel of document.querySelectorAll('.panel')) {
+      const flow = [...panel.children]
+        .filter((el) => getComputedStyle(el).position === 'static');
+      if (!flow.length) continue;
+
+      const wrap = document.createElement('div');
+      panel.insertBefore(wrap, flow[0]);
+      for (const el of flow) wrap.appendChild(el);
+
+      const pr = panel.getBoundingClientRect();
+      let floor = pr.bottom - parseFloat(getComputedStyle(panel).paddingBottom || '0');
+      for (const f of panel.querySelectorAll('.orn, .footnote')) {
+        const r = f.getBoundingClientRect();
+        if (r.height > 0) floor = Math.min(floor, r.top - CLEAR);
+      }
+
+      const fits = (z) => {
+        wrap.style.zoom = String(z);
+        return wrap.getBoundingClientRect().bottom <= floor;
+      };
+
+      if (fits(1)) { wrap.style.zoom = ''; continue; }
+
+      let lo = FLOOR_SCALE, hi = 1;
+      for (let i = 0; i < 16; i += 1) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) lo = mid; else hi = mid;
+      }
+      const ok = fits(lo);
+      out.push({
+        section: panel.querySelector('.sec-head')?.textContent.trim().slice(0, 40) || '(untitled)',
+        scale: Math.round(lo * 1000) / 1000,
+        cleared: ok,
+      });
+    }
+    return out;
+  });
+}
+
 export async function renderMenuPdf(menuKey, wines, foodItems = []) {
   const dir = path.join(MENU_ROOT, menuKey);
   const templatePath = path.join(dir, 'menu.html');
@@ -186,6 +250,7 @@ export async function renderMenuPdf(menuKey, wines, foodItems = []) {
   try {
     const page = await (await browser.newContext()).newPage();
     await page.goto(pathToFileURL(tmp).toString(), { waitUntil: 'networkidle' });
+    await fitPanels(page);
     // Landscape letter with zero margin, per the template's @page rule. The
     // sheets are booklet-imposed, so page order is not reading order.
     const size = PAGE_SIZE[menuKey] || PAGE_SIZE._default;
