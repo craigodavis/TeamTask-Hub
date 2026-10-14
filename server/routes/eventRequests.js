@@ -15,7 +15,7 @@ import { board, closedBoard } from '../lib/eventBoard.js';
 import { sendMail } from '../mail.js';
 import { clientIpOf } from './mcpDb.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
-import { EVENT_REQUEST_URL, EVENT_CONTRACT_URL } from '../lib/publicLinks.js';
+import { EVENT_REQUEST_URL, EVENT_CONTRACT_URL, EVENT_PROPOSAL_URL } from '../lib/publicLinks.js';
 import {
   KEYS, money, outstanding, allSatisfied, newToken,
   alertRecipients, planningMeetingSms, shortDate,
@@ -586,6 +586,62 @@ router.put('/special-requests/:sid', requireManager, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'No such request' });
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Send the proposal ────────────────────────────────────────────────────────
+// The price is agreed before the clauses. Nobody reads eleven sections about an
+// amount they were going to argue with.
+router.post('/:id/send-proposal', requireManager, async (req, res) => {
+  try {
+    const cur = (await query(
+      `SELECT r.*, l.name AS location_name FROM kindred_web.event_requests r
+         LEFT JOIN locations l ON l.id = r.location_id WHERE r.id = $1`,
+      [req.params.id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Request not found' });
+    if (!cur.email) return res.status(400).json({ error: 'No email address on this enquiry.' });
+    if (!cur.rules_evaluated_at) {
+      return res.status(400).json({ error: 'Check the terms first — there is no quote to propose yet.' });
+    }
+
+    let token = cur.token;
+    if (!token) {
+      token = newToken();
+      await query(`UPDATE kindred_web.event_requests SET token = $2 WHERE id = $1`, [cur.id, token]);
+    }
+    await query(
+      `UPDATE kindred_web.event_requests SET token_expires_at = NOW() + INTERVAL '180 days'
+        WHERE id = $1`, [cur.id]);
+
+    const t = effectiveTerms(cur);
+    const url = `${EVENT_PROPOSAL_URL}?t=${encodeURIComponent(token)}`;
+    const name = `${cur.first_name || ''} ${cur.last_name || ''}`.trim();
+    const when = [isoDate(cur.event_date),
+      cur.start_time ? `${String(cur.start_time).slice(0, 5)}–${String(cur.end_time || '').slice(0, 5)}` : null,
+      cur.location_name].filter(Boolean).join(' · ');
+
+    const html = `<div style="font-family:Georgia,serif;max-width:620px;line-height:1.55">`
+      + `<p>${esc(name) || 'Hello'},</p>`
+      + `<p>Here is our proposal for ${esc(when) || 'your event'}. Have a read, ask us for `
+      + `anything you need, and accept it when you are happy.</p>`
+      + `<p><a href="${esc(url)}" style="display:inline-block;padding:11px 20px;`
+      + `background:#0F5361;color:#fff;text-decoration:none;border-radius:6px">`
+      + `Read the proposal</a></p>`
+      + `<p style="font-size:13px;color:#666">Or paste this into your browser:<br>${esc(url)}</p>`
+      + `</div>`;
+    const text = `${name},\n\nHere is our proposal for ${when || 'your event'}:\n\n${url}\n\n`
+      + `Have a read, ask us for anything you need, and accept it when you are happy.`;
+
+    const sent = await sendMail({ to: cur.email,
+      subject: 'Your proposal from Kindred Vineyards', text, html }, req.companyId);
+    if (sent && sent.sent === false) {
+      return res.status(502).json({ error: `The email did not send: ${sent.error || 'unknown error'}` });
+    }
+
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests SET proposal_sent_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [cur.id]);
+    res.json({ ok: true, sentTo: cur.email, total: t.rental_total_cents, request: shape(rows[0]) });
+  } catch (e) { console.error('send-proposal', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── Send the contract ────────────────────────────────────────────────────────

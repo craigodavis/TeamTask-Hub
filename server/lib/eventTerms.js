@@ -321,8 +321,14 @@ export function effectiveTerms(request) {
     out.rental_total_cents = out.hourly_rate_cents != null && out.hours != null
       ? Math.round(out.hourly_rate_cents * out.hours) : out.rental_total_cents;
   }
-  out.due_now_cents =
-    (out.booking_deposit_cents ?? 0) + (out.security_deposit_cents ?? 0) || null;
+  // Recomputed ONLY when an override touched a deposit. Doing it unconditionally
+  // discarded the quoted figure on any snapshot that recorded a total without its
+  // parts, which silently turned an agreed deposit into nothing owed.
+  if (out.overridden.includes('booking_deposit_cents')
+      || out.overridden.includes('security_deposit_cents')) {
+    out.due_now_cents =
+      (out.booking_deposit_cents ?? 0) + (out.security_deposit_cents ?? 0) || null;
+  }
 
   return out;
 }

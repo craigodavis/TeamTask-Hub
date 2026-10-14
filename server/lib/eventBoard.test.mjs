@@ -7,7 +7,10 @@ const base = (o) => ({
   rules_evaluated_at: '2026-10-01', requirements: {},
   contract_sent_at: null, contract_customer_signed_at: null, contract_executed_at: null,
   insurance_required: false, insurance_uploaded_at: null, insurance_ok: false,
-  deposit_paid_at: null, location_name: 'Creek', ...o,
+  deposit_paid_at: null, location_name: 'Creek',
+  // Past the proposal by default: these cases are about what happens AFTER the price
+  // is agreed. The proposal stage has its own cases below.
+  proposal_sent_at: '2026-10-01', proposal_accepted_at: '2026-10-02', ...o,
 });
 
 let fails = 0;
@@ -92,7 +95,7 @@ is('needsYou', board.needsYou, 3);
 // Counts overlap on purpose, and proposals is unwired rather than a confident zero.
 is('contracts count', board.counts.contracts.total, 3);
 is('outstanding count', board.counts.outstanding.total, 3);
-is('proposals unwired', board.counts.proposals.unwired, true);
+is('proposals: none outstanding once accepted', board.counts.proposals.total, 0);
 
 // A booking waiting on them still counts, but not as "ours".
 const mixed = buildBoard([
@@ -108,6 +111,29 @@ r = boardRow(base({ requirements: { contract_required: false, insurance_required
 is('awaiting deposit: label names the act', r.action.label, 'Mark deposit paid');
 is('awaiting deposit: kind', r.action.kind, 'deposit_paid');
 is('awaiting deposit: turn is still theirs', r.turn, 'theirs');
+
+// ── The proposal comes before the contract ───────────────────────────────────
+const costed = { contract_required: true, insurance_required: false, due_now_cents: 50000,
+  min_wine_purchase_cents: 60000, rental_total_cents: 110000 };
+
+r = boardRow(base({ requirements: costed, proposal_sent_at: null, proposal_accepted_at: null }), TODAY);
+is('unproposed: asks for the proposal first', r.action.label, 'Send proposal');
+is('unproposed: not the contract', r.gates.find((g) => g.key === 'proposal').turn, 'ours');
+is('unproposed: in the proposals bucket', r.buckets.includes('proposals'), true);
+
+r = boardRow(base({ requirements: costed, proposal_sent_at: '2026-10-10', proposal_accepted_at: null }), TODAY);
+is('sent, unanswered: their move', r.turn, 'theirs');
+is('sent, unanswered: resend', r.action.label, 'Resend proposal');
+
+r = boardRow(base({ requirements: costed }), TODAY);   // accepted by default
+is('accepted: proposal done', r.gates.find((g) => g.key === 'proposal').state, 'done');
+is('accepted: contract is next', r.action.label, 'Send contract');
+
+// A booking that costs nothing has nothing to propose.
+r = boardRow(base({ requirements: { contract_required: false, insurance_required: false },
+  proposal_sent_at: null, proposal_accepted_at: null }), TODAY);
+is('free booking: no proposal gate', r.gates.some((g) => g.key === 'proposal'), false);
+is('free booking: nothing to do', r.action, null);
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

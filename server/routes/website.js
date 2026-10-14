@@ -15,7 +15,7 @@ import {
 } from '../lib/eventRequests.js';
 import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
-import { resolveTerms, evaluate } from '../lib/eventTerms.js';
+import { resolveTerms, evaluate, effectiveTerms } from '../lib/eventTerms.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { clientIpOf } from './mcpDb.js';
 import crypto from 'node:crypto';
@@ -248,6 +248,93 @@ websiteRouter.get('/event-quote', async (req, res) => {
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── The proposal the customer reads, questions and accepts ───────────────────
+// Same tokenised link as the contract. Accepting here is agreeing the PRICE; the
+// clauses come after, so a disagreement about money surfaces before anyone reads
+// eleven sections of terms.
+
+websiteRouter.get('/event-proposal', async (req, res) => {
+  try {
+    const r = await requestByToken(req.query.token);
+    if (!r) return res.status(404).json({ error: 'That link is not valid. Please ask us for a new one.' });
+    if (r.token_expires_at && new Date(r.token_expires_at) < new Date()) {
+      return res.status(410).json({ error: 'That link has expired. Please ask us for a new one.' });
+    }
+    const t = effectiveTerms(r);
+    const items = (await query(
+      `SELECT id, body, status, agreed_text, created_at
+         FROM kindred_web.event_special_requests
+        WHERE request_id = $1 ORDER BY created_at`, [r.id])).rows;
+
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      event: {
+        name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+        date: isoDate(r.event_date),
+        startTime: r.start_time ? String(r.start_time).slice(0, 5) : null,
+        endTime: r.end_time ? String(r.end_time).slice(0, 5) : null,
+        venue: r.location_name || null,
+        guests: r.guests,
+        hours: t.hours ?? null,
+      },
+      terms: {
+        hourlyRate: t.hourly_rate_cents != null ? money(t.hourly_rate_cents) : null,
+        venueFee: t.rental_total_cents != null ? money(t.rental_total_cents) : null,
+        minAlcohol: t.min_wine_purchase_cents != null ? money(t.min_wine_purchase_cents) : null,
+        bookingDeposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
+        securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
+        dueNow: t.due_now_cents ? money(t.due_now_cents) : null,
+        insuranceRequired: !!t.insurance_required,
+        contractRequired: !!t.contract_required,
+        notes: t.notes_to_customer || null,
+      },
+      // Their own asks and where each one stands. A declined item is shown as
+      // declined rather than quietly dropped — they asked, and they are owed an
+      // answer they can see.
+      requests: items.map((i) => ({
+        body: i.body,
+        status: i.status,
+        agreed: i.agreed_text || null,
+      })),
+      acceptedAt: r.proposal_accepted_at,
+    });
+  } catch (e) { console.error('event-proposal', e); res.status(500).json({ error: e.message }); }
+});
+
+websiteRouter.post('/event-proposal/request', async (req, res) => {
+  try {
+    const r = await requestByToken(req.body?.token);
+    if (!r) return res.status(404).json({ error: 'That link is not valid.' });
+    const body = String(req.body?.body || '').trim();
+    if (body.length < 3) return res.status(400).json({ error: 'Tell us what you would like.' });
+    if (body.length > 2000) return res.status(400).json({ error: 'That is longer than we can take here — please email us.' });
+
+    const companyId = await kindredCompanyId();
+    await query(
+      `INSERT INTO kindred_web.event_special_requests
+         (company_id, request_id, source, body, status)
+       VALUES ($1,$2,'customer',$3,'pending')`, [companyId, r.id, body]);
+    res.json({ ok: true });
+  } catch (e) { console.error('event-proposal-request', e); res.status(500).json({ error: e.message }); }
+});
+
+websiteRouter.post('/event-proposal/accept', async (req, res) => {
+  try {
+    const r = await requestByToken(req.body?.token);
+    if (!r) return res.status(404).json({ error: 'That link is not valid.' });
+    if (r.token_expires_at && new Date(r.token_expires_at) < new Date()) {
+      return res.status(410).json({ error: 'That link has expired. Please ask us for a new one.' });
+    }
+    // Accepting twice is the same as accepting once; the first time stands, so a
+    // second tap cannot move the date of the agreement.
+    const { rows } = await query(
+      `UPDATE kindred_web.event_requests
+          SET proposal_accepted_at = COALESCE(proposal_accepted_at, NOW()), updated_at = NOW()
+        WHERE id = $1 RETURNING proposal_accepted_at`, [r.id]);
+    res.json({ ok: true, acceptedAt: rows[0].proposal_accepted_at });
+  } catch (e) { console.error('event-proposal-accept', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── The contract the customer reads and signs ────────────────────────────────

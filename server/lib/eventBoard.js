@@ -68,6 +68,20 @@ export function gatesFor(r) {
     gates.push({ key: 'approval', label: 'Needs approval', state: 'outstanding', turn: 'ours' });
   }
 
+  // A proposal comes before a contract: the price is agreed first, then the legal
+  // clauses. Only where there is actually something to agree — a booking that costs
+  // nothing and requires nothing has nothing to propose.
+  const costs = (req.rental_total_cents ?? 0) + (req.min_wine_purchase_cents ?? 0)
+    + (req.due_now_cents ?? 0);
+  if (costs > 0 && !r.proposal_accepted_at) {
+    gates.push(r.proposal_sent_at
+      ? { key: 'proposal', label: 'Awaiting their answer', state: 'outstanding', turn: 'theirs',
+          since: r.proposal_sent_at }
+      : { key: 'proposal', label: 'Send proposal', state: 'outstanding', turn: 'ours' });
+  } else if (r.proposal_accepted_at) {
+    gates.push({ key: 'proposal', label: 'Proposal accepted', state: 'done', turn: null });
+  }
+
   // Prefer the frozen snapshot; fall back to the flags the evaluate route also
   // writes, so a booking evaluated before the snapshot existed still reads right.
   const contractRequired = req.contract_required ?? false;
@@ -118,6 +132,7 @@ export function bucketsFor(r, gates) {
   const gate = (k) => gates.find((g) => g.key === k);
 
   if (gate('terms') || gate('approval')) out.add('requests');
+  if (gate('proposal')?.state === 'outstanding') out.add('proposals');
   if (gate('contract')?.state === 'outstanding') out.add('contracts');
   if (gate('contract')?.state === 'not_required' && r.rules_evaluated_at) out.add('no_contract');
   for (const k of ['insurance', 'deposit']) {
@@ -139,11 +154,38 @@ export function bucketsFor(r, gates) {
  * genuinely can do while waiting is resend the contract, or record something that
  * has arrived — and both now say exactly that.
  */
+const GATE_ORDER = ['terms', 'approval', 'proposal', 'contract', 'insurance', 'deposit'];
+
+/**
+ * The gate that governs this booking: the first outstanding one in sequence.
+ *
+ * The row's turn follows it, rather than being "any gate is ours". A contract we
+ * have not sent is technically ours, but while the proposal sits unanswered it is
+ * not ours to do — and a board that called that our move would send staff chasing
+ * a step the customer has not reached.
+ */
+export function governingGate(gates) {
+  for (const k of GATE_ORDER) {
+    const g = gates.find((x) => x.key === k && x.state === 'outstanding');
+    if (g) return g;
+  }
+  return null;
+}
+
 function nextAction(gates, r) {
   const outstanding = (k) => gates.find((g) => g.key === k && g.state === 'outstanding');
 
   if (outstanding('terms')) return { kind: 'evaluate', label: 'Check terms' };
   if (outstanding('approval')) return { kind: 'approve', label: 'Approve' };
+
+  // The proposal is answered before the contract is drawn: agreeing the price first
+  // means nobody reads ten clauses about an amount they were going to argue with.
+  const proposal = outstanding('proposal');
+  if (proposal) {
+    return r.proposal_sent_at
+      ? { kind: 'send_proposal', label: 'Resend proposal' }
+      : { kind: 'send_proposal', label: 'Send proposal' };
+  }
 
   const contract = outstanding('contract');
   if (contract) {
@@ -162,9 +204,8 @@ function nextAction(gates, r) {
 
 export function boardRow(r, today) {
   const gates = gatesFor(r);
-  const outstandingGates = gates.filter((g) => g.state === 'outstanding');
-  const turn = outstandingGates.some((g) => g.turn === 'ours') ? 'ours'
-    : outstandingGates.length ? 'theirs' : 'done';
+  const governing = governingGate(gates);
+  const turn = governing ? governing.turn : 'done';
 
   return {
     id: r.id,
