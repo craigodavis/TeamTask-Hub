@@ -11,7 +11,7 @@ import express from 'express';
 import { query } from '../db.js';
 import { requireManager } from '../middleware/auth.js';
 import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
-import { board, closedBoard, CLOSED_STATUSES } from '../lib/eventBoard.js';
+import { board, closedBoard, completePastEvents, CLOSED_STATUSES } from '../lib/eventBoard.js';
 import { journal, journalFor, NOTIFIABLE } from '../lib/eventJournal.js';
 import { pool } from '../db.js';
 import { sendMail } from '../mail.js';
@@ -87,6 +87,27 @@ router.get('/', requireManager, async (req, res) => {
     // deleted — it just stops being something to look at, which is the whole point of
     // cancelling it.
     const status = req.query.status;
+    await completePastEvents(req.companyId);
+
+    // "Needs attention" is whatever the board says is our move. Asked of the board
+    // rather than rebuilt in SQL: the rule about whose turn it is lives in one place,
+    // and every time it has been written twice in this feature the two copies have
+    // drifted.
+    if (status === 'attention') {
+      const live = await board(req.companyId);
+      const ids = live.rows.filter((r) => r.turn === 'ours').map((r) => r.id);
+      if (!ids.length) return res.json({ requests: [], form_url: EVENT_REQUEST_URL });
+      const { rows } = await query(
+        `SELECT r.*, l.name AS location_name,
+                (SELECT count(*) FROM kindred_web.event_special_requests s
+                  WHERE s.request_id = r.id AND s.status = 'pending') AS pending_requests
+           FROM kindred_web.event_requests r
+           LEFT JOIN locations l ON l.id = r.location_id
+          WHERE r.id = ANY($1::uuid[])
+          ORDER BY r.event_date NULLS LAST`, [ids]);
+      return res.json({ requests: rows.map(shape), form_url: EVENT_REQUEST_URL });
+    }
+
     const vals = [];
     let where = '';
     if (status && status !== 'all' && status !== 'open') {
@@ -94,7 +115,8 @@ router.get('/', requireManager, async (req, res) => {
     } else if (status === 'all') {
       where = '';
     } else {
-      vals.push(CLOSED_STATUSES); where = `WHERE r.status <> ALL($${vals.length}::text[])`;
+      vals.push([...CLOSED_STATUSES, 'complete']);
+      where = `WHERE r.status <> ALL($${vals.length}::text[])`;
     }
 
     const SORTS = {

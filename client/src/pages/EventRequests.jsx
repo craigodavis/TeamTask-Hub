@@ -123,7 +123,10 @@ export function Requests({ onError, onOpen }) {
   const [loading, setLoading] = useState(true);
   // Open by default. A cancelled enquiry is kept but stops being something to look
   // at — an inbox that still shows everything you have dealt with is not an inbox.
-  const [filter, setFilter] = useState('');
+  // Opens on what needs doing. "Open" is everything still live; this is the subset
+  // where the next move is ours, which is the question somebody opening the inbox is
+  // actually asking.
+  const [filter, setFilter] = useState('attention');
   const [sort, setSort] = useState('newest');
   const [search, setSearch] = useState('');
   // Comes back with the list, so showing it costs no extra request. Served by the API
@@ -134,7 +137,7 @@ export function Requests({ onError, onOpen }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await getEventRequests(filter || undefined, sort);
+      const d = await getEventRequests(filter, sort);
       setRows(d.requests);
       setFormUrl(d.form_url || '');
     }
@@ -159,46 +162,47 @@ export function Requests({ onError, onOpen }) {
   return (
     <>
       <FormLink url={formUrl} />
+      {/* Chips rather than a dropdown. Two things went wrong with the select: a
+          leftover second select was bound to the same state with a different option
+          set, so they fought; and "Open" was the empty string, which reads as "no
+          filter" when it actually means "open only" — easy to get wrong and
+          impossible to see. Chips show which view you are in without opening
+          anything. */}
       <div className="evr-filters">
-        <label>
-          Show
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="">Open</option>
-            <option value="new">Not yet reviewed</option>
-            <option value="approved">Approved</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="declined">Declined</option>
-            <option value="complete">Finished</option>
-            <option value="all">Everything</option>
-          </select>
-        </label>
-        <label>
-          Sort
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="newest">Newest enquiry</option>
-            <option value="oldest">Oldest enquiry</option>
-            <option value="event_date">Event date</option>
-            <option value="guests">Most guests</option>
-            <option value="name">Name</option>
-          </select>
-        </label>
-        <label>
-          Find
-          {/* Filtered here rather than in a query: the list is capped at 500 and a
-              round trip per keystroke buys nothing. */}
-          <input value={search} placeholder="name, email or phone"
-                 onChange={(e) => setSearch(e.target.value)} />
-        </label>
-        <label hidden>
-          Status
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="">All</option>
-            <option value="new">New</option>
-            <option value="approved">Approved</option>
-            <option value="declined">Declined</option>
-            <option value="complete">Complete</option>
-          </select>
-        </label>
+        <div className="evr-chips">
+          {[['attention', 'Needs attention'], ['open', 'Open'], ['new', 'Not reviewed'],
+            ['approved', 'Approved'], ['complete', 'Finished'], ['cancelled', 'Cancelled'],
+            ['declined', 'Declined'], ['all', 'Everything']].map(([v, label]) => (
+            <button key={v} type="button"
+                    className={`evr-chip${filter === v ? ' on' : ''}`}
+                    aria-pressed={filter === v}
+                    onClick={() => setFilter(v)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="evr-filter-row">
+          <label>
+            Sort
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="newest">Newest enquiry</option>
+              <option value="oldest">Oldest enquiry</option>
+              <option value="event_date">Event date</option>
+              <option value="guests">Most guests</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+          <label>
+            Find
+            {/* Filtered here rather than in a query: the list is capped at 500 and a
+                round trip per keystroke buys nothing. */}
+            <input value={search} placeholder="name, email or phone"
+                   onChange={(e) => setSearch(e.target.value)} />
+          </label>
+          <span className="evr-count">
+            {visible.length}{visible.length !== rows.length ? ` of ${rows.length}` : ''}
+          </span>
+        </div>
       </div>
 
       {loading ? <p className="evr-empty">Loading…</p>

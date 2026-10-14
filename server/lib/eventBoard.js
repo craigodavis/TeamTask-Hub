@@ -311,7 +311,38 @@ export function buildBoard(rows, today) {
   };
 }
 
+/**
+ * Close out bookings whose date has passed.
+ *
+ * An approved event that happened last month is not outstanding work, but nothing
+ * moved it on — so the inbox slowly filled with things nobody could action, which is
+ * how an inbox stops being read.
+ *
+ * Done on read rather than by a nightly job: it is idempotent, costs one indexed
+ * update, and a job that quietly stops running would leave exactly the mess it was
+ * meant to prevent. Journaled without a text, because nobody needs a message saying
+ * last month's party is over.
+ */
+export async function completePastEvents(companyId) {
+  const { rows } = await query(
+    `UPDATE kindred_web.event_requests
+        SET status = 'complete', updated_at = NOW()
+      WHERE status = 'approved' AND event_date IS NOT NULL AND event_date < CURRENT_DATE
+      RETURNING id`, []);
+  for (const r of rows) {
+    try {
+      await query(
+        `INSERT INTO kindred_web.event_request_activity
+           (company_id, request_id, action, detail, actor_name)
+         VALUES ($1,$2,'complete','the event date has passed','Kindred')`,
+        [companyId, r.id]);
+    } catch { /* the status is what matters; a missed line must not undo it */ }
+  }
+  return rows.length;
+}
+
 export async function board(companyId, today = new Date()) {
+  await completePastEvents(companyId);
   const { rows } = await query(
     `SELECT r.*, l.name AS location_name,
             (SELECT count(*) FROM kindred_web.event_special_requests s

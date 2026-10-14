@@ -151,6 +151,10 @@ export async function tokensFor(companyId, r) {
     // Only the approved ones. The raw note from the form is a request, not a term.
     agreed_items: agreedText,
     special_requests: agreedText,
+    // Terms carries a per-booking parking threshold, so the clause should read this
+    // booking's, not the house default.
+    ...(t.parking_attendant_over != null
+      ? { parking_attendant_threshold: String(t.parking_attendant_over) } : {}),
   };
 }
 
@@ -201,8 +205,17 @@ export async function renderContract(companyId, request, extraKeys = []) {
   // Constants first, booking second: a per-booking value always wins over the
   // company default, which is what lets a terms band later override a rate for one
   // event without the clause wording changing.
-  const defaults = await contractValues(companyId);
-  const tokens = { ...defaults, ...(await tokensFor(companyId, request)) };
+  // Three layers, narrowest last.
+  //
+  // Live values are only a fallback — for a booking quoted before the constants were
+  // frozen, or for a key added to a clause since. The frozen set is what this booking
+  // was actually quoted against, and the booking's own figures beat both.
+  //
+  // Craig's point, and it is the whole reason for the order: terms change after a
+  // request is made, and the contract has to state the terms that applied to it.
+  const live = await contractValues(companyId);
+  const frozen = request?.requirements?.constants || {};
+  const tokens = { ...live, ...frozen, ...(await tokensFor(companyId, request)) };
   // Numbered here, by position, rather than stored in the title.
   //
   // The numbers used to be part of the title text, so inserting a section at

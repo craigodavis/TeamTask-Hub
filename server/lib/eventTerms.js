@@ -188,7 +188,22 @@ export async function evaluate(companyId, booking) {
       WHERE company_id = $1 AND active`, [companyId]
   );
 
-  return resolveTerms(rows, booking, inHours);
+  const out = resolveTerms(rows, booking, inHours);
+
+  // The contract's editable values — capacity, what the rental includes, the payment
+  // split, the setup hours — frozen with the rest.
+  //
+  // These are terms, not decoration: a contract that says "capacity up to 30" must
+  // say what it was when this booking was quoted, not what somebody changed it to
+  // last week. Freezing the whole set costs one small object and means a value added
+  // to a clause later is automatically captured for bookings quoted after it, with
+  // no column to remember to add.
+  const consts = await query(
+    `SELECT key, value FROM kindred_web.event_contract_values WHERE company_id = $1`,
+    [companyId]);
+  out.constants = Object.fromEntries(consts.rows.map((r) => [r.key, r.value ?? '']));
+
+  return out;
 }
 
 /**
