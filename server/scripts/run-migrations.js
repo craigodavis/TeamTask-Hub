@@ -5441,6 +5441,12 @@ If the deposit is not received by that date, or if the date, guest count, venue 
      ADD COLUMN IF NOT EXISTS per_person_hour_cents integer`,
   `ALTER TABLE kindred_web.event_terms
      ADD COLUMN IF NOT EXISTS per_person_hourly boolean`,
+
+  // "Card on file required" — modelled exactly like insurance_required:
+  // nullable, so a row can decline to have an opinion and a broader row
+  // decides, with false as the resolved default.
+  `ALTER TABLE kindred_web.event_terms
+     ADD COLUMN IF NOT EXISTS card_on_file_required boolean`,
 ];
 
 export async function runMigrations() {

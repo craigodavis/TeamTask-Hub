@@ -41,6 +41,7 @@ export const SCALAR_OUTCOMES = [
   'balance_due_days_before',
   'planning_meeting_days',
   'insurance_required',
+  'card_on_file_required',
   'contract_required',
   'parking_attendant_over',
   'notes_to_customer',
@@ -239,6 +240,7 @@ export function resolveTerms(rows, booking, inHours) {
   if (terms.availability == null) terms.availability = 'available';
   if (terms.contract_required == null) terms.contract_required = false;
   if (terms.insurance_required == null) terms.insurance_required = false;
+  if (terms.card_on_file_required == null) terms.card_on_file_required = false;
 
   // The guest band that set the price, carried on the snapshot so a contract can say
   // "this rate covers up to N guests" without going back to a table that may since
@@ -332,7 +334,8 @@ export const OVERRIDABLE = [
   'min_wine_purchase_cents', 'per_person_hour_cents', 'per_person_hourly',
   'per_person_total_cents', 'booking_deposit_cents', 'security_deposit_cents',
   'balance_due_days_before', 'planning_meeting_days',
-  'insurance_required', 'contract_required', 'availability', 'notes_to_customer',
+  'insurance_required', 'card_on_file_required', 'contract_required',
+  'availability', 'notes_to_customer',
 ];
 
 /**

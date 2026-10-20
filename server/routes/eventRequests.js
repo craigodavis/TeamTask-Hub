@@ -215,7 +215,8 @@ function cleanTerm(b) {
       if (!Number.isFinite(v)) v = null;
     }
     if (f === 'active' && v !== null) v = !!v;
-    for (const bool of ['during_business_hours', 'insurance_required', 'contract_required']) {
+    for (const bool of ['during_business_hours', 'insurance_required',
+      'card_on_file_required', 'contract_required']) {
       if (f === bool && v !== null && v !== true && v !== false) v = null;
     }
     if (LIST_OUTCOMES.includes(f)) {
@@ -651,7 +652,7 @@ router.put('/:id/overrides', requireManager, async (req, res) => {
       if (k.endsWith('_cents') || k.endsWith('_days') || k.endsWith('_days_before')) {
         if (v !== null) { v = parseInt(v, 10); if (Number.isNaN(v)) v = null; }
       }
-      if (k === 'insurance_required' || k === 'contract_required') {
+      if (k === 'insurance_required' || k === 'card_on_file_required' || k === 'contract_required') {
         v = v === null ? null : !!v;
       }
       clean[k] = v;

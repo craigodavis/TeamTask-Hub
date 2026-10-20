@@ -173,6 +173,7 @@ websiteRouter.get('/event-tiers', async (_req, res) => {
         deposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
         securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
         insuranceRequired: !!t.insurance_required,
+        cardOnFileRequired: !!t.card_on_file_required,
         contractRequired: !!t.contract_required,
         notes: t.notes_to_customer || null,
       };
@@ -249,6 +250,7 @@ websiteRouter.get('/event-quote', async (req, res) => {
         securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
         dueNow: t.due_now_cents ? money(t.due_now_cents) : null,
         insuranceRequired: !!t.insurance_required,
+        cardOnFileRequired: !!t.card_on_file_required,
         contractRequired: !!t.contract_required,
         notes: t.notes_to_customer || null,
       },
@@ -318,6 +320,7 @@ websiteRouter.get('/event-proposal', async (req, res) => {
         securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
         dueNow: t.due_now_cents ? money(t.due_now_cents) : null,
         insuranceRequired: !!t.insurance_required,
+        cardOnFileRequired: !!t.card_on_file_required,
         contractRequired: !!t.contract_required,
         notes: t.notes_to_customer || null,
       },

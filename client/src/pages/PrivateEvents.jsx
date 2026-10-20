@@ -194,6 +194,7 @@ function Overrides({ request, onSaved }) {
     booking_deposit_cents: over.booking_deposit_cents ?? '',
     security_deposit_cents: over.security_deposit_cents ?? '',
     insurance_required: over.insurance_required === undefined ? '' : String(over.insurance_required),
+    card_on_file_required: over.card_on_file_required === undefined ? '' : String(over.card_on_file_required),
     contract_required: over.contract_required === undefined ? '' : String(over.contract_required),
     notes_to_customer: over.notes_to_customer ?? '',
   }));
@@ -230,7 +231,8 @@ function Overrides({ request, onSaved }) {
       const body = {};
       for (const [k, v] of Object.entries(form)) {
         if (v === '') continue;
-        body[k] = (k === 'insurance_required' || k === 'contract_required') ? v === 'true' : v;
+        body[k] = (k === 'insurance_required' || k === 'card_on_file_required'
+          || k === 'contract_required') ? v === 'true' : v;
       }
       // Fields left blank are sent as null so the server releases them back to the
       // terms; sending nothing at all would leave an old override in place.
@@ -257,6 +259,7 @@ function Overrides({ request, onSaved }) {
       </div>
       <div className="vin-drawer-row">
         {yesNo('insurance_required', 'Insurance')}
+        {yesNo('card_on_file_required', 'Card on file')}
         {yesNo('contract_required', 'Contract')}
       </div>
       <div>
@@ -964,7 +967,7 @@ function TermsTab() {
     per_person_hour_cents: '', per_person_hourly: null,
     security_deposit_cents: '', booking_deposit_cents: '', booking_deposit_pct: '',
     balance_due_days_before: '', planning_meeting_days: '', parking_attendant_over: '',
-    insurance_required: '', contract_required: '',
+    insurance_required: '', card_on_file_required: '', contract_required: '',
     contract_section_keys: [], notes_to_customer: '',
   };
 
@@ -972,6 +975,7 @@ function TermsTab() {
     ...t,
     during_business_hours: t.during_business_hours == null ? '' : String(t.during_business_hours),
     insurance_required: t.insurance_required == null ? '' : String(t.insurance_required),
+    card_on_file_required: t.card_on_file_required == null ? '' : String(t.card_on_file_required),
     contract_required: t.contract_required == null ? '' : String(t.contract_required),
     availability: t.availability || '',
     contract_section_keys: t.contract_section_keys || [],
@@ -982,7 +986,8 @@ function TermsTab() {
       const body = { ...form };
       // '' has to reach the server as null. A blank coerced to 0 would read as a real
       // decision: security deposit 0 says "none here", not "this row does not say".
-      for (const k of ['during_business_hours', 'insurance_required', 'contract_required']) {
+      for (const k of ['during_business_hours', 'insurance_required',
+                     'card_on_file_required', 'contract_required']) {
         body[k] = body[k] === '' ? null : body[k] === 'true';
       }
       if (body.availability === '') body.availability = null;
@@ -1012,6 +1017,7 @@ function TermsTab() {
       out.push(t.security_deposit_cents === 0 ? 'no security deposit' : `${money(t.security_deposit_cents)} security`);
     }
     if (t.insurance_required != null) out.push(t.insurance_required ? 'insurance' : 'no insurance');
+    if (t.card_on_file_required != null) out.push(t.card_on_file_required ? 'card on file' : 'no card on file');
     if (t.contract_required != null) out.push(t.contract_required ? 'contract' : 'no contract');
     if (t.contract_section_keys?.length) out.push(`${t.contract_section_keys.length} clause(s)`);
     if (t.parking_attendant_over != null) out.push(`parking over ${t.parking_attendant_over}`);
@@ -1235,6 +1241,16 @@ function TermsTab() {
                 <option value="true">Required</option>
                 <option value="false">Not required</option>
               </select></div>
+            {/* Same three states as Insurance, not a two-state checkbox: a row
+                has to be able to say nothing and let a broader row decide, which
+                is what makes these rows composable. */}
+            <div><label className="vin-label">Card on file</label>
+              <select className="vin-select" value={form.card_on_file_required ?? ''}
+                      onChange={(e) => setForm({ ...form, card_on_file_required: e.target.value })}>
+                <option value="">Doesn’t say</option>
+                <option value="true">Required</option>
+                <option value="false">Not required</option>
+              </select></div>
             <div><label className="vin-label">Contract</label>
               <select className="vin-select" value={form.contract_required ?? ''}
                       onChange={(e) => setForm({ ...form, contract_required: e.target.value })}>
@@ -1346,6 +1362,7 @@ function TermsResult({ t }) {
       )}
       {line('Contract', t.contract_required ? 'Required' : 'Not required', s.contract_required)}
       {line('Insurance', t.insurance_required ? 'Required' : 'Not required', s.insurance_required)}
+      {line('Card on file', t.card_on_file_required ? 'Required' : 'Not required', s.card_on_file_required)}
       {t.balance_due_days_before != null &&
         line('Balance due', `${t.balance_due_days_before} days before`, s.balance_due_days_before)}
       {t.planning_meeting_days != null &&

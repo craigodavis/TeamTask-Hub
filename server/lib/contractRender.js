@@ -155,6 +155,7 @@ export async function tokensFor(companyId, r) {
     balance_due_days: t.balance_due_days_before != null ? String(t.balance_due_days_before) : '—',
     planning_meeting_days: t.planning_meeting_days != null ? String(t.planning_meeting_days) : '—',
     insurance_required: t.insurance_required ? 'Yes' : 'No',
+    card_on_file_required: t.card_on_file_required ? 'Yes' : 'No',
     tier_name: band || '—',
     // Degrades to a phrase, not a dash: this sentence has to read as a sentence even
     // on a booking evaluated before the band ceiling was recorded.
