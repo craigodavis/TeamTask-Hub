@@ -62,7 +62,7 @@ export function PrivateEvents() {
         {/* Requests inbox is not here on purpose: it is a screen of its own, reached
             from the Requests box on Flow. A tab AND a box would be two doors to one
             room, and the one you did not use would quietly go stale. */}
-        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['terms', 'Terms'],
+        {[['flow', 'Flow'], ['calendar', 'Calendar'], ['terms', 'Packages'],
           ['copy', 'Message'], ['contract', 'Contract'], ['settings', 'Settings']].map(([k, l]) => (
           <button key={k} className={`vin-btn${tab === k ? ' vin-btn-primary' : ''}`}
                   onClick={() => { setTab(k); setErr(''); }}>{l}</button>
@@ -201,7 +201,7 @@ function Overrides({ request, onSaved }) {
 
   const dollars = (c) => (c == null ? '' : String(c / 100));
   const asCents = (d) => (d === '' || d == null ? '' : Math.round(Number(d) * 100));
-  const was = (k) => (base[k] == null ? 'not set' : `${money(base[k])} from the terms`);
+  const was = (k) => (base[k] == null ? 'not set' : `${money(base[k])} from the package`);
 
   const money$ = (key, label) => (
     <div key={key}>
@@ -217,7 +217,7 @@ function Overrides({ request, onSaved }) {
       <label className="vin-label">{label}</label>
       <select className="vin-select" value={form[key]}
               onChange={(e) => { setForm({ ...form, [key]: e.target.value }); setSaved(false); }}>
-        <option value="">Leave as the terms say ({base[key] ? 'required' : 'not required'})</option>
+        <option value="">Leave as the package says ({base[key] ? 'required' : 'not required'})</option>
         <option value="true">Required</option>
         <option value="false">Not required</option>
       </select>
@@ -243,7 +243,7 @@ function Overrides({ request, onSaved }) {
     <div style={{ marginTop: 18, paddingTop: 14, borderTop: '0.5px solid var(--vin-border)' }}>
       <div className="vin-label">Change this proposal</div>
       <p className="pe-req-why" style={{ marginTop: 0 }}>
-        Leave a box empty to keep what the terms worked out. Anything you set here
+        Leave a box empty to keep what the package worked out. Anything you set here
         applies to this booking only.
       </p>
       <div className="vin-drawer-row">
@@ -528,7 +528,7 @@ function Journal({ requestId }) {
     contract_sent: 'Contract sent', contract_signed: 'Contract signed by customer',
     contract_executed: 'Contract counter-signed', deposit_paid: 'Deposit received',
     insurance_ok: 'Insurance accepted', resos_booked: 'Tables reserved in ResOS',
-    resos_cleared: 'ResOS booking cleared', terms_changed: 'Terms changed',
+    resos_cleared: 'ResOS booking cleared', terms_changed: 'Packages changed',
   };
 
   return (
@@ -601,7 +601,7 @@ function RequestDrawer({ request, onClose, onChanged }) {
                             const out = await evaluateEventRequest(row.id);
                             setRow({ ...row, requirements: out, rules_evaluated_at: out.evaluatedAt });
                           })}>
-                    {row.rules_evaluated_at ? 'Re-check terms' : 'Check terms'}
+                    {row.rules_evaluated_at ? 'Re-check packages' : 'Check packages'}
                   </button>
                   {approval?.canApprove && (
                     <button className="vin-btn vin-btn-primary" disabled={busy}
@@ -671,7 +671,7 @@ function RequestDetail({ r, onAsksChanged }) {
           asks why. */}
       <details className="pe-fold" style={{ marginTop: 14 }}>
         <summary>
-          {!need ? 'Terms not worked out yet — press “Check terms”'
+          {!need ? 'Packages not worked out yet — press “Check packages”'
             : <>
                 {money1(t.rental_total_cents) || '—'} venue fee
                 {t.min_wine_purchase_cents ? ` · ${money1(t.min_wine_purchase_cents)} wine minimum` : ''}
@@ -1028,7 +1028,7 @@ function TermsTab() {
   return (
     <>
       <div className="pe-head">
-        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>Add terms</button>
+        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>Add package</button>
         <span style={{ fontSize: 12, color: 'var(--vin-muted)' }}>
           {terms.filter((t) => t.active).length} active — the most specific row wins each
           number, so a narrow row only states what differs
@@ -1113,7 +1113,7 @@ function TermsTab() {
       </div>
 
       <Drawer open={!!form}
-              title={form?.id ? (form.active === false ? `${form.name} · off` : form.name) : 'New terms'}
+              title={form?.id ? (form.active === false ? `${form.name} · off` : form.name) : 'New package'}
               onClose={() => setForm(null)}
               footer={form && (<>
                 <button className="vin-btn" onClick={() => setForm(null)}>Cancel</button>
@@ -1381,7 +1381,7 @@ function ContractSectionsTab() {
         </button>
         <span style={{ fontSize: 12, color: 'var(--vin-muted)' }}>
           {list.filter((x) => x.always_include).length} always included ·{' '}
-          {list.filter((x) => !x.always_include).length} chosen by terms
+          {list.filter((x) => !x.always_include).length} chosen by package
         </span>
       </div>
       {err && <p style={{ color: 'var(--vin-text-danger)', fontSize: 13 }}>{err}</p>}
@@ -1408,7 +1408,7 @@ function ContractSectionsTab() {
           <span style={{ display: 'flex', gap: 6 }}>
             <button className="vin-btn" onClick={() => setForm({ ...sec })}>Edit</button>
             <button className="vin-btn vin-btn-danger" onClick={async () => {
-              if (!window.confirm(`Delete “${sec.title}”?\n\nContracts already signed keep their text — they are stored as a snapshot. Any term referencing “${sec.key}” will stop finding it.`)) return;
+              if (!window.confirm(`Delete “${sec.title}”?\n\nContracts already signed keep their text — they are stored as a snapshot. Any package referencing “${sec.key}” will stop finding it.`)) return;
               await deleteContractSection(sec.id); load();
             }}>Delete</button>
           </span>
@@ -1426,7 +1426,7 @@ function ContractSectionsTab() {
             <input className="vin-input" value={form.title}
                    onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
           <div><label className="vin-label">
-            Key — what the terms reference. Changing it orphans any term pointing at the old one.
+            Key — what the packages reference. Changing it orphans any package pointing at the old one.
           </label>
             <input className="vin-input" value={form.key}
                    placeholder="left blank, made from the title"
