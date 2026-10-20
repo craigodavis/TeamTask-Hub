@@ -168,6 +168,8 @@ websiteRouter.get('/event-tiers', async (_req, res) => {
         flatRate: t.hourly_rate_cents == null && t.base_price_cents != null
           ? money(t.base_price_cents) : null,
         minAlcohol: t.min_wine_purchase_cents != null ? money(t.min_wine_purchase_cents) : null,
+        perPersonHour: t.per_person_hour_cents != null ? money(t.per_person_hour_cents) : null,
+        perPersonTotal: t.per_person_total_cents != null ? money(t.per_person_total_cents) : null,
         deposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
         securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
         insuranceRequired: !!t.insurance_required,
@@ -241,6 +243,8 @@ websiteRouter.get('/event-quote', async (req, res) => {
         hourlyRate: t.hourly_rate_cents != null ? money(t.hourly_rate_cents) : null,
         venueFee: t.rental_total_cents != null ? money(t.rental_total_cents) : null,
         minAlcohol: t.min_wine_purchase_cents != null ? money(t.min_wine_purchase_cents) : null,
+        perPersonHour: t.per_person_hour_cents != null ? money(t.per_person_hour_cents) : null,
+        perPersonTotal: t.per_person_total_cents != null ? money(t.per_person_total_cents) : null,
         deposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
         securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
         dueNow: t.due_now_cents ? money(t.due_now_cents) : null,
@@ -308,6 +312,8 @@ websiteRouter.get('/event-proposal', async (req, res) => {
         hourlyRate: t.hourly_rate_cents != null ? money(t.hourly_rate_cents) : null,
         venueFee: t.rental_total_cents != null ? money(t.rental_total_cents) : null,
         minAlcohol: t.min_wine_purchase_cents != null ? money(t.min_wine_purchase_cents) : null,
+        perPersonHour: t.per_person_hour_cents != null ? money(t.per_person_hour_cents) : null,
+        perPersonTotal: t.per_person_total_cents != null ? money(t.per_person_total_cents) : null,
         bookingDeposit: t.booking_deposit_cents ? money(t.booking_deposit_cents) : null,
         securityDeposit: t.security_deposit_cents ? money(t.security_deposit_cents) : null,
         dueNow: t.due_now_cents ? money(t.due_now_cents) : null,
@@ -698,7 +704,8 @@ websiteRouter.post('/event-request', async (req, res) => {
         ['What', `${guests} guests`],
         ['When', when || 'to be confirmed'],
         ['Venue fee', money0(terms.rental_total_cents)],
-        ['Minimum wine purchase', money0(terms.min_wine_purchase_cents)],
+        ['Minimum beer/wine purchase', money0(terms.min_wine_purchase_cents)],
+        ['Per person per hour', money0(terms.per_person_hour_cents)],
         ['Deposit to confirm', money0(terms.due_now_cents)],
       ].filter(([, v]) => v);
 

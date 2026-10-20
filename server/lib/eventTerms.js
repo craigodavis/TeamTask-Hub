@@ -33,6 +33,8 @@ export const SCALAR_OUTCOMES = [
   'hourly_rate_cents',
   'base_price_cents',
   'min_wine_purchase_cents',
+  'per_person_hour_cents',
+  'per_person_hourly',
   'security_deposit_cents',
   'booking_deposit_cents',
   'booking_deposit_pct',
@@ -264,12 +266,37 @@ export function resolveTerms(rows, booking, inHours) {
         ? Math.round(rentalCents * terms.booking_deposit_pct / 100)
         : null);
 
+  // Per person, per hour. When it is switched on it REPLACES the minimum
+  // beer/wine purchase rather than stacking on top of it: the booking is charged
+  // for heads and hours instead of being held to a bar minimum. Suppressing the
+  // minimum here, once, is what stops the website quote, the contract, the board
+  // total and the staff screen each reaching their own conclusion about whether
+  // it still applies.
+  //
+  // Needs both a head count and times to total. With either missing it reads as
+  // "we need your numbers", not as a free booking -- the same rule the hourly
+  // venue fee already follows.
+  const perPersonOn = terms.per_person_hourly === true && terms.per_person_hour_cents != null;
+  const perPersonTotalCents = perPersonOn && booking.guests != null && hours != null
+    ? Math.round(terms.per_person_hour_cents * booking.guests * hours)
+    : null;
+  // The resolved minimum is KEPT alongside, not thrown away. Staff can switch
+  // the flag off for a single booking, and without the original figure there
+  // would be nothing to put back -- the minimum would stay suppressed even
+  // though the per-person charge no longer applied, so the booking would owe
+  // neither. Found by exercising exactly that override.
+  const resolvedMinWine = terms.min_wine_purchase_cents;
+  if (perPersonOn) terms.min_wine_purchase_cents = null;
+
   return {
     evaluatedAt: new Date().toISOString(),
     duringBusinessHours: inHours,
     guests: booking.guests ?? null,
     hours,
     ...terms,
+    per_person_hourly: perPersonOn,
+    per_person_total_cents: perPersonTotalCents,
+    min_wine_purchase_resolved_cents: resolvedMinWine,
     rental_total_cents: rentalCents,
     rental_basis: rentalBasis,
     band_min_guests: priceRow?.min_guests ?? null,
@@ -302,7 +329,8 @@ export function hoursBetween(startTime, endTime) {
 /** Fields staff may change for a single booking. Conditions are not among them. */
 export const OVERRIDABLE = [
   'hourly_rate_cents', 'base_price_cents', 'rental_total_cents',
-  'min_wine_purchase_cents', 'booking_deposit_cents', 'security_deposit_cents',
+  'min_wine_purchase_cents', 'per_person_hour_cents', 'per_person_hourly',
+  'per_person_total_cents', 'booking_deposit_cents', 'security_deposit_cents',
   'balance_due_days_before', 'planning_meeting_days',
   'insurance_required', 'contract_required', 'availability', 'notes_to_customer',
 ];
@@ -336,6 +364,19 @@ export function effectiveTerms(request) {
     out.rental_total_cents = out.hourly_rate_cents != null && out.hours != null
       ? Math.round(out.hourly_rate_cents * out.hours) : out.rental_total_cents;
   }
+  // Changing the rate or the flag on one booking has to redo both the total and
+  // the substitution, or an override would leave a stale figure beside it.
+  if (out.overridden.includes('per_person_hour_cents') || out.overridden.includes('per_person_hourly')) {
+    const on = out.per_person_hourly === true && out.per_person_hour_cents != null;
+    if (!out.overridden.includes('per_person_total_cents')) {
+      out.per_person_total_cents = on && out.guests != null && out.hours != null
+        ? Math.round(out.per_person_hour_cents * out.guests * out.hours) : null;
+    }
+    if (!out.overridden.includes('min_wine_purchase_cents')) {
+      out.min_wine_purchase_cents = on ? null : (out.min_wine_purchase_resolved_cents ?? null);
+    }
+  }
+
   // Recomputed ONLY when an override touched a deposit. Doing it unconditionally
   // discarded the quoted figure on any snapshot that recorded a total without its
   // parts, which silently turned an agreed deposit into nothing owed.

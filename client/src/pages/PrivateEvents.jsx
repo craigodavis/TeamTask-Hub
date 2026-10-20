@@ -190,6 +190,7 @@ function Overrides({ request, onSaved }) {
   const [form, setForm] = useState(() => ({
     rental_total_cents: over.rental_total_cents ?? '',
     min_wine_purchase_cents: over.min_wine_purchase_cents ?? '',
+    per_person_hour_cents: over.per_person_hour_cents ?? '',
     booking_deposit_cents: over.booking_deposit_cents ?? '',
     security_deposit_cents: over.security_deposit_cents ?? '',
     insurance_required: over.insurance_required === undefined ? '' : String(over.insurance_required),
@@ -248,7 +249,7 @@ function Overrides({ request, onSaved }) {
       </p>
       <div className="vin-drawer-row">
         {money$('rental_total_cents', 'Venue fee ($)')}
-        {money$('min_wine_purchase_cents', 'Minimum wine purchase ($)')}
+        {money$('min_wine_purchase_cents', 'Minimum beer/wine purchase ($)')}
       </div>
       <div className="vin-drawer-row">
         {money$('booking_deposit_cents', 'Booking deposit ($)')}
@@ -674,7 +675,7 @@ function RequestDetail({ r, onAsksChanged }) {
           {!need ? 'Packages not worked out yet — press “Check packages”'
             : <>
                 {money1(t.rental_total_cents) || '—'} venue fee
-                {t.min_wine_purchase_cents ? ` · ${money1(t.min_wine_purchase_cents)} wine minimum` : ''}
+                {t.min_wine_purchase_cents ? ` · ${money1(t.min_wine_purchase_cents)} beer/wine minimum` : ''}
                 {t.due_now_cents ? ` · ${money1(t.due_now_cents)} up front` : ''}
               </>}
         </summary>
@@ -960,6 +961,7 @@ function TermsTab() {
     name: '', active: true,
     min_guests: '', max_guests: '', location_id: '', during_business_hours: '',
     availability: '', hourly_rate_cents: '', base_price_cents: '', min_wine_purchase_cents: '',
+    per_person_hour_cents: '', per_person_hourly: null,
     security_deposit_cents: '', booking_deposit_cents: '', booking_deposit_pct: '',
     balance_due_days_before: '', planning_meeting_days: '', parking_attendant_over: '',
     insurance_required: '', contract_required: '',
@@ -999,7 +1001,10 @@ function TermsTab() {
     if (t.availability) out.push(t.availability === 'available' ? 'bookable' : t.availability.replace('_', ' '));
     if (t.hourly_rate_cents != null) out.push(`${money(t.hourly_rate_cents)}/hour`);
     else if (t.base_price_cents != null) out.push(`${money(t.base_price_cents)} flat`);
-    if (t.min_wine_purchase_cents != null) out.push(`${money(t.min_wine_purchase_cents)} min wine`);
+    if (t.min_wine_purchase_cents != null) out.push(`${money(t.min_wine_purchase_cents)} min beer/wine`);
+    if (t.per_person_hourly && t.per_person_hour_cents != null) {
+      out.push(`${money(t.per_person_hour_cents)}/person/hour instead of a minimum`);
+    }
     if (t.booking_deposit_cents != null) {
       out.push(t.booking_deposit_cents === 0 ? 'no booking deposit' : `${money(t.booking_deposit_cents)} deposit`);
     } else if (t.booking_deposit_pct != null) out.push(`${Number(t.booking_deposit_pct)}% deposit`);
@@ -1165,10 +1170,27 @@ function TermsTab() {
               <input className="vin-input" type="number" step="0.01" placeholder="—"
                      value={toDollars(form.hourly_rate_cents)}
                      onChange={(e) => setForm({ ...form, hourly_rate_cents: toCents(e.target.value) })} /></div>
-            <div><label className="vin-label">Min wine purchase ($)</label>
+            <div><label className="vin-label">Min beer/wine purchase ($)</label>
               <input className="vin-input" type="number" step="0.01" placeholder="—"
                      value={toDollars(form.min_wine_purchase_cents)}
                      onChange={(e) => setForm({ ...form, min_wine_purchase_cents: toCents(e.target.value) })} /></div>
+            {/* Per head, per hour. Switching it on REPLACES the beer/wine minimum
+                rather than adding to it, so the two read as the alternatives they
+                are. Left blank the row has no opinion and a broader row decides;
+                set to Off it overrules a broader row. */}
+            <div><label className="vin-label">Per person / hour ($)</label>
+              <input className="vin-input" type="number" step="0.01"
+                     value={toDollars(form.per_person_hour_cents)}
+                     onChange={(e) => setForm({ ...form, per_person_hour_cents: toCents(e.target.value) })} /></div>
+            <div><label className="vin-label">Charge per person / hour?</label>
+              <select className="vin-input"
+                      value={form.per_person_hourly == null ? '' : String(form.per_person_hourly)}
+                      onChange={(e) => setForm({ ...form,
+                        per_person_hourly: e.target.value === '' ? null : e.target.value === 'true' })}>
+                <option value="">No opinion — a broader row decides</option>
+                <option value="true">On — replaces the beer/wine minimum</option>
+                <option value="false">Off — the beer/wine minimum applies</option>
+              </select></div>
           </div>
           <div className="vin-drawer-row">
             <div><label className="vin-label">Booking deposit ($) — 0 means none</label>
@@ -1310,7 +1332,10 @@ function TermsResult({ t }) {
           ? `${money(t.rental_total_cents)}${t.rental_basis === 'hourly' && t.hours ? ` (${t.hours}h × ${money(t.hourly_rate_cents)})` : ''}`
           : t.hourly_rate_cents != null ? `${money(t.hourly_rate_cents)}/hour — needs times` : '—',
         s.hourly_rate_cents || s.base_price_cents)}
-      {line('Min wine purchase', amt(t.min_wine_purchase_cents), s.min_wine_purchase_cents)}
+      {line('Min beer/wine purchase', amt(t.min_wine_purchase_cents), s.min_wine_purchase_cents)}
+      {line('Per person / hour', amt(t.per_person_hour_cents), s.per_person_hour_cents)}
+      {t.per_person_total_cents != null
+        && line('Per-person total', amt(t.per_person_total_cents), s.per_person_hour_cents)}
       {line('Booking deposit', amt(t.booking_deposit_cents),
         s.booking_deposit_cents || s.booking_deposit_pct)}
       {line('Security deposit', amt(t.security_deposit_cents), s.security_deposit_cents)}

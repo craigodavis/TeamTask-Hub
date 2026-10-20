@@ -5425,6 +5425,22 @@ If the deposit is not received by that date, or if the date, guest count, venue 
      ADD COLUMN IF NOT EXISTS customer_accepted_at TIMESTAMPTZ,
      ADD COLUMN IF NOT EXISTS customer_declined_at TIMESTAMPTZ,
      ADD COLUMN IF NOT EXISTS customer_note TEXT`,
+
+  // Per-person-per-hour charge for private events, and the flag that turns it on.
+  //
+  // Two columns rather than one, because a rate of NULL already means "this row
+  // has no opinion" in the narrowest-match-wins resolution -- it cannot also
+  // mean "off". An explicit flag lets a narrow row switch the model off again
+  // for, say, a small daytime booking, which a nullable rate alone could not do.
+  //
+  // When the flag is on it REPLACES the minimum beer/wine purchase: the event is
+  // charged head-count x hours x rate instead of being held to a bar minimum.
+  // That substitution happens once, in resolveTerms, so the website quote, the
+  // contract, the board total and the screen cannot disagree about it.
+  `ALTER TABLE kindred_web.event_terms
+     ADD COLUMN IF NOT EXISTS per_person_hour_cents integer`,
+  `ALTER TABLE kindred_web.event_terms
+     ADD COLUMN IF NOT EXISTS per_person_hourly boolean`,
 ];
 
 export async function runMigrations() {

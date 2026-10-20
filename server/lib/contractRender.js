@@ -147,6 +147,8 @@ export async function tokensFor(companyId, r) {
     hourly_rate: cash(t.hourly_rate_cents),
     venue_fee: cash(t.rental_total_cents),
     min_wine_purchase: cash(t.min_wine_purchase_cents),
+    per_person_hour: cash(t.per_person_hour_cents),
+    per_person_total: cash(t.per_person_total_cents),
     booking_deposit: cash(t.booking_deposit_cents),
     security_deposit: cash(t.security_deposit_cents),
     due_to_confirm: cash(t.due_now_cents),

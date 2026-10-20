@@ -93,7 +93,10 @@ export function gatesFor(r) {
   // A proposal comes before a contract: the price is agreed first, then the legal
   // clauses. Only where there is actually something to agree — a booking that costs
   // nothing and requires nothing has nothing to propose.
+  // Per-person-per-hour and the beer/wine minimum are alternatives, never both:
+  // resolveTerms nulls whichever does not apply, so adding both is safe.
   const costs = (req.rental_total_cents ?? 0) + (req.min_wine_purchase_cents ?? 0)
+    + (req.per_person_total_cents ?? 0)
     + (req.due_now_cents ?? 0);
   if (costs > 0 && !r.proposal_accepted_at) {
     // A decline comes back to us, not to them. Leaving it as "awaiting their answer"

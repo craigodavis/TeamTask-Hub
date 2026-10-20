@@ -192,6 +192,7 @@ const TERM_FIELDS = [
 ];
 
 const TERM_INTS = ['min_guests', 'max_guests', 'min_wine_purchase_cents',
+  'per_person_hour_cents', 'per_person_total_cents',
   'hourly_rate_cents', 'base_price_cents', 'security_deposit_cents', 'booking_deposit_cents',
   'balance_due_days_before', 'planning_meeting_days', 'parking_attendant_over'];
 
