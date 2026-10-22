@@ -5447,6 +5447,39 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   // decides, with false as the resolved default.
   `ALTER TABLE kindred_web.event_terms
      ADD COLUMN IF NOT EXISTS card_on_file_required boolean`,
+
+  // Events that book through a ResOS "experience" instead of ordinary opening
+  // hours. An experience is a separate product in ResOS with its own prepayment,
+  // and it is NOT returned by the bookingFlow/times API our reservation picker
+  // reads — ResOS exposes no experiences endpoint at all, so the picker cannot
+  // see such an event's times and shows the guest a day with no evening slot.
+  // An event using one therefore has to send people to ResOS's own page, and
+  // this column holds that link.
+  //
+  // Full URL rather than a bare id: it is what staff already have in hand from
+  // ResOS, and it carries the host with it. Its presence is also the signal that
+  // this event books elsewhere — see reserveLink() on the website.
+  //
+  // `events` is a VIEW over events_all, so the column goes on the base table and
+  // the view is replaced to carry it. Writing ALTER TABLE events here throws, and
+  // a throwing migration aborts every migration after it.
+  `ALTER TABLE events_all ADD COLUMN IF NOT EXISTS resos_experience_url TEXT`,
+  `CREATE OR REPLACE VIEW events AS
+     SELECT events_all.id, events_all.company_id, events_all.location_id, events_all.musician_id,
+            events_all.title, events_all.description, events_all.start_at, events_all.end_at,
+            events_all.all_day, events_all.cost, events_all.event_url, events_all.image_url,
+            events_all.category, events_all.status, events_all.wp_event_id, events_all.wp_synced_at,
+            events_all.source, events_all.reminder_week_sent_at, events_all.reminder_day_sent_at,
+            events_all.created_by, events_all.created_at, events_all.updated_at,
+            events_all.reminder_month_sent_at, events_all.internal_notes, events_all.social_image_url,
+            events_all.slug, events_all.app_notify, events_all.announce_lead_days,
+            events_all.publish_warned_at, events_all.fb_image_url, events_all.deleted_at,
+            events_all.deleted_by, events_all.stage, events_all.submitted_at, events_all.submitted_by,
+            events_all.review_notes, events_all.review_by, events_all.review_at,
+            events_all.review_notified_at, events_all.approved_notified_at,
+            events_all.sticky, events_all.resos_experience_url
+       FROM events_all
+      WHERE events_all.deleted_at IS NULL`,
 ];
 
 export async function runMigrations() {
