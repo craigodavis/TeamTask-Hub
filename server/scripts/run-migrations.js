@@ -5480,6 +5480,37 @@ If the deposit is not received by that date, or if the date, guest count, venue 
             events_all.sticky, events_all.resos_experience_url
        FROM events_all
       WHERE events_all.deleted_at IS NULL`,
+
+  // Some events are booked somewhere other than our own picker: a ResOS
+  // experience, a Square ticket link, whatever comes next. resos_experience_url
+  // named one vendor and was immediately used for another — a Square link was
+  // pasted into it, where it did nothing, because the code only recognised a
+  // ResOS url. A per-vendor column would just repeat that next time.
+  //
+  // So: one column for "this event books here", and the code decides what the
+  // link is by looking at it. Renaming would mean dropping and recreating the
+  // events view, and a failed CREATE after a successful DROP leaves Team with
+  // no events view at all — not worth it for a two-day-old column, so the new
+  // one is added alongside and the old values are carried over.
+  `ALTER TABLE events_all ADD COLUMN IF NOT EXISTS booking_url TEXT`,
+  `UPDATE events_all SET booking_url = resos_experience_url
+     WHERE booking_url IS NULL AND resos_experience_url IS NOT NULL`,
+  `CREATE OR REPLACE VIEW events AS
+     SELECT events_all.id, events_all.company_id, events_all.location_id, events_all.musician_id,
+            events_all.title, events_all.description, events_all.start_at, events_all.end_at,
+            events_all.all_day, events_all.cost, events_all.event_url, events_all.image_url,
+            events_all.category, events_all.status, events_all.wp_event_id, events_all.wp_synced_at,
+            events_all.source, events_all.reminder_week_sent_at, events_all.reminder_day_sent_at,
+            events_all.created_by, events_all.created_at, events_all.updated_at,
+            events_all.reminder_month_sent_at, events_all.internal_notes, events_all.social_image_url,
+            events_all.slug, events_all.app_notify, events_all.announce_lead_days,
+            events_all.publish_warned_at, events_all.fb_image_url, events_all.deleted_at,
+            events_all.deleted_by, events_all.stage, events_all.submitted_at, events_all.submitted_by,
+            events_all.review_notes, events_all.review_by, events_all.review_at,
+            events_all.review_notified_at, events_all.approved_notified_at,
+            events_all.sticky, events_all.resos_experience_url, events_all.booking_url
+       FROM events_all
+      WHERE events_all.deleted_at IS NULL`,
 ];
 
 export async function runMigrations() {

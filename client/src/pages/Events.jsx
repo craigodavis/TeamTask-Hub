@@ -1227,7 +1227,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const toLocal = toLocalInput; // see the note on toLocalInput — stored time is wall clock
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
-    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', sticky: !!ev.sticky, resos_experience_url: ev.resos_experience_url || '', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
+    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', sticky: !!ev.sticky, booking_url: ev.booking_url || ev.resos_experience_url || '', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
   const [saveErr, setSaveErr] = useState('');
@@ -1238,7 +1238,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const dateErr = dateRangeError(f.start_at, f.end_at);
   const saveDetails = async () => {
     const body = {};
-    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url', 'resos_experience_url']) body[k] = f[k] === '' ? null : f[k];
+    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url', 'booking_url']) body[k] = f[k] === '' ? null : f[k];
     // Separate from the loop above: that turns '' into null, and false is not ''
     // — but a checkbox that cannot be turned back off is worse than no checkbox.
     body.sticky = !!f.sticky;
@@ -1389,15 +1389,17 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
             </select>
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lbl}>ResOS experience link <span style={{ textTransform: 'none', letterSpacing: 0, opacity: 0.7 }}>— only if this event books through a ResOS experience</span></label>
-            <input style={inp} value={f.resos_experience_url}
-                   onChange={(e) => setField('resos_experience_url', e.target.value)}
-                   placeholder="https://kindred.resos.com/booking?experience=..." />
+            <label style={lbl}>Booking link <span style={{ textTransform: 'none', letterSpacing: 0, opacity: 0.7 }}>— only if this event is booked somewhere other than our reservation page</span></label>
+            <input style={inp} value={f.booking_url}
+                   onChange={(e) => setField('booking_url', e.target.value)}
+                   placeholder="https://square.link/u/...  or  https://kindred.resos.com/booking?experience=..." />
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4, lineHeight: 1.5 }}>
-              Paste the booking link from ResOS. Experiences take their own prepayment and
-              do not appear in our reservation picker, so with this set the event's
-              <b> Reserve</b> button sends guests to ResOS instead — with the date and their
-              party size already filled in. Leave blank for normal events.
+              Paste wherever people actually book this one — a Square ticket link, a ResOS
+              experience, anything. The event's button then sends them there instead of to
+              our reservation page, which cannot sell tickets and cannot see a ResOS
+              experience's times. A Square link becomes <b>Get tickets</b>; a ResOS
+              experience becomes <b>Reserve a table</b> and carries the date and guest count
+              across. Leave blank for an ordinary event booked on our own page.
             </div>
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
