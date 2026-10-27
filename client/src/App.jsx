@@ -25,6 +25,12 @@ import { Overview } from './pages/Overview';
 import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
 import Reservations from './pages/Reservations';
+import { ReservationsLayout } from './pages/ReservationsLayout';
+import ReservationsFloor from './pages/ReservationsFloor';
+import ReservationsLayouts from './pages/ReservationsLayouts';
+import ReservationsTables from './pages/ReservationsTables';
+import ReservationsOffers from './pages/ReservationsOffers';
+import ReservationsSettings from './pages/ReservationsSettings';
 import PrivateEvents from './pages/PrivateEvents';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
@@ -158,16 +164,26 @@ function App() {
               )
             }
           />
+          {/* Reservations is a section, not a page: the ResOS replacement's
+              screens hang off it and all of them are scoped by the venue
+              picker in ReservationsLayout's header. */}
           <Route
             path="/tasting-room/reservations"
             element={
               can(user, 'tastingroom.reservations') ? (
-                <Reservations />
+                <ReservationsLayout />
               ) : (
                 <Navigate to="/" replace />
               )
             }
-          />
+          >
+            <Route index element={<Reservations />} />
+            <Route path="floor" element={<ReservationsFloor />} />
+            <Route path="layouts" element={<ReservationsLayouts />} />
+            <Route path="tables" element={<ReservationsTables />} />
+            <Route path="offers" element={<ReservationsOffers />} />
+            <Route path="settings" element={<ReservationsSettings />} />
+          </Route>
           <Route
             path="/dashboard"
             element={

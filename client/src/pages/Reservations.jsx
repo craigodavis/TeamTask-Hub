@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { getReservations, downloadOptIns } from '../api';
 import './Reservations.css';
 
 /**
- * Tasting Room → Reservations.
+ * Reservations → Bookings.
  *
  * ResOS owns the bookings; this exists for the two things ResOS makes hard —
  * seeing both venues in one list, and getting the newsletter opt-ins out as a
  * mailing list instead of one red badge at a time.
+ *
+ * The venue scope comes from the section header, so this list shows one venue
+ * or both depending on the picker rather than carrying a filter of its own.
  */
 
 const iso = (d) => d.toISOString().slice(0, 10);
@@ -43,7 +47,8 @@ const NOTABLE = {
 export default function Reservations() {
   const [from, setFrom] = useState(() => daysFromToday(-30));
   const [to, setTo] = useState(() => daysFromToday(60));
-  const [venue, setVenue] = useState('');
+  const { venue: scope } = useOutletContext() || {};
+  const venue = scope?.venue || '';
   const [onlyOptIns, setOnlyOptIns] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -102,10 +107,10 @@ export default function Reservations() {
     <div className="reservations">
       <header className="rv-head">
         <div>
-          <h2>Reservations</h2>
           <p className="rv-sub">
-            Live from ResOS. Bookings are managed there — this is for seeing both venues
-            at once and getting the newsletter opt-ins out.
+            Live from ResOS. Bookings are managed there — this is for seeing
+            {scope ? ` ${scope.name}` : ' both venues'} in one list and getting the
+            newsletter opt-ins out.
           </p>
         </div>
         <button
@@ -122,13 +127,6 @@ export default function Reservations() {
       <div className="rv-filters">
         <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-        <label>
-          Venue
-          <select value={venue} onChange={(e) => setVenue(e.target.value)}>
-            <option value="">All venues</option>
-            {(data?.venues || []).map((v) => <option key={v.slug} value={v.slug}>{v.name}</option>)}
-          </select>
-        </label>
         <label className="rv-search">
           Search
           <input type="search" placeholder="name, email or phone" value={search}

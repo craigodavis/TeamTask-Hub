@@ -53,6 +53,11 @@ function isTastingRoomPath(pathname) {
   return pathname.startsWith('/tasting-room');
 }
 
+// The Reservations group inside Tasting Room: the booking system's own screens.
+function isReservationsPath(pathname) {
+  return pathname.startsWith('/tasting-room/reservations');
+}
+
 function isWinePath(pathname) {
   return pathname.startsWith('/products') || pathname.startsWith('/product-lines');
 }
@@ -77,6 +82,8 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const [wineExpanded, setWineExpanded] = useState(() => isWinePath(location.pathname));
   const [tastingRoomExpanded, setTastingRoomExpanded] =
     useState(() => isTastingRoomPath(location.pathname));
+  const [reservationsExpanded, setReservationsExpanded] =
+    useState(() => isReservationsPath(location.pathname));
   const [marketingExpanded, setMarketingExpanded] = useState(() => isMarketingPath(location.pathname));
   const [websiteExpanded, setWebsiteExpanded] = useState(() => isWebsitePath(location.pathname));
 
@@ -509,14 +516,43 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                     <span className="nav-sub-icon">📜</span>
                     <span>Menus</span>
                   </Link>
-                  <Link
-                    to="/tasting-room/reservations"
-                    className={`nav-sub-item${location.pathname.startsWith('/tasting-room/reservations') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
+                  <button
+                    type="button"
+                    className={`nav-sub-item nav-sub-parent${isReservationsPath(location.pathname) ? ' active' : ''}`}
+                    onClick={() => setReservationsExpanded((v) => !v)}
+                    aria-expanded={reservationsExpanded}
                   >
                     <span className="nav-sub-icon">📅</span>
                     <span>Reservations</span>
-                  </Link>
+                    <span className="nav-sub-parent-chev">{reservationsExpanded ? '−' : '+'}</span>
+                  </button>
+                  {reservationsExpanded && (
+                    <div className="nav-sub-group nav-sub-group-deep">
+                      {[
+                        { to: '/tasting-room/reservations', label: 'Bookings', icon: '📋', exact: true },
+                        { to: '/tasting-room/reservations/floor', label: 'Floor', icon: '🪑' },
+                        { to: '/tasting-room/reservations/layouts', label: 'Layouts', icon: '🧩' },
+                        { to: '/tasting-room/reservations/tables', label: 'Areas & Tables', icon: '📐' },
+                        { to: '/tasting-room/reservations/offers', label: 'Offers', icon: '🎟️' },
+                        { to: '/tasting-room/reservations/settings', label: 'Settings', icon: '⚙️' },
+                      ].map((item) => {
+                        const active = item.exact
+                          ? location.pathname === item.to
+                          : location.pathname.startsWith(item.to);
+                        return (
+                          <Link
+                            key={item.to}
+                            to={item.to}
+                            className={`nav-sub-item${active ? ' active' : ''}`}
+                            onClick={() => { if (isMobile()) setCollapsed(true); }}
+                          >
+                            <span className="nav-sub-icon">{item.icon}</span>
+                            <span>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </>
