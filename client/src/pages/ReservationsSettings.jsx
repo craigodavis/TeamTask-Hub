@@ -66,12 +66,20 @@ export default function ReservationsSettings() {
                 <tr key={v.id}>
                   <td><strong>{v.name}</strong></td>
                   <td>
-                    <select defaultValue="resos" disabled>
-                      {MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                    </select>
+                    {/* A segmented control rather than a dropdown: which system is
+                        deciding is the single most consequential fact on this screen,
+                        and it should be readable without opening anything. */}
+                    <div className="rs-seg" role="group" aria-label={`${v.name} booking mode`}>
+                      {MODES.map((m) => (
+                        <button key={m.key} type="button" disabled
+                                className={m.key === 'resos' ? 'on' : ''}>
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
                   </td>
                   <td><span className="rs-pill resos">Pointed at ResOS</span></td>
-                  <td><span className="rs-panel-sub">Last change: never</span></td>
+                  <td><span className="rs-live"><i />Live</span></td>
                 </tr>
               ))}
             </tbody>

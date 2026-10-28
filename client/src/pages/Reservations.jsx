@@ -113,7 +113,9 @@ export default function Reservations() {
   };
 
   return (
-    <div className="reservations">
+    // Inside the section the ResOS skin applies; standalone the markup is
+    // untouched, which is what keeps a manager's page exactly as it was.
+    <div className={`reservations${inSection ? ' rs-skin' : ''}`}>
       <header className="rv-head">
         <div>
           {!inSection && <h2>Reservations</h2>}
@@ -177,8 +179,19 @@ export default function Reservations() {
           <table className="rv-table">
             <thead>
               <tr>
-                <th>When</th><th>Venue</th><th>Guest</th><th>Party</th>
-                <th>Answers</th><th>Source</th>
+                {/* ResOS's own column names inside the section, since these
+                    replace that screen; the standalone page keeps its own. */}
+                {inSection ? (
+                  <>
+                    <th>Time</th><th>Venue</th><th>Name</th><th>People</th>
+                    <th>Custom fields</th><th>Source</th>
+                  </>
+                ) : (
+                  <>
+                    <th>When</th><th>Venue</th><th>Guest</th><th>Party</th>
+                    <th>Answers</th><th>Source</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>

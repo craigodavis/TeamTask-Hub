@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { areasFor, layoutsFor, seatingsFor, MODES } from './reservationsExample';
+import { TableShape } from './reservationsTableShape';
 
 /**
  * Reservations → Floor.
@@ -39,68 +40,23 @@ const hhmm = (mins) => {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ap}`;
 };
 
-/**
- * A table's geometry from the number it seats.
- *
- * Four or fewer is a square with a seat on each side. More than that is a long
- * table with the seats split down its two long sides — which is how a real
- * room is laid out, and how ResOS renders the same thing.
- */
-function geometry(seats) {
-  if (seats <= 4) {
-    const half = 32;
-    const spots = [[0, -half], [half, 0], [0, half], [-half, 0]].slice(0, Math.max(seats, 1));
-    return { w: 64, h: 64, spots };
-  }
-  const perSide = Math.ceil(seats / 2);
-  const w = perSide * 44 + 12;
-  const h = 58;
-  const spots = [];
-  for (let i = 0; i < perSide; i += 1) {
-    const x = -w / 2 + 22 + i * 44;
-    spots.push([x, -h / 2]);
-    if (spots.length < seats) spots.push([x, h / 2]);
-  }
-  return { w, h, spots: spots.slice(0, seats) };
-}
-
 function Table({ t }) {
   const booked = Boolean(t.seating);
-  const held = t.mode === 'held';
-  const { w, h, spots } = geometry(t.seatsMax || 4);
-
-  const fill = held ? 'var(--rs-table-held)'
-    : booked ? 'var(--rs-table-booked)'
-    : t.mode === 'open' ? 'var(--rs-table-open)'
-    : 'var(--rs-table)';
-
+  const mode = t.mode === 'held' ? 'held' : booked ? 'booked' : t.mode;
   return (
     <g transform={`translate(${t.x} ${t.y})${t.rot ? ` rotate(${t.rot})` : ''}`}>
-      {/* Seats first, so the table top overlaps them exactly as in ResOS. */}
-      {spots.map(([sx, sy], i) => (
-        <ellipse key={i} cx={sx} cy={sy} rx="15" ry="13"
-                 fill="var(--rs-seat)" opacity={held ? 0.35 : 0.85} />
-      ))}
-      <rect x={-w / 2} y={-h / 2} width={w} height={h} rx="8"
-            fill={fill}
-            stroke={held ? 'var(--rs-canvas-edge)' : 'none'}
-            strokeWidth="2"
-            strokeDasharray={held ? '6 5' : undefined} />
-      <text x="0" y={booked ? -4 : 5} textAnchor="middle"
-            fontSize="15" fontStyle="italic" fontWeight="500"
-            fill={held ? 'var(--rs-on-canvas-muted)' : '#ffffff'}>
-        {t.name}
-      </text>
-      {booked && (
-        <>
-          <text x="0" y="12" textAnchor="middle" fontSize="11" fill="#ffffff">
-            {t.seating.name}
-          </text>
-          <text x="0" y="25" textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.8)">
-            {t.seating.party} · {t.seating.time}
-          </text>
-        </>
-      )}
+      <TableShape seats={t.seatsMax || 4} name={t.name} mode={mode}>
+        {booked && (
+          <>
+            <text x="0" y="12" textAnchor="middle" fontSize="11" fill="#ffffff">
+              {t.seating.name}
+            </text>
+            <text x="0" y="25" textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.8)">
+              {t.seating.party} · {t.seating.time}
+            </text>
+          </>
+        )}
+      </TableShape>
     </g>
   );
 }

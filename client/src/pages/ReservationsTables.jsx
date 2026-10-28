@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { areasFor } from './reservationsExample';
+import { TableGlyph } from './reservationsTableShape';
 
 /**
  * Reservations → Areas & Tables.
@@ -72,7 +73,9 @@ export default function ReservationsTables() {
                   {area.tables.map((t) => (
                     <tr key={t.id}>
                       <td><strong>{t.name}</strong></td>
-                      <td>{t.shape}</td>
+                      {/* The same object the floor draws, shrunk to a row — so the
+                          catalogue and the room can never disagree about a six-top. */}
+                      <td><TableGlyph seats={t.seatsMax} name={t.name} height={38} /></td>
                       <td className="rs-num">{t.seatsMin}–{t.seatsMax}</td>
                       <td className="rs-num">{t.x}, {t.y}</td>
                       <td><button type="button" className="rs-btn" disabled>Edit</button></td>

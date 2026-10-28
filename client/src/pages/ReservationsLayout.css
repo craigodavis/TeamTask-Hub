@@ -393,3 +393,99 @@
   .rs-kv > div { grid-template-columns: 1fr; gap: 0.15rem; }
   .rs-daybar h2 { font-size: 1.1rem; }
 }
+
+/* ── The table glyph ─────────────────────────────────────────────────────── */
+/* The same object the floor draws, shrunk into a row. It keeps its dark plate
+   because the green only reads against one, and because seeing the catalogue
+   and the room render identically is the point of sharing the code. */
+
+.rs-glyph {
+  display: block;
+  background: var(--rs-canvas);
+  border: 0.5px solid var(--rs-canvas-edge);
+  border-radius: 6px;
+}
+
+/* ── Segmented control ───────────────────────────────────────────────────── */
+/* For booking mode. Which system is deciding is the most consequential fact
+   on the Settings screen, so it is readable without opening a dropdown. */
+
+.rs-seg {
+  display: inline-flex;
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.rs-seg button {
+  font: inherit; font-size: 0.75rem; font-weight: 600;
+  background: var(--rs-surface-2); color: var(--rs-text-2);
+  border: none; border-right: 0.5px solid var(--rs-border);
+  padding: 0.3rem 0.7rem; cursor: pointer; white-space: nowrap;
+}
+.rs-seg button:last-child { border-right: none; }
+.rs-seg button.on { background: var(--rs-green); color: var(--rs-on-green); }
+.rs-seg button:disabled { cursor: not-allowed; }
+.rs-seg button:disabled:not(.on) { opacity: 0.65; }
+
+/* ResOS's live dot, which tells you the venue is actually taking bookings. */
+.rs-live {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--rs-green);
+}
+.rs-live i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--rs-green); box-shadow: 0 0 0 3px var(--rs-green-soft);
+}
+
+/* ── Bookings, inside the section ────────────────────────────────────────── */
+/*
+ * Bookings is the one screen that renders in two places: on its own for a
+ * manager, and inside this section for an owner. Restyling it outright would
+ * have changed the page people use during service, so the ResOS treatment is
+ * applied ONLY under .rs-skin, which the component adds when it is nested.
+ * The standalone markup is not touched at all — that is the guarantee, kept
+ * in CSS rather than promised in prose.
+ */
+
+.rs-skin { color: var(--rs-text); }
+
+.rs-skin .rv-head,
+.rs-skin .rv-filters,
+.rs-skin .rv-table-wrap {
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.rs-skin .rv-sub { color: var(--rs-text-2); font-size: 0.82rem; }
+.rs-skin .rv-stats { font-size: 0.85rem; color: var(--rs-text-2); }
+.rs-skin .rv-stats strong { color: var(--rs-text); }
+
+.rs-skin .rv-table th {
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--rs-muted);
+  border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-skin .rv-table td { border-bottom: 0.5px solid var(--rs-border); }
+.rs-skin .rv-table tbody tr:hover { background: var(--rs-surface-1); }
+
+/* The opt-in export is the reason this screen exists at all, so it gets the
+   green rather than sitting as another grey button. */
+.rs-skin .rv-export {
+  background: var(--rs-green); color: var(--rs-on-green);
+  border: 0.5px solid var(--rs-green);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.4rem 0.8rem; font-size: 0.85rem; cursor: pointer;
+}
+.rs-skin .rv-export:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.rs-skin .rv-tag {
+  background: var(--rs-surface-1); color: var(--rs-text-2);
+  border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.72rem;
+}
+.rs-skin .rv-tag.yes { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-skin .rv-status { border-radius: 999px; padding: 0.1rem 0.45rem; font-size: 0.68rem; }
+.rs-skin .rv-optin { background: transparent; }
