@@ -611,3 +611,26 @@
   background: var(--rs-table-booked); color: #2a2410;
   border-radius: 5px; font-weight: 600;
 }
+
+/* ── Sub-tabs and the hours layer ────────────────────────────────────────── */
+/* ResOS's Regular / Special / Experiences row, which is a tab strip inside a
+   screen rather than a navigation change. Buttons, not links: the tab is view
+   state, and putting it in the URL would make a back button walk through it. */
+
+.rs-subtabs { border: 0.5px solid var(--rs-border); border-radius: var(--rs-radius); }
+.rs-subtabs button {
+  font: inherit; background: none; border: none; cursor: pointer;
+  padding: 0.6rem 0.9rem; font-size: 0.8rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--rs-text-2); border-bottom: 2px solid transparent;
+}
+.rs-subtabs button:hover { color: var(--rs-text); }
+.rs-subtabs button.active { color: var(--rs-text); border-bottom-color: var(--rs-green); }
+
+.rs-hours-settings { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+.rs-sub-h {
+  margin: 1rem 0 0.5rem; font-size: 0.75rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--rs-muted);
+}
+.rs-sub-h:first-of-type { margin-top: 0.25rem; }

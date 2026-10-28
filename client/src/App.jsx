@@ -30,6 +30,7 @@ import ReservationsFloor from './pages/ReservationsFloor';
 import ReservationsLayouts from './pages/ReservationsLayouts';
 import ReservationsTables from './pages/ReservationsTables';
 import ReservationsOffers from './pages/ReservationsOffers';
+import ReservationsHours from './pages/ReservationsHours';
 import ReservationsSettings from './pages/ReservationsSettings';
 import PrivateEvents from './pages/PrivateEvents';
 import { Loyalty } from './pages/Loyalty';
@@ -198,6 +199,7 @@ function App() {
             <Route path="layouts" element={ownerOnly(<ReservationsLayouts />)} />
             <Route path="tables" element={ownerOnly(<ReservationsTables />)} />
             <Route path="offers" element={ownerOnly(<ReservationsOffers />)} />
+            <Route path="hours" element={ownerOnly(<ReservationsHours />)} />
             <Route path="settings" element={ownerOnly(<ReservationsSettings />)} />
           </Route>
           <Route

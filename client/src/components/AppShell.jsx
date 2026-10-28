@@ -550,6 +550,7 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                         { to: '/tasting-room/reservations/layouts', label: 'Layouts', icon: '🧩' },
                         { to: '/tasting-room/reservations/tables', label: 'Areas & Tables', icon: '📐' },
                         { to: '/tasting-room/reservations/offers', label: 'Offers', icon: '🎟️' },
+                        { to: '/tasting-room/reservations/hours', label: 'Hours & Limits', icon: '⏱️' },
                         { to: '/tasting-room/reservations/settings', label: 'Settings', icon: '⚙️' },
                       ].map((item) => {
                         const active = item.exact

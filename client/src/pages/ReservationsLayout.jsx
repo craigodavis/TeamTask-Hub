@@ -30,6 +30,7 @@ const TABS = [
   { to: '/tasting-room/reservations/layouts', label: 'Layouts' },
   { to: '/tasting-room/reservations/tables',  label: 'Areas & Tables' },
   { to: '/tasting-room/reservations/offers',  label: 'Offers' },
+  { to: '/tasting-room/reservations/hours',   label: 'Hours & Limits' },
   { to: '/tasting-room/reservations/settings', label: 'Settings' },
 ];
 

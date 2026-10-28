@@ -152,17 +152,46 @@ export default function ReservationsSettings() {
       <div className="rs-panel">
         <div className="rs-panel-head">
           <div>
-            <h2>Booking rules</h2>
-            <p className="rs-panel-sub">Company-wide defaults an offer can override.</p>
+            <h2>Limits</h2>
+            <p className="rs-panel-sub">
+              The defaults for online booking. Any period on Hours &amp; Limits can
+              override them, which is the cascade ResOS uses and the reason these are
+              defaults rather than rules.
+            </p>
           </div>
         </div>
+
+        <h3 className="rs-sub-h">People</h3>
         <div className="rs-controls">
-          <label>Slot length<input type="number" defaultValue={15} disabled /></label>
-          <label>Seating length<input type="number" defaultValue={90} disabled /></label>
-          <label>Latest booking (min before)<input type="number" defaultValue={60} disabled /></label>
-          <label>Furthest ahead (days)<input type="number" defaultValue={120} disabled /></label>
-          <label>Largest online party<input type="number" defaultValue={8} disabled /></label>
+          <label>Max people on an online booking
+            <input type="number" defaultValue={8} disabled /></label>
+          <label>Min people on an online booking
+            <input type="number" defaultValue={1} disabled /></label>
         </div>
+        <div className="rs-kv" style={{ marginTop: '0.6rem' }}>
+          <div>
+            <span className="k">Above max notice</span>
+            <span className="v">
+              For groups over 8 people, please call us at 208-504-2127.
+              <div className="rs-panel-sub">
+                Shown when a guest asks for more than the maximum. Without one, the
+                booking flow simply hides the option and the guest is told nothing.
+              </div>
+            </span>
+          </div>
+        </div>
+
+        <h3 className="rs-sub-h">New online bookings</h3>
+        <div className="rs-controls">
+          <label>Minimum time in advance
+            <input type="text" defaultValue="2:00" disabled /></label>
+          <label>Max time in advance
+            <input type="text" defaultValue="6 months" disabled /></label>
+        </div>
+        <p className="rs-panel-sub" style={{ marginTop: '0.5rem' }}>
+          These are the values the live ResOS account runs on today, so a switch of
+          booking mode does not quietly change what guests can do.
+        </p>
       </div>
     </>
   );
