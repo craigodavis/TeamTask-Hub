@@ -538,7 +538,11 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                       aria-expanded={reservationsExpanded}
                     >
                       <span className="nav-sub-icon">📅</span>
-                      <span>Reservations</span>
+                      {/* Named a mockup because that is what it is: these screens
+                          are not wired to anything. The manager's link above keeps
+                          the plain name, because that one goes to the real,
+                          working bookings list. */}
+                      <span>Reservations Mockup</span>
                       <span className="nav-sub-parent-chev">{reservationsExpanded ? '−' : '+'}</span>
                     </button>
                   )}

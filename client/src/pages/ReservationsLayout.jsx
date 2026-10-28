@@ -73,7 +73,7 @@ export function ReservationsLayout() {
   return (
     <div className="rs-layout">
       <header className="rs-head">
-        <h1 className="rs-title">Reservations</h1>
+        <h1 className="rs-title">Reservations Mockup</h1>
         <label className="rs-venue">
           <span className="rs-venue-label">Venue</span>
           <select value={effectiveId} onChange={(e) => pick(e.target.value)}>
