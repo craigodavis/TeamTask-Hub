@@ -78,6 +78,7 @@ import reservationsRouter from './routes/reservations.js';
 import eventRequestsRouter from './routes/eventRequests.js';
 import { pageImagesRouter } from './routes/pageImages.js';
 import { startInstagramScheduler } from './lib/instagramSync.js';
+import { startCapacityWatch } from './lib/eventCapacityWatch.js';
 // Rebuilds the public website when anything it reads changes here.
 import { websiteContentWatch } from './lib/websiteDeploy.js';
 import { crewRouter } from './routes/crew.js';
@@ -260,6 +261,7 @@ function startSchedulers() {
   startPromoEmailScheduler();
   startPublishWarningScheduler();
   startEventTaskReminderScheduler();
+  startCapacityWatch();
   startZeroCanaryScheduler();
   startAbcPortalScheduler();
 }
