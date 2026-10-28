@@ -47,8 +47,17 @@ const NOTABLE = {
 export default function Reservations() {
   const [from, setFrom] = useState(() => daysFromToday(-30));
   const [to, setTo] = useState(() => daysFromToday(60));
-  const { venue: scope } = useOutletContext() || {};
-  const venue = scope?.venue || '';
+  // This page renders two ways, and must be correct in both.
+  //
+  // On its own, which is what everyone but an owner gets, it carries its own
+  // venue filter exactly as it always has. Inside the Reservations section it
+  // takes the venue from the header scope instead, so there aren't two pickers
+  // disagreeing. `ctx.venues` is the tell: only the section shell provides it.
+  const ctx = useOutletContext() || {};
+  const inSection = Boolean(ctx.venues);
+  const scope = ctx.venue;
+  const [ownVenue, setOwnVenue] = useState('');
+  const venue = inSection ? (scope?.venue || '') : ownVenue;
   const [onlyOptIns, setOnlyOptIns] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -107,10 +116,11 @@ export default function Reservations() {
     <div className="reservations">
       <header className="rv-head">
         <div>
+          {!inSection && <h2>Reservations</h2>}
           <p className="rv-sub">
             Live from ResOS. Bookings are managed there — this is for seeing
-            {scope ? ` ${scope.name}` : ' both venues'} in one list and getting the
-            newsletter opt-ins out.
+            {inSection && scope ? ` ${scope.name}` : ' both venues'} in one list and
+            getting the newsletter opt-ins out.
           </p>
         </div>
         <button
@@ -127,6 +137,15 @@ export default function Reservations() {
       <div className="rv-filters">
         <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        {!inSection && (
+          <label>
+            Venue
+            <select value={ownVenue} onChange={(e) => setOwnVenue(e.target.value)}>
+              <option value="">All venues</option>
+              {(data?.venues || []).map((v) => <option key={v.slug} value={v.slug}>{v.name}</option>)}
+            </select>
+          </label>
+        )}
         <label className="rv-search">
           Search
           <input type="search" placeholder="name, email or phone" value={search}

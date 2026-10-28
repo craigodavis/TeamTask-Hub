@@ -35,9 +35,11 @@ export default function ReservationsSettings() {
   return (
     <>
       <p className="rs-stub">
-        <strong>Not wired up.</strong>
-        Nothing here saves yet. Every control is disabled so a click cannot change which
-        system is taking bookings.
+        <strong>Not wired up — and structurally unable to be.</strong>
+        ResOS decides every booking at both venues, and nothing on this screen can
+        change that. There is no save endpoint, no <code>booking_mode</code> column in
+        the database, and this file imports nothing that can write anywhere. The dial
+        is a picture of the plan, not a switch.
       </p>
 
       <div className="rs-panel">

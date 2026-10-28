@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { can, canAny } from '../utils/can';
+import { can, canAny, isOwner } from '../utils/can';
 import { ViewAsBanner } from './ViewAs';
 import { UserMenu } from './UserMenu';
 import { appHubTitle } from '../appHubTitle';
@@ -516,17 +516,33 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                     <span className="nav-sub-icon">📜</span>
                     <span>Menus</span>
                   </Link>
-                  <button
-                    type="button"
-                    className={`nav-sub-item nav-sub-parent${isReservationsPath(location.pathname) ? ' active' : ''}`}
-                    onClick={() => setReservationsExpanded((v) => !v)}
-                    aria-expanded={reservationsExpanded}
-                  >
-                    <span className="nav-sub-icon">📅</span>
-                    <span>Reservations</span>
-                    <span className="nav-sub-parent-chev">{reservationsExpanded ? '−' : '+'}</span>
-                  </button>
-                  {reservationsExpanded && (
+                  {/* Not an owner: the plain link straight to the bookings
+                      list, exactly as before. The expandable group below only
+                      exists for an owner, so nobody running service has their
+                      muscle memory broken by a menu that stopped navigating. */}
+                  {!isOwner(user) && (
+                    <Link
+                      to="/tasting-room/reservations"
+                      className={`nav-sub-item${isReservationsPath(location.pathname) ? ' active' : ''}`}
+                      onClick={() => { if (isMobile()) setCollapsed(true); }}
+                    >
+                      <span className="nav-sub-icon">📅</span>
+                      <span>Reservations</span>
+                    </Link>
+                  )}
+                  {isOwner(user) && (
+                    <button
+                      type="button"
+                      className={`nav-sub-item nav-sub-parent${isReservationsPath(location.pathname) ? ' active' : ''}`}
+                      onClick={() => setReservationsExpanded((v) => !v)}
+                      aria-expanded={reservationsExpanded}
+                    >
+                      <span className="nav-sub-icon">📅</span>
+                      <span>Reservations</span>
+                      <span className="nav-sub-parent-chev">{reservationsExpanded ? '−' : '+'}</span>
+                    </button>
+                  )}
+                  {isOwner(user) && reservationsExpanded && (
                     <div className="nav-sub-group nav-sub-group-deep">
                       {[
                         { to: '/tasting-room/reservations', label: 'Bookings', icon: '📋', exact: true },
