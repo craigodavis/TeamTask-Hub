@@ -1,8 +1,21 @@
+/*
+ * Bookings.
+ *
+ * Colours come from the app's tokens, not from literals. They used to be
+ * literals, which was invisible until TeamHub grew a dark theme: index.css
+ * gives every input `color: var(--text)`, this file forced `background: #fff`
+ * onto the same inputs, and in dark mode that painted near-white text onto
+ * white. The filter row was unreadable.
+ *
+ * Pills keep their literal pairs on purpose. A rule that sets BOTH a
+ * background and a foreground is legible on any surface; it is the lone
+ * colour trusting the surface behind it that breaks when the surface moves.
+ */
 .reservations { padding: 1rem 1.25rem 3rem; max-width: 1400px; }
 
 .rv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .rv-head h2 { margin: 0 0 .25rem; }
-.rv-sub { margin: 0; color: #667; font-size: .875rem; max-width: 52ch; }
+.rv-sub { margin: 0; color: var(--text-muted); font-size: .875rem; max-width: 52ch; }
 
 .rv-export {
   background: #2f6f4f; color: #fff; border: 0; border-radius: 6px;
@@ -12,44 +25,44 @@
 
 .rv-filters {
   display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-end;
-  margin: 1rem 0; padding: .85rem 1rem; background: #f6f7f6; border-radius: 8px;
+  margin: 1rem 0; padding: .85rem 1rem; background: var(--bg-subtle); border-radius: 8px;
 }
-.rv-filters label { display: flex; flex-direction: column; gap: .25rem; font-size: .78rem; color: #556; text-transform: uppercase; letter-spacing: .04em; }
+.rv-filters label { display: flex; flex-direction: column; gap: .25rem; font-size: .78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
 .rv-filters input, .rv-filters select {
-  font: inherit; padding: .4rem .5rem; border: 1px solid #ccd; border-radius: 5px; background: #fff;
+  font: inherit; padding: .4rem .5rem; border: 1px solid var(--border); border-radius: 5px;
 }
 .rv-search input { min-width: 15rem; }
 .rv-check { flex-direction: row !important; align-items: center; gap: .4rem !important; text-transform: none !important; font-size: .875rem !important; letter-spacing: 0 !important; }
 
-.rv-stats { margin: .5rem 0 1rem; color: #445; font-size: .9rem; }
+.rv-stats { margin: .5rem 0 1rem; color: var(--text-muted); font-size: .9rem; }
 .rv-error { color: #a12; background: #fdeceb; padding: .6rem .8rem; border-radius: 6px; margin: .5rem 0; }
-.rv-empty { color: #778; padding: 2rem 0; }
+.rv-empty { color: var(--text-muted); padding: 2rem 0; }
 
 /* The table is wide and must scroll inside itself rather than pushing the page. */
-.rv-table-wrap { overflow-x: auto; border: 1px solid #e3e6e4; border-radius: 8px; }
+.rv-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 .rv-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .rv-table th {
   text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
-  color: #667; background: #fafbfa; padding: .55rem .7rem; border-bottom: 1px solid #e3e6e4;
+  color: var(--text-muted); background: var(--table-head-bg); padding: .55rem .7rem; border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 1;
 }
-.rv-table td { padding: .55rem .7rem; border-bottom: 1px solid #f0f2f1; vertical-align: top; }
+.rv-table td { padding: .55rem .7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 .rv-table tr:last-child td { border-bottom: 0; }
-.rv-optin { background: #f4faf6; }
+.rv-optin { background: var(--card-done); }
 
 .rv-when { white-space: nowrap; }
 .rv-date { display: block; font-weight: 600; }
-.rv-time { display: block; color: #778; font-size: .82rem; }
+.rv-time { display: block; color: var(--text-muted); font-size: .82rem; }
 
 .rv-guest { display: flex; flex-direction: column; gap: .1rem; min-width: 12rem; }
 .rv-name { font-weight: 600; }
-.rv-email, .rv-phone { font-size: .82rem; color: #667; }
-.rv-email { color: #2f6f4f; text-decoration: none; }
+.rv-email, .rv-phone { font-size: .82rem; color: var(--text-muted); }
+.rv-email { color: var(--primary); text-decoration: none; }
 .rv-email:hover { text-decoration: underline; }
 
 .rv-party { text-align: center; }
-.rv-source { color: #778; font-size: .82rem; }
-.rv-none { color: #aab; }
+.rv-source { color: var(--text-muted); font-size: .82rem; }
+.rv-none { color: var(--text-muted); }
 
 .rv-answers { display: flex; flex-wrap: wrap; gap: .3rem; max-width: 30rem; }
 .rv-tag {

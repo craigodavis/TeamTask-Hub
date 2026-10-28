@@ -1,0 +1,636 @@
+/*
+ * Reservations — the ResOS replacement's look.
+ *
+ * Craig: "I want the screen style and layout to be very similar to resos —
+ * really a blend of our drawers and resos css and images."
+ *
+ * So this is two things welded together on purpose.
+ *
+ * From ResOS: the plum-charcoal shell, the green tables and price pills, the
+ * amber Open/Closed pill, the 15-minute time ruler over the floor, and the
+ * dark floor canvas. The canvas stays dark in BOTH themes — it is a stage, not
+ * a page, and the green only reads properly against it. That single choice
+ * does more to make this feel like ResOS than any amount of palette matching.
+ *
+ * From Vintly (our drawers): the layering discipline. Hairline borders rather
+ * than 1px slabs, 12px/8px radii, and semantic background/text PAIRS so a pill
+ * carries its own foreground instead of inheriting one that happens to work in
+ * one theme. Tokens are --rs-* and sit on :root; the prefix is what makes that
+ * safe, exactly as --vin-* is.
+ *
+ * Light mode is NOT a ResOS screenshot — ResOS is dark only, and TeamHub is
+ * light by default. Light mode keeps Vintly's warm paper and takes only the
+ * accents, so the section belongs to TeamHub in the theme most people use it
+ * in, and becomes ResOS proper in the dark.
+ */
+
+:root {
+  /* Surfaces: warm paper, from the Vintly ramp. */
+  --rs-surface-0: #f7f6f2;
+  --rs-surface-1: #f0efe9;
+  --rs-surface-2: #ffffff;
+
+  --rs-text: #1a1a18;
+  --rs-text-2: #5f5e5a;
+  --rs-muted: #888780;
+
+  --rs-border: rgba(0, 0, 0, 0.10);
+  --rs-border-strong: rgba(0, 0, 0, 0.22);
+
+  /* ResOS accents. Green is the system's whole identity — tables, prices,
+     the active tab, the live toggle. Amber is status. Plum is the chrome. */
+  --rs-green: #3f9d64;
+  --rs-green-bright: #4caf72;
+  --rs-green-soft: #e4f1e9;
+  --rs-on-green: #ffffff;
+
+  --rs-amber: #d9a94a;
+  --rs-amber-soft: #faeeda;
+  --rs-on-amber: #633806;
+
+  --rs-plum: #2f2742;
+  --rs-on-plum: #f3f1f7;
+
+  /* The floor canvas — identical in both themes, deliberately. */
+  --rs-canvas: #2a2833;
+  --rs-canvas-edge: #3a3747;
+  --rs-seat: #6d6d74;
+  --rs-table: #3f9d64;
+  --rs-table-open: #2f6f49;
+  --rs-table-held: #4a4857;
+  --rs-table-booked: #d9a94a;
+  --rs-on-canvas: #f0eff4;
+  --rs-on-canvas-muted: #9a98a4;
+
+  --rs-radius: 12px;
+  --rs-radius-sm: 8px;
+}
+
+/* Declared twice: an @media cannot sit inside a selector list, so the OS rule
+   and the explicit [data-theme] rule are separate blocks. The media query is
+   guarded so an explicitly-light TeamHub stays light on a dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rs-surface-0: #1e1b24;
+    --rs-surface-1: #262231;
+    --rs-surface-2: #2a2833;
+    --rs-text: #f0eff4;
+    --rs-text-2: #b6b3c0;
+    --rs-muted: #8e8b99;
+    --rs-border: rgba(255, 255, 255, 0.10);
+    --rs-border-strong: rgba(255, 255, 255, 0.24);
+    --rs-green-soft: #1d4430;
+    --rs-amber-soft: #4a3a18;
+    --rs-on-amber: #f6d99a;
+    --rs-plum: #2f2742;
+  }
+}
+
+:root[data-theme="dark"] {
+  --rs-surface-0: #1e1b24;
+  --rs-surface-1: #262231;
+  --rs-surface-2: #2a2833;
+  --rs-text: #f0eff4;
+  --rs-text-2: #b6b3c0;
+  --rs-muted: #8e8b99;
+  --rs-border: rgba(255, 255, 255, 0.10);
+  --rs-border-strong: rgba(255, 255, 255, 0.24);
+  --rs-green-soft: #1d4430;
+  --rs-amber-soft: #4a3a18;
+  --rs-on-amber: #f6d99a;
+  --rs-plum: #2f2742;
+}
+
+/* ── Shell ───────────────────────────────────────────────────────────────── */
+
+.rs-layout {
+  color: var(--rs-text);
+  padding-bottom: 2rem;
+}
+
+/* The plum band, lifted straight from the ResOS title bar. It carries the
+   venue picker so the scope is always in the chrome, never in the page. */
+.rs-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+  background: var(--rs-plum);
+  color: var(--rs-on-plum);
+  border-radius: var(--rs-radius) var(--rs-radius) 0 0;
+  padding: 0.7rem 1rem;
+}
+
+.rs-title {
+  margin: 0; font-size: 1.05rem; font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.rs-venue { display: flex; align-items: center; gap: 0.5rem; }
+.rs-venue-label {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: rgba(243, 241, 247, 0.6);
+}
+.rs-venue select {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--rs-on-plum);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.3rem 0.55rem;
+  font: inherit; font-size: 0.85rem;
+}
+.rs-venue select option { color: #1a1a18; background: #fff; }
+
+/* Tabs with the green underline ResOS uses on its own tab rows. */
+.rs-tabs {
+  display: flex; gap: 0.25rem; flex-wrap: wrap;
+  background: var(--rs-surface-1);
+  border: 0.5px solid var(--rs-border);
+  border-top: none;
+  border-radius: 0 0 var(--rs-radius) var(--rs-radius);
+  padding: 0 0.5rem;
+  margin-bottom: 1rem;
+}
+.rs-tabs a {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem; font-weight: 500;
+  color: var(--rs-text-2); text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.rs-tabs a:hover { color: var(--rs-text); }
+.rs-tabs a.active {
+  color: var(--rs-text);
+  border-bottom-color: var(--rs-green);
+}
+
+.rs-scope-note, .rs-error {
+  font-size: 0.85rem; border-radius: var(--rs-radius-sm);
+  padding: 0.55rem 0.75rem; margin: 0 0 1rem;
+}
+.rs-scope-note { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-error { background: #fcebeb; color: #791f1f; }
+
+/* The unmistakable "this is not real yet" band. */
+.rs-stub {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  font-size: 0.85rem; color: var(--rs-text-2);
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 8px,
+    rgba(217, 169, 74, 0.09) 8px, rgba(217, 169, 74, 0.09) 16px);
+  border: 1px dashed var(--rs-amber);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.6rem 0.8rem; margin: 0 0 1rem;
+}
+.rs-stub strong { color: var(--rs-text); }
+.rs-stub code {
+  background: var(--rs-surface-1); border-radius: 4px;
+  padding: 0 0.25rem; font-size: 0.95em;
+}
+
+/* ── Panels ──────────────────────────────────────────────────────────────── */
+
+.rs-panel {
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.rs-panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;
+}
+.rs-panel-head h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.rs-panel-sub { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--rs-text-2); }
+
+/* ResOS's big date heading with its status pill beside it. */
+.rs-daybar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.rs-daybar h2 { margin: 0; font-size: 1.3rem; font-weight: 500; }
+.rs-status {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; border-radius: 999px; padding: 0.15rem 0.5rem;
+}
+.rs-status.open { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-status.closed { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-daybar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+.rs-controls {
+  display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;
+}
+.rs-controls label {
+  display: flex; flex-direction: column; gap: 0.2rem;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--rs-muted);
+}
+.rs-controls input, .rs-controls select {
+  font: inherit; font-size: 0.88rem; text-transform: none; letter-spacing: 0;
+  color: var(--rs-text); background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: var(--rs-radius-sm); padding: 0.35rem 0.5rem;
+  min-width: 0;
+}
+.rs-controls input:disabled, .rs-controls select:disabled { opacity: 0.55; }
+
+.rs-btn {
+  font: inherit; font-size: 0.85rem;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  background: var(--rs-surface-1); color: var(--rs-text);
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.4rem 0.75rem; cursor: pointer;
+}
+.rs-btn:hover:not(:disabled) { border-color: var(--rs-green); color: var(--rs-green); }
+.rs-btn.primary {
+  background: var(--rs-green); color: var(--rs-on-green); border-color: var(--rs-green);
+}
+.rs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── The time ruler ──────────────────────────────────────────────────────── */
+/* ResOS's signature strip: every 15 minutes across the service, the open
+   window picked out in green. It is what makes the floor read as a day
+   rather than a drawing. */
+
+.rs-ruler-wrap { overflow-x: auto; margin-bottom: 0.75rem; }
+.rs-ruler {
+  display: flex; min-width: max-content;
+  background: var(--rs-surface-1);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius-sm);
+}
+.rs-slot {
+  flex: 0 0 auto; width: 38px;
+  padding: 0.5rem 0 0.4rem;
+  font-size: 0.6rem; font-variant-numeric: tabular-nums;
+  text-align: center; color: var(--rs-muted);
+  border-right: 0.5px solid var(--rs-border);
+  writing-mode: vertical-rl; text-orientation: mixed;
+  height: 74px;
+}
+.rs-slot:last-child { border-right: none; }
+.rs-slot.open { color: var(--rs-green); background: var(--rs-green-soft); font-weight: 600; }
+.rs-slot.hour { color: var(--rs-text); font-weight: 700; }
+
+/* ── The floor ───────────────────────────────────────────────────────────── */
+
+.rs-floor {
+  background: var(--rs-canvas);
+  border: 0.5px solid var(--rs-canvas-edge);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.5rem;
+  overflow-x: auto;
+}
+.rs-floor svg { display: block; width: 100%; min-width: 420px; height: auto; }
+
+.rs-floor-meta {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1rem;
+  margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--rs-text-2);
+}
+.rs-floor-meta span { white-space: nowrap; }
+
+.rs-legend {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  font-size: 0.8rem; color: var(--rs-text-2);
+  background: var(--rs-surface-1);
+  border-radius: var(--rs-radius-sm); padding: 0.75rem 0.9rem;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+
+.rs-table-wrap { overflow-x: auto; }
+.rs-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.rs-table th {
+  text-align: left; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--rs-muted); padding: 0 0.6rem 0.5rem;
+  border-bottom: 0.5px solid var(--rs-border);
+  white-space: nowrap;
+}
+.rs-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 0.5px solid var(--rs-border);
+  vertical-align: top;
+}
+.rs-table tbody tr:last-child td { border-bottom: none; }
+.rs-table tbody tr:hover { background: var(--rs-surface-1); }
+.rs-num { font-variant-numeric: tabular-nums; }
+.rs-table code, .rs-kv code {
+  font-size: 0.9em; background: var(--rs-surface-1);
+  border-radius: 4px; padding: 0.05rem 0.3rem;
+}
+
+/* ── Pills ───────────────────────────────────────────────────────────────── */
+
+.rs-pill {
+  display: inline-block; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border-radius: 999px; padding: 0.12rem 0.5rem; white-space: nowrap;
+}
+.rs-pill.seated   { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-pill.open     { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-pill.standing { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-pill.held     { background: var(--rs-surface-1);  color: var(--rs-muted); }
+.rs-pill.resos    { background: var(--rs-surface-1);  color: var(--rs-text-2); }
+.rs-pill.mirror   { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-pill.own      { background: var(--rs-green-soft); color: var(--rs-green); }
+
+/* ── Offers, as ResOS draws an Experience ────────────────────────────────── */
+/* A light name plate carrying the title and its price, with the settings
+   beside it in muted italics. */
+
+.rs-offer {
+  display: flex; gap: 1rem; align-items: stretch; flex-wrap: wrap;
+  background: var(--rs-surface-1);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.6rem; margin-bottom: 0.6rem;
+}
+.rs-offer-plate {
+  flex: 1 1 260px;
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.7rem 0.8rem;
+  font-weight: 500;
+}
+.rs-offer-price {
+  background: var(--rs-green); color: var(--rs-on-green);
+  font-size: 0.72rem; font-weight: 700;
+  border-radius: 999px; padding: 0.12rem 0.5rem;
+}
+.rs-offer-meta {
+  flex: 1 1 240px;
+  display: flex; flex-direction: column; gap: 0.1rem;
+  font-size: 0.78rem; font-style: italic; color: var(--rs-text-2);
+  justify-content: center;
+}
+
+/* ── Key/value ───────────────────────────────────────────────────────────── */
+
+.rs-kv { display: flex; flex-direction: column; gap: 0.5rem; }
+.rs-kv > div {
+  display: grid; grid-template-columns: 170px 1fr; gap: 0.75rem;
+  font-size: 0.85rem;
+  padding-bottom: 0.5rem; border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-kv > div:last-child { border-bottom: none; padding-bottom: 0; }
+.rs-kv .k { color: var(--rs-muted); }
+.rs-kv .v { color: var(--rs-text); min-width: 0; }
+.rs-kv .v .rs-panel-sub { margin-top: 0.25rem; }
+
+.rs-empty {
+  font-size: 0.88rem; color: var(--rs-text-2);
+  padding: 1.5rem; text-align: center;
+}
+
+@media (max-width: 760px) {
+  .rs-head { border-radius: var(--rs-radius); }
+  .rs-tabs { border-radius: var(--rs-radius); border-top: 0.5px solid var(--rs-border); margin-top: 0.5rem; }
+  .rs-kv > div { grid-template-columns: 1fr; gap: 0.15rem; }
+  .rs-daybar h2 { font-size: 1.1rem; }
+}
+
+/* ── The table glyph ─────────────────────────────────────────────────────── */
+/* The same object the floor draws, shrunk into a row. It keeps its dark plate
+   because the green only reads against one, and because seeing the catalogue
+   and the room render identically is the point of sharing the code. */
+
+.rs-glyph {
+  display: block;
+  background: var(--rs-canvas);
+  border: 0.5px solid var(--rs-canvas-edge);
+  border-radius: 6px;
+}
+
+/* ── Segmented control ───────────────────────────────────────────────────── */
+/* For booking mode. Which system is deciding is the most consequential fact
+   on the Settings screen, so it is readable without opening a dropdown. */
+
+.rs-seg {
+  display: inline-flex;
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.rs-seg button {
+  font: inherit; font-size: 0.75rem; font-weight: 600;
+  background: var(--rs-surface-2); color: var(--rs-text-2);
+  border: none; border-right: 0.5px solid var(--rs-border);
+  padding: 0.3rem 0.7rem; cursor: pointer; white-space: nowrap;
+}
+.rs-seg button:last-child { border-right: none; }
+.rs-seg button.on { background: var(--rs-green); color: var(--rs-on-green); }
+.rs-seg button:disabled { cursor: not-allowed; }
+.rs-seg button:disabled:not(.on) { opacity: 0.65; }
+
+/* ResOS's live dot, which tells you the venue is actually taking bookings. */
+.rs-live {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--rs-green);
+}
+.rs-live i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--rs-green); box-shadow: 0 0 0 3px var(--rs-green-soft);
+}
+
+/* ── Bookings, inside the section ────────────────────────────────────────── */
+/*
+ * Bookings is the one screen that renders in two places: on its own for a
+ * manager, and inside this section for an owner. Restyling it outright would
+ * have changed the page people use during service, so the ResOS treatment is
+ * applied ONLY under .rs-skin, which the component adds when it is nested.
+ * The standalone markup is not touched at all — that is the guarantee, kept
+ * in CSS rather than promised in prose.
+ */
+
+.rs-skin { color: var(--rs-text); }
+
+.rs-skin .rv-head,
+.rs-skin .rv-filters,
+.rs-skin .rv-table-wrap {
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.rs-skin .rv-sub { color: var(--rs-text-2); font-size: 0.82rem; }
+.rs-skin .rv-stats { font-size: 0.85rem; color: var(--rs-text-2); }
+.rs-skin .rv-stats strong { color: var(--rs-text); }
+
+.rs-skin .rv-table th {
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--rs-muted);
+  border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-skin .rv-table td { border-bottom: 0.5px solid var(--rs-border); }
+.rs-skin .rv-table tbody tr:hover { background: var(--rs-surface-1); }
+
+/* The opt-in export is the reason this screen exists at all, so it gets the
+   green rather than sitting as another grey button. */
+.rs-skin .rv-export {
+  background: var(--rs-green); color: var(--rs-on-green);
+  border: 0.5px solid var(--rs-green);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.4rem 0.8rem; font-size: 0.85rem; cursor: pointer;
+}
+.rs-skin .rv-export:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.rs-skin .rv-tag {
+  background: var(--rs-surface-1); color: var(--rs-text-2);
+  border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.72rem;
+}
+.rs-skin .rv-tag.yes { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-skin .rv-status { border-radius: 999px; padding: 0.1rem 0.45rem; font-size: 0.68rem; }
+.rs-skin .rv-optin { background: transparent; }
+
+/* ── Date navigation ─────────────────────────────────────────────────────── */
+/* ResOS puts a chevron each side of the date on every dated view. One
+   component, one set of styles, so the four views cannot drift apart. */
+
+.rs-viewbar {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.rs-datenav { display: flex; align-items: center; gap: 0.4rem; }
+.rs-datenav-label {
+  font-size: 0.9rem; font-weight: 500; min-width: 9.5rem; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.rs-datenav input[type="date"] {
+  font: inherit; font-size: 0.82rem;
+  color: var(--rs-text); background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: var(--rs-radius-sm); padding: 0.25rem 0.4rem;
+}
+.rs-chev {
+  font: inherit; font-size: 1.1rem; line-height: 1;
+  width: 2rem; height: 2rem; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--rs-surface-2); color: var(--rs-text);
+  border: 0.5px solid var(--rs-border-strong); border-radius: var(--rs-radius-sm);
+}
+.rs-chev:hover { border-color: var(--rs-green); color: var(--rs-green); }
+
+/* ── Calendar ────────────────────────────────────────────────────────────── */
+
+.rs-cal {
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius);
+  overflow: hidden;
+}
+.rs-cal-head, .rs-cal-week { display: grid; grid-template-columns: repeat(7, 1fr); }
+.rs-cal-head div {
+  padding: 0.5rem 0.6rem; font-size: 0.72rem; font-weight: 600;
+  color: var(--rs-muted); border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-cal-day {
+  font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem;
+  min-height: 92px; padding: 0.45rem 0.5rem;
+  background: var(--rs-surface-2); color: var(--rs-text);
+  border: none;
+  border-right: 0.5px solid var(--rs-border);
+  border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-cal-day:nth-child(7n) { border-right: none; }
+.rs-cal-day:hover { background: var(--rs-surface-1); }
+.rs-cal-day.out { opacity: 0.4; }
+.rs-cal-n { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.rs-cal-n.today {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  background: var(--rs-green); color: var(--rs-on-green); font-weight: 700;
+}
+
+/* ── Schedule ────────────────────────────────────────────────────────────── */
+/* Tables down the side, the service across the top. The dark plate is the
+   same stage the floor uses, for the same reason. */
+
+.rs-sched-wrap {
+  overflow-x: auto;
+  background: var(--rs-canvas);
+  border: 0.5px solid var(--rs-canvas-edge);
+  border-radius: var(--rs-radius);
+  padding: 0.5rem;
+}
+.rs-sched {
+  display: grid;
+  grid-template-columns: 104px repeat(var(--rs-cols), 26px);
+  min-width: max-content;
+  color: var(--rs-on-canvas);
+}
+.rs-sched-corner { position: sticky; left: 0; background: var(--rs-canvas); z-index: 2; }
+.rs-sched-time {
+  font-size: 0.58rem; color: var(--rs-on-canvas-muted);
+  text-align: left; padding-bottom: 0.3rem; white-space: nowrap;
+}
+.rs-sched-time.hour { color: var(--rs-on-canvas); font-weight: 700; }
+
+.rs-sched-area {
+  grid-column: 1 / -1;
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--rs-on-canvas-muted);
+  padding: 0.6rem 0 0.3rem; position: sticky; left: 0;
+}
+.rs-sched-row-label {
+  position: sticky; left: 0; z-index: 1;
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.78rem; padding: 0 0.5rem;
+  background: var(--rs-canvas);
+  border-bottom: 0.5px solid var(--rs-canvas-edge);
+  height: 30px;
+}
+.rs-sched-row-label span {
+  font-size: 0.62rem; color: var(--rs-on-canvas-muted);
+  border: 0.5px solid var(--rs-canvas-edge); border-radius: 999px;
+  padding: 0 0.35rem;
+}
+.rs-sched-row-label.unassigned { font-weight: 600; color: var(--rs-table-booked); }
+
+.rs-sched-cell {
+  height: 30px;
+  border-bottom: 0.5px solid var(--rs-canvas-edge);
+  border-right: 0.5px solid rgba(255, 255, 255, 0.04);
+}
+.rs-sched-cell.hour { border-right-color: var(--rs-canvas-edge); }
+.rs-sched-cell.area { height: 0; border: none; }
+
+.rs-sched-block {
+  align-self: center;
+  margin: 2px; padding: 0 0.4rem; height: 26px;
+  display: flex; align-items: center;
+  font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--rs-table-booked); color: #2a2410;
+  border-radius: 5px; font-weight: 600;
+}
+
+/* ── Sub-tabs and the hours layer ────────────────────────────────────────── */
+/* ResOS's Regular / Special / Experiences row, which is a tab strip inside a
+   screen rather than a navigation change. Buttons, not links: the tab is view
+   state, and putting it in the URL would make a back button walk through it. */
+
+.rs-subtabs { border: 0.5px solid var(--rs-border); border-radius: var(--rs-radius); }
+.rs-subtabs button {
+  font: inherit; background: none; border: none; cursor: pointer;
+  padding: 0.6rem 0.9rem; font-size: 0.8rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--rs-text-2); border-bottom: 2px solid transparent;
+}
+.rs-subtabs button:hover { color: var(--rs-text); }
+.rs-subtabs button.active { color: var(--rs-text); border-bottom-color: var(--rs-green); }
+
+.rs-hours-settings { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+.rs-sub-h {
+  margin: 1rem 0 0.5rem; font-size: 0.75rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--rs-muted);
+}
+.rs-sub-h:first-of-type { margin-top: 0.25rem; }

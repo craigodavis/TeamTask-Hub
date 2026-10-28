@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { can, canAny } from '../utils/can';
+import { can, canAny, isOwner } from '../utils/can';
 import { ViewAsBanner } from './ViewAs';
 import { UserMenu } from './UserMenu';
 import { appHubTitle } from '../appHubTitle';
@@ -53,6 +53,11 @@ function isTastingRoomPath(pathname) {
   return pathname.startsWith('/tasting-room');
 }
 
+// The Reservations group inside Tasting Room: the booking system's own screens.
+function isReservationsPath(pathname) {
+  return pathname.startsWith('/tasting-room/reservations');
+}
+
 function isWinePath(pathname) {
   return pathname.startsWith('/products') || pathname.startsWith('/product-lines');
 }
@@ -77,6 +82,8 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
   const [wineExpanded, setWineExpanded] = useState(() => isWinePath(location.pathname));
   const [tastingRoomExpanded, setTastingRoomExpanded] =
     useState(() => isTastingRoomPath(location.pathname));
+  const [reservationsExpanded, setReservationsExpanded] =
+    useState(() => isReservationsPath(location.pathname));
   const [marketingExpanded, setMarketingExpanded] = useState(() => isMarketingPath(location.pathname));
   const [websiteExpanded, setWebsiteExpanded] = useState(() => isWebsitePath(location.pathname));
 
@@ -509,14 +516,64 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
                     <span className="nav-sub-icon">📜</span>
                     <span>Menus</span>
                   </Link>
-                  <Link
-                    to="/tasting-room/reservations"
-                    className={`nav-sub-item${location.pathname.startsWith('/tasting-room/reservations') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">📅</span>
-                    <span>Reservations</span>
-                  </Link>
+                  {/* Not an owner: the plain link straight to the bookings
+                      list, exactly as before. The expandable group below only
+                      exists for an owner, so nobody running service has their
+                      muscle memory broken by a menu that stopped navigating. */}
+                  {!isOwner(user) && (
+                    <Link
+                      to="/tasting-room/reservations"
+                      className={`nav-sub-item${isReservationsPath(location.pathname) ? ' active' : ''}`}
+                      onClick={() => { if (isMobile()) setCollapsed(true); }}
+                    >
+                      <span className="nav-sub-icon">📅</span>
+                      <span>Reservations</span>
+                    </Link>
+                  )}
+                  {isOwner(user) && (
+                    <button
+                      type="button"
+                      className={`nav-sub-item nav-sub-parent${isReservationsPath(location.pathname) ? ' active' : ''}`}
+                      onClick={() => setReservationsExpanded((v) => !v)}
+                      aria-expanded={reservationsExpanded}
+                    >
+                      <span className="nav-sub-icon">📅</span>
+                      {/* Named a mockup because that is what it is: these screens
+                          are not wired to anything. The manager's link above keeps
+                          the plain name, because that one goes to the real,
+                          working bookings list. */}
+                      <span>Reservations Mockup</span>
+                      <span className="nav-sub-parent-chev">{reservationsExpanded ? '−' : '+'}</span>
+                    </button>
+                  )}
+                  {isOwner(user) && reservationsExpanded && (
+                    <div className="nav-sub-group nav-sub-group-deep">
+                      {[
+                        { to: '/tasting-room/reservations', label: 'Bookings', icon: '📋', exact: true },
+                        { to: '/tasting-room/reservations/floor', label: 'Floor', icon: '🪑' },
+                        { to: '/tasting-room/reservations/layouts', label: 'Layouts', icon: '🧩' },
+                        { to: '/tasting-room/reservations/tables', label: 'Areas & Tables', icon: '📐' },
+                        { to: '/tasting-room/reservations/offers', label: 'Offers', icon: '🎟️' },
+                        { to: '/tasting-room/reservations/hours', label: 'Hours & Limits', icon: '⏱️' },
+                        { to: '/tasting-room/reservations/settings', label: 'Settings', icon: '⚙️' },
+                      ].map((item) => {
+                        const active = item.exact
+                          ? location.pathname === item.to
+                          : location.pathname.startsWith(item.to);
+                        return (
+                          <Link
+                            key={item.to}
+                            to={item.to}
+                            className={`nav-sub-item${active ? ' active' : ''}`}
+                            onClick={() => { if (isMobile()) setCollapsed(true); }}
+                          >
+                            <span className="nav-sub-icon">{item.icon}</span>
+                            <span>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </>

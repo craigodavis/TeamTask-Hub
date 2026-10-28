@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { can } from './utils/can';
+import { can, isOwner } from './utils/can';
 import { Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -25,6 +25,13 @@ import { Overview } from './pages/Overview';
 import { Campaigns } from './pages/Campaigns';
 import { Menus } from './pages/Menus';
 import Reservations from './pages/Reservations';
+import { ReservationsLayout } from './pages/ReservationsLayout';
+import ReservationsFloor from './pages/ReservationsFloor';
+import ReservationsLayouts from './pages/ReservationsLayouts';
+import ReservationsTables from './pages/ReservationsTables';
+import ReservationsOffers from './pages/ReservationsOffers';
+import ReservationsHours from './pages/ReservationsHours';
+import ReservationsSettings from './pages/ReservationsSettings';
 import PrivateEvents from './pages/PrivateEvents';
 import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
@@ -119,6 +126,12 @@ function App() {
 
   if (loading) return <div className="app-loading">Loading…</div>;
 
+  // The ResOS replacement ships to main unfinished, so its screens are owner
+  // only until they do something. Anyone else who reaches one by URL lands on
+  // the bookings list they already use rather than a redirect to the dashboard.
+  const ownerOnly = (el) =>
+    (isOwner(user) ? el : <Navigate to="/tasting-room/reservations" replace />);
+
   return (
     <Routes>
       {/* Public routes — no auth required */}
@@ -158,16 +171,37 @@ function App() {
               )
             }
           />
+          {/* Reservations is deliberately two different things.
+
+              A manager gets Bookings on its own, with its own venue filter —
+              byte for byte the page they have used all along. Only an owner
+              gets the section shell and the ResOS-replacement screens hanging
+              off it. That asymmetry is what lets this ship to main while it is
+              still unfinished: the people running service see no change, and
+              the new screens are unreachable to them by nav and by URL. */}
           <Route
             path="/tasting-room/reservations"
             element={
-              can(user, 'tastingroom.reservations') ? (
-                <Reservations />
-              ) : (
+              !can(user, 'tastingroom.reservations') ? (
                 <Navigate to="/" replace />
+              ) : isOwner(user) ? (
+                <ReservationsLayout />
+              ) : (
+                <Reservations />
               )
             }
-          />
+          >
+            {/* For a non-owner the parent above is Reservations, which has no
+                <Outlet>, so none of these can render for them at all. The
+                owner check on each one is the second lock, not the first. */}
+            <Route index element={<Reservations />} />
+            <Route path="floor" element={ownerOnly(<ReservationsFloor />)} />
+            <Route path="layouts" element={ownerOnly(<ReservationsLayouts />)} />
+            <Route path="tables" element={ownerOnly(<ReservationsTables />)} />
+            <Route path="offers" element={ownerOnly(<ReservationsOffers />)} />
+            <Route path="hours" element={ownerOnly(<ReservationsHours />)} />
+            <Route path="settings" element={ownerOnly(<ReservationsSettings />)} />
+          </Route>
           <Route
             path="/dashboard"
             element={
