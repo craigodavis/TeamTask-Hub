@@ -1,332 +1,395 @@
-/* Reservations section: shell, tabs, and the shared furniture every screen
-   underneath uses (panels, mode pills, the floor canvas, the not-wired band). */
+/*
+ * Reservations — the ResOS replacement's look.
+ *
+ * Craig: "I want the screen style and layout to be very similar to resos —
+ * really a blend of our drawers and resos css and images."
+ *
+ * So this is two things welded together on purpose.
+ *
+ * From ResOS: the plum-charcoal shell, the green tables and price pills, the
+ * amber Open/Closed pill, the 15-minute time ruler over the floor, and the
+ * dark floor canvas. The canvas stays dark in BOTH themes — it is a stage, not
+ * a page, and the green only reads properly against it. That single choice
+ * does more to make this feel like ResOS than any amount of palette matching.
+ *
+ * From Vintly (our drawers): the layering discipline. Hairline borders rather
+ * than 1px slabs, 12px/8px radii, and semantic background/text PAIRS so a pill
+ * carries its own foreground instead of inheriting one that happens to work in
+ * one theme. Tokens are --rs-* and sit on :root; the prefix is what makes that
+ * safe, exactly as --vin-* is.
+ *
+ * Light mode is NOT a ResOS screenshot — ResOS is dark only, and TeamHub is
+ * light by default. Light mode keeps Vintly's warm paper and takes only the
+ * accents, so the section belongs to TeamHub in the theme most people use it
+ * in, and becomes ResOS proper in the dark.
+ */
 
-.rs-layout {
-  max-width: 1100px;
-  padding: 0 0 2rem;
+:root {
+  /* Surfaces: warm paper, from the Vintly ramp. */
+  --rs-surface-0: #f7f6f2;
+  --rs-surface-1: #f0efe9;
+  --rs-surface-2: #ffffff;
+
+  --rs-text: #1a1a18;
+  --rs-text-2: #5f5e5a;
+  --rs-muted: #888780;
+
+  --rs-border: rgba(0, 0, 0, 0.10);
+  --rs-border-strong: rgba(0, 0, 0, 0.22);
+
+  /* ResOS accents. Green is the system's whole identity — tables, prices,
+     the active tab, the live toggle. Amber is status. Plum is the chrome. */
+  --rs-green: #3f9d64;
+  --rs-green-bright: #4caf72;
+  --rs-green-soft: #e4f1e9;
+  --rs-on-green: #ffffff;
+
+  --rs-amber: #d9a94a;
+  --rs-amber-soft: #faeeda;
+  --rs-on-amber: #633806;
+
+  --rs-plum: #2f2742;
+  --rs-on-plum: #f3f1f7;
+
+  /* The floor canvas — identical in both themes, deliberately. */
+  --rs-canvas: #2a2833;
+  --rs-canvas-edge: #3a3747;
+  --rs-seat: #6d6d74;
+  --rs-table: #3f9d64;
+  --rs-table-open: #2f6f49;
+  --rs-table-held: #4a4857;
+  --rs-table-booked: #d9a94a;
+  --rs-on-canvas: #f0eff4;
+  --rs-on-canvas-muted: #9a98a4;
+
+  --rs-radius: 12px;
+  --rs-radius-sm: 8px;
 }
 
+/* Declared twice: an @media cannot sit inside a selector list, so the OS rule
+   and the explicit [data-theme] rule are separate blocks. The media query is
+   guarded so an explicitly-light TeamHub stays light on a dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rs-surface-0: #1e1b24;
+    --rs-surface-1: #262231;
+    --rs-surface-2: #2a2833;
+    --rs-text: #f0eff4;
+    --rs-text-2: #b6b3c0;
+    --rs-muted: #8e8b99;
+    --rs-border: rgba(255, 255, 255, 0.10);
+    --rs-border-strong: rgba(255, 255, 255, 0.24);
+    --rs-green-soft: #1d4430;
+    --rs-amber-soft: #4a3a18;
+    --rs-on-amber: #f6d99a;
+    --rs-plum: #2f2742;
+  }
+}
+
+:root[data-theme="dark"] {
+  --rs-surface-0: #1e1b24;
+  --rs-surface-1: #262231;
+  --rs-surface-2: #2a2833;
+  --rs-text: #f0eff4;
+  --rs-text-2: #b6b3c0;
+  --rs-muted: #8e8b99;
+  --rs-border: rgba(255, 255, 255, 0.10);
+  --rs-border-strong: rgba(255, 255, 255, 0.24);
+  --rs-green-soft: #1d4430;
+  --rs-amber-soft: #4a3a18;
+  --rs-on-amber: #f6d99a;
+  --rs-plum: #2f2742;
+}
+
+/* ── Shell ───────────────────────────────────────────────────────────────── */
+
+.rs-layout {
+  color: var(--rs-text);
+  padding-bottom: 2rem;
+}
+
+/* The plum band, lifted straight from the ResOS title bar. It carries the
+   venue picker so the scope is always in the chrome, never in the page. */
 .rs-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0 0 0.9rem;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+  background: var(--rs-plum);
+  color: var(--rs-on-plum);
+  border-radius: var(--rs-radius) var(--rs-radius) 0 0;
+  padding: 0.7rem 1rem;
 }
 
 .rs-title {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
+  margin: 0; font-size: 1.05rem; font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
-/* The venue picker sits in the section header on every screen, so switching
-   venues is never a sign-out. */
-.rs-venue {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
+.rs-venue { display: flex; align-items: center; gap: 0.5rem; }
 .rs-venue-label {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.7rem;
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: rgba(243, 241, 247, 0.6);
 }
-
 .rs-venue select {
-  min-height: 38px;
-  padding: 0.35rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--text);
-  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--rs-on-plum);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.3rem 0.55rem;
+  font: inherit; font-size: 0.85rem;
 }
+.rs-venue select option { color: #1a1a18; background: #fff; }
 
+/* Tabs with the green underline ResOS uses on its own tab rows. */
 .rs-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0 0 1.25rem;
+  display: flex; gap: 0.25rem; flex-wrap: wrap;
+  background: var(--rs-surface-1);
+  border: 0.5px solid var(--rs-border);
+  border-top: none;
+  border-radius: 0 0 var(--rs-radius) var(--rs-radius);
+  padding: 0 0.5rem;
+  margin-bottom: 1rem;
 }
-
 .rs-tabs a {
-  padding: 0.5rem 0.95rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--text);
-  font-size: 0.88rem;
-  text-decoration: none;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem; font-weight: 500;
+  color: var(--rs-text-2); text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
 }
-
-.rs-tabs a:hover { border-color: var(--primary-soft); }
-
+.rs-tabs a:hover { color: var(--rs-text); }
 .rs-tabs a.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
+  color: var(--rs-text);
+  border-bottom-color: var(--rs-green);
 }
 
-.rs-error {
-  margin: 0 0 1rem;
-  color: var(--danger);
-  font-size: 0.9rem;
+.rs-scope-note, .rs-error {
+  font-size: 0.85rem; border-radius: var(--rs-radius-sm);
+  padding: 0.55rem 0.75rem; margin: 0 0 1rem;
 }
+.rs-scope-note { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-error { background: #fcebeb; color: #791f1f; }
 
-.rs-scope-note {
-  margin: 0 0 1rem;
-  padding: 0.6rem 0.8rem;
-  border-left: 3px solid var(--primary);
-  background: var(--bg-subtle);
-  border-radius: 0 8px 8px 0;
-  font-size: 0.86rem;
-  color: var(--text-muted);
-}
-
-/* ---- Not wired up ----------------------------------------------------- */
-/* Every screen that is still a shell says so, loudly enough that nobody
-   mistakes its example rows for live data. */
-
+/* The unmistakable "this is not real yet" band. */
 .rs-stub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem 0.6rem;
-  margin: 0 0 1.25rem;
-  padding: 0.65rem 0.85rem;
-  border: 1px dashed var(--border-strong, var(--border));
-  border-radius: 10px;
-  background: var(--bg-subtle);
-  font-size: 0.85rem;
-  color: var(--text-muted);
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  font-size: 0.85rem; color: var(--rs-text-2);
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 8px,
+    rgba(217, 169, 74, 0.09) 8px, rgba(217, 169, 74, 0.09) 16px);
+  border: 1px dashed var(--rs-amber);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.6rem 0.8rem; margin: 0 0 1rem;
+}
+.rs-stub strong { color: var(--rs-text); }
+.rs-stub code {
+  background: var(--rs-surface-1); border-radius: 4px;
+  padding: 0 0.25rem; font-size: 0.95em;
 }
 
-.rs-stub strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-/* ---- Panels ----------------------------------------------------------- */
+/* ── Panels ──────────────────────────────────────────────────────────────── */
 
 .rs-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 12px);
-  background: var(--card);
-  padding: 1rem 1.1rem;
-  margin: 0 0 1rem;
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
 }
-
 .rs-panel-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;
 }
+.rs-panel-head h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.rs-panel-sub { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--rs-text-2); }
 
-.rs-panel h2 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+/* ResOS's big date heading with its status pill beside it. */
+.rs-daybar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  margin-bottom: 0.75rem;
 }
-
-.rs-panel-sub {
-  margin: 0.15rem 0 0;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  max-width: 68ch;
+.rs-daybar h2 { margin: 0; font-size: 1.3rem; font-weight: 500; }
+.rs-status {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; border-radius: 999px; padding: 0.15rem 0.5rem;
 }
+.rs-status.open { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-status.closed { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-daybar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
 
-.rs-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
-}
-
-.rs-grid > * { min-width: 0; }
-
-/* ---- Tables ----------------------------------------------------------- */
-
-.rs-table-wrap { overflow-x: auto; }
-
-.rs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.88rem;
-}
-
-.rs-table th,
-.rs-table td {
-  text-align: left;
-  padding: 0.5rem 0.65rem;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-.rs-table th {
-  background: var(--table-head-bg);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.rs-table tbody tr:last-child td { border-bottom: 0; }
-.rs-table .rs-num { font-variant-numeric: tabular-nums; }
-
-/* ---- Pills ------------------------------------------------------------ */
-
-.rs-pill {
-  display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-.rs-pill.seated   { background: var(--accent-soft); color: var(--text); }
-.rs-pill.open     { background: var(--primary-soft); color: var(--text); }
-.rs-pill.standing { background: var(--bg-muted); color: var(--text); }
-.rs-pill.held     { background: transparent; color: var(--text-muted); border: 1px dashed var(--border-strong, var(--border)); }
-
-.rs-pill.resos  { background: var(--bg-muted); color: var(--text-muted); }
-.rs-pill.mirror { background: var(--primary-soft); color: var(--text); }
-.rs-pill.own    { background: var(--card-done); color: var(--text); }
-
-.rs-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1rem;
-  margin: 0.85rem 0 0;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-/* ---- Floor canvas ----------------------------------------------------- */
-
-.rs-floor {
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 12px);
-  background: var(--bg-subtle);
-  padding: 0.75rem;
-  overflow-x: auto;
-}
-
-.rs-floor svg {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  min-width: 420px;
-}
-
-.rs-floor-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.1rem;
-  margin: 0.6rem 0 0;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---- Controls --------------------------------------------------------- */
+/* ── Controls ────────────────────────────────────────────────────────────── */
 
 .rs-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
-  margin: 0 0 1rem;
+  display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;
 }
-
 .rs-controls label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  display: flex; flex-direction: column; gap: 0.2rem;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--rs-muted);
 }
-
-.rs-controls input,
-.rs-controls select {
-  min-height: 38px;
-  padding: 0.35rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--text);
-  font-size: 0.9rem;
-  text-transform: none;
-  letter-spacing: normal;
+.rs-controls input, .rs-controls select {
+  font: inherit; font-size: 0.88rem; text-transform: none; letter-spacing: 0;
+  color: var(--rs-text); background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: var(--rs-radius-sm); padding: 0.35rem 0.5rem;
+  min-width: 0;
 }
+.rs-controls input:disabled, .rs-controls select:disabled { opacity: 0.55; }
 
 .rs-btn {
-  min-height: 38px;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--text);
-  font-size: 0.88rem;
-  cursor: pointer;
+  font: inherit; font-size: 0.85rem;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  background: var(--rs-surface-1); color: var(--rs-text);
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.4rem 0.75rem; cursor: pointer;
 }
-
-.rs-btn:hover:not(:disabled) { border-color: var(--primary-soft); }
-
+.rs-btn:hover:not(:disabled) { border-color: var(--rs-green); color: var(--rs-green); }
 .rs-btn.primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
+  background: var(--rs-green); color: var(--rs-on-green); border-color: var(--rs-green);
+}
+.rs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── The time ruler ──────────────────────────────────────────────────────── */
+/* ResOS's signature strip: every 15 minutes across the service, the open
+   window picked out in green. It is what makes the floor read as a day
+   rather than a drawing. */
+
+.rs-ruler-wrap { overflow-x: auto; margin-bottom: 0.75rem; }
+.rs-ruler {
+  display: flex; min-width: max-content;
+  background: var(--rs-surface-1);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius-sm);
+}
+.rs-slot {
+  flex: 0 0 auto; width: 38px;
+  padding: 0.5rem 0 0.4rem;
+  font-size: 0.6rem; font-variant-numeric: tabular-nums;
+  text-align: center; color: var(--rs-muted);
+  border-right: 0.5px solid var(--rs-border);
+  writing-mode: vertical-rl; text-orientation: mixed;
+  height: 74px;
+}
+.rs-slot:last-child { border-right: none; }
+.rs-slot.open { color: var(--rs-green); background: var(--rs-green-soft); font-weight: 600; }
+.rs-slot.hour { color: var(--rs-text); font-weight: 700; }
+
+/* ── The floor ───────────────────────────────────────────────────────────── */
+
+.rs-floor {
+  background: var(--rs-canvas);
+  border: 0.5px solid var(--rs-canvas-edge);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.5rem;
+  overflow-x: auto;
+}
+.rs-floor svg { display: block; width: 100%; min-width: 420px; height: auto; }
+
+.rs-floor-meta {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1rem;
+  margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--rs-text-2);
+}
+.rs-floor-meta span { white-space: nowrap; }
+
+.rs-legend {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  font-size: 0.8rem; color: var(--rs-text-2);
+  background: var(--rs-surface-1);
+  border-radius: var(--rs-radius-sm); padding: 0.75rem 0.9rem;
 }
 
-.rs-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+/* ── Tables ──────────────────────────────────────────────────────────────── */
 
-/* ---- Key/value rows --------------------------------------------------- */
+.rs-table-wrap { overflow-x: auto; }
+.rs-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.rs-table th {
+  text-align: left; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--rs-muted); padding: 0 0.6rem 0.5rem;
+  border-bottom: 0.5px solid var(--rs-border);
+  white-space: nowrap;
+}
+.rs-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 0.5px solid var(--rs-border);
+  vertical-align: top;
+}
+.rs-table tbody tr:last-child td { border-bottom: none; }
+.rs-table tbody tr:hover { background: var(--rs-surface-1); }
+.rs-num { font-variant-numeric: tabular-nums; }
+.rs-table code, .rs-kv code {
+  font-size: 0.9em; background: var(--rs-surface-1);
+  border-radius: 4px; padding: 0.05rem 0.3rem;
+}
 
-.rs-kv { display: grid; gap: 0; }
+/* ── Pills ───────────────────────────────────────────────────────────────── */
 
+.rs-pill {
+  display: inline-block; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border-radius: 999px; padding: 0.12rem 0.5rem; white-space: nowrap;
+}
+.rs-pill.seated   { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-pill.open     { background: var(--rs-green-soft); color: var(--rs-green); }
+.rs-pill.standing { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-pill.held     { background: var(--rs-surface-1);  color: var(--rs-muted); }
+.rs-pill.resos    { background: var(--rs-surface-1);  color: var(--rs-text-2); }
+.rs-pill.mirror   { background: var(--rs-amber-soft); color: var(--rs-on-amber); }
+.rs-pill.own      { background: var(--rs-green-soft); color: var(--rs-green); }
+
+/* ── Offers, as ResOS draws an Experience ────────────────────────────────── */
+/* A light name plate carrying the title and its price, with the settings
+   beside it in muted italics. */
+
+.rs-offer {
+  display: flex; gap: 1rem; align-items: stretch; flex-wrap: wrap;
+  background: var(--rs-surface-1);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.6rem; margin-bottom: 0.6rem;
+}
+.rs-offer-plate {
+  flex: 1 1 260px;
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius-sm);
+  padding: 0.7rem 0.8rem;
+  font-weight: 500;
+}
+.rs-offer-price {
+  background: var(--rs-green); color: var(--rs-on-green);
+  font-size: 0.72rem; font-weight: 700;
+  border-radius: 999px; padding: 0.12rem 0.5rem;
+}
+.rs-offer-meta {
+  flex: 1 1 240px;
+  display: flex; flex-direction: column; gap: 0.1rem;
+  font-size: 0.78rem; font-style: italic; color: var(--rs-text-2);
+  justify-content: center;
+}
+
+/* ── Key/value ───────────────────────────────────────────────────────────── */
+
+.rs-kv { display: flex; flex-direction: column; gap: 0.5rem; }
 .rs-kv > div {
-  display: grid;
-  grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
-  gap: 0.2rem 1rem;
-  padding: 0.55rem 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.88rem;
+  display: grid; grid-template-columns: 170px 1fr; gap: 0.75rem;
+  font-size: 0.85rem;
+  padding-bottom: 0.5rem; border-bottom: 0.5px solid var(--rs-border);
 }
-
-.rs-kv > div:last-child { border-bottom: 0; }
-.rs-kv .k { font-weight: 600; }
-.rs-kv .v { color: var(--text-muted); min-width: 0; }
-.rs-kv code {
-  font-size: 0.82em;
-  background: var(--bg-muted);
-  padding: 0.05em 0.3em;
-  border-radius: 3px;
-  word-break: break-word;
-}
+.rs-kv > div:last-child { border-bottom: none; padding-bottom: 0; }
+.rs-kv .k { color: var(--rs-muted); }
+.rs-kv .v { color: var(--rs-text); min-width: 0; }
+.rs-kv .v .rs-panel-sub { margin-top: 0.25rem; }
 
 .rs-empty {
-  margin: 0;
-  padding: 1.5rem 0;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.88rem; color: var(--rs-text-2);
+  padding: 1.5rem; text-align: center;
 }
 
-@media (max-width: 620px) {
-  .rs-kv > div { grid-template-columns: 1fr; }
-  .rs-head { align-items: flex-start; }
+@media (max-width: 760px) {
+  .rs-head { border-radius: var(--rs-radius); }
+  .rs-tabs { border-radius: var(--rs-radius); border-top: 0.5px solid var(--rs-border); margin-top: 0.5rem; }
+  .rs-kv > div { grid-template-columns: 1fr; gap: 0.15rem; }
+  .rs-daybar h2 { font-size: 1.1rem; }
 }

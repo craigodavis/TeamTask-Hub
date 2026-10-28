@@ -11,6 +11,10 @@ import { offersFor } from './reservationsExample';
  * filled in, not by being different kinds of record — which is what lets every
  * booking link behave the same way.
  *
+ * Laid out the way ResOS lays out an Experience: the name on its own plate
+ * with the price beside it, and the settings in muted italics alongside. That
+ * is the screen these replace, so it is the shape people already read.
+ *
  * The link is generated from the offer. Nothing is pasted in.
  */
 
@@ -44,41 +48,33 @@ export default function ReservationsOffers() {
               {shown.length} bookable offers. Clear the venue above to see both at once.
             </p>
           </div>
-          <button type="button" className="rs-btn primary" disabled>New offer</button>
+          <button type="button" className="rs-btn primary" disabled>+ Create offer</button>
         </div>
 
-        <div className="rs-table-wrap">
-          <table className="rs-table">
-            <thead>
-              <tr>
-                {!venue && <th>Venue</th>}
-                <th>Offer</th><th>Kind</th><th>When</th><th>Layout</th>
-                <th>Party</th><th>Price</th><th>Visible</th><th>Link</th><th>Booking</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((o) => (
-                <tr key={`${o.venueName}-${o.id}`}>
-                  {!venue && <td>{o.venueName}</td>}
-                  <td><strong>{o.name}</strong></td>
-                  <td>{o.kind}</td>
-                  <td>{o.when}</td>
-                  <td>
-                    {o.layout?.name || '—'}
-                    {o.layout?.standingCapacity > 0 && (
-                      <> <span className="rs-pill standing">{o.layout.standingCapacity} standing</span></>
-                    )}
-                  </td>
-                  <td className="rs-num">{o.party}</td>
-                  <td>{o.price || '—'}</td>
-                  <td>{o.visibility}</td>
-                  <td>{o.slug ? <code>/{o.slug}</code> : '—'}</td>
-                  <td><span className={`rs-pill ${o.mode}`}>{MODE_LABEL[o.mode]}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {shown.map((o) => (
+          <div className="rs-offer" key={`${o.venueName}-${o.id}`}>
+            <div className="rs-offer-plate">
+              <span>
+                {o.name}
+                {!venue && <span className="rs-panel-sub"> · {o.venueName}</span>}
+              </span>
+              {o.price
+                ? <span className="rs-offer-price">{o.price}</span>
+                : <span className="rs-pill held">No charge</span>}
+            </div>
+            <div className="rs-offer-meta">
+              <span>{o.when}</span>
+              <span>{o.kind} · {o.visibility}</span>
+              <span>
+                {o.layout?.name || 'No layout'}
+                {o.layout?.standingCapacity > 0 && ` · ${o.layout.standingCapacity} standing`}
+                {` · parties of ${o.party}`}
+              </span>
+              <span>{o.slug ? `/${o.slug}` : 'No link'}</span>
+              <span><span className={`rs-pill ${o.mode}`}>{MODE_LABEL[o.mode]}</span></span>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="rs-panel">

@@ -9,6 +9,11 @@ import { areasFor, layoutsFor, seatingsFor, MODES } from './reservationsExample'
  * calls for. Tables are drawn from the venue's own table list and coloured by
  * their mode in the selected layout, so switching layout re-reads the same
  * tables instead of showing a different set of them.
+ *
+ * Drawn the way ResOS draws it, because staff already read this shape: green
+ * rounded tables with grey seats tucked behind them, on a dark canvas, under a
+ * fifteen-minute ruler. A round table in ResOS is still a rounded SQUARE — the
+ * seats around it are what say how many it takes — so that is what this draws.
  */
 
 const STATUS_LABEL = {
@@ -19,6 +24,86 @@ const STATUS_LABEL = {
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Example service window. The real one comes from kindred_web.hours for the
+// venue, and from hours_special on a date that overrides them.
+const RULER_FROM = 10 * 60;
+const RULER_TO = 22 * 60;
+const OPEN_FROM = 12 * 60;
+const OPEN_TO = 20 * 60;
+
+const hhmm = (mins) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const ap = h < 12 ? 'AM' : 'PM';
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ap}`;
+};
+
+/**
+ * A table's geometry from the number it seats.
+ *
+ * Four or fewer is a square with a seat on each side. More than that is a long
+ * table with the seats split down its two long sides — which is how a real
+ * room is laid out, and how ResOS renders the same thing.
+ */
+function geometry(seats) {
+  if (seats <= 4) {
+    const half = 32;
+    const spots = [[0, -half], [half, 0], [0, half], [-half, 0]].slice(0, Math.max(seats, 1));
+    return { w: 64, h: 64, spots };
+  }
+  const perSide = Math.ceil(seats / 2);
+  const w = perSide * 44 + 12;
+  const h = 58;
+  const spots = [];
+  for (let i = 0; i < perSide; i += 1) {
+    const x = -w / 2 + 22 + i * 44;
+    spots.push([x, -h / 2]);
+    if (spots.length < seats) spots.push([x, h / 2]);
+  }
+  return { w, h, spots: spots.slice(0, seats) };
+}
+
+function Table({ t }) {
+  const booked = Boolean(t.seating);
+  const held = t.mode === 'held';
+  const { w, h, spots } = geometry(t.seatsMax || 4);
+
+  const fill = held ? 'var(--rs-table-held)'
+    : booked ? 'var(--rs-table-booked)'
+    : t.mode === 'open' ? 'var(--rs-table-open)'
+    : 'var(--rs-table)';
+
+  return (
+    <g transform={`translate(${t.x} ${t.y})${t.rot ? ` rotate(${t.rot})` : ''}`}>
+      {/* Seats first, so the table top overlaps them exactly as in ResOS. */}
+      {spots.map(([sx, sy], i) => (
+        <ellipse key={i} cx={sx} cy={sy} rx="15" ry="13"
+                 fill="var(--rs-seat)" opacity={held ? 0.35 : 0.85} />
+      ))}
+      <rect x={-w / 2} y={-h / 2} width={w} height={h} rx="8"
+            fill={fill}
+            stroke={held ? 'var(--rs-canvas-edge)' : 'none'}
+            strokeWidth="2"
+            strokeDasharray={held ? '6 5' : undefined} />
+      <text x="0" y={booked ? -4 : 5} textAnchor="middle"
+            fontSize="15" fontStyle="italic" fontWeight="500"
+            fill={held ? 'var(--rs-on-canvas-muted)' : '#ffffff'}>
+        {t.name}
+      </text>
+      {booked && (
+        <>
+          <text x="0" y="12" textAnchor="middle" fontSize="11" fill="#ffffff">
+            {t.seating.name}
+          </text>
+          <text x="0" y="25" textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.8)">
+            {t.seating.party} · {t.seating.time}
+          </text>
+        </>
+      )}
+    </g>
+  );
+}
 
 export default function ReservationsFloor() {
   const { venue } = useOutletContext() || {};
@@ -34,6 +119,14 @@ export default function ReservationsFloor() {
     () => Object.fromEntries(seatings.filter((s) => s.tableId).map((s) => [s.tableId, s])),
     [seatings],
   );
+
+  const slots = useMemo(() => {
+    const out = [];
+    for (let m = RULER_FROM; m < RULER_TO; m += 15) {
+      out.push({ m, label: hhmm(m), open: m >= OPEN_FROM && m < OPEN_TO, hour: m % 60 === 0 });
+    }
+    return out;
+  }, []);
 
   if (!venue || !layout) return <p className="rs-empty">Pick a venue to see its floor.</p>;
 
@@ -52,6 +145,11 @@ export default function ReservationsFloor() {
   const seatsAvailable = drawn
     .filter((t) => t.mode === 'seated' || t.mode === 'open')
     .reduce((n, t) => n + t.seatsMax, 0);
+
+  const [y, mo, da] = date.split('-').map(Number);
+  const pretty = new Date(y, mo - 1, da).toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  });
 
   return (
     <>
@@ -77,10 +175,22 @@ export default function ReservationsFloor() {
       </div>
 
       <div className="rs-panel">
-        <div className="rs-panel-head">
-          <div>
-            <h2>{venue.name} — {layout.name}</h2>
-            <p className="rs-panel-sub">{layout.note}</p>
+        <div className="rs-daybar">
+          <h2>{pretty}</h2>
+          <span className="rs-status open">Open</span>
+          <span className="rs-daybar-right rs-panel-sub">
+            {venue.name} — {layout.name}
+          </span>
+        </div>
+
+        <div className="rs-ruler-wrap">
+          <div className="rs-ruler">
+            {slots.map((s) => (
+              <div key={s.m}
+                   className={`rs-slot${s.open ? ' open' : ''}${s.hour ? ' hour' : ''}`}>
+                {s.label}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -90,58 +200,25 @@ export default function ReservationsFloor() {
             <defs>
               <pattern id="rs-hatch" width="10" height="10" patternTransform="rotate(45)"
                        patternUnits="userSpaceOnUse">
-                <line x1="0" y1="0" x2="0" y2="10" stroke="var(--border-strong, var(--border))"
-                      strokeWidth="1.5" />
+                <line x1="0" y1="0" x2="0" y2="10" stroke="var(--rs-canvas-edge)"
+                      strokeWidth="2" />
               </pattern>
             </defs>
 
-            <rect x="8" y="8" width="804" height="804" rx="6" fill="none"
-                  stroke="var(--border)" strokeWidth="2" />
-
             {layout.standingCapacity > 0 && (
               <>
-                <rect x="40" y="60" width="700" height="330" fill="url(#rs-hatch)"
-                      stroke="var(--border-strong, var(--border))" strokeWidth="2" />
-                <text x="390" y="210" textAnchor="middle" fontSize="26" fontWeight="600"
-                      fill="var(--text-muted)">STANDING</text>
-                <text x="390" y="250" textAnchor="middle" fontSize="30"
-                      fill="var(--text)" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <rect x="40" y="60" width="700" height="330" rx="8" fill="url(#rs-hatch)"
+                      stroke="var(--rs-canvas-edge)" strokeWidth="2" />
+                <text x="390" y="210" textAnchor="middle" fontSize="24" fontWeight="600"
+                      letterSpacing="4" fill="var(--rs-on-canvas-muted)">STANDING</text>
+                <text x="390" y="252" textAnchor="middle" fontSize="32"
+                      fill="var(--rs-on-canvas)" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {layout.standingCapacity}
                 </text>
               </>
             )}
 
-            {drawn.map((t) => {
-              const booked = Boolean(t.seating);
-              const held = t.mode === 'held';
-              const fill = held ? 'none'
-                : booked ? 'var(--accent-soft)'
-                : t.mode === 'open' ? 'var(--primary-soft)'
-                : 'var(--card)';
-              const stroke = held ? 'var(--border)'
-                : booked ? 'var(--primary)'
-                : 'var(--border-strong, var(--border))';
-              const r = held ? 22 : t.radius;
-              return (
-                <g key={t.id}>
-                  <circle cx={t.x} cy={t.y} r={r} fill={fill} stroke={stroke} strokeWidth="2.5"
-                          strokeDasharray={held ? '6 5' : undefined} />
-                  <text x={t.x} y={t.y + (booked ? -6 : 5)} textAnchor="middle"
-                        fontSize={held ? 13 : 15} fontWeight="600"
-                        fill={held ? 'var(--text-muted)' : 'var(--text)'}>
-                    {t.name}
-                  </text>
-                  {booked && (
-                    <>
-                      <text x={t.x} y={t.y + 10} textAnchor="middle" fontSize="12"
-                            fill="var(--text)">{t.seating.name}</text>
-                      <text x={t.x} y={t.y + 24} textAnchor="middle" fontSize="11"
-                            fill="var(--text-muted)">{t.seating.party} · {t.seating.time}</text>
-                    </>
-                  )}
-                </g>
-              );
-            })}
+            {drawn.map((t) => <Table key={t.id} t={t} />)}
           </svg>
         </div>
 
@@ -166,7 +243,8 @@ export default function ReservationsFloor() {
           <table className="rs-table">
             <thead>
               <tr>
-                <th>Time</th><th>Guest</th><th>Party</th><th>Table</th><th>Status</th><th>Club</th>
+                <th>Time</th><th>Name</th><th>People</th><th>Table(s)</th>
+                <th>Status</th><th>Club</th>
               </tr>
             </thead>
             <tbody>
