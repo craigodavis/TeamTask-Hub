@@ -3275,3 +3275,24 @@ export async function deleteTestimonial(id) {
   if (!res.ok) throw new Error(d.error || 'Failed to delete testimonial');
   return d;
 }
+
+// ---- Talent self-service (Events -> Talent) ----
+export async function sendTalentLink(musicianId, channel) {
+  return pj(await fetch(`${API}/talent/${musicianId}/link`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ channel }),
+  }));
+}
+export async function getTalentLinkStatus() { return pj(await fetch(`${API}/talent/link-status`, { headers: headers() })); }
+export async function getTalentSubmissions() { return pj(await fetch(`${API}/talent/submissions`, { headers: headers() })); }
+export async function applyTalentSubmission(id, fields) {
+  return pj(await fetch(`${API}/talent/submissions/${id}/apply`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ fields }),
+  }));
+}
+export async function rejectTalentSubmission(id, notes) {
+  return pj(await fetch(`${API}/talent/submissions/${id}/reject`, {
+    method: 'POST', headers: headers(), body: JSON.stringify({ notes }),
+  }));
+}
+export async function getTalentTerms(musicianId) { return pj(await fetch(`${API}/talent/${musicianId}/terms`, { headers: headers() })); }
+export async function getTermsCoverage() { return pj(await fetch(`${API}/talent/terms-coverage`, { headers: headers() })); }

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, deleteMusician, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, withdrawEvent, verifyEventWithdrawn, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
+import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createMusician, updateMusician, getLocations, getSchedulingSettings, updateSchedulingSettings, getAssignableUsers, getEventTasks, createEventTask, updateEventTask, deleteEventTask, getPromoTasks, createPromoTask, updatePromoTask, deletePromoTask, getContacts, createContact, updateContact, deleteContact, getTemplates, createTemplate, updateTemplate, deleteTemplate, getEventEmails, createEventEmail, deleteEventEmail, sendEventEmailNow, deleteMusician, getPromoOverview, duplicateEvent, getEventDistribution, announceEvent, scheduleEventAnnounce, markEventChannelPost, setEventChannelEnabled, getEventMessageContext, sendTalentLink, sendEventMessage, submitEventForReview, approveEvent, requestEventChanges, publishEvent, withdrawEvent, verifyEventWithdrawn, getPromoScore, refreshPromoScore, getChannelConfig, updateChannelConfig, getEventActivity } from '../api';
 import { ImageField } from '../components/MediaPicker';
 import '../styles/vintly.css';
 import './Talent.css';
 import Drawer from '../components/Drawer';
+import TalentInbox from '../components/TalentInbox';
 
 const card = { background: 'var(--card-bg,#fff)', border: '1px solid var(--border,#e3e3e3)', borderRadius: 10, padding: 16 };
 const inp = { width: '100%', padding: 9, borderRadius: 8, border: '1px solid var(--border,#ccc)', fontSize: 15, boxSizing: 'border-box' };
@@ -23,40 +24,12 @@ const fmtDT = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: 'shor
 // the Creek came back as 12:30 PM after one unrelated change to its title.
 const toLocalInput = (iso) => (iso ? String(iso).slice(0, 16) : '');
 
-/**
- * Keeping an event's two dates consistent.
- *
- * An end before its start is always a typo, and there is one way it happens:
- * moving the event's date and leaving the end behind. "70s & 80s Night" was
- * entered for 7 November with its end still on 7 October, and disappeared from
- * the website without a word — the list treats the later of the two as "has
- * this happened yet".
- *
- * Two quiet guards beat one loud one. shiftEnd carries the end along when the
- * start moves, keeping the event's length, so the common path cannot produce a
- * bad pair at all. dateRangeError describes a pair that is still wrong, to be
- * shown beside the field while it is wrong — not as a dialog after the fact,
- * which arrives once the work is done, has to be dismissed before it can be
- * acted on, and does not say which field is at fault.
- *
- * Both take the 'YYYY-MM-DDTHH:mm' strings the datetime-local inputs use.
- */
-const pad2 = (n) => String(n).padStart(2, '0');
-const parseInput = (s) => { if (!s) return null; const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d; };
-const asInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-
-function shiftEnd(prevStart, nextStart, end) {
-  const p = parseInput(prevStart), n = parseInput(nextStart), e = parseInput(end);
-  if (!p || !n || !e) return end;
-  if (e < p) return end; // already inconsistent — shifting would only bury it
-  return asInput(new Date(e.getTime() + (n.getTime() - p.getTime())));
-}
-
-function dateRangeError(start, end) {
-  const s = parseInput(start), e = parseInput(end);
-  if (!s || !e) return '';
-  return e < s ? 'This ends before it starts. Check the end date — moving an event leaves the end behind.' : '';
-}
+// Date and duration arithmetic lives in lib/eventTime.js so the audit script
+// can test the very functions this form uses. See docs/EVENT_DURATION.md.
+import {
+  pad2, shiftEnd, dateRangeError, DEFAULT_START_TIME, DEFAULT_DURATION_MIN,
+  HALF_HOURS, DURATIONS, splitStart, joinStart, addMinutes, endPreview, ALL_DAY, isAllDay,
+} from '../lib/eventTime';
 
 export default function Events() {
   const [tab, setTab] = useState('events');
@@ -87,7 +60,7 @@ function EventsTab() {
   const [venueOff, setVenueOff] = useState({});
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState({ location_id: '', musician_id: '', status: '', from: '', to: '' });
-  const [form, setForm] = useState({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+  const [form, setForm] = useState({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +74,17 @@ function EventsTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Clicking a day on the calendar is the quickest way in: it is already the
+  // date you mean. Default to 6 PM, which is when almost everything here starts.
+  const startNewOn = (dateKey) => {
+    const start = `${dateKey}T${DEFAULT_START_TIME}`;
+    setForm((f) => {
+      const mins = f.duration_min || DEFAULT_DURATION_MIN;
+      return { ...f, start_at: start, duration_min: mins, end_at: addMinutes(start, mins) };
+    });
+    setShowNew(true);
+  };
+
   const set = (k, v) => setForm((f) => {
     const next = { ...f, [k]: v };
     // auto-suggest a title when a musician is chosen and title is blank/auto
@@ -109,20 +93,26 @@ function EventsTab() {
       if (m) { next.title = `Sunset Music Series: ${m.name}`; next._auto = true; }
     }
     if (k === 'title') next._auto = false;
-    // Moving the start carries the end with it, keeping the event's length.
-    if (k === 'start_at') next.end_at = shiftEnd(f.start_at, v, f.end_at);
+    // end_at is derived, never typed, so it cannot drift from the start. An
+    // all-day event has no end to derive: it runs the day's opening hours, and
+    // writing a made-up end would only go stale when those hours change.
+    if (k === 'start_at' || k === 'duration_min') {
+      next.all_day = isAllDay(next.duration_min);
+      next.end_at = next.all_day ? '' : addMinutes(next.start_at, next.duration_min);
+    }
     return next;
   });
-  const newDateErr = dateRangeError(form.start_at, form.end_at);
 
   const save = async () => {
     setErr(''); setSaving(true);
     try {
       const body = { ...form };
       delete body._auto;
+      delete body.duration_min; // derived into end_at; not a column
       Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
       await createEvent(body);
-      setForm({ start_at: '', end_at: '', musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+      setShowNew(false);
+      setForm({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
       await load();
     } catch (x) { setErr(x.message); } finally { setSaving(false); }
   };
@@ -160,8 +150,8 @@ function EventsTab() {
     <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
       {/* Left rail */}
       <aside style={{ flex: '0 0 210px', minWidth: 180, position: 'sticky', top: 12 }}>
-        <button style={{ ...btn(true), width: '100%', borderRadius: 10, marginBottom: 14 }} onClick={() => setShowNew((v) => !v)}>
-          {showNew ? '× Close' : '＋ New event'}
+        <button style={{ ...btn(true), width: '100%', borderRadius: 10, marginBottom: 14 }} onClick={() => setShowNew(true)}>
+          ＋ New event
         </button>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', opacity: 0.5, margin: '0 4px 6px' }}>Views</div>
         {SEGMENTS.map((s) => {
@@ -187,15 +177,32 @@ function EventsTab() {
 
       {/* Main */}
       <div style={{ flex: 1, minWidth: 0 }}>
-      {showNew && (
-      <div style={{ ...card, marginBottom: 20 }}>
+      <SlideOver open={showNew} label="Add event" onClose={() => setShowNew(false)}>
+      <div>
         <h3 style={{ marginTop: 0 }}>Add event</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12 }}>
-          <div><label style={lbl}>Starts</label><input type="datetime-local" style={inp} value={form.start_at} onChange={(e) => set('start_at', e.target.value)} /></div>
-          <div><label style={lbl}>Ends</label>
-            <input type="datetime-local" style={{ ...inp, borderColor: newDateErr ? '#c0392b' : undefined }}
-                   value={form.end_at} onChange={(e) => set('end_at', e.target.value)} />
-            {newDateErr && <div style={{ color: '#c0392b', fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{newDateErr}</div>}
+          <div><label style={lbl}>Date</label>
+            <input type="date" style={inp} value={splitStart(form.start_at).date}
+                   onChange={(e) => set('start_at', joinStart(e.target.value, splitStart(form.start_at).time))} />
+          </div>
+          <div><label style={lbl}>Start time</label>
+            {form.all_day ? (
+              <div style={{ ...inp, opacity: 0.55, display: 'flex', alignItems: 'center' }}>Opening hours</div>
+            ) : (
+              <select style={inp} value={splitStart(form.start_at).time || DEFAULT_START_TIME}
+                      onChange={(e) => set('start_at', joinStart(splitStart(form.start_at).date, e.target.value))}>
+                {HALF_HOURS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
+              </select>
+            )}
+          </div>
+          <div><label style={lbl}>Duration</label>
+            <select style={inp} value={form.duration_min}
+                    onChange={(e) => set('duration_min', e.target.value === ALL_DAY ? ALL_DAY : Number(e.target.value))}>
+              {DURATIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+            <div style={{ fontSize: 12, opacity: 0.55, marginTop: 4 }}>
+              {endPreview(form.start_at, form.duration_min) || 'Pick a date to see the end time'}
+            </div>
           </div>
           <div><label style={lbl}>Musician</label>
             <select style={inp} value={form.musician_id} onChange={(e) => set('musician_id', e.target.value)}>
@@ -231,11 +238,11 @@ function EventsTab() {
         </div>
         {err && <p style={{ color: 'crimson' }}>{err}</p>}
         <div style={{ marginTop: 14 }}>
-          <button style={btn(true)} disabled={saving || !form.start_at || !form.title || !!newDateErr} onClick={save}>{saving ? 'Saving…' : 'Add event'}</button>
+          <button style={btn(true)} disabled={saving || !form.start_at || !form.title} onClick={save}>{saving ? 'Saving…' : 'Add event'}</button>
           <span style={{ marginLeft: 10, opacity: 0.6, fontSize: 12 }}>Website publishing goes live in the next step; for now events are saved in TeamHub.</span>
         </div>
       </div>
-      )}
+      </SlideOver>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0 }}>{(SEGMENTS.find((s) => s.key === segment) || SEGMENTS[0]).label}
@@ -255,19 +262,13 @@ function EventsTab() {
         </div>
       )}
       {view === 'grid' && <SpreadsheetView events={shown} musicians={musicians} locations={locations} onOpen={setSelected} onChanged={load} />}
-      {view === 'calendar' && <CalendarView events={shown} onOpen={setSelected} />}
+      {view === 'calendar' && <CalendarView events={shown} onOpen={setSelected} onCreate={startNewOn} />}
       </div>
     </div>
 
-    {selected && (
-      <>
-        <div onClick={closeCockpit} style={{ position: 'fixed', inset: 0, background: 'rgba(30,18,20,.36)', zIndex: 60, animation: 'ckfade .18s ease' }} />
-        <div role="dialog" aria-label="Event details" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(620px,100%)', background: 'var(--bg,#f6f2f0)', boxShadow: '-10px 0 48px rgba(0,0,0,.28)', zIndex: 61, overflowY: 'auto', padding: 20, animation: 'ckslide .26s cubic-bezier(.4,0,.2,1)' }}>
-          <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={closeCockpit} />
-        </div>
-        <style>{`@keyframes ckslide{from{transform:translateX(100%)}to{transform:none}}@keyframes ckfade{from{opacity:0}to{opacity:1}}`}</style>
-      </>
-    )}
+    <SlideOver open={!!selected} label="Event details" onClose={closeCockpit}>
+      {selected && <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={closeCockpit} />}
+    </SlideOver>
     </>
   );
 }
@@ -328,8 +329,52 @@ function MusiciansTab() {
   const load = useCallback(async () => { try { setList(await getMusicians()); } catch (x) { setErr(x.message); } }, []);
   useEffect(() => { load(); }, [load]);
 
+  const [pane, setPane] = useState('roster');
+  const [link, setLink] = useState(null);   // only when there is something to act on
+  const [toast, setToast] = useState('');   // the ordinary "done" case — no layout shift
+
+  /**
+   * Send the performer an update link, or copy one to paste into a DM.
+   *
+   * The copied URL is shown, not just announced. It is a one-off credential
+   * that cannot be retrieved later, so "copied!" with nothing on screen leaves
+   * someone with no way to check what they are about to paste — or to recover
+   * it if the clipboard write quietly failed.
+   *
+   * And it can fail: navigator.clipboard needs a secure context and permission.
+   * Swallowing that and claiming success was worse than not copying at all.
+   */
+  const toastTimer = useRef(null);
+  const showToast = (text) => {
+    setToast(text);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 4000);
+  };
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  const sendLink = async (m, channel) => {
+    setLink(null); setToast('');
+    try {
+      const r = await sendTalentLink(m.id, channel);
+      if (r.url) {
+        let copied = false;
+        try { await navigator.clipboard.writeText(r.url); copied = true; } catch { copied = false; }
+        // On success the link is on the clipboard, so there is nothing to show
+        // and nothing to recover — a toast is the whole story. If the copy was
+        // blocked the URL is the only copy that exists and cannot be reissued,
+        // so that case still gets a panel they can select from.
+        if (copied) showToast(`Link copied — expires in 24h. ${m.name} can fill in the rest.`);
+        else setLink({ name: m.name, url: r.url, copied: false, expires_at: r.expires_at });
+      } else {
+        showToast(`Link ${r.channel === 'sms' ? 'texted' : 'emailed'} to ${m.name} — expires in 24h.`);
+      }
+    } catch (e) { setLink({ name: m.name, error: e.message }); }
+  };
+
   const blank = { name: '', type: 'musician', act_type: '', genre: '', rating: '', website_url: '', photo_url: '', rate_amount: '', rate_unit: 'event', phone: '', email: '', main_contact: '', write_check_to: '', address: '', notes: '', active: true };
   const [filter, setFilter] = useState({ status: 'all', phone: 'all', email: 'all', act_type: 'all', genre: 'all', rating: 'all', sort: 'name' });
+  const [showRest, setShowRest] = useState(false);
+  const [savingLink, setSavingLink] = useState(false);
   // Genres come from what has actually been typed rather than a fixed list — the
   // acts Kindred books do not fit a canned taxonomy, and a wrong list just gets
   // worked around with "Other".
@@ -387,27 +432,106 @@ function MusiciansTab() {
       default:           return a.name.localeCompare(b.name);
     }
   });
+  const buildBody = () => {
+    const body = { ...form };
+    // Deleting every empty key means "cleared" and "untouched" look identical to the
+    // API, so a genre or rating could never be removed once set. These three send an
+    // explicit null; everything else keeps the old drop-if-empty behaviour.
+    const CLEARABLE = ['act_type', 'genre', 'rating'];
+    Object.keys(body).forEach((k) => {
+      if (body[k] !== '') return;
+      if (CLEARABLE.includes(k)) body[k] = null; else delete body[k];
+    });
+    return body;
+  };
+
   const save = async () => {
     try {
-      const body = { ...form };
-      // Deleting every empty key means "cleared" and "untouched" look identical to the
-      // API, so a genre or rating could never be removed once set. These three send an
-      // explicit null; everything else keeps the old drop-if-empty behaviour.
-      const CLEARABLE = ['act_type', 'genre', 'rating'];
-      Object.keys(body).forEach((k) => {
-        if (body[k] !== '') return;
-        if (CLEARABLE.includes(k)) body[k] = null; else delete body[k];
-      });
+      const body = buildBody();
       if (form.id) await updateMusician(form.id, body); else await createMusician(body);
       setForm(null); await load();
     } catch (x) { setErr(x.message); }
   };
 
+  /**
+   * Save the record and immediately send them the link — one action, because
+   * two (save, then find them in the list, then send) is where this would be
+   * abandoned halfway and leave a half-filled record nobody chases.
+   *
+   * Saving has to come first: a link is scoped to a musician id, which does not
+   * exist until the record does.
+   */
+  const saveAndSend = async (channel) => {
+    setSavingLink(true); setErr('');
+    try {
+      const body = buildBody();
+      const saved = form.id ? await updateMusician(form.id, body) : await createMusician(body);
+      const id = form.id || saved?.id;
+      if (!id) throw new Error('Saved, but could not work out which record to send to.');
+      setForm(null);
+      await sendLink({ id, name: form.name, email: form.email, phone: form.phone }, channel);
+      await load();
+    } catch (x) { setErr(x.message); }
+    finally { setSavingLink(false); }
+  };
+
   return (
     <div>
-      <div style={{ marginBottom: 14 }}>
-        <button className="vin-btn vin-btn-primary" onClick={() => setForm({ ...blank })}>Add talent</button>
+      <div style={{ marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="vin-btn vin-btn-primary" onClick={() => { setShowRest(false); setForm({ ...blank }); }}>Add talent</button>
+        <button className="vin-btn" onClick={() => setPane((v) => (v === 'inbox' ? 'roster' : 'inbox'))}>
+          {pane === 'inbox' ? '← Back to roster' : 'Review submissions'}
+        </button>
       </div>
+      {toast && (
+        <div role="status" aria-live="polite" onClick={() => setToast('')}
+             style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 80, maxWidth: 340, cursor: 'pointer',
+                      background: '#2f2a2b', color: '#fff', borderRadius: 10, padding: '12px 16px',
+                      boxShadow: '0 8px 28px rgba(0,0,0,.3)', fontSize: 14, lineHeight: 1.45,
+                      animation: 'tfade .18s ease' }}>
+          {toast}
+          <style>{`@keyframes tfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}`}</style>
+        </div>
+      )}
+      {link && (
+        <div style={{ ...card, marginBottom: 14, borderColor: link.error ? '#e0b4b4' : 'var(--border,#e3e3e3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 14 }}>
+              {link.error ? `Couldn't make a link for ${link.name}`
+                : link.url ? `Update link for ${link.name}`
+                : `Link sent to ${link.name}`}
+            </strong>
+            <button style={{ ...btn(false), padding: '2px 10px', fontSize: 12 }} onClick={() => setLink(null)}>Dismiss</button>
+          </div>
+
+          {link.error && <p style={{ color: 'crimson', fontSize: 13, margin: '8px 0 0' }}>{link.error}</p>}
+
+          {link.url && (
+            <>
+              <p style={{ fontSize: 13, opacity: 0.75, margin: '6px 0' }}>
+                {link.copied
+                  ? 'Copied to your clipboard. Paste it to them — in a DM, a text, anywhere.'
+                  : 'Your browser blocked the copy — select the link below and copy it yourself.'}
+              </p>
+              <input readOnly value={link.url} onFocus={(e) => e.target.select()}
+                     style={{ ...inp, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
+              <p style={{ fontSize: 12, opacity: 0.6, margin: '8px 0 0' }}>
+                Opens a form where they fill in their own details. Expires{' '}
+                {link.expires_at ? new Date(link.expires_at).toLocaleString() : 'in 24 hours'} and can only be used once.
+                We can't tell whether a pasted link was read, so this won't show as delivered.
+              </p>
+            </>
+          )}
+
+          {!link.url && !link.error && (
+            <p style={{ fontSize: 13, opacity: 0.75, margin: '6px 0 0' }}>
+              Sent by {link.channel} to {link.sent_to}. Expires{' '}
+              {link.expires_at ? new Date(link.expires_at).toLocaleString() : 'in 24 hours'}.
+            </p>
+          )}
+        </div>
+      )}
+      {pane === 'inbox' && <TalentInbox />}
       {/* The edit form lives in a slide-over rather than pushing the list down the
           page. On a phone it becomes a bottom sheet — see components/Drawer.css. */}
       <Drawer
@@ -427,9 +551,67 @@ function MusiciansTab() {
         {form && (<>
           {err && <p className="vin-pill vin-pill-danger" style={{ display: 'block' }}>{err}</p>}
           <div>
-            <label className="vin-label">Name</label>
-            <input className="vin-input" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <label className="vin-label">Performer name <span style={{ opacity: 0.55, fontWeight: 400 }}>how they're billed</span></label>
+            <input className="vin-input" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                   placeholder="Hip Sounds" />
           </div>
+          {/* Legal name is separate from the booking name on purpose — a 1099 is
+              made out to a person, and the act is rarely called that. */}
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">First name</label>
+              <input className="vin-input" value={form.legal_first_name || ''}
+                     onChange={(e) => setForm({ ...form, legal_first_name: e.target.value })} />
+            </div>
+            <div>
+              <label className="vin-label">Last name</label>
+              <input className="vin-input" value={form.legal_last_name || ''}
+                     onChange={(e) => setForm({ ...form, legal_last_name: e.target.value })} />
+            </div>
+          </div>
+          <div className="vin-drawer-row">
+            <div>
+              <label className="vin-label">Email</label>
+              <input className="vin-input" value={form.email || ''} type="email"
+                     onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </div>
+            <div>
+              <label className="vin-label">Phone <span style={{ color: 'var(--vin-text-danger)' }}>required</span></label>
+              <input className="vin-input" value={form.phone || ''}
+                     onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="for event reminders" />
+            </div>
+          </div>
+
+          {/* The point of the whole flow: capture just enough to reach them, then
+              let them write the rest. They know their own genre and which photo
+              of themselves is good; we are guessing at both. */}
+          <div style={{ background: 'var(--surface-3,#f4f1ef)', borderRadius: 10, padding: 14, margin: '14px 0' }}>
+            <strong style={{ fontSize: 14 }}>Let them fill in the rest</strong>
+            <p style={{ fontSize: 13, opacity: 0.75, margin: '6px 0 10px' }}>
+              Sends a link to a form where they add their genre, photo, socials, and the
+              name and address we need for a 1099 — and shows them our terms.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="vin-btn vin-btn-primary"
+                      disabled={savingLink || !form.name || !form.phone?.trim()}
+                      onClick={() => saveAndSend('sms')}>
+                {savingLink ? 'Working…' : 'Save & text the link'}
+              </button>
+              <button type="button" className="vin-btn" disabled={savingLink || !form.name || !form.email?.trim()}
+                      onClick={() => saveAndSend('email')}>Save & email it</button>
+              <button type="button" className="vin-btn" disabled={savingLink || !form.name || !form.phone?.trim()}
+                      onClick={() => saveAndSend('copy')}>Save & copy it</button>
+            </div>
+            <p style={{ fontSize: 12, opacity: 0.55, margin: '10px 0 0' }}>
+              Or fill everything in yourself below — but they'll know their own details better.
+            </p>
+          </div>
+
+          <button type="button" className="vin-btn" style={{ marginBottom: 12 }}
+                  onClick={() => setShowRest((v) => !v)}>
+            {showRest ? 'Hide the rest' : 'Fill in the rest myself'}
+          </button>
+          {(form.id || showRest) && (<>
           <div className="vin-drawer-row">
             <div>
               <label className="vin-label">Type</label>
@@ -443,7 +625,7 @@ function MusiciansTab() {
             <div>
               <label className="vin-label">Act</label>
               <select className="vin-select" value={form.act_type || ''} onChange={(e) => setForm({ ...form, act_type: e.target.value })}>
-                <option value="">\u2014</option><option value="solo">Solo</option>
+                <option value="">Not set</option><option value="solo">Solo</option>
                 <option value="duo">Duo</option><option value="band">Band</option>
               </select>
             </div>
@@ -475,16 +657,6 @@ function MusiciansTab() {
               <select className="vin-select" value={form.rate_unit || 'event'} onChange={(e) => setForm({ ...form, rate_unit: e.target.value })}>
                 <option value="event">per event</option><option value="hour">per hour</option>
               </select>
-            </div>
-          </div>
-          <div className="vin-drawer-row">
-            <div>
-              <label className="vin-label">Phone <span style={{ color: 'var(--vin-text-danger)' }}>required</span></label>
-              <input className="vin-input" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="for event reminders" />
-            </div>
-            <div>
-              <label className="vin-label">Email</label>
-              <input className="vin-input" value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </div>
           </div>
           <div className="vin-drawer-row">
@@ -522,8 +694,10 @@ function MusiciansTab() {
               Phone is required — talent get event reminders by text.
             </p>
           )}
+          </>)}
         </>)}
       </Drawer>
+      {pane === 'roster' && <>
       <div className="tal-bar">
         <select className="tal-sel" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
           <option value="all">All statuses</option><option value="active">Active only</option><option value="inactive">Inactive only</option>
@@ -599,6 +773,15 @@ function MusiciansTab() {
                 {!m.email && <span className="tal-pill tal-pill-muted">No email</span>}
               </span>
               <span style={{ display: 'flex', gap: 5 }}>
+                {/* Send needs somewhere to send to; Copy works regardless, for a DM. */}
+                <button className="tal-btn" disabled={!m.email && !m.phone}
+                        title={m.email || m.phone
+                          ? `Send an update link by ${m.email ? 'email' : 'text'}`
+                          : 'Add an email or phone first'}
+                        onClick={() => sendLink(m)}>Send link</button>
+                <button className="tal-btn"
+                        title="Make an update link and copy it, to paste into a DM yourself"
+                        onClick={() => sendLink(m, 'copy')}>Copy link</button>
                 <button className="tal-btn" onClick={() => toggleActive(m)}>{m.active ? 'Deactivate' : 'Activate'}</button>
                 <button className="tal-btn tal-btn-danger" onClick={() => remove(m)}
                         title="Remove this act entirely">Delete</button>
@@ -608,6 +791,7 @@ function MusiciansTab() {
         ))}
       </div>
       )}
+      </>}
     </div>
   );
 }
@@ -1346,7 +1530,6 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
 
   return (
     <div>
-      <button style={{ ...btn(false), marginBottom: 12 }} onClick={onBack}>✕ Close</button>
       <ReadinessStrip ev={ev} />
       <ApprovalBar ev={ev} />
       {stageOf(ev) === 'published' && <WithdrawButton ev={ev} />}
@@ -1650,7 +1833,43 @@ function SpreadsheetView({ events, musicians, locations, onOpen, onChanged }) {
   );
 }
 
-function CalendarView({ events, onOpen }) {
+/**
+ * The right-hand slide-over the event list opens into.
+ *
+ * Lifted out of the list's inline markup so adding an event from the calendar
+ * arrives the same way opening one does — a click in that grid should not
+ * sometimes slide a panel in and sometimes jump the page to a card at the top.
+ *
+ * Close is the ✕ in the corner, where a panel's close belongs, rather than a
+ * labelled button in the content: the content scrolls, and a close that scrolls
+ * away with it is a close you cannot find.
+ */
+function SlideOver({ open, label, children, onClose }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(30,18,20,.36)', zIndex: 60, animation: 'ckfade .18s ease' }} />
+      <div role="dialog" aria-modal="true" aria-label={label}
+           style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(620px,100%)', background: 'var(--bg,#f6f2f0)', boxShadow: '-10px 0 48px rgba(0,0,0,.28)', zIndex: 61, overflowY: 'auto', padding: 20, animation: 'ckslide .26s cubic-bezier(.4,0,.2,1)' }}>
+        <button type="button" onClick={onClose} aria-label="Close" title="Close"
+                style={{ position: 'sticky', top: 0, float: 'right', marginLeft: 12, border: 'none', background: 'transparent', color: 'inherit', fontSize: 24, lineHeight: 1, cursor: 'pointer', opacity: 0.55, padding: '0 2px', zIndex: 2 }}>✕</button>
+        {children}
+      </div>
+      <style>{`@keyframes ckslide{from{transform:translateX(100%)}to{transform:none}}@keyframes ckfade{from{opacity:0}to{opacity:1}}`}</style>
+    </>
+  );
+}
+
+function CalendarView({ events, onOpen, onCreate }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const first = new Date(month.y, month.m, 1);
   const startDow = first.getDay();
@@ -1694,13 +1913,15 @@ function CalendarView({ events, onOpen }) {
           const key = `${month.y}-${String(month.m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
           const evs = byDay[key] || [];
           return (
-            <div key={i} style={{ minHeight: 80, border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 4, fontSize: 11 }}>
+            <div key={i} onClick={() => onCreate?.(key)}
+                 title={onCreate ? 'Add an event on this day' : undefined}
+                 style={{ minHeight: 80, border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 4, fontSize: 11, cursor: onCreate ? 'pointer' : 'default' }}>
               <div style={{ opacity: 0.5, textAlign: 'right' }}>{d}</div>
               {evs.slice(0, 4).map((e) => {
                 const vc = venueColor(e.location_name); const live = stageOf(e) === 'published';
-                return <div key={e.id} onClick={() => onOpen(e)} title={e.title} style={{ cursor: 'pointer', borderLeft: `3px solid ${vc}`, background: live ? `${vc}22` : 'var(--surface-3,#eef0f4)', color: 'inherit', opacity: live ? 1 : 0.72, borderRadius: 4, padding: '1px 5px', marginTop: 2, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.musician_name || e.title}</div>;
+                return <div key={e.id} onClick={(me) => { me.stopPropagation(); onOpen(e); }} title={e.title} style={{ cursor: 'pointer', borderLeft: `3px solid ${vc}`, background: live ? `${vc}22` : 'var(--surface-3,#eef0f4)', color: 'inherit', opacity: live ? 1 : 0.72, borderRadius: 4, padding: '1px 5px', marginTop: 2, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.musician_name || e.title}</div>;
               })}
-              {evs.length > 4 && <div style={{ opacity: 0.5, marginTop: 2 }}>+{evs.length - 4} more</div>}
+              {evs.length > 4 && <div onClick={(me) => me.stopPropagation()} style={{ opacity: 0.5, marginTop: 2 }}>+{evs.length - 4} more</div>}
             </div>
           );
         })}

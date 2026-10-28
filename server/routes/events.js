@@ -64,19 +64,51 @@ export const musiciansRouter = express.Router();
 
 musiciansRouter.get('/', async (req, res) => {
   try {
+    // Ordered by how often they have actually played here lately, because the
+    // first question when booking is "who is in the rotation right now" — and
+    // the list is also the picker on the event form, where the name you want is
+    // nearly always someone who played in the last few months.
+    //
+    // Lift used to lead, which read oddly: a one-off with a flattering number
+    // outranked a resident who plays monthly, and after the duplicate-talent
+    // merge most lift figures are NULL anyway. It stays as a tiebreaker.
+    //
+    // Past performances only — a future booking is an intention, not a track
+    // record, and counting it would let one pencilled-in date jump an act over
+    // somebody who has played six times. Total history breaks the tie for the
+    // ~19 who have not played in the window, so long-standing acts stay above
+    // one-off bookings instead of falling back to alphabetical.
     const r = await query(
-      `SELECT id, name, type, act_type, genre, rating, stage_name, bio, photo_url, website_url, links,
-              rate_amount, rate_unit, phone, email, main_contact, write_check_to, address,
-              lift_pct, lift_nights, notes, active
-         FROM musicians WHERE company_id = $1 AND deleted_at IS NULL
-         ORDER BY active DESC, lift_pct DESC NULLS LAST, name`, [cId(req)]);
+      `SELECT m.id, m.name, m.type, m.act_type, m.genre, m.rating, m.stage_name, m.bio,
+              m.photo_url, m.website_url, m.links, m.rate_amount, m.rate_unit, m.phone,
+              m.email, m.main_contact, m.write_check_to, m.address,
+              m.lift_pct, m.lift_nights, m.notes, m.active,
+              m.legal_first_name, m.legal_last_name, m.business_name, m.tax_entity,
+              m.instagram_url, m.youtube_url, m.facebook_url, m.performer_notes,
+              count(e.id) FILTER (
+                WHERE e.start_at >= NOW() - interval '6 months' AND e.start_at < NOW()
+              )::int AS recent_plays,
+              count(e.id)::int AS total_plays
+         FROM musicians m
+         LEFT JOIN events_all e
+           ON e.musician_id = m.id AND e.deleted_at IS NULL AND e.company_id = m.company_id
+        WHERE m.company_id = $1 AND m.deleted_at IS NULL
+        GROUP BY m.id
+        ORDER BY m.active DESC, recent_plays DESC, total_plays DESC, m.lift_pct DESC NULLS LAST, m.name`,
+      [cId(req)]);
     res.json(r.rows);
   } catch (e) { console.error('musicians list', e); res.status(500).json({ error: e.message }); }
 });
 
 // Whitelist for create and update. A field missing here is silently dropped, so
 // anything added to the form has to be added here too.
-const MUS_FIELDS = ['name', 'type', 'act_type', 'genre', 'rating', 'stage_name', 'bio', 'photo_url', 'website_url', 'links', 'rate_amount', 'rate_unit', 'phone', 'email', 'main_contact', 'write_check_to', 'address', 'notes', 'active'];
+// Anything not listed here is silently dropped on save, which is quiet enough
+// to be missed — the talent self-service columns are included deliberately so
+// staff and performers write to the same fields. Deliberately absent: any
+// taxpayer ID. See docs/TALENT_SELF_SERVICE.md.
+const MUS_FIELDS = ['name', 'type', 'act_type', 'genre', 'rating', 'stage_name', 'bio', 'photo_url', 'website_url', 'links', 'rate_amount', 'rate_unit', 'phone', 'email', 'main_contact', 'write_check_to', 'address', 'notes', 'active',
+  'legal_first_name', 'legal_last_name', 'business_name', 'tax_entity',
+  'instagram_url', 'youtube_url', 'facebook_url', 'performer_notes'];
 
 // '' from an unset <select> would fail the CHECK constraints, and '' is not a rating
 // or an act size — it means "not recorded". Normalise before it reaches the database.

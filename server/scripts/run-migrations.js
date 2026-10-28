@@ -5511,6 +5511,87 @@ If the deposit is not received by that date, or if the date, guest count, venue 
             events_all.sticky, events_all.resos_experience_url, events_all.booking_url
        FROM events_all
       WHERE events_all.deleted_at IS NULL`,
+  // ── Talent self-service ──────────────────────────────────────────────────
+  // A performer gets a short-lived link, fills in what we are missing, and the
+  // result lands as a proposal for staff to accept. See docs/TALENT_SELF_SERVICE.md.
+  //
+  // Legal identity is kept apart from `name`, which is the booking name the
+  // events, the website and Bandsintown all reference. A 1099 wants the legal
+  // name, which is routinely different — hence the existing write_check_to.
+  // Letting a performer edit `name` would detach the history behind their act.
+  `ALTER TABLE musicians
+     ADD COLUMN IF NOT EXISTS legal_first_name TEXT,
+     ADD COLUMN IF NOT EXISTS legal_last_name  TEXT,
+     ADD COLUMN IF NOT EXISTS business_name    TEXT,
+     ADD COLUMN IF NOT EXISTS tax_entity       TEXT,
+     ADD COLUMN IF NOT EXISTS instagram_url    TEXT,
+     ADD COLUMN IF NOT EXISTS youtube_url      TEXT,
+     ADD COLUMN IF NOT EXISTS facebook_url     TEXT,
+     ADD COLUMN IF NOT EXISTS performer_notes  TEXT`,
+  // Deliberately no taxpayer-ID column. A 1099 needs one, but a TIN in a web
+  // form makes this app a store of government identifiers, with the encryption,
+  // access control and retention duties that follow. It is collected by phone
+  // alongside the bank details, and lives in the accounting system.
+  `COMMENT ON COLUMN musicians.tax_entity IS 'individual | business — never the TIN itself'`,
+
+  // The exact wording, kept so an acceptance can be read back verbatim rather
+  // than reconstructed from whatever the template says today.
+  `CREATE TABLE IF NOT EXISTS terms_versions (
+     version        VARCHAR(40) PRIMARY KEY,
+     company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     body_md        TEXT NOT NULL,
+     effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     created_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  // Stores the version, not a copy of the text.
+  `CREATE TABLE IF NOT EXISTS talent_terms_acceptances (
+     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     musician_id   UUID NOT NULL REFERENCES musicians(id) ON DELETE CASCADE,
+     terms_version VARCHAR(40) NOT NULL REFERENCES terms_versions(version),
+     accepted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     channel       VARCHAR(12),
+     submission_id UUID,
+     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_tta_musician ON talent_terms_acceptances(musician_id, accepted_at DESC)`,
+
+  // The token is hashed, never stored raw — same rule as service_tokens. It is
+  // shown once, at send, and cannot be recovered afterwards.
+  `CREATE TABLE IF NOT EXISTS talent_update_links (
+     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id   UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     musician_id  UUID NOT NULL REFERENCES musicians(id) ON DELETE CASCADE,
+     token_hash   TEXT NOT NULL UNIQUE,
+     channel      VARCHAR(12) NOT NULL,
+     sent_to      TEXT,
+     sent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     expires_at   TIMESTAMPTZ NOT NULL,
+     opened_at    TIMESTAMPTZ,
+     submitted_at TIMESTAMPTZ,
+     revoked_at   TIMESTAMPTZ,
+     created_by   UUID REFERENCES users(id) ON DELETE SET NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_tul_musician ON talent_update_links(musician_id, sent_at DESC)`,
+
+  // Submissions are proposals. A 1099 address or legal name is something you
+  // file against, so it does not get overwritten by whatever someone typed on
+  // their phone without a human seeing the diff.
+  `CREATE TABLE IF NOT EXISTS talent_submissions (
+     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     musician_id   UUID NOT NULL REFERENCES musicians(id) ON DELETE CASCADE,
+     link_id       UUID REFERENCES talent_update_links(id) ON DELETE SET NULL,
+     payload       JSONB NOT NULL DEFAULT '{}'::jsonb,
+     status        VARCHAR(12) NOT NULL DEFAULT 'pending',
+     terms_version VARCHAR(40),
+     reviewed_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+     reviewed_at   TIMESTAMPTZ,
+     review_notes  TEXT,
+     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ts_pending ON talent_submissions(status, created_at DESC)`,
 ];
 
 export async function runMigrations() {

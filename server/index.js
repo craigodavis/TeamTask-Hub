@@ -83,6 +83,8 @@ import { startCapacityWatch } from './lib/eventCapacityWatch.js';
 import { websiteContentWatch } from './lib/websiteDeploy.js';
 import { crewRouter } from './routes/crew.js';
 import { websiteRouter } from './routes/website.js';
+import { talentPublicRouter } from './routes/talentPublic.js';
+import { talentAdminRouter } from './routes/talentAdmin.js';
 import { marketingRouter } from './routes/marketing.js';
 import { mcpDbRouter } from './routes/mcpDb.js';
 import { ensureLocationsTables } from './ensureLocationsTables.js';
@@ -168,6 +170,8 @@ app.use('/api/event-requests', requireAuth, eventRequestsRouter);
 app.use('/api/page-images', requireAuth, websiteContentWatch, pageImagesRouter);
 app.use('/api/crew', requireAuth, websiteContentWatch, crewRouter);
 app.use('/api/website', websiteRouter); // public, read-only — no auth
+app.use('/api/talent-link', talentPublicRouter);   // public — the token IS the credential
+app.use('/api/talent', requireAuth, talentAdminRouter);
 app.use('/api/marketing', requireAuth, requireCapability('marketing.website'), websiteContentWatch, marketingRouter);
 app.use('/api/commerce7/sync', requireAuth, requireCapability('wine.products'), commerce7SyncRouter);
 app.use('/api/service-tokens', requireAuth, serviceTokensRouter);

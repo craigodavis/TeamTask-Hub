@@ -37,6 +37,7 @@ import { Loyalty } from './pages/Loyalty';
 import { KindredApp } from './pages/KindredApp';
 import Scheduling from './pages/Scheduling';
 import ShiftFeedback from './pages/ShiftFeedback';
+import TalentUpdate from './pages/TalentUpdate';
 import Events from './pages/Events';
 import { getGeneralSettings } from './api';
 import { ProductDetail } from './pages/ProductDetail';
@@ -137,6 +138,8 @@ function App() {
       {/* Public routes — no auth required */}
       <Route path="/r/:token" element={<ReportView />} />
       <Route path="/feedback/:token" element={<ShiftFeedback />} />
+      {/* Performer self-service — the 24-hour token is the only credential. */}
+      <Route path="/t/:token" element={<TalentUpdate />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login onLogin={onLogin} />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AuthGate user={user} />}>
