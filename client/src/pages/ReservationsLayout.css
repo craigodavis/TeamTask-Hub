@@ -489,3 +489,125 @@
 .rs-skin .rv-tag.yes { background: var(--rs-green-soft); color: var(--rs-green); }
 .rs-skin .rv-status { border-radius: 999px; padding: 0.1rem 0.45rem; font-size: 0.68rem; }
 .rs-skin .rv-optin { background: transparent; }
+
+/* ── Date navigation ─────────────────────────────────────────────────────── */
+/* ResOS puts a chevron each side of the date on every dated view. One
+   component, one set of styles, so the four views cannot drift apart. */
+
+.rs-viewbar {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.rs-datenav { display: flex; align-items: center; gap: 0.4rem; }
+.rs-datenav-label {
+  font-size: 0.9rem; font-weight: 500; min-width: 9.5rem; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.rs-datenav input[type="date"] {
+  font: inherit; font-size: 0.82rem;
+  color: var(--rs-text); background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border-strong);
+  border-radius: var(--rs-radius-sm); padding: 0.25rem 0.4rem;
+}
+.rs-chev {
+  font: inherit; font-size: 1.1rem; line-height: 1;
+  width: 2rem; height: 2rem; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--rs-surface-2); color: var(--rs-text);
+  border: 0.5px solid var(--rs-border-strong); border-radius: var(--rs-radius-sm);
+}
+.rs-chev:hover { border-color: var(--rs-green); color: var(--rs-green); }
+
+/* ── Calendar ────────────────────────────────────────────────────────────── */
+
+.rs-cal {
+  background: var(--rs-surface-2);
+  border: 0.5px solid var(--rs-border);
+  border-radius: var(--rs-radius);
+  overflow: hidden;
+}
+.rs-cal-head, .rs-cal-week { display: grid; grid-template-columns: repeat(7, 1fr); }
+.rs-cal-head div {
+  padding: 0.5rem 0.6rem; font-size: 0.72rem; font-weight: 600;
+  color: var(--rs-muted); border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-cal-day {
+  font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem;
+  min-height: 92px; padding: 0.45rem 0.5rem;
+  background: var(--rs-surface-2); color: var(--rs-text);
+  border: none;
+  border-right: 0.5px solid var(--rs-border);
+  border-bottom: 0.5px solid var(--rs-border);
+}
+.rs-cal-day:nth-child(7n) { border-right: none; }
+.rs-cal-day:hover { background: var(--rs-surface-1); }
+.rs-cal-day.out { opacity: 0.4; }
+.rs-cal-n { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.rs-cal-n.today {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  background: var(--rs-green); color: var(--rs-on-green); font-weight: 700;
+}
+
+/* ── Schedule ────────────────────────────────────────────────────────────── */
+/* Tables down the side, the service across the top. The dark plate is the
+   same stage the floor uses, for the same reason. */
+
+.rs-sched-wrap {
+  overflow-x: auto;
+  background: var(--rs-canvas);
+  border: 0.5px solid var(--rs-canvas-edge);
+  border-radius: var(--rs-radius);
+  padding: 0.5rem;
+}
+.rs-sched {
+  display: grid;
+  grid-template-columns: 104px repeat(var(--rs-cols), 26px);
+  min-width: max-content;
+  color: var(--rs-on-canvas);
+}
+.rs-sched-corner { position: sticky; left: 0; background: var(--rs-canvas); z-index: 2; }
+.rs-sched-time {
+  font-size: 0.58rem; color: var(--rs-on-canvas-muted);
+  text-align: left; padding-bottom: 0.3rem; white-space: nowrap;
+}
+.rs-sched-time.hour { color: var(--rs-on-canvas); font-weight: 700; }
+
+.rs-sched-area {
+  grid-column: 1 / -1;
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--rs-on-canvas-muted);
+  padding: 0.6rem 0 0.3rem; position: sticky; left: 0;
+}
+.rs-sched-row-label {
+  position: sticky; left: 0; z-index: 1;
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.78rem; padding: 0 0.5rem;
+  background: var(--rs-canvas);
+  border-bottom: 0.5px solid var(--rs-canvas-edge);
+  height: 30px;
+}
+.rs-sched-row-label span {
+  font-size: 0.62rem; color: var(--rs-on-canvas-muted);
+  border: 0.5px solid var(--rs-canvas-edge); border-radius: 999px;
+  padding: 0 0.35rem;
+}
+.rs-sched-row-label.unassigned { font-weight: 600; color: var(--rs-table-booked); }
+
+.rs-sched-cell {
+  height: 30px;
+  border-bottom: 0.5px solid var(--rs-canvas-edge);
+  border-right: 0.5px solid rgba(255, 255, 255, 0.04);
+}
+.rs-sched-cell.hour { border-right-color: var(--rs-canvas-edge); }
+.rs-sched-cell.area { height: 0; border: none; }
+
+.rs-sched-block {
+  align-self: center;
+  margin: 2px; padding: 0 0.4rem; height: 26px;
+  display: flex; align-items: center;
+  font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--rs-table-booked); color: #2a2410;
+  border-radius: 5px; font-weight: 600;
+}

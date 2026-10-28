@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { getReservations, downloadOptIns } from '../api';
 import './Reservations.css';
+// Aliased: this file already has an `iso` of its own, and that one reads the
+// date in UTC. The shared one is local-correct, so keep them distinguishable
+// rather than quietly swapping the behaviour of the existing range defaults.
+import DateNav, { iso as isoLocal, parseISO } from './reservationsDateNav';
+import { CalendarView, ScheduleView } from './reservationsBookingViews';
 
 /**
  * Reservations → Bookings.
@@ -58,6 +63,11 @@ export default function Reservations() {
   const scope = ctx.venue;
   const [ownVenue, setOwnVenue] = useState('');
   const venue = inSection ? (scope?.venue || '') : ownVenue;
+
+  // Three ways to look at the same bookings, as ResOS has it. Only inside the
+  // section: standalone this stays the single list it has always been.
+  const [view, setView] = useState('list');
+  const [anchor, setAnchor] = useState(() => isoLocal(new Date()));
   const [onlyOptIns, setOnlyOptIns] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -66,17 +76,37 @@ export default function Reservations() {
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
 
+  /**
+   * What the fetch actually asks for.
+   *
+   * The list keeps its From/To range — that range is what the opt-in export
+   * runs on, and it is the one thing this screen does that ResOS cannot. The
+   * calendar asks for a whole month and the schedule for a single day, so the
+   * chevrons move real data rather than filtering what happened to be loaded.
+   */
+  const range = useMemo(() => {
+    if (!inSection || view === 'list') return { from, to };
+    if (view === 'calendar') {
+      const d = parseISO(anchor);
+      return {
+        from: isoLocal(new Date(d.getFullYear(), d.getMonth(), 1)),
+        to: isoLocal(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+      };
+    }
+    return { from: anchor, to: anchor };
+  }, [inSection, view, from, to, anchor]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await getReservations({ from, to, venue }));
+      setData(await getReservations({ from: range.from, to: range.to, venue }));
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [from, to, venue]);
+  }, [range.from, range.to, venue]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -104,7 +134,8 @@ export default function Reservations() {
     setExporting(true);
     setError('');
     try {
-      await downloadOptIns({ from, to, venue });
+      // Export what is on screen, not what the From/To boxes last said.
+      await downloadOptIns({ from: range.from, to: range.to, venue });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -136,9 +167,34 @@ export default function Reservations() {
         </button>
       </header>
 
+      {inSection && (
+        <div className="rs-viewbar">
+          <div className="rs-seg">
+            {[['list', 'List'], ['calendar', 'Calendar'], ['schedule', 'Schedule']].map(([k, l]) => (
+              <button key={k} type="button" className={view === k ? 'on' : ''}
+                      onClick={() => setView(k)}>{l}</button>
+            ))}
+          </div>
+          {view !== 'list' && (
+            <DateNav value={anchor} onChange={setAnchor}
+                     step={view === 'calendar' ? 'month' : 'day'} />
+          )}
+          {view !== 'list' && (
+            <span className="rs-panel-sub">Use &lt; and &gt; to move a {view === 'calendar' ? 'month' : 'day'}</span>
+          )}
+        </div>
+      )}
+
       <div className="rv-filters">
-        <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        {/* The range belongs to the list. Calendar and schedule get their
+            dates from the chevrons above, so showing From/To there would be
+            two controls arguing over the same thing. */}
+        {(!inSection || view === 'list') && (
+          <>
+            <label>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+            <label>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+          </>
+        )}
         {!inSection && (
           <label>
             Venue
@@ -170,7 +226,18 @@ export default function Reservations() {
         </p>
       )}
 
-      {loading ? (
+      {inSection && view !== 'list' && loading && <p className="rv-empty">Loading…</p>}
+
+      {inSection && view === 'calendar' && !loading && (
+        <CalendarView anchor={anchor} bookings={bookings}
+                      onPickDay={(d) => { setAnchor(d); setView('schedule'); }} />
+      )}
+
+      {inSection && view === 'schedule' && !loading && (
+        <ScheduleView venue={scope} bookings={shown} />
+      )}
+
+      {inSection && view !== 'list' ? null : loading ? (
         <p className="rv-empty">Loading…</p>
       ) : !shown.length ? (
         <p className="rv-empty">No bookings match.</p>
