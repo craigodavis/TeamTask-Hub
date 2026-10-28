@@ -88,13 +88,13 @@
   background: transparent; color: var(--vin-text);
   cursor: pointer; white-space: nowrap;
 }
-.tal-btn:hover { background: var(--vin-surface-1); }
+.tal-btn:hover:not(:disabled) { background: var(--vin-surface-1); }
 .tal-btn-danger { color: var(--vin-text-danger); border-color: var(--vin-bg-danger); }
-.tal-btn-danger:hover { background: var(--vin-bg-danger); }
+.tal-btn-danger:hover:not(:disabled) { background: var(--vin-bg-danger); }
 .tal-btn-primary {
   background: var(--vin-fill); color: var(--vin-on-fill); border-color: var(--vin-fill);
 }
-.tal-btn-primary:hover { opacity: 0.85; background: var(--vin-fill); }
+.tal-btn-primary:hover:not(:disabled) { opacity: 0.85; background: var(--vin-fill); }
 .tal-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .tal-empty {

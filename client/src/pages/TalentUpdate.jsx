@@ -38,7 +38,6 @@ const FIELDS = [
   ['instagram_url', 'Instagram', 'https://instagram.com/…'],
   ['youtube_url', 'YouTube', 'https://youtube.com/…'],
   ['facebook_url', 'Facebook', 'https://facebook.com/…'],
-  ['photo_url', 'Photo URL', 'A link to a good photo of you'],
 ];
 
 export default function TalentUpdate() {
@@ -52,6 +51,7 @@ export default function TalentUpdate() {
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(false);
   const [resent, setResent] = useState('');
+  const [upload, setUpload] = useState({ busy: false, err: '' });
 
   useEffect(() => {
     fetch(`${API}/talent-link/${token}`)
@@ -80,6 +80,33 @@ export default function TalentUpdate() {
       setState('done');
     } catch { setErr('Could not reach us just now — please try again.'); }
     finally { setSaving(false); }
+  };
+
+  /**
+   * Send the file as it sits on the phone. No client-side resize: the server
+   * re-encodes everything anyway (that is how the location data gets stripped),
+   * and shrinking it here first would only mean a worse photo arriving.
+   */
+  const sendPhoto = async (file) => {
+    if (!file) return;
+    const max = data?.photo?.max_bytes || 10 * 1024 * 1024;
+    if (file.size > max) {
+      setUpload({ busy: false, err: `That photo is ${(file.size / 1048576).toFixed(1)}MB — the limit is ${Math.round(max / 1048576)}MB.` });
+      return;
+    }
+    setUpload({ busy: true, err: '' });
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const r = await fetch(`${API}/talent-link/${token}/photo`, { method: 'POST', body: fd });
+      const body = await r.json();
+      if (!r.ok) { setUpload({ busy: false, err: body.error || 'That photo would not upload.' }); return; }
+      set('photo_url', body.photo_url);
+      setData((d) => (d ? { ...d, photo: { ...d.photo, used: (d.photo?.used || 0) + 1 } } : d));
+      setUpload({ busy: false, err: '' });
+    } catch {
+      setUpload({ busy: false, err: 'Could not reach us just now — please try again.' });
+    }
   };
 
   const resend = async (contact) => {
@@ -158,6 +185,10 @@ export default function TalentUpdate() {
         </div>
         <label style={lbl}>A bit about you <span style={{ fontWeight: 400 }}>(shown on our website)</span></label>
         <textarea style={{ ...inp, minHeight: 90 }} value={f.bio || ''} onChange={(e) => set('bio', e.target.value)} />
+
+        <PhotoField value={f.photo_url} limits={data?.photo} state={upload} onPick={sendPhoto}
+                    onClear={() => set('photo_url', null)} />
+
         <button type="button" style={{ ...btn(false), marginTop: 10, padding: '8px 14px', fontSize: 14 }}
                 onClick={() => setPreview((p) => !p)}>
           {preview ? 'Hide preview' : 'Preview how this looks on our website'}
@@ -216,6 +247,58 @@ export default function TalentUpdate() {
         This link expires {data.expires_at ? new Date(data.expires_at).toLocaleString() : 'in 24 hours'}.
       </p>
     </div></div>
+  );
+}
+
+/**
+ * The photo. An upload, not a URL.
+ *
+ * Asking a performer to "provide a URL for your photo" asks them to host an
+ * image somewhere first — which for most people means it never happens, or it
+ * means a link to an Instagram post that stops resolving. The photo they want
+ * to send is already on the phone they are reading this on.
+ *
+ * The limits are shown before the picker opens rather than after a rejection,
+ * and they come from the server’s own numbers so the two cannot drift.
+ */
+function PhotoField({ value, limits, state, onPick, onClear }) {
+  const mb = Math.round((limits?.max_bytes || 10485760) / 1048576);
+  const used = limits?.used || 0;
+  const left = (limits?.max_per_link ?? 3) - used;
+  const spent = left <= 0;
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <label style={lbl}>Your photo <span style={{ fontWeight: 400 }}>(shown on our website)</span></label>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {value
+          ? <img src={value} alt="" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, border: '1px solid #e6e1df', flexShrink: 0 }} />
+          : <div style={{ width: 96, height: 96, borderRadius: 10, border: '1px dashed #c9bfbb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#a2938f', flexShrink: 0 }}>No photo</div>}
+        <div style={{ minWidth: 200, flex: 1 }}>
+          {!spent && (
+            <label style={{ ...btn(false), display: 'inline-block', padding: '10px 16px', fontSize: 15, opacity: state.busy ? 0.6 : 1 }}>
+              {state.busy ? 'Uploading…' : value ? 'Choose a different photo' : 'Choose a photo'}
+              <input type="file" accept={limits?.accept || 'image/*'} disabled={state.busy}
+                     style={{ display: 'none' }}
+                     onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; onPick(file); }} />
+            </label>
+          )}
+          {value && !state.busy && (
+            <button type="button" onClick={onClear}
+                    style={{ background: 'none', border: 'none', color: '#7c2d3a', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginLeft: value ? 10 : 0, padding: '10px 0' }}>
+              Remove
+            </button>
+          )}
+          <p style={{ fontSize: 12, opacity: 0.6, margin: '8px 0 0' }}>
+            {limits?.formats || 'JPEG, PNG, WebP or HEIC'}, up to {mb}MB.
+            {spent
+              ? " That’s all the photos this link can send — send your details and we’ll sort the picture out with you."
+              : used > 0 ? ` ${left} more ${left === 1 ? 'try' : 'tries'} on this link.` : ''}
+          </p>
+          {state.err && <p style={{ color: '#b00', fontWeight: 600, fontSize: 14, margin: '6px 0 0' }}>{state.err}</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 

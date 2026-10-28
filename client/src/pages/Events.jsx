@@ -599,9 +599,26 @@ function MusiciansTab() {
               </button>
               <button type="button" className="vin-btn" disabled={savingLink || !form.name || !form.email?.trim()}
                       onClick={() => saveAndSend('email')}>Save & email it</button>
-              <button type="button" className="vin-btn" disabled={savingLink || !form.name || !form.phone?.trim()}
+              {/* Copy needs no phone or email: pasting the link into an Instagram
+                  DM is the whole reason this button exists, and that is exactly
+                  the case where we have neither. */}
+              <button type="button" className="vin-btn" disabled={savingLink || !form.name}
                       onClick={() => saveAndSend('copy')}>Save & copy it</button>
             </div>
+            {/* A greyed-out button that does not say what it wants reads as broken.
+                Texting really does need a number — so say so, rather than refusing
+                in silence. */}
+            {!savingLink && (!form.name || !form.phone?.trim() || !form.email?.trim()) && (
+              <p style={{ fontSize: 12, color: 'var(--vin-muted)', margin: '8px 0 0' }}>
+                {!form.name
+                  ? 'Add a performer name first.'
+                  : !form.phone?.trim() && !form.email?.trim()
+                    ? 'Add a phone number to text it, or an email to send it — or copy the link and send it yourself.'
+                    : !form.phone?.trim()
+                      ? 'Add a phone number to text it.'
+                      : 'Add an email address to send it that way.'}
+              </p>
+            )}
             <p style={{ fontSize: 12, opacity: 0.55, margin: '10px 0 0' }}>
               Or fill everything in yourself below — but they'll know their own details better.
             </p>

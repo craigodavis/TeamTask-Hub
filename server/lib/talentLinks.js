@@ -102,8 +102,15 @@ export function validate(p) {
       errs.push(`The ${f.replace('_url', '')} link does not look like a ${f.replace('_url', '')} address.`);
     }
   }
-  for (const f of ['website_url', 'instagram_url', 'youtube_url', 'facebook_url', 'photo_url']) {
+  for (const f of ['website_url', 'instagram_url', 'youtube_url', 'facebook_url']) {
     if (p[f] && !/^https?:\/\//i.test(p[f])) errs.push(`${f.replace('_url', '')} needs to start with http:// or https://`);
+  }
+  // A photo now arrives by upload, and an uploaded file's URL is a path on our
+  // own host, not an absolute one — the same host-relative form everything else
+  // in the media library stores. Demanding https:// here rejected the photo the
+  // performer had just successfully uploaded, which is a confusing way to fail.
+  if (p.photo_url && !/^(https?:\/\/|\/api\/uploads\/media\/[A-Za-z0-9._-]+$)/i.test(p.photo_url)) {
+    errs.push('That photo link does not look right — please upload the photo instead.');
   }
   if (p.tax_entity && !['individual', 'business'].includes(p.tax_entity)) errs.push('Tax entity must be individual or business.');
   // There is no column for this, and there should not be — but a performer may

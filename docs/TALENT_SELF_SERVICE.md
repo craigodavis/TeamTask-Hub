@@ -104,7 +104,8 @@ anything in §3's excluded list, which is part of why that list exists.
 
 Editable: **legal first/last name**, **band/stage name**, **phone**, **email**,
 **address**, **genre**, **act type**, **website**, **Instagram**, **YouTube**,
-**Facebook**, **photos**, and a free-text **"anything we should know"**.
+**Facebook**, a **photo** (uploaded, not linked — see below), and a free-text
+**"anything we should know"**.
 
 The three socials get their own columns — `instagram_url`, `youtube_url`,
 `facebook_url` — rather than going into the existing `links` jsonb array, which
@@ -131,6 +132,56 @@ address only, and say the tax ID will be taken by phone.**
 **`notes` is ours, not theirs.** The existing column holds our commentary about a
 performer. If their free-text lands in the same field it will overwrite internal
 notes the first time someone submits. Add `performer_notes` and keep them apart.
+
+### The photo is an upload, not a URL
+
+Asking a performer to "provide a URL for your photo" asks them to go and host an
+image somewhere first. For most people that means it never happens; for the rest
+it means a link to an Instagram post that stops resolving six months later. The
+photo they want to send is already on the phone they are reading the link on.
+
+`POST /api/talent-link/:token/photo` takes one file. The handling is narrow,
+because this is the only place in the app where an anonymous stranger writes a
+file to our disk:
+
+| | |
+|---|---|
+| **Size** | 10MB. A phone photo is 2–5MB. |
+| **Count** | 3 per link — enough for "oops, wrong one" twice. Refused uploads do not count. |
+| **Formats** | JPEG, PNG, WebP, HEIC (and GIF, quietly). **No SVG.** |
+| **Where it lands** | the media library's `needs-review` folder, `source = 'performer'`, tagged `musician:<id>`. |
+| **What the musician record gets** | nothing, until someone accepts it in the review queue. |
+
+Four rules the implementation keeps, in `lib/talentPhoto.js`:
+
+**The bytes never touch disk until they have been decoded.** multer uses memory
+storage here, not the disk storage the media manager uses, so a rejected upload
+leaves nothing behind that could later be served by accident.
+
+**The format is decided by decoding the image**, never by its extension or the
+`Content-Type` the client claimed — both are chosen by whoever is uploading. A
+`.jpg` containing `<?php system($_GET["c"]); ?>` fails to decode and is refused.
+
+**Everything accepted is re-encoded, never stored as sent.** This is what strips
+EXIF — which on a phone photo carries the GPS coordinates of wherever it was
+taken, usually somebody's house, and we publish these pictures. Re-encoding also
+means anything smuggled in a comment block or trailing bytes does not survive.
+`.rotate()` with no argument applies the EXIF orientation before dropping it, so
+a sideways photo still comes out the right way up.
+
+**No SVG.** It is a document, not a picture: it can carry script, and it would be
+served from our own origin. sharp will happily decode one, so the allow-list is
+what refuses it — see `audit-talent-photo.js`, which checks exactly that with a
+valid SVG containing a `<script>` tag.
+
+A decode bomb is the remaining worry: sharp allocates roughly `w × h × 4` bytes,
+and its own default ceiling is ~268 megapixels — a gigabyte of resident memory
+from one request, on a box that runs everything else too. The ceiling here is
+80MP, above every phone and camera anyone will use and small enough to survive.
+
+`node server/scripts/audit-talent-photo.js` proves all of this offline: it builds
+its own fixtures, calls the real `processPhoto()`, and deletes what it wrote. No
+database, no HTTP, safe to run against any checkout.
 
 ### Name, carefully
 

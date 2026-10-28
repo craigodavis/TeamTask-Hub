@@ -94,14 +94,14 @@
   background: transparent; color: var(--vin-text);
   cursor: pointer; white-space: nowrap;
 }
-.vin-btn:hover { background: var(--vin-surface-1); }
+.vin-btn:hover:not(:disabled) { background: var(--vin-surface-1); }
 .vin-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .vin-btn-primary {
   background: var(--vin-fill); color: var(--vin-on-fill); border-color: var(--vin-fill);
 }
 .vin-btn-primary:hover:not(:disabled) { opacity: 0.85; background: var(--vin-fill); }
 .vin-btn-danger { color: var(--vin-text-danger); border-color: var(--vin-bg-danger); }
-.vin-btn-danger:hover { background: var(--vin-bg-danger); }
+.vin-btn-danger:hover:not(:disabled) { background: var(--vin-bg-danger); }
 
 .vin-input, .vin-select, .vin-textarea {
   width: 100%;

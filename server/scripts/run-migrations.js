@@ -5592,6 +5592,11 @@ If the deposit is not received by that date, or if the date, guest count, venue 
      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_ts_pending ON talent_submissions(status, created_at DESC)`,
+
+  // A performer uploading their own photo. Counted on the link rather than the
+  // musician so the cap resets when we send a fresh link, instead of locking
+  // somebody out months later because of three bad attempts last season.
+  `ALTER TABLE talent_update_links ADD COLUMN IF NOT EXISTS photo_count INTEGER NOT NULL DEFAULT 0`,
 ];
 
 export async function runMigrations() {

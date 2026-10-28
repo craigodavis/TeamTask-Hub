@@ -10,10 +10,14 @@
  * See docs/TALENT_SELF_SERVICE.md.
  */
 import express from 'express';
+import multer from 'multer';
 import { query } from '../db.js';
 import {
   resolveToken, markOpened, sanitize, validate, publicProfile, currentTerms, issueLink, LINK_TTL_HOURS,
 } from '../lib/talentLinks.js';
+import {
+  processPhoto, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_LINK, ACCEPT_ATTR, FORMATS_HUMAN,
+} from '../lib/talentPhoto.js';
 import { sendSmsToPhone } from '../lib/smsHelper.js';
 import { sendMail } from '../mail.js';
 
@@ -21,6 +25,15 @@ export const talentPublicRouter = express.Router();
 
 const BASE = () => (process.env.APP_BASE_URL || 'https://team.kindredvineyards.com').replace(/\/$/, '');
 export const linkUrl = (token) => `${BASE()}/t/${token}`;
+
+// Mirrored to the form so the file picker's filter and the stated limit cannot
+// drift from what the server will actually accept.
+export const photoLimits = {
+  max_bytes: MAX_PHOTO_BYTES,
+  max_per_link: MAX_PHOTOS_PER_LINK,
+  accept: ACCEPT_ATTR,
+  formats: FORMATS_HUMAN,
+};
 
 // A bad token should cost an attacker time. Crude, in-process, and enough:
 // this endpoint sees a few requests a week from real performers.
@@ -49,6 +62,7 @@ talentPublicRouter.get('/:token', async (req, res) => {
       musician: profile,
       terms,
       expires_at: r.link.expires_at,
+      photo: { ...photoLimits, used: r.link.photo_count || 0 },
       // Already-pending work should not be silently replaced by a second submit.
       pending: (await query(
         `SELECT count(*)::int AS n FROM talent_submissions
@@ -91,6 +105,74 @@ talentPublicRouter.post('/:token', async (req, res) => {
     await query(`UPDATE talent_update_links SET submitted_at = NOW() WHERE id = $1`, [r.link.id]);
     res.json({ ok: true, received: Object.keys(payload).length });
   } catch (e) { console.error('talent link post', e); res.status(500).json({ error: 'Something went wrong.' }); }
+});
+
+// ── POST /api/talent-link/:token/photo ───────────────────────────
+// Memory storage, not disk: an upload that fails validation should leave nothing
+// behind. multer enforces the byte ceiling while reading, so an oversized file
+// is cut off mid-stream rather than buffered in full and then measured.
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_PHOTO_BYTES, files: 1 },
+}).single('photo');
+
+talentPublicRouter.post('/:token/photo', (req, res) => {
+  photoUpload(req, res, async (upErr) => {
+    if (tooMany(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+    if (upErr) {
+      const tooBig = upErr.code === 'LIMIT_FILE_SIZE';
+      return res.status(400).json({
+        error: tooBig
+          ? `That photo is over ${Math.round(MAX_PHOTO_BYTES / (1024 * 1024))}MB. Please send a smaller one.`
+          : 'We could not read that upload.',
+      });
+    }
+    try {
+      const r = await resolveToken(req.params.token);
+      if (!r.ok) return res.status(410).json({ error: r.reason });
+      if (!req.file) return res.status(400).json({ error: 'No photo was attached.' });
+      if ((r.link.photo_count || 0) >= MAX_PHOTOS_PER_LINK) {
+        return res.status(429).json({
+          error: `That's ${MAX_PHOTOS_PER_LINK} photos from this link — send us the details and we'll sort the picture out with you.`,
+        });
+      }
+
+      let photo;
+      try {
+        photo = await processPhoto(req.file.buffer, { nameHint: r.link.musician_name });
+      } catch (e) {
+        // processPhoto's messages are written for the performer to read.
+        return res.status(400).json({ error: e.message });
+      }
+
+      // needs-review, never 'library': a stranger can put a photo in front of
+      // us, and that is all. Nothing reaches the website until someone here
+      // moves it. The tag is what makes it findable as a performer photo.
+      await query(
+        `INSERT INTO kindred_web.media
+           (filename, original_name, url, mime, width, height, size_bytes,
+            alt_text, folder, tags, variants, source, company_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'needs-review',$9,$10,'performer',$11)`,
+        [photo.filename, req.file.originalname?.slice(0, 200) || null, photo.url, photo.mime,
+         photo.width, photo.height, photo.size_bytes,
+         r.link.musician_name, ['performer', `musician:${r.link.musician_id}`],
+         photo.variants ? JSON.stringify(photo.variants) : null, r.link.m_company]
+      );
+      await query(`UPDATE talent_update_links SET photo_count = photo_count + 1 WHERE id = $1`, [r.link.id]);
+
+      // The URL goes back to the form, which carries it in the submission like
+      // any other field — so the photo is applied by the same review step as
+      // everything else, not written straight onto the musician.
+      res.status(201).json({
+        ok: true,
+        photo_url: photo.url,
+        remaining: MAX_PHOTOS_PER_LINK - (r.link.photo_count || 0) - 1,
+      });
+    } catch (e) {
+      console.error('talent photo', e);
+      res.status(500).json({ error: 'Something went wrong saving that photo.' });
+    }
+  });
 });
 
 // ── POST /api/talent-link/resend — "text me a new link" ──────────────────────

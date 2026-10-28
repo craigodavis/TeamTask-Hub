@@ -47,6 +47,21 @@ export default function TalentInbox() {
 
   const show = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
+  /**
+   * A photo is the one field you cannot review as text. Accepting
+   * "performer-1761…jpg" tells a reviewer nothing about whether it is the right
+   * picture, or even a picture of a person — so it is shown, not named.
+   */
+  const cell = (field, v) => {
+    if (field !== 'photo_url') return show(v);
+    if (!v) return '—';
+    return (
+      <a href={v} target="_blank" rel="noreferrer">
+        <img src={v} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border,#e3e3e3)', display: 'block' }} />
+      </a>
+    );
+  };
+
   return (
     <div>
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
@@ -81,10 +96,10 @@ export default function TalentInbox() {
                   <td style={{ padding: '7px 8px 7px 0', width: 150, fontWeight: 600, verticalAlign: 'top' }}>
                     {LABEL[c.field] || c.field}
                   </td>
-                  <td style={{ padding: '7px 8px', opacity: 0.55, verticalAlign: 'top', textDecoration: c.current ? 'line-through' : 'none' }}>
-                    {show(c.current)}
+                  <td style={{ padding: '7px 8px', opacity: 0.55, verticalAlign: 'top', textDecoration: c.field === 'photo_url' ? 'none' : (c.current ? 'line-through' : 'none') }}>
+                    {cell(c.field, c.current)}
                   </td>
-                  <td style={{ padding: '7px 8px', verticalAlign: 'top', wordBreak: 'break-word' }}>{show(c.proposed)}</td>
+                  <td style={{ padding: '7px 8px', verticalAlign: 'top', wordBreak: 'break-word' }}>{cell(c.field, c.proposed)}</td>
                   <td style={{ padding: '7px 0', textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                     <button style={btn(false)} disabled={busy} onClick={() => apply(s.id, [c.field])}>Accept</button>
                   </td>
