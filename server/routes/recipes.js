@@ -1176,7 +1176,7 @@ router.get('/', requireCapability('kitchen.recipes'), async (req, res) => {
               '[]'::json
             ) AS location_ids
      FROM recipes r
-     WHERE r.company_id = $1 ${where}
+     WHERE r.company_id = $1 AND r.deleted_at IS NULL ${where}
      ORDER BY r.category NULLS LAST, r.name`,
     params
   );

@@ -131,7 +131,12 @@ export function RecipesList() {
   const [error, setError]           = useState('');
   const [filterCat, setFilterCat]   = useState('');
   const [filterLoc, setFilterLoc]   = useState('');
-  const [filterStatus, setFilterStatus] = useState('active');
+  // Shows every status, drafts included. Defaulting to 'active' hid the 15
+  // imported drink recipes entirely -- they are drafts precisely because they
+  // still need their builds, so the one view where someone would come to fill
+  // them in was the one view that did not list them. The status badge already
+  // marks a draft as a draft, so nothing here pretends they are finished.
+  const [filterStatus, setFilterStatus] = useState('');
   const [showNew, setShowNew]       = useState(false);
 
   const load = useCallback(async () => {
