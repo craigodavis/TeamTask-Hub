@@ -204,11 +204,28 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
 
     // Food and drink rows for this menu, in printed order. The templates
     // splice them per section; a menu with no rows simply prints none.
+    // Price comes from Square where the row is linked, because the till is what
+    // charges the guest. The stored price_cents is the fallback for an unlinked
+    // row, or for one whose SKU finds nothing -- a menu that cannot reach Square
+    // should print the last known figure, not a blank.
+    //
+    // This route USED to print price_cents outright while the editor screen
+    // showed Square's price beside it. The two could differ without anyone
+    // seeing it, which is precisely the "print a price nobody is charged"
+    // failure the Square link exists to prevent.
     const food = (await query(
-      `SELECT section, name, price_cents, description, note, serves, sort_order
-         FROM menu_items
-        WHERE company_id = $1 AND menu_key = $2 AND active = true
-        ORDER BY sort_order`,
+      `SELECT mi.section, mi.name, mi.description, mi.note, mi.serves, mi.sort_order,
+              COALESCE(sq.cents, mi.price_cents) AS price_cents,
+              (sq.cents IS NOT NULL AND sq.cents <> mi.price_cents) AS price_from_square_differs
+         FROM menu_items mi
+         LEFT JOIN LATERAL (
+           SELECT MIN(civ.price_money_amount)::int AS cents
+             FROM team_square.catalog_item_variation civ
+             JOIN team_square.catalog_item ci ON ci.id = civ.item_id
+            WHERE civ.sku = mi.sku AND civ.is_deleted = false AND ci.is_deleted = false
+         ) sq ON mi.sku IS NOT NULL
+        WHERE mi.company_id = $1 AND mi.menu_key = $2 AND mi.active = true
+        ORDER BY mi.sort_order`,
       [cid(req), key]
     )).rows;
     // The tighter or looser gap under a section header belongs to the SLOT, not
