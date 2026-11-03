@@ -89,6 +89,14 @@
   .roomy .specials div { line-height: 1.95; font-size: 12pt; }
   .roomyplus .item { margin-top: 36pt; }
   .roomyplus .sub-head { margin-top: 34pt; }
+  /* Cocktails outgrew its page: seven drinks with descriptions ran 59pt into
+     the footnote and printed on top of it. Tightened here rather than on
+     .roomy, which Brunch Plates and Happy Hour share and which both fit.
+     26pt -> 16pt clears the footnote by 36pt, about one more drink of
+     headroom; 20pt cleared by only 8pt, which this page would outgrow
+     again on the next addition. */
+  .roomy.packed .item { margin-top: 16pt; }
+  .roomy.packed .item .desc { line-height: 1.38; margin-top: 3pt; }
   .orn { position: absolute; bottom: 0.55in; left: 0; right: 0; text-align: center; }
   .orn img { width: 0.75in; }
 </style>
@@ -280,7 +288,7 @@
 
     <div class="footnote"><b>Nut &amp; Gluten Advisory:</b> our kitchen prepares dishes that contain nuts and gluten. If you have a nut allergy or are gluten-sensitive, please inform your host.</div>
   </div>
-  <div class="panel roomy">
+  <div class="panel roomy packed">
     <div class="sec-head">Cocktails<div class="rule"></div></div>
 
     <!-- FOOD:Cocktails:START -->
