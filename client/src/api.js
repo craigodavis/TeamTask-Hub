@@ -3296,3 +3296,21 @@ export async function rejectTalentSubmission(id, notes) {
 }
 export async function getTalentTerms(musicianId) { return pj(await fetch(`${API}/talent/${musicianId}/terms`, { headers: headers() })); }
 export async function getTermsCoverage() { return pj(await fetch(`${API}/talent/terms-coverage`, { headers: headers() })); }
+
+/* ---- home page popup (Marketing → Website → Home Popup) ---- */
+
+export async function getHomePopup() {
+  const res = await fetch(`${API}/marketing/popup`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to load the popup');
+  return (await res.json()).popup;
+}
+
+export async function saveHomePopup(popup) {
+  const res = await fetch(`${API}/marketing/popup`, {
+    method: 'PUT', headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ popup }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || 'Failed to save the popup');
+  return d.popup;
+}

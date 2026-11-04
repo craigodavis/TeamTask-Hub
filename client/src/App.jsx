@@ -61,6 +61,7 @@ import { MediaHub } from './pages/MediaHub';
 import { HoursEditor } from './pages/HoursEditor';
 import { WebsiteSettings } from './pages/WebsiteSettings';
 import { Testimonials } from './pages/Testimonials';
+import { HomePopup } from './pages/HomePopup';
 
 function LegacyWasteEntryRedirect() {
   const { entryId } = useParams();
@@ -319,6 +320,16 @@ function App() {
             element={
               can(user, 'marketing.website') ? (
                 <WebsiteSettings />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/marketing/website/popup"
+            element={
+              can(user, 'marketing.website') ? (
+                <HomePopup />
               ) : (
                 <Navigate to="/" replace />
               )

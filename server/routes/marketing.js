@@ -209,3 +209,113 @@ marketingRouter.delete('/testimonials/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+/* ------------------------------------------------------------- home popup */
+/*
+ * The promotional popup on the website's home page. One jsonb row rather than a
+ * dozen whitelisted keys: it is one thing staff edit as a unit, and a shape
+ * that grows (a second CTA, a date window) without a migration each time.
+ *
+ * Mounted under /api/marketing, which carries websiteContentWatch, so saving it
+ * asks the site to rebuild the same way editing hours does.
+ */
+
+const POPUP_KEY = 'home_popup';
+
+const POPUP_DEFAULT = {
+  enabled: false,
+  eyebrow: '',
+  heading: '',
+  body: '',
+  image_url: '',
+  cta_label: 'Find out more',
+  // 'page' — any url, ours or someone else's. 'reservation' — the booking
+  // picker, optionally with the venue, date, time and party already chosen.
+  target_type: 'page',
+  target_url: '',
+  venue: 'estate',
+  date: '',
+  time: '',
+  party: 2,
+  // Seconds before it appears. Immediately is obnoxious; this is long enough to
+  // see the page first and short enough to still be on it.
+  delay_seconds: 6,
+  // Days before someone who dismissed it sees it again. 0 = every visit.
+  reshow_days: 7,
+  // Last day it should appear, inclusive. A holiday-party popup that is still
+  // up in January is worse than no popup — it says nobody is minding the site.
+  // Blank means it runs until someone switches it off.
+  ends_on: '',
+};
+
+const str = (v, max) => String(v ?? '').trim().slice(0, max);
+const num = (v, lo, hi, dflt) => {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : dflt;
+};
+
+function cleanPopup(b) {
+  const t = b?.target_type === 'reservation' ? 'reservation' : 'page';
+  return {
+    enabled: b?.enabled === true || b?.enabled === 'true',
+    eyebrow: str(b?.eyebrow, 60),
+    heading: str(b?.heading, 120),
+    body: str(b?.body, 400),
+    image_url: str(b?.image_url, 1000),
+    cta_label: str(b?.cta_label, 40) || 'Find out more',
+    target_type: t,
+    // Only http(s) or a site-relative path — never javascript: or data:.
+    target_url: (() => {
+      const u = str(b?.target_url, 1000);
+      return !u || /^https?:\/\//i.test(u) || u.startsWith('/') ? u : '';
+    })(),
+    venue: b?.venue === 'creek' ? 'creek' : 'estate',
+    date: /^\d{4}-\d{2}-\d{2}$/.test(str(b?.date, 10)) ? str(b?.date, 10) : '',
+    time: /^\d{2}:\d{2}$/.test(str(b?.time, 5)) ? str(b?.time, 5) : '',
+    party: num(b?.party, 1, 40, 2),
+    delay_seconds: num(b?.delay_seconds, 0, 120, 6),
+    reshow_days: num(b?.reshow_days, 0, 365, 7),
+    ends_on: /^\d{4}-\d{2}-\d{2}$/.test(str(b?.ends_on, 10)) ? str(b?.ends_on, 10) : '',
+  };
+}
+
+/**
+ * Has it run its course? Compared in the vineyard's own timezone, so a popup
+ * set to end "today" is up all of today and gone tomorrow morning, rather than
+ * vanishing at 5pm when UTC rolls over.
+ */
+export function popupExpired(p, now = new Date()) {
+  if (!p?.ends_on) return false;
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now);
+  return p.ends_on < today;
+}
+
+export async function readPopup() {
+  try {
+    const r = await query(`SELECT value FROM kindred_web.settings WHERE key = $1`, [POPUP_KEY]);
+    const v = r.rows[0]?.value;
+    return v && typeof v === 'object' && !Array.isArray(v)
+      ? { ...POPUP_DEFAULT, ...v }
+      : { ...POPUP_DEFAULT };
+  } catch { return { ...POPUP_DEFAULT }; }
+}
+
+// GET /api/marketing/popup
+marketingRouter.get('/popup', async (_req, res) => {
+  try { res.json({ popup: await readPopup() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/marketing/popup
+marketingRouter.put('/popup', async (req, res) => {
+  try {
+    const popup = cleanPopup(req.body?.popup ?? req.body);
+    await query(
+      `INSERT INTO kindred_web.settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [POPUP_KEY, JSON.stringify(popup)]);
+    res.json({ popup });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
