@@ -140,6 +140,132 @@ function sortTimes(arr) {
     .map((t) => (t.length === 4 ? `0${t}` : t));
 }
 
+/* ------------------------------------------------- ResOS "experiences" ----
+ *
+ * An experience is a ticketed sitting with its own prepayment, and
+ * /bookingFlow/times does not return one — with or without onlyBookableOnline,
+ * and there is no /experiences endpoint. That is not a gap we can shrug at:
+ * every ticketed evening we run is an experience, and the reservation page was
+ * showing those nights as if nothing were on, with the last slot at whatever
+ * time the tasting room shuts.
+ *
+ * ResOS's own booking page obviously knows about them, and it is served by a
+ * second, unauthenticated API on the restaurant's booking host rather than
+ * api.resos.com:
+ *
+ *   /api/booking/getBookableAreas?restaurantId&date&people&experienceId
+ *   /api/booking/getAvailableTimesAtDate?restaurantId&people&date&areaId&openingHourId
+ *
+ * The second takes the EXPERIENCE id as openingHourId and answers with the
+ * block, its availableTimes and its payment terms. That is what the widget
+ * itself asks, so the answer is the same one a guest gets.
+ *
+ * It is undocumented, so everything here fails soft: any error and the date
+ * simply comes back without its experiences, exactly as before.
+ */
+
+/**
+ * The restaurant's own booking-host slug, e.g. "kindred-vineyards-winery".
+ *
+ * Not exposed by any endpoint directly, but every booking carries the
+ * restaurant it belongs to — so one booking answers it, and the answer is
+ * cached for the life of the process because it never changes.
+ */
+const _slugCache = new Map();
+export async function restaurantSlug(base, apiKey) {
+  if (_slugCache.has(apiKey)) return _slugCache.get(apiKey);
+  let slug = null;
+  try {
+    const r = await resosFetch(base, apiKey, '/bookings?skip=0&limit=1');
+    const list = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+    slug = list[0]?.restaurant?.slug || null;
+  } catch { /* leave null — experiences just stay hidden */ }
+  _slugCache.set(apiKey, slug);
+  return slug;
+}
+
+/** The restaurant's booking host, e.g. https://kindred.resos.com. */
+const widgetHost = (slug) => `https://${String(slug).replace(/[^a-z0-9-]/gi, '')}.resos.com`;
+
+async function widgetJson(host, path) {
+  const r = await fetch(host + path, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(`ResOS widget ${path.split('?')[0]} → ${r.status}`);
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+
+/** The local calendar day a stored instant falls on, in the vineyard's zone. */
+function localDay(iso, tz = 'America/Denver') {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/**
+ * Experience sittings bookable on a date, as sections shaped like the ordinary
+ * ones so the website can render them side by side.
+ *
+ * `bookUrl` is the difference: an experience takes a prepayment, which our own
+ * booking form cannot collect, so these slots send the guest to ResOS to pay
+ * rather than into our form.
+ */
+export async function experienceTimes(base, apiKey, { people, date, slug }) {
+  if (!slug) return [];
+  const host = widgetHost(slug);
+  const defs = await openingHoursDefs(base, apiKey);
+
+  // Candidates: active blocks carrying an experience, on this calendar day.
+  const seen = new Set();
+  const candidates = [];
+  for (const o of defs.values()) {
+    const expId = o?.experience?.id;
+    if (!expId || o.active === false || o.experience.active === false) continue;
+    if (!o.date || localDay(o.date) !== date) continue;
+    if (seen.has(expId)) continue;          // tiers share one experience listing
+    seen.add(expId);
+    candidates.push({ expId, restaurantId: o.restaurantId });
+  }
+  if (!candidates.length) return [];
+
+  const out = [];
+  for (const c of candidates) {
+    try {
+      const areas = await widgetJson(host,
+        `/api/booking/getBookableAreas?restaurantId=${encodeURIComponent(c.restaurantId)}` +
+        `&date=${encodeURIComponent(date)}&people=${encodeURIComponent(people)}` +
+        `&experienceId=${encodeURIComponent(c.expId)}`);
+      for (const area of (Array.isArray(areas) ? areas : [])) {
+        const blocks = await widgetJson(host,
+          `/api/booking/getAvailableTimesAtDate?restaurantId=${encodeURIComponent(c.restaurantId)}` +
+          `&people=${encodeURIComponent(people)}&date=${encodeURIComponent(date)}` +
+          `&areaId=${encodeURIComponent(area._id)}&openingHourId=${encodeURIComponent(c.expId)}`);
+        for (const b of (Array.isArray(blocks) ? blocks : [])) {
+          const slots = sortTimes(b.availableTimes);
+          if (!slots.length) continue;
+          const def = defs.get(b._id) || {};
+          const pay = b.payment?.active ? b.payment : null;
+          out.push({
+            title: String(b.name || '').trim(),
+            special: true,
+            experience: true,
+            hours: hoursRange(def),
+            note: String(b.note || def.note || '').trim(),
+            slots,
+            // Per guest, so the page can say what a table of four actually costs.
+            price: pay ? { amount: pay.amount, per: pay.amountPer || 'guest' } : null,
+            bookUrl: `${host}/booking/people/${encodeURIComponent(people)}/date/${encodeURIComponent(date)}?experience=${encodeURIComponent(c.expId)}`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`[resos] experience ${c.expId} on ${date}: ${e.message}`);
+    }
+  }
+  return out;
+}
+
 export async function availableTimes(base, apiKey, { people, date }) {
   const q = `/bookingFlow/times?people=${encodeURIComponent(people)}` +
     `&date=${encodeURIComponent(date)}&onlyBookableOnline=true`;

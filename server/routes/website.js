@@ -8,7 +8,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { availableTimes, createBooking, customFields } from '../lib/resosClient.js';
+import { availableTimes, createBooking, customFields, experienceTimes, restaurantSlug } from '../lib/resosClient.js';
 import {
   KEYS as EVENT_KEYS, newToken, money, BOOKING_WINDOW, latestStart, resolveWindow,
   alertRecipients, newRequestSms,
@@ -1120,6 +1120,20 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     const base = cfg.api_base || 'https://api.resos.com';
     const { times, closed, specials, sections } = await availableTimes(base, cfg.api_key, { people: party, date });
 
+    // Experiences — ticketed sittings ResOS keeps out of the booking-flow API.
+    // Without these the page shows a night with an event on as if nothing were
+    // happening, closing at whatever time the tasting room shuts. They are
+    // appended as their own sections and deliberately NOT merged into `times`:
+    // `times` is what OUR booking form can take, and an experience needs a
+    // prepayment we cannot collect, so its slots link out to ResOS instead.
+    let experiences = [];
+    try {
+      const slug = await restaurantSlug(base, cfg.api_key);
+      experiences = await experienceTimes(base, cfg.api_key, { people: party, date, slug });
+    } catch (e) {
+      console.warn('[availability] experiences unavailable:', e.message);
+    }
+
     // ResOS returns nothing for two very different reasons: the venue is shut
     // that day, or it is open and has no table big enough. Both used to surface
     // as "closed", so a party of ten was told the Creek was shut when it was open
@@ -1137,7 +1151,15 @@ websiteRouter.get('/reservations/availability', async (req, res) => {
     }
 
     res.set('Cache-Control', 'public, max-age=30');
-    res.json({ venue, date, party, bookingEnabled: true, closed, reason, slots: times, specials: specials || [], sections: sections || [] });
+    res.json({
+      venue, date, party, bookingEnabled: true,
+      // A night with only an experience on is not a closed night.
+      closed: closed && experiences.length === 0,
+      reason: experiences.length ? null : reason,
+      slots: times,
+      specials: specials || [],
+      sections: [...(sections || []), ...experiences],
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
