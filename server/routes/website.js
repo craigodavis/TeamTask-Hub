@@ -26,6 +26,7 @@ import { sendMail } from '../mail.js';
 import { companyForRequest, tenantForCompany } from '../lib/appOrigin.js';
 import { notifyWebsiteContentChanged } from '../lib/websiteDeploy.js';
 import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
+import { readPopup } from './marketing.js';
 import { subscribeEverywhere } from '../lib/newsletterSubscribe.js';
 
 export const websiteRouter = express.Router();
@@ -783,6 +784,16 @@ websiteRouter.get('/settings', async (_req, res) => {
     const club_testimonials_seconds = Number(await getSetting('club_testimonials_seconds', 7)) || 7;
     res.json({ events_list_count, club_testimonials_enabled, club_testimonials_seconds });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/popup — the home page's promotion, for the site to render.
+// Public, and everything in it is public by nature: it is the words and the
+// link shown to every visitor. Expiry is NOT applied here — the site checks
+// that itself, at build and again in the browser, because a static page can
+// outlive the date it was built with.
+websiteRouter.get('/popup', async (_req, res) => {
+  try { res.json({ popup: await readPopup() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/website/testimonials — the live ones, in the order staff set.
