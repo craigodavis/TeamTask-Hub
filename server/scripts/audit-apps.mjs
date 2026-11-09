@@ -1,0 +1,111 @@
+/**
+ * Read-only audit: does every route the router serves belong to exactly one app?
+ *
+ * The app shell no longer carries a hand-written sidebar. It renders from
+ * lib/apps.js, and which app you are in is derived from the URL rather than
+ * held as state. That removed six `isKitchenPath`-style predicates -- and it
+ * means a screen added to App.jsx without an entry in lib/apps.js would quietly
+ * land the user in a shell with the wrong menu, or none.
+ *
+ * This is the check for that. It lists every path App.jsx routes to and asserts
+ * the app and the highlighted row. It imports the real module the shell imports;
+ * a reimplementation here would only prove the copy agrees with itself.
+ *
+ * Also checks the derivation: who sees which apps, that an app with no held
+ * items never appears, and that every app's landing target is real.
+ *
+ * No database, no HTTP, nothing to clean up. Safe to run anywhere.
+ *   node scripts/audit-apps.mjs
+ *
+ * When a route is added to App.jsx, add it to ROUTES below. A failure here is
+ * the cheapest place to find out you forgot lib/apps.js.
+ */
+import { APPS, matchPath, visibleApps, landingFor } from '../../client/src/lib/apps.js';
+
+const can = (u, c) => (u.capabilities || []).includes(c);
+const isOwner = (u) => u.role === 'owner';
+let pass = 0, fail = 0;
+const ok = (c, m, extra='') => { c ? pass++ : fail++; console.log(`${c ? 'ok  ' : 'FAIL'} ${m}${extra ? ' — ' + extra : ''}`); };
+
+// Every path App.jsx routes to, with the app it should land in.
+const ROUTES = [
+  ['/', 'team'], ['/tasks', 'team'], ['/dashboard', 'team'],
+  ['/manage?tab=tasks', 'team'], ['/manage?tab=announcements', 'team'],
+  ['/scheduling', 'team'], ['/policies', 'team'], ['/crew', 'team'],
+  ['/tasting-room/reservations', 'floor'], ['/tasting-room/reservations/floor', 'floor'],
+  ['/tasting-room/reservations/layouts', 'floor'], ['/tasting-room/reservations/tables', 'floor'],
+  ['/tasting-room/reservations/offers', 'floor'], ['/tasting-room/reservations/hours', 'floor'],
+  ['/tasting-room/reservations/settings', 'floor'], ['/tasting-room/menus', 'floor'],
+  ['/marketing/private-events', 'floor'], ['/marketing/event-requests', 'floor'],
+  ['/food', 'kitchen'], ['/food/lists', 'kitchen'], ['/food/waste', 'kitchen'],
+  ['/food/waste/abc-123', 'kitchen'], ['/food/ingredients', 'kitchen'], ['/waste', 'kitchen'],
+  ['/kitchen/inventory', 'kitchen'], ['/kitchen/sources', 'kitchen'],
+  ['/recipes/list', 'kitchen'], ['/recipes/ingredients', 'kitchen'], ['/recipes/catalog', 'kitchen'],
+  ['/recipes/scan', 'kitchen'], ['/recipes/abc-123', 'kitchen'], ['/quickbooks', 'kitchen'],
+  ['/ground-control', 'cellar'], ['/product-lines', 'cellar'], ['/product-lines/new', 'cellar'],
+  ['/product-lines/abc-123', 'cellar'], ['/products', 'cellar'], ['/products/new', 'cellar'],
+  ['/products/abc-123', 'cellar'], ['/products/inventory', 'cellar'],
+  ['/products/inventory/report', 'cellar'], ['/abc', 'cellar'],
+  ['/events', 'marketing'], ['/marketing/campaigns', 'marketing'],
+  ['/marketing/loyalty', 'marketing'], ['/kindred-app', 'marketing'],
+  ['/marketing/images', 'website'], ['/marketing/media', 'website'],
+  ['/marketing/website/testimonials', 'website'], ['/marketing/website/popup', 'website'],
+  ['/marketing/hours', 'website'], ['/marketing/website/settings', 'website'],
+  ['/marketing/settings', 'website'],
+  ['/settings', 'admin'], ['/sync-users', 'admin'], ['/manage?tab=reports', 'admin'],
+  ['/manage?tab=integrations', 'admin'], ['/square', 'admin'], ['/square/reconcile', 'admin'],
+  ['/betty', 'admin'], ['/gateway', 'admin'], ['/skynet', 'admin'],
+];
+
+console.log('Every routed path lands in exactly one app\n');
+for (const [url, want] of ROUTES) {
+  const [p, s] = url.split('?');
+  const m = matchPath(p, s ? '?' + s : '');
+  ok(m?.app.id === want, url.padEnd(38), m ? `${m.app.id} → ${m.item.label}` : 'NO MATCH');
+}
+
+console.log('\nThe right ROW highlights, not just the right app');
+const row = (url, want) => {
+  const [p, s] = url.split('?');
+  const m = matchPath(p, s ? '?' + s : '');
+  ok(m?.item.label === want, `${url.padEnd(34)} highlights ${want}`, m?.item.label || 'none');
+};
+row('/products', 'Products');
+row('/products/inventory', 'Wine Inventory');
+row('/products/inventory/report', 'Wine Reports');
+row('/products/abc-123', 'Products');
+row('/marketing/media', 'Media Library');
+row('/marketing/website/settings', 'Website Settings');
+row('/tasting-room/reservations', 'Bookings');
+row('/tasting-room/reservations/offers', 'Offers');
+row('/manage?tab=reports', 'Reports');
+row('/manage?tab=tasks', 'Manage Tasks');
+row('/square', 'Kindred AI');
+row('/square/reconcile', 'Kindred AI');
+
+console.log('\nWho sees which apps');
+const MEMBER = ['tasks.own','policies.read','crew.profile','kitchen.shopping'];
+const people = [
+  ['member (15 of 22)', { role:'member', capabilities: MEMBER }, ['team','kitchen']],
+  ['inventory (Tristan)', { role:'inventory', capabilities:[...MEMBER,'wine.inventory','wine.reports','kitchen.inventory'] }, ['team','kitchen','cellar']],
+  ['no grants at all', { role:'member', capabilities: [] }, []],
+];
+for (const [who, u, want] of people) {
+  const got = visibleApps(u, can, isOwner).map((v) => v.app.id);
+  ok(JSON.stringify(got) === JSON.stringify(want), `${who.padEnd(22)} sees [${want.join(', ')}]`, `[${got.join(', ')}]`);
+}
+
+console.log('\nAn app with no items held never appears');
+const marketingOnly = { role:'marketing', capabilities:['marketing.events'] };
+const got = visibleApps(marketingOnly, can, isOwner).map((v) => v.app.id);
+ok(!got.includes('kitchen') && !got.includes('admin'), 'one marketing grant does not conjure Kitchen or Admin', `[${got.join(', ')}]`);
+ok(got.includes('marketing'), 'but it does conjure Marketing');
+
+console.log('\nLanding targets are real and held');
+for (const { app } of visibleApps({ role:'owner', capabilities: APPS.flatMap(a=>a.nav).map(()=>'') }, () => true, () => true)) {
+  const to = landingFor(app, {role:'owner'}, () => true, () => true);
+  ok(!!to && to !== '/', `${app.name.padEnd(10)} lands on ${to}`);
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

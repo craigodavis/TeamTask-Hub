@@ -1,0 +1,229 @@
+/*
+ * The app switcher: a popover under the hamburger on a desktop, a bottom sheet
+ * on a phone.
+ *
+ * The button stays top-left in both, because that is where a hamburger belongs
+ * and because muscle memory is worth more than symmetry. What it OPENS differs:
+ * the top-left corner is the hardest place on a phone for a thumb to reach, so
+ * on a phone the panel comes up from the bottom, where the hand already is.
+ *
+ * Accents are supplied as a light/dark PAIR and the theme picks, mirroring how
+ * vintly.css handles everything else. Resolving the theme in JavaScript would
+ * mean a flash on load and a listener to keep in step; a custom property costs
+ * neither.
+ */
+
+.app-switcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.app-switcher-btn,
+.app-switcher-static {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 44px;
+  padding: 0 0.7rem 0 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* No border or hit area when there is nothing to press. */
+.app-switcher-static {
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+  padding-left: 0.1rem;
+}
+
+.app-switcher-btn:hover:not(:disabled) {
+  border-color: var(--border-strong, var(--border));
+  background: var(--card);
+}
+
+.app-switcher-btn:focus-visible,
+.app-switcher-card:focus-visible {
+  outline: 2px solid var(--app-accent, var(--primary));
+  outline-offset: 2px;
+}
+
+.app-switcher-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--app-accent, var(--primary));
+  flex-shrink: 0;
+}
+
+.app-switcher-name {
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.app-switcher-chev {
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+/* The scrim only exists on a phone, where the sheet needs the page behind it
+   pushed back. On a desktop the popover is small and anchored, and dimming the
+   whole window for it would be theatre. */
+.app-switcher-scrim {
+  display: none;
+}
+
+.app-switcher-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: 620px;
+  max-width: calc(100vw - 2rem);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 14px 36px rgba(0, 0, 0, 0.18);
+  padding: 0.6rem;
+}
+
+.app-switcher-grip {
+  display: none;
+}
+
+.app-switcher-heading,
+.app-switcher-foot {
+  margin: 0.35rem 0.6rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.app-switcher-foot {
+  margin: 0.75rem 0.6rem 0.25rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.app-switcher-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.app-switcher-card {
+  --app-accent: var(--app-accent-light);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 64px;
+  padding: 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-switcher-card:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.app-switcher-card.is-current {
+  border-color: var(--app-accent);
+  background: var(--bg);
+}
+
+.app-switcher-card-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  background: var(--app-accent);
+  color: var(--app-on-accent, #fff);
+}
+
+.app-switcher-card-text {
+  min-width: 0;
+}
+
+.app-switcher-card-name {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.app-switcher-card-blurb {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+/* ── Phone: the panel becomes a sheet ─────────────────────────────────────── */
+@media (max-width: 640px) {
+  .app-switcher-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(0, 0, 0, 0.38);
+  }
+
+  .app-switcher-panel {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    border: none;
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.26);
+    /* Clear of the home indicator. */
+    padding: 0.4rem 0.6rem calc(1.4rem + env(safe-area-inset-bottom, 0px));
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .app-switcher-grip {
+    display: block;
+    width: 38px;
+    height: 4px;
+    margin: 0.3rem auto 0.6rem;
+    border-radius: 2px;
+    background: var(--border-strong, var(--border));
+  }
+
+  .app-switcher-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-switcher-card {
+    align-items: center;
+    min-height: 60px;
+  }
+}

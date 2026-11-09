@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { NavLink, Link, useLocation } from 'react-router-dom';
-import { can, canAny, isOwner } from '../utils/can';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { can, isOwner } from '../utils/can';
 import { ViewAsBanner } from './ViewAs';
 import { UserMenu } from './UserMenu';
-import { appHubTitle } from '../appHubTitle';
+import { AppSwitcher } from './AppSwitcher';
+import { visibleApps, matchPath } from '../lib/apps';
 import './AppShell.css';
 
 const STORAGE_KEY = 'teamtask_sidebar_collapsed';
@@ -25,7 +26,7 @@ function ThemeToggle() {
   return (
     <button type="button" onClick={toggle} title={dark ? 'Switch to light' : 'Switch to dark'}
       aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 18, lineHeight: 1, padding: 6, borderRadius: 8, display: 'grid', placeItems: 'center' }}>
+      className="app-shell-icon-btn">
       {dark
         ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4.2" /><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" strokeLinecap="round" /></svg>
         : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" strokeLinejoin="round" /></svg>}
@@ -33,108 +34,60 @@ function ThemeToggle() {
   );
 }
 
-function isManageTabActive(location, tab) {
-  if (location.pathname !== '/manage') return false;
-  const t = new URLSearchParams(location.search).get('tab');
-  if (tab === 'announcements') return !t || t === 'announcements';
-  return t === tab;
-}
-
-// Any route that lives under the Kitchen parent menu.
-function isKitchenPath(pathname) {
-  return pathname.startsWith('/food')
-    || pathname.startsWith('/recipes')
-    || pathname.startsWith('/kitchen')
-    || pathname.startsWith('/quickbooks');
-}
-
-// Any route that lives under the Wine parent menu.
-function isTastingRoomPath(pathname) {
-  return pathname.startsWith('/tasting-room');
-}
-
-// The Reservations group inside Tasting Room: the booking system's own screens.
-function isReservationsPath(pathname) {
-  return pathname.startsWith('/tasting-room/reservations');
-}
-
-function isWinePath(pathname) {
-  return pathname.startsWith('/products') || pathname.startsWith('/product-lines');
-}
-
-// Any route that lives under the Marketing parent menu. Events keeps its
-// top-level /events path but is presented under Marketing, so it counts here.
-function isMarketingPath(pathname) {
-  return pathname.startsWith('/marketing') || pathname.startsWith('/events');
-}
-
-// The Website group inside Marketing: the public site's own content and settings.
-function isWebsitePath(pathname) {
-  return pathname.startsWith('/marketing/website') || pathname.startsWith('/marketing/settings');
-}
-
-export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole, availableRoles }) {
+/**
+ * The shell: a header with the app switcher, this app's nav, and the screen.
+ *
+ * What used to be here was ~600 lines of hand-written nested JSX plus six
+ * `isKitchenPath`-style predicates, every one of which had to be remembered
+ * separately whenever a screen was added. The nav now renders from
+ * `lib/apps.js`, so a new screen is one entry in one list and the highlighting,
+ * the grouping and the switcher all follow from it.
+ *
+ * Nothing here decides what anyone may reach. Every route keeps its own guard
+ * in App.jsx and its own `requireCapability` on the server; this only chooses
+ * what to draw. See docs/APPS.md.
+ */
+export function AppShell({ user, onLogout, children }) {
   const location = useLocation();
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth <= 640;
 
-  const [dashboardExpanded, setDashboardExpanded] = useState(false);
-  const [kitchenExpanded, setKitchenExpanded] = useState(() => isKitchenPath(location.pathname));
-  const [wineExpanded, setWineExpanded] = useState(() => isWinePath(location.pathname));
-  const [tastingRoomExpanded, setTastingRoomExpanded] =
-    useState(() => isTastingRoomPath(location.pathname));
-  const [reservationsExpanded, setReservationsExpanded] =
-    useState(() => isReservationsPath(location.pathname));
-  const [marketingExpanded, setMarketingExpanded] = useState(() => isMarketingPath(location.pathname));
-  const [websiteExpanded, setWebsiteExpanded] = useState(() => isWebsitePath(location.pathname));
-
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
-    if (isMobile()) return true; // always start hidden on mobile
-    return localStorage.getItem(STORAGE_KEY) === 'true';
+    if (isMobile()) return false; // the phone nav is a bottom strip; nothing to collapse
+    try { return localStorage.getItem(STORAGE_KEY) === 'true'; } catch { return false; }
   });
 
   useEffect(() => {
     if (!isMobile()) {
-      localStorage.setItem(STORAGE_KEY, collapsed ? 'true' : 'false');
+      try { localStorage.setItem(STORAGE_KEY, collapsed ? 'true' : 'false'); } catch { /* ignore */ }
     }
   }, [collapsed]);
 
-  // Auto-close menu on mobile when navigating
-  useEffect(() => {
-    if (isMobile()) setCollapsed(true);
-  }, [location.pathname, location.search]);
+  const apps = visibleApps(user, can, isOwner);
+  const hit = matchPath(location.pathname, location.search);
 
-  // Everything the sidebar draws is decided by capabilities now, so it agrees
-  // with the API instead of guessing from a role. Container headers are derived
-  // from the children a person holds -- see docs/PERMISSIONS.md.
-  const appTitle = appHubTitle(user);
+  // The app in the switcher is the one that owns the URL. Where nothing claims
+  // it -- a route added without an entry in lib/apps.js -- fall back to the
+  // first app they hold rather than showing a blank header.
+  const current = hit?.app || apps[0]?.app || null;
+  const nav = current ? (apps.find((a) => a.app.id === current.id)?.nav || []) : [];
 
-  const managerLinks = can(user, 'reports.operational') || can(user, 'sms.send')
-    ? [
-        ...(can(user, 'reports.scheduled') || can(user, 'reports.operational')
-          ? [{ to: '/manage?tab=reports', label: 'Reports', icon: '📊', tab: 'reports' }] : []),
-        ...(can(user, 'sms.send')
-          ? [{ to: '/manage?tab=integrations', label: 'SMS Send', icon: '💬', tab: 'integrations' }] : []),
-      ]
-    : [];
+  const accent = current
+    ? { '--app-accent-light': current.color[0], '--app-accent-dark': current.color[1] }
+    : undefined;
+
+  const isCurrentItem = (item) => hit?.item === item;
 
   return (
-    <div className={`app-shell ${collapsed ? 'app-shell-collapsed' : ''}`}>
+    <div
+      className={`app-shell${collapsed ? ' app-shell-collapsed' : ''}`}
+      style={accent}
+      data-app={current?.id || 'none'}
+    >
       <ViewAsBanner user={user} />
+
       <header className="app-shell-header">
-        <div className="app-shell-header-left">
-          <button
-            type="button"
-            className="app-shell-sidebar-toggle"
-            onClick={() => setCollapsed((c) => !c)}
-            title={collapsed ? 'Expand menu' : 'Collapse menu'}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            ☰
-          </button>
-        </div>
-        <h1 className="app-shell-title">{appTitle}</h1>
+        <AppSwitcher apps={apps} current={current} user={user} can={can} isOwner={isOwner} />
         <div className="app-shell-header-right">
           <ThemeToggle />
           <UserMenu user={user} onLogout={onLogout} />
@@ -142,563 +95,62 @@ export function AppShell({ user, onLogout, children, emulateRole, setEmulateRole
       </header>
 
       <div className="app-shell-body">
-        <nav className="app-shell-sidebar" id="app-sidebar" aria-label="Main navigation">
-          {/* Managers land on the dashboard, so Tasks points at its own path —
-              "/" redirects them away and the link would never match. */}
-          {can(user, 'dashboard.view') && (
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="📈"
-              title="Dashboard"
-              onClick={() => { if (isMobile()) setCollapsed(true); }}
-            >
-              <span>Dashboard</span>
-            </NavLink>
-          )}
-          <div className="nav-item-row">
-            <NavLink
-              to={can(user, 'tasks.manage') ? '/tasks' : '/'}
-              end
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🏠"
-              title="Tasks"
-            >
-              <span>Tasks</span>
-            </NavLink>
-            {can(user, 'tasks.manage') && (
-              <button
-                type="button"
-                className="nav-sub-chevron"
-                onClick={() => setDashboardExpanded((v) => !v)}
-                aria-expanded={dashboardExpanded}
-                aria-label={dashboardExpanded ? 'Collapse Tasks menu' : 'Expand Tasks menu'}
-              >
-                {dashboardExpanded ? '−' : '+'}
-              </button>
-            )}
-          </div>
-          {can(user, 'tasks.manage') && dashboardExpanded && (
-            <div className="nav-sub-group">
-              <Link
-                to="/manage?tab=tasks"
-                className={`nav-sub-item${location.pathname === '/manage' && new URLSearchParams(location.search).get('tab') === 'tasks' ? ' active' : ''}`}
-                onClick={() => { if (isMobile()) setCollapsed(true); }}
-              >
-                <span className="nav-sub-icon">✓</span>
-                <span>Manage Tasks</span>
-              </Link>
+        {nav.length > 0 && (
+          <nav
+            className="app-nav"
+            id="app-sidebar"
+            aria-label={current ? `${current.name} sections` : 'Navigation'}
+          >
+            <div className="app-nav-items">
+              {nav.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={!!item.exact}
+                  className={`app-nav-item${isCurrentItem(item) ? ' active' : ''}`}
+                  aria-current={isCurrentItem(item) ? 'page' : undefined}
+                  title={item.label}
+                >
+                  <svg className="app-nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"
+                       strokeLinejoin="round" aria-hidden="true">
+                    <path d={item.icon} />
+                  </svg>
+                  <span className="app-nav-label">{item.label}</span>
+                </NavLink>
+              ))}
             </div>
-          )}
-          {can(user, 'announcements.manage') && (
-            <NavLink
-              to="/manage?tab=announcements"
-              className={() => `app-shell-nav-item${isManageTabActive(location, 'announcements') ? ' active' : ''}`}
-              data-icon="📢"
-              title="Announcements"
-              onClick={() => { if (isMobile()) setCollapsed(true); }}
-            >
-              <span>Announcements</span>
-            </NavLink>
-          )}
-          <NavLink
-            to="/policies"
-            className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-            data-icon="📋"
-            title="Policies"
-            onClick={() => { if (isMobile()) setCollapsed(true); }}
-          >
-            <span>Policies</span>
-          </NavLink>
-          {/* Everyone, deliberately: this is where staff maintain their own
-              profile for the website, so it is not wrapped in a role check. */}
-          <NavLink
-            to="/crew"
-            className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-            data-icon="🧑‍🌾"
-            title="The Crew"
-            onClick={() => { if (isMobile()) setCollapsed(true); }}
-          >
-            <span>The Crew</span>
-          </NavLink>
-          {can(user, 'scheduling.manage') && (
-            <NavLink
-              to="/scheduling"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="📅"
-              title="Scheduling"
-              onClick={() => { if (isMobile()) setCollapsed(true); }}
-            >
-              <span>Scheduling</span>
-            </NavLink>
-          )}
-          {can(user, 'ai.use') && (
-            <NavLink
-              to="/square"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="✨"
-              title="Kindred AI"
-            >
-              <span>Kindred AI</span>
-            </NavLink>
-          )}
-          {can(user, 'kindredapp.manage') && (
-            <NavLink
-              to="/kindred-app"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🍷"
-              title="Kindred App"
-            >
-              <span>Kindred App</span>
-            </NavLink>
-          )}
-          {can(user, 'skynet.view') && (
-            <NavLink
-              to="/skynet"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🤖"
-              title="Skynet"
-            >
-              <span>Skynet</span>
-            </NavLink>
-          )}
-          {/* Kitchen — collapsible parent grouping Receipts, Item Catalog,
-              Ingredients, Recipes and Shopping. Shopping is available to all
-              roles; the manager-only items are gated individually below. */}
-          {canAny(user, 'marketing.events', 'marketing.campaigns', 'marketing.media', 'marketing.hours', 'marketing.loyalty', 'marketing.website') && (
-            <>
-              <div className="nav-item-row">
-                <button
-                  type="button"
-                  className={`app-shell-nav-item${isMarketingPath(location.pathname) ? ' active' : ''}`}
-                  data-icon="📣"
-                  title="Marketing"
-                  onClick={() => setMarketingExpanded((v) => !v)}
-                  aria-expanded={marketingExpanded}
-                >
-                  <span>Marketing</span>
-                </button>
-                <button
-                  type="button"
-                  className="nav-sub-chevron"
-                  onClick={() => setMarketingExpanded((v) => !v)}
-                  aria-expanded={marketingExpanded}
-                  aria-label={marketingExpanded ? 'Collapse Marketing menu' : 'Expand Marketing menu'}
-                >
-                  {marketingExpanded ? '−' : '+'}
-                </button>
-              </div>
-              {marketingExpanded && (
-                <div className="nav-sub-group">
-                  {can(user, 'marketing.events') && (
-                    <Link
-                      to="/events"
-                      className={`nav-sub-item${location.pathname.startsWith('/events') ? ' active' : ''}`}
-                      onClick={() => { if (isMobile()) setCollapsed(true); }}
-                    >
-                      <span className="nav-sub-icon">🎪</span>
-                      <span>Events</span>
-                    </Link>
-                  )}
-                  {can(user, 'marketing.campaigns') && (
-                  <>
-                  <Link
-                    to="/marketing/campaigns"
-                    className={`nav-sub-item${location.pathname.startsWith('/marketing/campaigns') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">✉️</span>
-                    <span>Campaigns</span>
-                  </Link>
-                  <Link
-                    to="/marketing/private-events"
-                    className={`nav-sub-item${location.pathname.startsWith('/marketing/private-events') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">🥂</span>
-                    <span>Private Events</span>
-                  </Link>
 
-                  <Link
-                    to="/marketing/media"
-                    className={`nav-sub-item${location.pathname.startsWith('/marketing/media') || location.pathname.startsWith('/marketing/images') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">🖼️</span>
-                    <span>Media Library</span>
-                  </Link>
-                  <Link
-                    to="/marketing/hours"
-                    className={`nav-sub-item${location.pathname.startsWith('/marketing/hours') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">🕒</span>
-                    <span>Store Hours</span>
-                  </Link>
-                  <Link
-                    to="/marketing/loyalty"
-                    className={`nav-sub-item${location.pathname.startsWith('/marketing/loyalty') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">★</span>
-                    <span>Loyalty</span>
-                  </Link>
-                  <button
-                    type="button"
-                    className={`nav-sub-item nav-sub-parent${isWebsitePath(location.pathname) ? ' active' : ''}`}
-                    onClick={() => setWebsiteExpanded((v) => !v)}
-                    aria-expanded={websiteExpanded}
-                  >
-                    <span className="nav-sub-icon">🌐</span>
-                    <span>Website</span>
-                    <span className="nav-sub-parent-chev">{websiteExpanded ? '−' : '+'}</span>
-                  </button>
-                  {websiteExpanded && (
-                    <div className="nav-sub-group nav-sub-group-deep">
-                      <Link
-                        to="/marketing/website/testimonials"
-                        className={`nav-sub-item${location.pathname.startsWith('/marketing/website/testimonials') ? ' active' : ''}`}
-                        onClick={() => { if (isMobile()) setCollapsed(true); }}
-                      >
-                        <span className="nav-sub-icon">💬</span>
-                        <span>Testimonials</span>
-                      </Link>
-                      <Link
-                        to="/marketing/website/popup"
-                        className={`nav-sub-item${location.pathname.startsWith('/marketing/website/popup') ? ' active' : ''}`}
-                        onClick={() => { if (isMobile()) setCollapsed(true); }}
-                      >
-                        <span className="nav-sub-icon">📣</span>
-                        <span>Home Popup</span>
-                      </Link>
-                      <Link
-                        to="/marketing/website/settings"
-                        className={`nav-sub-item${location.pathname.startsWith('/marketing/website/settings') ? ' active' : ''}`}
-                        onClick={() => { if (isMobile()) setCollapsed(true); }}
-                      >
-                        <span className="nav-sub-icon">⚙️</span>
-                        <span>Settings</span>
-                      </Link>
-                    </div>
-                  )}
-                  </>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="nav-item-row">
+            {/* Desktop only. The phone nav is a bottom strip and has nothing to
+                collapse into. */}
             <button
               type="button"
-              className={`app-shell-nav-item${isKitchenPath(location.pathname) ? ' active' : ''}`}
-              data-icon="🍳"
-              title="Kitchen"
-              onClick={() => setKitchenExpanded((v) => !v)}
-              aria-expanded={kitchenExpanded}
+              className="app-nav-collapse"
+              onClick={() => setCollapsed((c) => !c)}
+              aria-expanded={!collapsed}
+              aria-controls="app-sidebar"
+              title={collapsed ? 'Expand menu' : 'Collapse menu'}
             >
-              <span>Kitchen</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d={collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'} />
+              </svg>
+              <span className="app-nav-label">Collapse</span>
             </button>
-            <button
-              type="button"
-              className="nav-sub-chevron"
-              onClick={() => setKitchenExpanded((v) => !v)}
-              aria-expanded={kitchenExpanded}
-              aria-label={kitchenExpanded ? 'Collapse Kitchen menu' : 'Expand Kitchen menu'}
-            >
-              {kitchenExpanded ? '−' : '+'}
-            </button>
-          </div>
-          {kitchenExpanded && (
-            <div className="nav-sub-group">
-              {can(user, 'kitchen.receipts.scan') && (
-                <Link
-                  to="/recipes/scan"
-                  className={`nav-sub-item${location.pathname.startsWith('/recipes/scan') ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">📸</span>
-                  <span>Scan Receipt</span>
-                </Link>
-              )}
-              {can(user, 'kitchen.receipts') && (
-                <Link
-                  to="/quickbooks"
-                  className={`nav-sub-item${location.pathname === '/quickbooks' ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">🧾</span>
-                  <span>Receipts</span>
-                </Link>
-              )}
-              {can(user, 'kitchen.receipt_sources') && (
-                <Link
-                  to="/kitchen/sources"
-                  className={`nav-sub-item${location.pathname === '/kitchen/sources' ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">📥</span>
-                  <span>Receipt Sources</span>
-                </Link>
-              )}
-              {can(user, 'kitchen.catalog') && (
-                <Link
-                  to="/recipes/catalog"
-                  className={`nav-sub-item${location.pathname === '/recipes/catalog' ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">📒</span>
-                  <span>Item Catalog</span>
-                </Link>
-              )}
-              {can(user, 'kitchen.ingredients') && (
-                <Link
-                  to="/recipes/ingredients"
-                  className={`nav-sub-item${location.pathname.startsWith('/recipes/ingredients') ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">🧀</span>
-                  <span>Ingredients</span>
-                </Link>
-              )}
-              {can(user, 'kitchen.inventory') && (
-                <Link
-                  to="/kitchen/inventory"
-                  className={`nav-sub-item${location.pathname.startsWith('/kitchen/inventory') ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">📦</span>
-                  <span>Inventory</span>
-                </Link>
-              )}
-              {can(user, 'kitchen.recipes') && (
-                <Link
-                  to="/recipes/list"
-                  className={`nav-sub-item${(location.pathname === '/recipes' || location.pathname === '/recipes/list' || (location.pathname.startsWith('/recipes/') && !location.pathname.startsWith('/recipes/catalog') && !location.pathname.startsWith('/recipes/ingredients') && !location.pathname.startsWith('/recipes/inventory'))) ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">🍕</span>
-                  <span>Recipes</span>
-                </Link>
-              )}
-              <Link
-                to="/food"
-                className={`nav-sub-item${location.pathname.startsWith('/food') ? ' active' : ''}`}
-                onClick={() => { if (isMobile()) setCollapsed(true); }}
-              >
-                <span className="nav-sub-icon">🛒</span>
-                <span>Shopping</span>
-              </Link>
-            </div>
-          )}
-          {canAny(user, 'tastingroom.menus', 'tastingroom.reservations') && (
-            <>
-              <div className="nav-item-row">
-                <button
-                  type="button"
-                  className={`app-shell-nav-item${isTastingRoomPath(location.pathname) ? ' active' : ''}`}
-                  data-icon="🍷"
-                  title="Tasting Room"
-                  onClick={() => setTastingRoomExpanded((v) => !v)}
-                  aria-expanded={tastingRoomExpanded}
-                >
-                  <span>Tasting Room</span>
-                </button>
-                <button
-                  type="button"
-                  className="nav-sub-chevron"
-                  onClick={() => setTastingRoomExpanded((v) => !v)}
-                  aria-expanded={tastingRoomExpanded}
-                  aria-label={tastingRoomExpanded ? 'Collapse Tasting Room menu' : 'Expand Tasting Room menu'}
-                >
-                  {tastingRoomExpanded ? '−' : '+'}
-                </button>
-              </div>
-              {tastingRoomExpanded && (
-                <div className="nav-sub-group">
-                  <Link
-                    to="/tasting-room/menus"
-                    className={`nav-sub-item${location.pathname.startsWith('/tasting-room/menus') ? ' active' : ''}`}
-                    onClick={() => { if (isMobile()) setCollapsed(true); }}
-                  >
-                    <span className="nav-sub-icon">📜</span>
-                    <span>Menus</span>
-                  </Link>
-                  {/* Not an owner: the plain link straight to the bookings
-                      list, exactly as before. The expandable group below only
-                      exists for an owner, so nobody running service has their
-                      muscle memory broken by a menu that stopped navigating. */}
-                  {!isOwner(user) && (
-                    <Link
-                      to="/tasting-room/reservations"
-                      className={`nav-sub-item${isReservationsPath(location.pathname) ? ' active' : ''}`}
-                      onClick={() => { if (isMobile()) setCollapsed(true); }}
-                    >
-                      <span className="nav-sub-icon">📅</span>
-                      <span>Reservations</span>
-                    </Link>
-                  )}
-                  {isOwner(user) && (
-                    <button
-                      type="button"
-                      className={`nav-sub-item nav-sub-parent${isReservationsPath(location.pathname) ? ' active' : ''}`}
-                      onClick={() => setReservationsExpanded((v) => !v)}
-                      aria-expanded={reservationsExpanded}
-                    >
-                      <span className="nav-sub-icon">📅</span>
-                      {/* Named a mockup because that is what it is: these screens
-                          are not wired to anything. The manager's link above keeps
-                          the plain name, because that one goes to the real,
-                          working bookings list. */}
-                      <span>Reservations Mockup</span>
-                      <span className="nav-sub-parent-chev">{reservationsExpanded ? '−' : '+'}</span>
-                    </button>
-                  )}
-                  {isOwner(user) && reservationsExpanded && (
-                    <div className="nav-sub-group nav-sub-group-deep">
-                      {[
-                        { to: '/tasting-room/reservations', label: 'Bookings', icon: '📋', exact: true },
-                        { to: '/tasting-room/reservations/floor', label: 'Floor', icon: '🪑' },
-                        { to: '/tasting-room/reservations/layouts', label: 'Layouts', icon: '🧩' },
-                        { to: '/tasting-room/reservations/tables', label: 'Areas & Tables', icon: '📐' },
-                        { to: '/tasting-room/reservations/offers', label: 'Offers', icon: '🎟️' },
-                        { to: '/tasting-room/reservations/hours', label: 'Hours & Limits', icon: '⏱️' },
-                        { to: '/tasting-room/reservations/settings', label: 'Settings', icon: '⚙️' },
-                      ].map((item) => {
-                        const active = item.exact
-                          ? location.pathname === item.to
-                          : location.pathname.startsWith(item.to);
-                        return (
-                          <Link
-                            key={item.to}
-                            to={item.to}
-                            className={`nav-sub-item${active ? ' active' : ''}`}
-                            onClick={() => { if (isMobile()) setCollapsed(true); }}
-                          >
-                            <span className="nav-sub-icon">{item.icon}</span>
-                            <span>{item.label}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-          {canAny(user, 'wine.lines', 'wine.products', 'wine.inventory', 'wine.reports') && (
-            <div className="nav-item-row">
-              <button
-                type="button"
-                className={`app-shell-nav-item${isWinePath(location.pathname) ? ' active' : ''}`}
-                data-icon="🍷"
-                title="Wine"
-                onClick={() => setWineExpanded((v) => !v)}
-                aria-expanded={wineExpanded}
-              >
-                <span>Wine</span>
-              </button>
-              <button
-                type="button"
-                className="nav-sub-chevron"
-                onClick={() => setWineExpanded((v) => !v)}
-                aria-expanded={wineExpanded}
-                aria-label={wineExpanded ? 'Collapse Wine menu' : 'Expand Wine menu'}
-              >
-                {wineExpanded ? '−' : '+'}
-              </button>
-            </div>
-          )}
-          {canAny(user, 'wine.lines', 'wine.products', 'wine.inventory', 'wine.reports') && wineExpanded && (
-            <div className="nav-sub-group">
-              {can(user, 'wine.lines') && (
-                <Link
-                  to="/product-lines"
-                  className={`nav-sub-item${location.pathname.startsWith('/product-lines') ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">🍾</span>
-                  <span>Product Lines</span>
-                </Link>
-              )}
-              {can(user, 'wine.products') && (
-                <Link
-                  to="/products"
-                  className={`nav-sub-item${location.pathname === '/products' ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">🍇</span>
-                  <span>Products</span>
-                </Link>
-              )}
-              {can(user, 'wine.inventory') && (
-                <Link
-                  to="/products/inventory"
-                  className={`nav-sub-item${location.pathname === '/products/inventory' ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">📋</span>
-                  <span>Inventory</span>
-                </Link>
-              )}
-              {can(user, 'wine.reports') && (
-                <Link
-                  to="/products/inventory/report"
-                  className={`nav-sub-item${location.pathname === '/products/inventory/report' ? ' active' : ''}`}
-                  onClick={() => { if (isMobile()) setCollapsed(true); }}
-                >
-                  <span className="nav-sub-icon">📊</span>
-                  <span>Reports</span>
-                </Link>
-              )}
-            </div>
-          )}
-          {can(user, 'betty.use') && (
-            <NavLink
-              to="/betty"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="📊"
-              title="Betty Bookkeeper"
-            >
-              <span>Betty Bookkeeper</span>
-            </NavLink>
-          )}
-          {can(user, 'gateway.use') && (
-            <NavLink
-              to="/gateway"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🔀"
-              title="Gateway"
-            >
-              <span>Gateway</span>
-            </NavLink>
-          )}
-          {can(user, 'groundcontrol.use') && (
-            <NavLink
-              to="/ground-control"
-              className={({ isActive }) => `app-shell-nav-item${isActive ? ' active' : ''}`}
-              data-icon="🌱"
-              title="Ground Control"
-            >
-              <span>Ground Control</span>
-            </NavLink>
-          )}
-          {managerLinks.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={() =>
-                `app-shell-nav-item${isManageTabActive(location, item.tab) ? ' active' : ''}`
-              }
-              data-icon={item.icon}
-              title={item.label}
-            >
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
+          </nav>
+        )}
 
-        <main className="app-shell-main">{children}</main>
+        <main className="app-shell-main">
+          {apps.length === 0 ? (
+            <div className="app-shell-empty">
+              <h2>Nothing is set up for you yet</h2>
+              <p>
+                Your account has no sections assigned to it, so there is nothing to show.
+                Ask Craig to set up your access and this will fill in.
+              </p>
+            </div>
+          ) : children}
+        </main>
       </div>
     </div>
   );
