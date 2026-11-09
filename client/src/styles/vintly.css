@@ -21,7 +21,12 @@
 
   --vin-text: #1a1a18;
   --vin-text-2: #5f5e5a;
-  --vin-muted: #888780;
+  /* Darkened from #888780, which was 3.13:1 on --vin-surface-1 and failed WCAG
+     AA everywhere it was used -- and it is used almost exclusively on 11-13px
+     labels, where the rule is strictest. Measured against all three surfaces
+     rather than the page background alone, because .vin-pill-muted puts it on
+     surface-1, which is the worst of them. #6b6a63 is 4.71:1 there. */
+  --vin-muted: #6b6a63;
 
   --vin-border: rgba(0, 0, 0, 0.10);
   --vin-border-strong: rgba(0, 0, 0, 0.22);
@@ -48,7 +53,10 @@
     --vin-surface-2: #26261f;
     --vin-text: #f1efe8;
     --vin-text-2: #b4b2a9;
-    --vin-muted: #888780;
+    /* 4.22:1 on --vin-surface-2 before. Dark fails on the RAISED surfaces, not
+       the page -- contrast drops as a surface lifts, so checking the base only
+       is how this passes review and still fails on a card. */
+    --vin-muted: #9c9a92;
     --vin-border: rgba(255, 255, 255, 0.10);
     --vin-border-strong: rgba(255, 255, 255, 0.22);
     --vin-bg-accent: #0c447c;  --vin-text-accent: #b5d4f4;
@@ -66,7 +74,7 @@
   --vin-surface-2: #26261f;
   --vin-text: #f1efe8;
   --vin-text-2: #b4b2a9;
-  --vin-muted: #888780;
+  --vin-muted: #9c9a92;
   --vin-border: rgba(255, 255, 255, 0.10);
   --vin-border-strong: rgba(255, 255, 255, 0.22);
   --vin-bg-accent: #0c447c;  --vin-text-accent: #b5d4f4;
