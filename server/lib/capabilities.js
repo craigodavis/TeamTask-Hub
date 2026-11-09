@@ -43,6 +43,20 @@ export const CAPABILITIES = [
   { key: 'kindredapp.manage',        label: 'Kindred App',        path: '/kindred-app' },
   { key: 'skynet.view',              label: 'Skynet',             path: '/skynet' },
 
+  // Private Events (inquiry -> proposal -> contract -> deposit -> the day).
+  //
+  // Deliberately NOT `marketing.private_events` and deliberately container-less.
+  // The URL says marketing, the app switcher puts the screen in Floor, and
+  // docs/APPS.md leaves "who works the inquiries" open. A key naming either one
+  // would have to be renamed -- and its grant rows migrated -- the day that is
+  // settled, so this names the thing itself and stays true whichever way it goes.
+  //
+  // ONE capability for all 38 routes, which is exactly what `requireManager`
+  // meant here. There is a real seam inside it -- working an inquiry vs editing
+  // the contract templates, terms and setup tasks -- but splitting it would
+  // change who can do what, which is a decision, not a conversion.
+  { key: 'events.private',           label: 'Private Events',     path: '/marketing/private-events' },
+
   { key: 'marketing.events',         label: 'Events',             path: '/events',              container: 'marketing' },
   { key: 'marketing.campaigns',      label: 'Campaigns',          path: '/marketing/campaigns', container: 'marketing' },
   { key: 'marketing.media',          label: 'Media Library',      path: '/marketing/media',     container: 'marketing' },

@@ -95,29 +95,18 @@ export async function requireAuth(req, res, next) {
   }
 }
 
-// Owner can do anything (all manager actions + owner-only). Manager can do manager actions only.
-export function requireManager(req, res, next) {
-  if (req.role === 'owner' || req.role === 'manager') return next();
-  return res.status(403).json({ error: 'Manager access required' });
-}
-
-// Ground Control: accessible to gc (User + GControl), manager, and owner.
-export function requireGControl(req, res, next) {
-  if (req.role === 'gc' || req.role === 'manager' || req.role === 'owner') return next();
-  return res.status(403).json({ error: 'Ground Control access required' });
-}
-
-// Wine Inventory: accessible to inventory (User + Inventory), manager, and owner.
-export function requireInventoryAccess(req, res, next) {
-  if (req.role === 'inventory' || req.role === 'manager' || req.role === 'owner') return next();
-  return res.status(403).json({ error: 'Inventory access required' });
-}
-
-// Scheduling: accessible to schedule (Manager + Schedule), manager, and owner.
-export function requireScheduleAccess(req, res, next) {
-  if (req.role === 'schedule' || req.role === 'manager' || req.role === 'owner') return next();
-  return res.status(403).json({ error: 'Scheduling access required' });
-}
+// The four role guards that used to live here -- requireManager, requireGControl,
+// requireInventoryAccess, requireScheduleAccess -- are GONE. Every route they
+// guarded now checks a capability.
+//
+// They are deleted rather than left unused on purpose. Private Events was built
+// after the conversion and reached for `requireManager` on all 38 of its routes
+// simply because the function was still exported and looked like the house
+// style. An unused export is an invitation. `scripts/audit-apps.mjs` now fails
+// if one comes back.
+//
+// requireOwner stays: it is a real, separate thing (103 call sites) and is not a
+// legacy role check waiting to be converted.
 
 /**
  * Record that a request got through only because the old role allowed it.

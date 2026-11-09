@@ -9,7 +9,7 @@
  */
 import express from 'express';
 import { query } from '../db.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/auth.js';
 import { evaluate, effectiveTerms, OVERRIDABLE, CONDITIONS, SCALAR_OUTCOMES, LIST_OUTCOMES } from '../lib/eventTerms.js';
 import { board, closedBoard, completePastEvents, CLOSED_STATUSES } from '../lib/eventBoard.js';
 import { journal, journalFor, NOTIFIABLE } from '../lib/eventJournal.js';
@@ -27,6 +27,14 @@ import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
 
+// Every route in this file is gated on one capability.
+//
+// It was `requireManager` on all 38 of them: Private Events was built AFTER the
+// capability conversion and went straight back to the old pattern, because
+// nothing stopped it. While a role check stood here, revoking the grant from a
+// manager did nothing -- the role still said yes. See docs/APPS.md.
+const requirePrivateEvents = requireCapability('events.private');
+
 const centsFrom = (v) => {
   if (v === '' || v == null) return 0;
   const n = Math.round(Number(String(v).replace(/[$,\s]/g, '')) * 100);
@@ -42,7 +50,7 @@ const centsFrom = (v) => {
 // Leaving a second editor would have meant two tables answering "what does this
 // cost" with nothing keeping them in step.
 
-router.get('/settings', requireManager, async (_req, res) => {
+router.get('/settings', requirePrivateEvents, async (_req, res) => {
   try {
     const { rows } = await query(
       `SELECT key, value FROM kindred_web.settings WHERE key = ANY($1)`, [Object.values(KEYS)]);
@@ -52,7 +60,7 @@ router.get('/settings', requireManager, async (_req, res) => {
 });
 
 // PUT /api/event-requests/settings
-router.put('/settings', requireManager, async (req, res) => {
+router.put('/settings', requirePrivateEvents, async (req, res) => {
   try {
     const pairs = [[KEYS.intro, req.body?.intro ?? ''], [KEYS.approvedEmail, req.body?.approvedEmail ?? '']];
     for (const [key, value] of pairs) {
@@ -82,7 +90,7 @@ const shape = (r) => ({
 });
 
 // GET /api/event-requests?status=
-router.get('/', requireManager, async (req, res) => {
+router.get('/', requirePrivateEvents, async (req, res) => {
   try {
     // The inbox defaults to what is still live. A cancelled enquiry is kept, not
     // deleted — it just stops being something to look at, which is the whole point of
@@ -161,7 +169,7 @@ router.get('/', requireManager, async (req, res) => {
 // The default screen: every live booking, what it still owes, and whose move it is.
 // Sorted by how soon the event is, because that is how this work goes wrong.
 
-router.get('/board', requireManager, async (req, res) => {
+router.get('/board', requirePrivateEvents, async (req, res) => {
   try {
     const [live, closed] = await Promise.all([board(req.companyId), closedBoard()]);
     res.json({ ...live, closed, form_url: EVENT_REQUEST_URL });
@@ -172,7 +180,7 @@ router.get('/board', requireManager, async (req, res) => {
 // Guests x venue x business-hours -> the whole package. See docs/PRIVATE_EVENTS.md.
 // No threshold lives in code; every number here is a database row Craig can edit.
 
-router.get('/terms', requireManager, async (req, res) => {
+router.get('/terms', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT t.*, l.name AS location_name
@@ -240,7 +248,7 @@ function validateTerm(b) {
   return null;
 }
 
-router.post('/terms', requireManager, async (req, res) => {
+router.post('/terms', requirePrivateEvents, async (req, res) => {
   try {
     const b = cleanTerm(req.body || {});
     if (!b.name) {
@@ -257,7 +265,7 @@ router.post('/terms', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/terms/:id', requireManager, async (req, res) => {
+router.put('/terms/:id', requirePrivateEvents, async (req, res) => {
   try {
     const b = cleanTerm(req.body || {});
     const bad = validateTerm(b);
@@ -282,7 +290,7 @@ router.put('/terms/:id', requireManager, async (req, res) => {
 // resolution the instant it was created — harmless while it is identical, but the
 // moment someone edits a guest range or a venue it starts deciding real quotes,
 // possibly before they have finished. Switching it on is the deliberate last step.
-router.post('/terms/:id/duplicate', requireManager, async (req, res) => {
+router.post('/terms/:id/duplicate', requirePrivateEvents, async (req, res) => {
   try {
     const cols = ['name', ...CONDITIONS, ...SCALAR_OUTCOMES, ...LIST_OUTCOMES];
     const { rows } = await query(
@@ -308,7 +316,7 @@ router.post('/terms/:id/duplicate', requireManager, async (req, res) => {
 // Keeping dead rows greyed out forever was caution that cost clutter and bought
 // nothing. The count of bookings ever quoted from it is returned so the confirmation
 // can say what is being let go of.
-router.delete('/terms/:id', requireManager, async (req, res) => {
+router.delete('/terms/:id', requirePrivateEvents, async (req, res) => {
   try {
     const used = await query(
       `SELECT count(*)::int AS n FROM kindred_web.event_requests
@@ -325,7 +333,7 @@ router.delete('/terms/:id', requireManager, async (req, res) => {
 
 // Try a hypothetical booking without saving anything — this is how you check a
 // threshold does what you meant before a customer runs into it.
-router.post('/terms/preview', requireManager, async (req, res) => {
+router.post('/terms/preview', requirePrivateEvents, async (req, res) => {
   try {
     const b = req.body || {};
     res.json(await evaluate(req.companyId, {
@@ -344,7 +352,7 @@ router.post('/terms/preview', requireManager, async (req, res) => {
 // contract already signed — that is rendered to a snapshot with a hash of exactly
 // what was shown.
 
-router.get('/contract-sections', requireManager, async (req, res) => {
+router.get('/contract-sections', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT * FROM kindred_web.event_contract_sections
@@ -358,7 +366,7 @@ router.get('/contract-sections', requireManager, async (req, res) => {
 const slugKey = (v) => String(v || '').trim().toLowerCase()
   .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
 
-router.post('/contract-sections', requireManager, async (req, res) => {
+router.post('/contract-sections', requirePrivateEvents, async (req, res) => {
   try {
     const b = req.body || {};
     const title = (b.title || '').trim();
@@ -380,7 +388,7 @@ router.post('/contract-sections', requireManager, async (req, res) => {
   }
 });
 
-router.put('/contract-sections/:id', requireManager, async (req, res) => {
+router.put('/contract-sections/:id', requirePrivateEvents, async (req, res) => {
   try {
     const b = req.body || {};
     const sets = [], vals = [];
@@ -404,7 +412,7 @@ router.put('/contract-sections/:id', requireManager, async (req, res) => {
   }
 });
 
-router.delete('/contract-sections/:id', requireManager, async (req, res) => {
+router.delete('/contract-sections/:id', requirePrivateEvents, async (req, res) => {
   try {
     await query(`DELETE FROM kindred_web.event_contract_sections
                   WHERE id = $1 AND company_id = $2`, [req.params.id, req.companyId]);
@@ -413,7 +421,7 @@ router.delete('/contract-sections/:id', requireManager, async (req, res) => {
 });
 
 // The business constants the contract tokens resolve against.
-router.get('/contract-values', requireManager, async (req, res) => {
+router.get('/contract-values', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT * FROM kindred_web.event_contract_values
@@ -422,7 +430,7 @@ router.get('/contract-values', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/contract-values/:id', requireManager, async (req, res) => {
+router.put('/contract-values/:id', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `UPDATE kindred_web.event_contract_values SET value = $1, updated_at = now()
@@ -436,7 +444,7 @@ router.put('/contract-values/:id', requireManager, async (req, res) => {
 // GET /api/event-requests/:id/contract — the contract as this booking would see it.
 // Read-only preview: nothing is stored until it is sent, and nothing can change once
 // signed, because signing freezes a snapshot and its hash.
-router.get('/:id/contract', requireManager, async (req, res) => {
+router.get('/:id/contract', requirePrivateEvents, async (req, res) => {
   try {
     const r = (await query(
       `SELECT r.*, l.name AS location_name
@@ -455,7 +463,7 @@ router.get('/:id/contract', requireManager, async (req, res) => {
 // What staff physically do before an event. Same library pattern as the contract
 // sections: the task says what to do, the terms band says when it applies.
 
-router.get('/setup-tasks', requireManager, async (req, res) => {
+router.get('/setup-tasks', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT * FROM kindred_web.event_setup_tasks
@@ -464,7 +472,7 @@ router.get('/setup-tasks', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/setup-tasks', requireManager, async (req, res) => {
+router.post('/setup-tasks', requirePrivateEvents, async (req, res) => {
   try {
     const b = req.body || {};
     const title = (b.title || '').trim();
@@ -485,7 +493,7 @@ router.post('/setup-tasks', requireManager, async (req, res) => {
   }
 });
 
-router.put('/setup-tasks/:id', requireManager, async (req, res) => {
+router.put('/setup-tasks/:id', requirePrivateEvents, async (req, res) => {
   try {
     const b = req.body || {};
     const sets = [], vals = [];
@@ -513,7 +521,7 @@ router.put('/setup-tasks/:id', requireManager, async (req, res) => {
   }
 });
 
-router.delete('/setup-tasks/:id', requireManager, async (req, res) => {
+router.delete('/setup-tasks/:id', requirePrivateEvents, async (req, res) => {
   try {
     await query(`DELETE FROM kindred_web.event_setup_tasks WHERE id = $1 AND company_id = $2`,
       [req.params.id, req.companyId]);
@@ -530,7 +538,7 @@ router.delete('/setup-tasks/:id', requireManager, async (req, res) => {
  * house styles. Until the terms band exists, the steps are the "always include"
  * ones — correct rather than empty, and it fills out as bands are defined.
  */
-router.get('/:id/run-sheet', requireManager, async (req, res) => {
+router.get('/:id/run-sheet', requirePrivateEvents, async (req, res) => {
   try {
     const r = (await query(
       `SELECT r.*, l.name AS location_name
@@ -558,14 +566,14 @@ router.get('/:id/run-sheet', requireManager, async (req, res) => {
 
 // ── Journal, ResOS and who hears about it ────────────────────────────────────
 
-router.get('/:id/approval', requireManager, async (req, res) => {
+router.get('/:id/approval', requirePrivateEvents, async (req, res) => {
   try {
     const blockers = await approvalBlockers(req.params.id);
     res.json({ canApprove: blockers.length === 0, blockers });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/:id/journal', requireManager, async (req, res) => {
+router.get('/:id/journal', requirePrivateEvents, async (req, res) => {
   try { res.json({ entries: await journalFor(req.params.id) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -573,7 +581,7 @@ router.get('/:id/journal', requireManager, async (req, res) => {
 // The step that is invisible until the day. Marked by hand because ResOS bookings
 // are made in ResOS — the point is that somebody confirms it was done, with their
 // name against it, not that the system guesses.
-router.post('/:id/resos', requireManager, async (req, res) => {
+router.post('/:id/resos', requirePrivateEvents, async (req, res) => {
   try {
     const booked = req.body?.booked !== false;
     const reference = String(req.body?.reference || '').trim().slice(0, 200) || null;
@@ -597,7 +605,7 @@ router.post('/:id/resos', requireManager, async (req, res) => {
 });
 
 /** Who is on the hook for which action. */
-router.get('/notify-settings', requireManager, async (req, res) => {
+router.get('/notify-settings', requirePrivateEvents, async (req, res) => {
   try {
     const people = (await query(
       `SELECT id, display_name, email, phone FROM users
@@ -610,7 +618,7 @@ router.get('/notify-settings', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/notify-settings', requireManager, async (req, res) => {
+router.put('/notify-settings', requirePrivateEvents, async (req, res) => {
   try {
     const rows = Array.isArray(req.body?.chosen) ? req.body.chosen : [];
     const valid = rows.filter((r) => r && r.user_id && NOTIFIABLE[r.action]);
@@ -641,7 +649,7 @@ async function actorName(req) {
 
 // Per-booking changes. Stored apart from the evaluated terms rather than over them,
 // so "what are we charging" and "why is it different" are both still answerable.
-router.put('/:id/overrides', requireManager, async (req, res) => {
+router.put('/:id/overrides', requirePrivateEvents, async (req, res) => {
   try {
     const body = req.body || {};
     const clean = {};
@@ -682,7 +690,7 @@ router.put('/:id/overrides', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/:id/staff-notes', requireManager, async (req, res) => {
+router.put('/:id/staff-notes', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `UPDATE kindred_web.event_requests SET staff_notes = $2, updated_at = NOW()
@@ -693,7 +701,7 @@ router.put('/:id/staff-notes', requireManager, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/:id/special-requests', requireManager, async (req, res) => {
+router.get('/:id/special-requests', requirePrivateEvents, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT * FROM kindred_web.event_special_requests
@@ -704,7 +712,7 @@ router.get('/:id/special-requests', requireManager, async (req, res) => {
 
 // Staff can add one too — what was asked for on the phone belongs in the same place
 // as what was typed on the form, or half the agreement lives in somebody's memory.
-router.post('/:id/special-requests', requireManager, async (req, res) => {
+router.post('/:id/special-requests', requirePrivateEvents, async (req, res) => {
   try {
     const body = String(req.body?.body || '').trim();
     if (!body) return res.status(400).json({ error: 'Say what was asked for.' });
@@ -719,7 +727,7 @@ router.post('/:id/special-requests', requireManager, async (req, res) => {
 
 // Approve, modify or reject. Only approved and modified reach the contract, and a
 // modification carries OUR wording rather than theirs.
-router.put('/special-requests/:sid', requireManager, async (req, res) => {
+router.put('/special-requests/:sid', requirePrivateEvents, async (req, res) => {
   try {
     const status = String(req.body?.status || '');
     if (!['pending', 'approved', 'modified', 'rejected', 'dismissed'].includes(status)) {
@@ -754,7 +762,7 @@ router.put('/special-requests/:sid', requireManager, async (req, res) => {
 // ── Send the proposal ────────────────────────────────────────────────────────
 // The price is agreed before the clauses. Nobody reads eleven sections about an
 // amount they were going to argue with.
-router.post('/:id/send-proposal', requireManager, async (req, res) => {
+router.post('/:id/send-proposal', requirePrivateEvents, async (req, res) => {
   try {
     const cur = (await query(
       `SELECT r.*, l.name AS location_name FROM kindred_web.event_requests r
@@ -823,7 +831,7 @@ router.post('/:id/send-proposal', requireManager, async (req, res) => {
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-router.post('/:id/send-contract', requireManager, async (req, res) => {
+router.post('/:id/send-contract', requirePrivateEvents, async (req, res) => {
   try {
     const cur = (await query(
       `SELECT r.*, l.name AS location_name
@@ -926,7 +934,7 @@ router.post('/:id/send-contract', requireManager, async (req, res) => {
 // record an agreement with only one signature behind it, so this writes our row
 // against the same frozen text the renter agreed to — not a fresh render, which
 // could by then say something else.
-router.post('/:id/countersign', requireManager, async (req, res) => {
+router.post('/:id/countersign', requirePrivateEvents, async (req, res) => {
   try {
     const cur = (await query(
       `SELECT * FROM kindred_web.event_requests WHERE id = $1`, [req.params.id])).rows[0];
@@ -972,7 +980,7 @@ router.post('/:id/countersign', requireManager, async (req, res) => {
 // ── Evaluate a real request and freeze the outcome ───────────────────────────
 // Stored by value. Editing a threshold afterwards must never rewrite what this
 // booking was told — the same rule the tier quote already follows.
-router.post('/:id/evaluate', requireManager, async (req, res) => {
+router.post('/:id/evaluate', requirePrivateEvents, async (req, res) => {
   try {
     const cur = (await query(
       `SELECT * FROM kindred_web.event_requests WHERE id = $1`, [req.params.id])).rows[0];
@@ -1005,7 +1013,7 @@ router.post('/:id/evaluate', requireManager, async (req, res) => {
  * on a night a musician is booked there, and the public calendar has proven not to
  * be a complete picture - five Thursdays at the Creek were missing from it entirely.
  */
-router.get('/calendar', requireManager, async (req, res) => {
+router.get('/calendar', requirePrivateEvents, async (req, res) => {
   try {
     const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
     const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
@@ -1059,7 +1067,7 @@ router.get('/calendar', requireManager, async (req, res) => {
  * lead time and tells us to go and book it. Everything downstream (the deposit
  * invoice, the guest's return link) keys off this flag.
  */
-router.patch('/:id', requireManager, async (req, res) => {
+router.patch('/:id', requirePrivateEvents, async (req, res) => {
   try {
     const b = req.body || {};
     const cur = (await query(`SELECT * FROM kindred_web.event_requests WHERE id = $1`, [req.params.id])).rows[0];

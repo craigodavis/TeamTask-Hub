@@ -5605,6 +5605,28 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   `ALTER TABLE musicians DROP CONSTRAINT IF EXISTS musicians_act_type_valid`,
   `ALTER TABLE musicians ADD CONSTRAINT musicians_act_type_valid
      CHECK (act_type IS NULL OR act_type IN ('solo', 'duo', 'band', 'dj'))`,
+
+  // Private Events became a capability. Back-fill the grant to exactly the
+  // people who can reach it today.
+  //
+  // `requireManager` meant owner OR manager and nothing else -- not admin, not
+  // marketing -- so that is what is granted here. Five people: Craig, Elisha,
+  // Elaine, Jack, Macy.
+  //
+  // This has to land WITH the client change, not after it. The server still has
+  // the legacy fallback and would let a manager through on their role alone, but
+  // the client's `can()` has no fallback at all -- so without these rows the
+  // menu entry and the route would vanish for people the API still admits.
+  //
+  // APPENDED AT THE END, which matters more here than it looks: versions are
+  // this array's positions, so a migration inserted mid-array lands on a version
+  // the database has already recorded and is skipped in silence, forever.
+  // company_id is NOT NULL with no default, so it comes from the user's own row
+  // -- leaving it out fails the whole migration on a not-null violation, and
+  // granted_by stays NULL because no person granted this.
+  `INSERT INTO user_capabilities (user_id, company_id, capability)
+   SELECT id, company_id, 'events.private' FROM users WHERE role IN ('owner', 'manager')
+   ON CONFLICT (user_id, capability) DO NOTHING`,
 ];
 
 export async function runMigrations() {

@@ -20,6 +20,7 @@
  * When a route is added to App.jsx, add it to ROUTES below. A failure here is
  * the cheapest place to find out you forgot lib/apps.js.
  */
+import { readdir, readFile } from 'node:fs/promises';
 import { APPS, matchPath, visibleApps, landingFor } from '../../client/src/lib/apps.js';
 
 const can = (u, c) => (u.capabilities || []).includes(c);
@@ -105,6 +106,31 @@ console.log('\nLanding targets are real and held');
 for (const { app } of visibleApps({ role:'owner', capabilities: APPS.flatMap(a=>a.nav).map(()=>'') }, () => true, () => true)) {
   const to = landingFor(app, {role:'owner'}, () => true, () => true);
   ok(!!to && to !== '/', `${app.name.padEnd(10)} lands on ${to}`);
+}
+
+console.log('\nNo legacy role guard has come back');
+// Private Events was built after the capability conversion and used
+// `requireManager` on all 38 of its routes, because the function was still
+// exported and looked like the house style. The four are deleted now; this is
+// what makes that stick, in both directions: a route that reaches for one, and
+// a middleware file that offers one again.
+{
+  const routesDir = new URL('../routes/', import.meta.url);
+  const LEGACY = ['requireManager', 'requireGControl', 'requireInventoryAccess', 'requireScheduleAccess'];
+  const files = (await readdir(routesDir)).filter((f) => f.endsWith('.js'));
+  const offenders = [];
+  for (const f of files) {
+    const src = await readFile(new URL(f, routesDir), 'utf8');
+    // Ignore prose: only a call or an import of one counts.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const g of LEGACY) if (code.includes(g)) offenders.push(`${f}:${g}`);
+  }
+  ok(offenders.length === 0, `${files.length} route files use no legacy role guard`, offenders.join(', '));
+
+  const auth = (await readFile(new URL('../middleware/auth.js', import.meta.url), 'utf8'))
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const reborn = LEGACY.filter((g) => auth.includes(`function ${g}`));
+  ok(reborn.length === 0, 'middleware/auth.js exports none of them', reborn.join(', '));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

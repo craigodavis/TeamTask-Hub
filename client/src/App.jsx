@@ -223,13 +223,9 @@ function App() {
           <Route path="/events" element={
             can(user, 'marketing.events')
               ? <Events /> : <Navigate to="/" replace />} />
-          <Route
-            path="/marketing/private-events"
-            element={
-              user?.role === 'owner' || user?.role === 'manager'
-                ? <PrivateEvents /> : <Navigate to="/" replace />
-            }
-          />
+          <Route path="/marketing/private-events" element={
+            can(user, 'events.private')
+              ? <PrivateEvents /> : <Navigate to="/" replace />} />
           {/* Event Requests is now a tab inside Private Events. Kept as a redirect
               so existing bookmarks and links do not 404. */}
           <Route

@@ -229,15 +229,28 @@ Ship order, so nothing breaks mid-deploy:
 The exit test, in order:
 
 - `grep -rn "requireManager\|requireInventoryAccess\|requireScheduleAccess\|requireGControl" server/index.js server/routes` returns nothing.
-  ~~**Already true.**~~ **No longer true as of Nov 2026: 38 `requireManager`
-  calls in `routes/eventRequests.js`.** Private Events was built after this
-  conversion and went straight back to the old pattern. Convert it first.
+  ~~**Already true.**~~ ~~**No longer true as of Nov 2026: 38 `requireManager`
+  calls in `routes/eventRequests.js`.**~~ **True again, 9 Nov 2026, and now
+  enforced rather than hoped for.** The 38 calls became
+  `requireCapability('events.private')`, a new capability for Private Events —
+  the screen never had one, which is why it reached for the role. All four role
+  guards are **deleted** from `middleware/auth.js`, not merely unused: the
+  regression happened because `requireManager` was still exported and looked
+  like the house style. `scripts/audit-apps.mjs` fails if a route imports one or
+  if `auth.js` defines one again.
 - No client gate reads `user.role`. **Still true** — two `isOwner()` uses in
-  `App.jsx`, both owner-only by design.
+  `App.jsx`, both owner-only by design. Private Events' gate in `App.jsx` and
+  its row in `lib/apps.js` now read `can(user, 'events.private')`.
 - `SELECT count(*) FROM capability_fallback_hits` stays 0 through a monthly
-  cycle. ~~**Currently 0**~~ **1 row as of Nov 2026**: Elaine Ganino,
-  `users.assist`, 6 hits, 2 Sept 2026 — her scoping deliberately withheld it
-  and the fallback handed it back. The log did its job; nobody read it.
+  cycle. ~~**Currently 0**~~ **2 rows, and both are stale.** Elaine Ganino,
+  `users.assist`, 3 hits each on `/api/permissions/users` and
+  `/api/permissions/catalog`, last seen **2 Sept 2026** — nothing in the ten
+  weeks since. Her scoping deliberately withheld it and the fallback handed it
+  back. The log did its job; nobody read it. Settle `users.assist` for Elaine
+  one way or the other and this condition is met.
+
+  The table lives in schema `teamtask_hub`, not `public`. A
+  `to_regclass('public.capability_fallback_hits')` check reports it missing.
 
 **Until the fallback goes, a narrowed `manager` is narrowed in the menu only.**
 Measured Nov 2026 by running `requireCapability` with their real grants: Elaine

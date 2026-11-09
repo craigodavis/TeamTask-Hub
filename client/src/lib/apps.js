@@ -115,10 +115,7 @@ export const APPS = [
       { to: '/tasting-room/reservations/hours', label: 'Hours & Limits', icon: I.clock, when: (u, c, isOwner) => isOwner(u) },
       { to: '/tasting-room/reservations/settings', label: 'Booking Settings', icon: I.gear, when: (u, c, isOwner) => isOwner(u) },
       { to: '/tasting-room/menus', label: 'Menus', icon: I.menuCard, when: cap('tastingroom.menus') },
-      // Private Events never became a capability; it is still gated on the role
-      // in App.jsx. Mirrored rather than invented, so the menu cannot offer
-      // something the route will bounce.
-      { to: '/marketing/private-events', label: 'Private Events', icon: I.star, when: (u) => u?.role === 'owner' || u?.role === 'manager' },
+      { to: '/marketing/private-events', label: 'Private Events', icon: I.star, when: cap('events.private') },
     ],
   },
   {

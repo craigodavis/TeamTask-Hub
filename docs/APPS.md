@@ -328,17 +328,24 @@ today, two have come untrue since they were written:
 
 | Test | Doc says | Actually |
 |---|---|---|
-| no `requireManager` / `requireInventoryAccess` / `requireScheduleAccess` / `requireGControl` in routes | "Already true" | **38 `requireManager` calls**, all in `routes/eventRequests.js` |
+| no `requireManager` / `requireInventoryAccess` / `requireScheduleAccess` / `requireGControl` in routes | "Already true" | ~~**38 `requireManager` calls**~~ **Done 9 Nov 2026** — converted to `events.private`; all four guards deleted and the audit enforces it |
 | no client gate reads `user.role` | "Already true" | still true — two `isOwner()` uses in `App.jsx` |
-| `capability_fallback_hits` stays 0 for a month | "Currently 0" | **1 row**: Elaine, `users.assist`, 6 hits, 2 Sept 2026 |
+| `capability_fallback_hits` stays 0 for a month | "Currently 0" | **2 rows**: Elaine, `users.assist`, 3 hits each on `/api/permissions/users` and `/api/permissions/catalog` — last seen 2 Sept 2026, nothing since |
 
 `eventRequests.js` is the interesting one: Private Events was built **after**
 the conversion and went straight back to the old pattern. Nothing stopped it,
 because nothing checks.
 
-The single fallback hit is useful rather than alarming — it is Elaine reaching
-user admin she was deliberately not granted, which is precisely the thing the
-hit log was built to reveal. It worked. Nobody looked.
+Those two rows are useful rather than alarming — both are Elaine reaching user
+admin she was deliberately not granted, which is precisely the thing the hit log
+was built to reveal. It worked. Nobody looked.
+
+What matters more is the ten weeks of silence after them. Nothing else in
+TeamHub leans on the old roles, so the fallback is already carrying only this
+one case. Settle `users.assist` for Elaine and it is carrying nothing.
+
+(Read the table in schema `teamtask_hub`. Qualified as `public.` it looks like
+it was never created, which is a tidier and much more wrong conclusion.)
 
 ### Four people hold nothing at all
 
@@ -369,9 +376,18 @@ These are independent of the app split and worth doing first — reorganising
 navigation on top of guards that do not hold would be rearranging the labels on
 an unlocked door.
 
-1. **Convert `eventRequests.js`.** 38 `requireManager` calls become capability
-   checks. Until this lands the fallback cannot be deleted, because deleting it
-   would not even be noticed here.
+1. ~~**Convert `eventRequests.js`.**~~ **Done, 9 Nov 2026.** It was not the
+   swap this step assumed: Private Events had no capability to swap *to*, so
+   `events.private` is new. Deliberately not `marketing.private_events` and
+   deliberately container-less, because open question 1 below is still open and
+   a key naming either side would need renaming — and its grant rows migrated —
+   the day it is settled. One capability for all 38 routes, which is what
+   `requireManager` meant; the seam inside it (working an inquiry vs editing the
+   terms and contract templates) is a decision, not a conversion, and is left
+   alone. A migration grants it to the five people who can reach the screen
+   today — owner or manager, exactly what `requireManager` checked. The four
+   dead role guards are deleted rather than left unused, and
+   `scripts/audit-apps.mjs` now fails if one returns.
 2. **Backfill the four empty members**, or deactivate them. Decide which.
 3. **Settle Elisha's role.**
 4. **Delete the fallback branch**, drop `LEGACY_ROLE_GRANTS`, and flip the two
