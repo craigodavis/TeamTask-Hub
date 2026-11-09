@@ -12,14 +12,16 @@
  * Saturday.
  *
  * Answers, per user, the one question that matters: for each capability, would
- * a request be allowed? That is `granted OR the old role would have allowed
- * it` -- the same test requireCapability applies, including its fallback.
+ * a request be allowed? Since 9 Nov 2026 that is simply `granted` -- the legacy
+ * role fallback is gone, so effective access and held grants are the same thing.
+ * The script is kept because a diffable snapshot is still the cheapest way to
+ * prove a permissions change did what you meant.
  */
 import dotenv from 'dotenv';
 dotenv.config();
 import fs from 'node:fs';
 import { query, pool } from '../db.js';
-import { ALL_CAPABILITIES, LEGACY_ROLE_GRANTS } from '../lib/capabilities.js';
+import { ALL_CAPABILITIES } from '../lib/capabilities.js';
 
 const diffAt = process.argv.indexOf('--diff');
 if (diffAt !== -1) {
@@ -59,9 +61,9 @@ for (const u of users) {
   const grants = new Set((await query(
     `SELECT capability FROM user_capabilities WHERE user_id = $1`, [u.id]
   )).rows.map((r) => r.capability));
-  const legacy = new Set(LEGACY_ROLE_GRANTS[u.role] || []);
+
   out[u.display_name] = Object.fromEntries(
-    ALL_CAPABILITIES.map((c) => [c, grants.has(c) || legacy.has(c)])
+    ALL_CAPABILITIES.map((c) => [c, grants.has(c)])
   );
 }
 console.log(JSON.stringify(out, null, 2));

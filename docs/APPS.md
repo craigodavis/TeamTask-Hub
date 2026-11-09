@@ -329,7 +329,7 @@ today, two have come untrue since they were written:
 | Test | Doc says | Actually |
 |---|---|---|
 | no `requireManager` / `requireInventoryAccess` / `requireScheduleAccess` / `requireGControl` in routes | "Already true" | ~~**38 `requireManager` calls**~~ **Done 9 Nov 2026** — converted to `events.private`; all four guards deleted and the audit enforces it |
-| no client gate reads `user.role` | "Already true" | still true — two `isOwner()` uses in `App.jsx` |
+| no client gate reads `user.role` | "Already true" | **never true** — 12 `role === 'manager'` gates remain in 8 screens. Harmless to the cutover (no legacy-role user matched `manager`), but `FoodLayout`'s `role === 'inventory'` would have cost Tristan and Zoë their Shopping Lists tab. Fixed. |
 | `capability_fallback_hits` stays 0 for a month | "Currently 0" | **2 rows**: Elaine, `users.assist`, 3 hits each on `/api/permissions/users` and `/api/permissions/catalog` — last seen 2 Sept 2026, nothing since |
 
 `eventRequests.js` is the interesting one: Private Events was built **after**
@@ -388,12 +388,29 @@ an unlocked door.
    today — owner or manager, exactly what `requireManager` checked. The four
    dead role guards are deleted rather than left unused, and
    `scripts/audit-apps.mjs` now fails if one returns.
-2. **Backfill the four empty members**, or deactivate them. Decide which.
-3. **Settle Elisha's role.**
-4. **Delete the fallback branch**, drop `LEGACY_ROLE_GRANTS`, and flip the two
-   `inventory` users to `member` with their seven grants, as `PERMISSIONS.md`
-   already prescribes. The day this lands, Elaine and Jack's scoping becomes
-   true for the first time.
+2. ~~**Backfill the four empty members**, or deactivate them.~~ **Done, 9 Nov
+   2026.** They still work here. The cause was not drift: all four were created
+   *after* the conversion and **no creation path has ever granted anything** —
+   see `lib/provisionUser.js`, which fixes it so the next hire does not repeat
+   it.
+3. ~~**Settle Elisha's role.**~~ **Done.** Elisha is an owner; the two
+   owner-only capabilities are now granted.
+4. ~~**Delete the fallback branch**, drop `LEGACY_ROLE_GRANTS`, and flip the
+   two `inventory` users to `member`.~~ **Done, 9 Nov 2026 — and it took nothing
+   from anybody**, which was the instruction. This step was written expecting
+   the opposite: *"Elaine and Jack's scoping becomes true for the first time."*
+   Instead their effective access was materialised into real grants first
+   (migration 824), so the deletion was a no-op for all 22 people — 880
+   decisions checked against the real middleware, zero losses.
+
+   The trade is explicit: Elaine and Jack are now full managers **on paper**
+   rather than quietly in practice. Nothing changed for them today; what changed
+   is that narrowing either of them will now actually hold. That is a decision
+   to make per person on a screen that works, not a cliff for five people at
+   once.
+
+   `capability_fallback_hits` is kept as the record of what the fallback caught.
+   Nothing writes to it now.
 5. **Then** the app split, which at that point is only navigation.
 
 Step 4 is the one that changes behaviour for real people. Elaine loses 18

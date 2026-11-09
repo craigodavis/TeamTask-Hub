@@ -5677,6 +5677,20 @@ If the deposit is not received by that date, or if the date, guest count, venue 
      ) AS r(role, caps) ON r.role = u.role
      CROSS JOIN LATERAL UNNEST(r.caps) AS cap
    ON CONFLICT (user_id, capability) DO NOTHING`,
+
+  // The legacy roles are retired. `inventory` was the only one anybody held --
+  // Tristan and Zoe -- and it stopped meaning anything when requireInventoryAccess
+  // was deleted and the fallback went with it. They keep all seven of their
+  // explicit grants; only the label on the row changes, so `isCustomized` can
+  // finally tell the truth about them (seven grants against a baseline of four).
+  //
+  // `schedule` and `gc` are here for completeness. Nobody holds either.
+  //
+  // The client gate that made this unsafe is fixed in the same commit:
+  // FoodLayout read `user.role === 'inventory'` to show Shopping Lists, so this
+  // UPDATE on its own would have taken that tab away from exactly the two people
+  // it is supposed to leave alone.
+  `UPDATE users SET role = 'member' WHERE role IN ('inventory', 'schedule', 'gc')`,
 ];
 
 export async function runMigrations() {

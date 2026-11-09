@@ -133,5 +133,19 @@ console.log('\nNo legacy role guard has come back');
   ok(reborn.length === 0, 'middleware/auth.js exports none of them', reborn.join(', '));
 }
 
+console.log('\nThe capability gate has no second opinion');
+// requireCapability must consult the grant and nothing else. A fallback to the
+// old role is what made revoking a no-op for managers; it is deleted, and the
+// grants were materialised first so that deletion cost nobody anything.
+{
+  const auth = await readFile(new URL('../middleware/auth.js', import.meta.url), 'utf8');
+  const body = auth.slice(auth.indexOf('export function requireCapability'));
+  const gate = body.slice(0, body.indexOf('\n}') + 2).replace(/^\s*\/\/.*$/gm, '');
+  ok(!/LEGACY_ROLE_GRANTS|recordFallbackHit|req\.role/.test(gate),
+     'requireCapability checks the grant only', gate.replace(/\s+/g, ' ').slice(0, 90));
+  const caps = await readFile(new URL('../lib/capabilities.js', import.meta.url), 'utf8');
+  ok(!/export const LEGACY_ROLE_GRANTS/.test(caps), 'LEGACY_ROLE_GRANTS is not exported');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

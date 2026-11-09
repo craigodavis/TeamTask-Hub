@@ -238,9 +238,22 @@ The exit test, in order:
   regression happened because `requireManager` was still exported and looked
   like the house style. `scripts/audit-apps.mjs` fails if a route imports one or
   if `auth.js` defines one again.
-- No client gate reads `user.role`. **Still true** — two `isOwner()` uses in
-  `App.jsx`, both owner-only by design. Private Events' gate in `App.jsx` and
-  its row in `lib/apps.js` now read `can(user, 'events.private')`.
+- No client gate reads `user.role`. ~~**Still true**~~ **This was never true.**
+  Measured 9 Nov 2026: **12 gates** still compute
+  `isManager = user?.role === 'manager' || user?.role === 'owner'` — in
+  `UserMenu`, `KitchenInventory`, `FoodIngredients`, `Manager`, `SyncUsers`,
+  `Square`, `Dashboard` and `Settings`. None of them blocked retiring the
+  fallback: they test `manager|owner`, which no legacy-role user ever matched,
+  so no one's access changed. They are a separate, pre-existing inconsistency —
+  a narrowed manager is still un-narrowed in those eight screens' menus, though
+  the server now refuses the requests behind them.
+
+  The one that **did** matter was `FoodLayout`, which read
+  `user.role === 'inventory'` to show Shopping Lists. Retiring the `inventory`
+  role without fixing it would have taken that tab from Tristan and Zoë — the
+  exact two people the change was meant to leave untouched. Now
+  `can(user, 'kitchen.inventory')`, mirroring `App.jsx`. Private Events' gate
+  and its `lib/apps.js` row read `can(user, 'events.private')`.
 - `SELECT count(*) FROM capability_fallback_hits` stays 0 through a monthly
   cycle. ~~**Currently 0**~~ **2 rows, and both are stale.** Elaine Ganino,
   `users.assist`, 3 hits each on `/api/permissions/users` and
@@ -252,10 +265,25 @@ The exit test, in order:
   The table lives in schema `teamtask_hub`, not `public`. A
   `to_regclass('public.capability_fallback_hits')` check reports it missing.
 
-**Until the fallback goes, a narrowed `manager` is narrowed in the menu only.**
-Measured Nov 2026 by running `requireCapability` with their real grants: Elaine
-reaches 18 of the 20 capabilities withheld from her, Jack 14 of 16. See
-`docs/APPS.md` § *The permissions as they actually stand*.
+**The fallback is gone, 9 Nov 2026.** It cost nobody anything, because the
+grants were materialised first: migration 824 wrote every person's *effective*
+access (held ∪ whatever their old role allowed) into real rows, and migration
+825 retired the legacy role strings. Verified per person before the branch was
+removed — 22 users × 40 capabilities = 880 decisions, zero losses — and again
+after deploying.
+
+Revoking a capability now does something. Before this, a manager held 37 of 39
+capabilities unrevokably; the screen granted honestly and revoked theatrically.
+
+The price, recorded plainly: **Elaine and Jack are full managers on paper.**
+Someone had unchecked boxes for them and the fallback had been ignoring that
+since August. Materialising reality rather than the intention is what made the
+deletion lossless; narrowing either of them is now a deliberate act that will
+hold. Elaine's `users.assist` is included — the only capability the fallback log
+ever caught, which she had been reaching since September anyway.
+
+`capability_fallback_hits` is kept as the record of what the fallback caught.
+Nothing writes to it now.
 
 Then delete the fallback branch in `requireCapability`, drop
 `LEGACY_ROLE_GRANTS`, and flip the two `inventory` users to `member` — that

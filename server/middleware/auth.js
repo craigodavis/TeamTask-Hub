@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
-import { capabilitiesForRole, LEGACY_ROLE_GRANTS } from '../lib/capabilities.js';
+import { capabilitiesForRole } from '../lib/capabilities.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
@@ -109,44 +109,30 @@ export async function requireAuth(req, res, next) {
 // legacy role check waiting to be converted.
 
 /**
- * Record that a request got through only because the old role allowed it.
- *
- * Deliberately loud. The danger with a fail-safe fallback is that it is silent,
- * nobody can prove it is dead, and it lives forever -- so every hit is written
- * down with the route that caused it. Aggregated, and never allowed to fail the
- * request it is describing.
- */
-function recordFallbackHit(req, capability) {
-  if (!req.userId) return; // service tokens derive their grants; nothing to learn
-  const route = (req.baseUrl || '') + (req.route?.path || req.path || '');
-  query(
-    `INSERT INTO capability_fallback_hits (route, method, capability, role, user_id)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (route, method, capability, user_id)
-     DO UPDATE SET hits = capability_fallback_hits.hits + 1, last_seen = NOW()`,
-    [route.slice(0, 200), req.method, capability, req.role, req.userId]
-  ).catch(() => {});
-}
-
-/**
  * Gate a route on a capability.
  *
- * Holding the grant is the answer. Failing that, the person's old role is
- * consulted and, if it would have allowed this, the request proceeds and the
- * fallback is recorded -- so converting a route can never lock anyone out, and
- * anything still leaning on the old model is visible rather than assumed gone.
+ * Holding the grant IS the answer. There is nothing else.
  *
- * See docs/PERMISSIONS.md for how the fallback gets retired.
+ * Until 9 Nov 2026 this had a second branch: failing the grant, the person's old
+ * role was consulted and, if it would have allowed the request, it proceeded and
+ * the hit was logged. That made the conversion safe -- no route could lock
+ * anyone out as it was converted -- but it also meant a manager's 37 of 39
+ * capabilities could not be taken away. The screen granted honestly and revoked
+ * theatrically.
+ *
+ * The fallback is gone, and it took nothing with it: migration 825 first wrote
+ * every person's EFFECTIVE access into real grants, so for all 22 people what
+ * they hold is what they could already reach. Verified per user before the
+ * branch was removed, not after.
+ *
+ * `capability_fallback_hits` is kept as a record of what it caught -- two rows,
+ * both Elaine on users.assist, September 2026 -- but nothing writes to it now.
+ *
+ * See docs/PERMISSIONS.md.
  */
 export function requireCapability(capability) {
   return function capabilityGate(req, res, next) {
     if (req.capabilities?.has(capability)) return next();
-
-    if ((LEGACY_ROLE_GRANTS[req.role] || []).includes(capability)) {
-      recordFallbackHit(req, capability);
-      return next();
-    }
-
     return res.status(403).json({ error: 'Not permitted' });
   };
 }

@@ -125,33 +125,27 @@ export const PRESETS = {
 };
 
 /**
- * The legacy roles, mapped onto grants that reproduce exactly what each one can
- * reach today. `inventory` is the interesting one and the proof the model
- * works: two people who are neither members nor managers, expressed as a member
- * plus the two inventory screens.
+ * The legacy role map is GONE (9 Nov 2026).
  *
- * `schedule` and `gc` were never granted to anybody -- they are here so the
- * backfill is total rather than because any row uses them.
+ * It existed so `requireCapability` could fall back to a person's old role while
+ * routes were converted one batch at a time. That fallback is deleted: migration
+ * 825 wrote every person's effective access into real grants first, so removing
+ * it took nothing from anyone, and the two `inventory`-role users became plain
+ * members holding their seven explicit grants.
+ *
+ * The roles that only ever existed in that map -- `inventory`, `schedule`, `gc`
+ * -- are no longer roles at all. Nothing keys on them: the four role guards that
+ * did are deleted, and the last client gate reading `user.role === 'inventory'`
+ * (FoodLayout) now reads the capability. A row still carrying one of those
+ * strings gets the member baseline from `capabilitiesForRole`, which is what it
+ * would have had anyway.
+ *
+ * Frozen copies of the map live in migration 824, where they belong: a migration
+ * must mean the same thing forever, so it carries its own copy rather than
+ * importing one that can change underneath it.
  */
-export const LEGACY_ROLE_GRANTS = {
-  member:    MEMBER,
-  manager:   PRESETS.manager,
-  admin:     PRESETS.admin,
-  marketing: MARKETING,
-  owner:     PRESETS.owner,
-  // wine.reports belongs here because the old requireInventoryAccess gated
-  // /products/inventory/report too, and Wine ▸ Reports sat behind
-  // canAccessInventory in the nav. Leaving it out silently took the report away
-  // from Tristan and Zoë -- caught by exercising the real routes as each user,
-  // which a grants-only diff could never have shown, since both sides of that
-  // comparison read this same map.
-  inventory: [...MEMBER, 'wine.inventory', 'wine.reports', 'kitchen.inventory'],
-  schedule:  [...MEMBER, 'scheduling.manage', 'marketing.events'],
-  gc:        [...MEMBER, 'groundcontrol.use'],
-};
-
 export function capabilitiesForRole(role) {
-  return PRESETS[role] || LEGACY_ROLE_GRANTS[role] || MEMBER;
+  return PRESETS[role] || MEMBER;
 }
 
 /** Has this person been edited away from their role's preset? */
