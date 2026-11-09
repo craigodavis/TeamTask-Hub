@@ -32,7 +32,11 @@
 
   --rs-text: #1a1a18;
   --rs-text-2: #5f5e5a;
-  --rs-muted: #888780;
+  /* Was #888780 -- 3.13:1 on --rs-surface-1, the same failure the Vintly ramp
+     had. This palette is a copy of that one, so it inherited the bug and does
+     not inherit the fix. Measured on all three surfaces; #6b6a63 is 4.71:1 on
+     the worst. */
+  --rs-muted: #6b6a63;
 
   --rs-border: rgba(0, 0, 0, 0.10);
   --rs-border-strong: rgba(0, 0, 0, 0.22);
@@ -76,7 +80,9 @@
     --rs-surface-2: #2a2833;
     --rs-text: #f0eff4;
     --rs-text-2: #b6b3c0;
-    --rs-muted: #8e8b99;
+    /* 4.35:1 on --rs-surface-2 before. Lifted, keeping the plum cast that
+       distinguishes this ramp from the warm one. */
+    --rs-muted: #9d9aa8;
     --rs-border: rgba(255, 255, 255, 0.10);
     --rs-border-strong: rgba(255, 255, 255, 0.24);
     --rs-green-soft: #1d4430;
@@ -92,7 +98,7 @@
   --rs-surface-2: #2a2833;
   --rs-text: #f0eff4;
   --rs-text-2: #b6b3c0;
-  --rs-muted: #8e8b99;
+  --rs-muted: #9d9aa8;
   --rs-border: rgba(255, 255, 255, 0.10);
   --rs-border-strong: rgba(255, 255, 255, 0.24);
   --rs-green-soft: #1d4430;
