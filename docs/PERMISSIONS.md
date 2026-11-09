@@ -228,10 +228,21 @@ Ship order, so nothing breaks mid-deploy:
 
 The exit test, in order:
 
-- `grep -rn "requireManager\|requireInventoryAccess\|requireScheduleAccess\|requireGControl" server/index.js server/routes` returns nothing. **Already true.**
-- No client gate reads `user.role`. **Already true** — only owner-only checks remain.
+- `grep -rn "requireManager\|requireInventoryAccess\|requireScheduleAccess\|requireGControl" server/index.js server/routes` returns nothing.
+  ~~**Already true.**~~ **No longer true as of Nov 2026: 38 `requireManager`
+  calls in `routes/eventRequests.js`.** Private Events was built after this
+  conversion and went straight back to the old pattern. Convert it first.
+- No client gate reads `user.role`. **Still true** — two `isOwner()` uses in
+  `App.jsx`, both owner-only by design.
 - `SELECT count(*) FROM capability_fallback_hits` stays 0 through a monthly
-  cycle. **Currently 0**, and it never fired once across the whole conversion.
+  cycle. ~~**Currently 0**~~ **1 row as of Nov 2026**: Elaine Ganino,
+  `users.assist`, 6 hits, 2 Sept 2026 — her scoping deliberately withheld it
+  and the fallback handed it back. The log did its job; nobody read it.
+
+**Until the fallback goes, a narrowed `manager` is narrowed in the menu only.**
+Measured Nov 2026 by running `requireCapability` with their real grants: Elaine
+reaches 18 of the 20 capabilities withheld from her, Jack 14 of 16. See
+`docs/APPS.md` § *The permissions as they actually stand*.
 
 Then delete the fallback branch in `requireCapability`, drop
 `LEGACY_ROLE_GRANTS`, and flip the two `inventory` users to `member` — that

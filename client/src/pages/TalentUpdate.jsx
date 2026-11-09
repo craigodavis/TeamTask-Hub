@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import { actLabel } from '../lib/eventTime';
 
 /**
  * The performer-facing form. PUBLIC — reached by a 24-hour link, no login.
@@ -325,7 +326,7 @@ export function PerformerCard({ m }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 18 }}>{m.stage_name || m.name || 'Your name'}</div>
           <div style={{ fontSize: 13, opacity: 0.65, marginBottom: 6 }}>
-            {[m.genre, m.act_type].filter(Boolean).join(' · ') || 'No genre set'}
+            {[m.genre, actLabel(m.act_type)].filter(Boolean).join(' · ') || 'No genre set'}
           </div>
           <div style={{ fontSize: 14, lineHeight: 1.5 }}>
             {m.bio || <span style={{ opacity: 0.5, fontStyle: 'italic' }}>No bio yet — visitors will see an empty space here.</span>}

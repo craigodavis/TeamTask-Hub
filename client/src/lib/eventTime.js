@@ -124,3 +124,20 @@ export {
   DEFAULT_START_TIME, DEFAULT_DURATION_MIN, HALF_HOURS, durLabel, DURATIONS,
   splitStart, joinStart, addMinutes, endPreview,
 };
+
+/**
+ * How an act_type reads on screen.
+ *
+ * Not CSS capitalize: that turns 'dj' into 'Dj'. An acronym is the reason a
+ * label map has to exist at all — everything else in the list happens to work
+ * under capitalize, which is exactly why it was done that way and exactly why
+ * it broke the first time something didn't.
+ */
+export const ACT_TYPES = [
+  { value: 'solo', label: 'Solo' },
+  { value: 'duo', label: 'Duo' },
+  { value: 'band', label: 'Band' },
+  { value: 'dj', label: 'DJ' },
+];
+
+export const actLabel = (v) => ACT_TYPES.find((a) => a.value === v)?.label || v || '';

@@ -29,6 +29,7 @@ const toLocalInput = (iso) => (iso ? String(iso).slice(0, 16) : '');
 import {
   pad2, shiftEnd, dateRangeError, DEFAULT_START_TIME, DEFAULT_DURATION_MIN,
   HALF_HOURS, DURATIONS, splitStart, joinStart, addMinutes, endPreview, ALL_DAY, isAllDay,
+  ACT_TYPES, actLabel,
 } from '../lib/eventTime';
 
 export default function Events() {
@@ -642,8 +643,8 @@ function MusiciansTab() {
             <div>
               <label className="vin-label">Act</label>
               <select className="vin-select" value={form.act_type || ''} onChange={(e) => setForm({ ...form, act_type: e.target.value })}>
-                <option value="">Not set</option><option value="solo">Solo</option>
-                <option value="duo">Duo</option><option value="band">Band</option>
+                <option value="">Not set</option>
+                {ACT_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
               </select>
             </div>
           </div>
@@ -726,8 +727,8 @@ function MusiciansTab() {
           <option value="all">Any email</option><option value="has">Has email</option><option value="no">No email</option>
         </select>
         <select className="tal-sel" value={filter.act_type} onChange={(e) => setFilter({ ...filter, act_type: e.target.value })}>
-          <option value="all">Any act</option><option value="solo">Solo</option>
-          <option value="duo">Duo</option><option value="band">Band</option>
+          <option value="all">Any act</option>
+          {ACT_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
           <option value="">Act not set</option>
         </select>
         <select className="tal-sel" value={filter.genre} onChange={(e) => setFilter({ ...filter, genre: e.target.value })}>
@@ -773,7 +774,7 @@ function MusiciansTab() {
             {/* The facts you filter on, shown so a filtered list can be read without
                 opening every card. Quiet, so name and rate stay dominant. */}
             <div className="tal-meta">
-              {m.act_type && <span style={{ textTransform: 'capitalize' }}>{m.act_type}</span>}
+              {m.act_type && <span>{actLabel(m.act_type)}</span>}
               {m.act_type && m.genre && <span className="sep">·</span>}
               {m.genre && <span>{m.genre}</span>}
               {m.rating != null && <><span className="sep">·</span>

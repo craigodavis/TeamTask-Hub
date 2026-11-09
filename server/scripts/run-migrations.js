@@ -5597,6 +5597,14 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   // musician so the cap resets when we send a fresh link, instead of locking
   // somebody out months later because of three bad attempts last season.
   `ALTER TABLE talent_update_links ADD COLUMN IF NOT EXISTS photo_count INTEGER NOT NULL DEFAULT 0`,
+
+  // DJ. The column was described as "how big the act is", and a DJ is not a
+  // size -- but a venue booking the night thinks in one list (solo, duo, band,
+  // DJ) and splitting that across two fields to satisfy the original comment
+  // would make the booker's job worse to make the schema tidier.
+  `ALTER TABLE musicians DROP CONSTRAINT IF EXISTS musicians_act_type_valid`,
+  `ALTER TABLE musicians ADD CONSTRAINT musicians_act_type_valid
+     CHECK (act_type IS NULL OR act_type IN ('solo', 'duo', 'band', 'dj'))`,
 ];
 
 export async function runMigrations() {
