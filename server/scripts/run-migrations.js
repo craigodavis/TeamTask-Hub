@@ -5627,6 +5627,56 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   `INSERT INTO user_capabilities (user_id, company_id, capability)
    SELECT id, company_id, 'events.private' FROM users WHERE role IN ('owner', 'manager')
    ON CONFLICT (user_id, capability) DO NOTHING`,
+
+  // Freeze today's EFFECTIVE access into real grants, so deleting the legacy
+  // role fallback takes nothing away from anybody.
+  //
+  // Until now `requireCapability` asked two questions: do you hold the grant,
+  // and failing that, would your old ROLE have allowed it? The second question
+  // is what has to go -- while it stands, revoking a capability from a manager
+  // does nothing, so the permissions screen grants honestly and revokes
+  // theatrically. But deleting it as-is would have taken 18 things from Elaine,
+  // 14 from Jack, and locked four people out of the API completely.
+  //
+  // So: grant everyone everything they can already reach. After this the
+  // fallback is dead weight rather than load-bearing, and revoking starts
+  // working -- on a screen that can then be used deliberately, one person at a
+  // time, instead of a silent cliff for five people at once.
+  //
+  // Two consequences, both intended and neither reversible by accident:
+  //
+  //  - Elaine and Jack become full managers on paper. Someone had unchecked
+  //    boxes for them; that intention was never enforced, and this records
+  //    reality rather than the intention. Narrowing them is now a deliberate
+  //    act that will actually hold. Note it also hands Elaine `users.assist`
+  //    explicitly -- the one capability in the fallback log, which she has been
+  //    reaching since September regardless.
+  //
+  //  - Elizabeth, Ivan, Kayla and Nayeli get the member baseline. They were
+  //    created AFTER the capability conversion and no creation path ever
+  //    granted anything (see lib/provisionUser.js, which fixes the cause), so
+  //    they have been logging in to an empty sidebar. The API let them in on
+  //    the fallback; the client's can() has no fallback at all.
+  //
+  // The role table below is a FROZEN COPY of LEGACY_ROLE_GRANTS as it stands
+  // today, written out in full on purpose. A migration that imported the live
+  // map would silently change meaning the next time that map was edited, which
+  // is the one thing a migration must never do.
+  `INSERT INTO user_capabilities (user_id, company_id, capability)
+   SELECT u.id, u.company_id, cap
+     FROM users u
+     JOIN (VALUES
+       ('member', ARRAY['crew.profile', 'kitchen.shopping', 'policies.read', 'tasks.own']),
+       ('manager', ARRAY['ai.use', 'announcements.manage', 'betty.use', 'crew.profile', 'dashboard.view', 'events.private', 'gateway.use', 'groundcontrol.use', 'kindredapp.manage', 'kitchen.catalog', 'kitchen.ingredients', 'kitchen.inventory', 'kitchen.receipts', 'kitchen.receipts.scan', 'kitchen.recipes', 'kitchen.settings', 'kitchen.shopping', 'marketing.campaigns', 'marketing.events', 'marketing.hours', 'marketing.loyalty', 'marketing.media', 'marketing.website', 'policies.read', 'reports.operational', 'reports.scheduled', 'scheduling.manage', 'skynet.view', 'sms.send', 'tasks.manage', 'tasks.own', 'tastingroom.menus', 'tastingroom.reservations', 'users.assist', 'wine.inventory', 'wine.lines', 'wine.products', 'wine.reports']),
+       ('admin', ARRAY['ai.use', 'announcements.manage', 'betty.use', 'crew.profile', 'dashboard.view', 'events.private', 'gateway.use', 'groundcontrol.use', 'kindredapp.manage', 'kitchen.catalog', 'kitchen.ingredients', 'kitchen.inventory', 'kitchen.receipts', 'kitchen.receipts.scan', 'kitchen.recipes', 'kitchen.settings', 'kitchen.shopping', 'marketing.campaigns', 'marketing.events', 'marketing.hours', 'marketing.loyalty', 'marketing.media', 'marketing.website', 'policies.read', 'reports.operational', 'reports.scheduled', 'scheduling.manage', 'skynet.view', 'sms.send', 'tasks.manage', 'tasks.own', 'tastingroom.menus', 'tastingroom.reservations', 'users.assist', 'wine.inventory', 'wine.lines', 'wine.products', 'wine.reports']),
+       ('marketing', ARRAY['ai.use', 'announcements.manage', 'crew.profile', 'kindredapp.manage', 'kitchen.shopping', 'marketing.campaigns', 'marketing.events', 'marketing.hours', 'marketing.loyalty', 'marketing.media', 'marketing.website', 'policies.read', 'reports.scheduled', 'tasks.own']),
+       ('owner', ARRAY['ai.use', 'announcements.manage', 'betty.use', 'crew.profile', 'dashboard.view', 'events.private', 'gateway.use', 'groundcontrol.use', 'kindredapp.manage', 'kitchen.catalog', 'kitchen.ingredients', 'kitchen.inventory', 'kitchen.receipt_sources', 'kitchen.receipts', 'kitchen.receipts.scan', 'kitchen.recipes', 'kitchen.settings', 'kitchen.shopping', 'marketing.campaigns', 'marketing.events', 'marketing.hours', 'marketing.loyalty', 'marketing.media', 'marketing.website', 'policies.read', 'reports.operational', 'reports.scheduled', 'scheduling.manage', 'skynet.view', 'sms.send', 'tasks.manage', 'tasks.own', 'tastingroom.menus', 'tastingroom.reservations', 'users.assist', 'users.manage', 'wine.inventory', 'wine.lines', 'wine.products', 'wine.reports']),
+       ('inventory', ARRAY['crew.profile', 'kitchen.inventory', 'kitchen.shopping', 'policies.read', 'tasks.own', 'wine.inventory', 'wine.reports']),
+       ('schedule', ARRAY['crew.profile', 'kitchen.shopping', 'marketing.events', 'policies.read', 'scheduling.manage', 'tasks.own']),
+       ('gc', ARRAY['crew.profile', 'groundcontrol.use', 'kitchen.shopping', 'policies.read', 'tasks.own'])
+     ) AS r(role, caps) ON r.role = u.role
+     CROSS JOIN LATERAL UNNEST(r.caps) AS cap
+   ON CONFLICT (user_id, capability) DO NOTHING`,
 ];
 
 export async function runMigrations() {

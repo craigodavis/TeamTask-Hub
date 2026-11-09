@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
+import { grantRolePreset } from '../lib/provisionUser.js';
 import { requireAuth, requireCapability } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -45,6 +46,9 @@ router.post('/register', async (req, res) => {
       [company_id, email.toLowerCase(), hash, display_name || null, role || 'member']
     );
     const user = r.rows[0];
+    // Stamp the role's preset. Without this the account exists but holds
+    // nothing, and the client's can() has no fallback -- an empty sidebar.
+    await grantRolePreset(user.id, user.company_id, user.role);
     const token = jwt.sign(
       { userId: user.id, companyId: user.company_id, role: user.role },
       JWT_SECRET,

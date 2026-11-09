@@ -1,6 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
+import { grantRolePreset } from '../lib/provisionUser.js';
 import twilio from 'twilio';
 import { executeSqlReadOnly, resolveParamsSnapshot } from './scheduledReportsHelper.js';
 import { sendMail } from '../mail.js';
@@ -120,11 +121,12 @@ async function runSquareAutoSyncForCompany(cId, actorUserId = null) {
     const row = existing.rows[0];
     if (!row) {
       try {
-        await query(
+        const ins = await query(
           `INSERT INTO users (company_id, email, password_hash, display_name, role, square_team_member_id, phone)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
           [cId, email.toLowerCase(), SQUARE_PLACEHOLDER_PASSWORD_HASH, displayName, 'member', squareId, tm.phone_number || null]
         );
+        await grantRolePreset(ins.rows[0].id, cId, 'member');
         added++;
       } catch (insertErr) {
         if (insertErr.code === '23505') {
@@ -536,11 +538,12 @@ router.post('/square/add-users', async (req, res) => {
         continue;
       }
       try {
-        await query(
+        const ins2 = await query(
           `INSERT INTO users (company_id, email, password_hash, display_name, role, square_team_member_id, phone)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
           [cId, email.toLowerCase(), SQUARE_PLACEHOLDER_PASSWORD_HASH, displayName, role, squareId, phone]
         );
+        await grantRolePreset(ins2.rows[0].id, cId, role);
         added++;
       } catch (insertErr) {
         if (insertErr.code === '23505') {
