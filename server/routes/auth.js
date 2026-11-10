@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
 import { grantRolePreset } from '../lib/provisionUser.js';
-import { requireAuth, requireCapability } from '../middleware/auth.js';
+import { requireAuth, requireCapability, requireOwner } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -121,7 +121,17 @@ router.post('/login', async (req, res) => {
 });
 
 /**
- * Start a "View as" session — owner only.
+ * Start a "View as" session — OWNER ONLY, and that is enforced here by role.
+ *
+ * This guard is `requireOwner`, not `requireCapability('users.manage')`, and
+ * the difference is the whole point. `users.manage` is a capability: a tickable
+ * box on the permissions screen. Gating impersonation on a box meant that
+ * ticking it for somebody handed them the ability to become ANY account in the
+ * company, owners included — the UI would not show them the menu item, but the
+ * endpoint would have answered anyone who called it. A role cannot be ticked.
+ *
+ * Nobody lost anything when this changed: only the two owners held
+ * `users.manage`, so the set of people who could do this is the same set.
  *
  * Returns a short-lived token that makes every request answer as that person:
  * their menus, their tasks, their data. Not a preview of the sidebar, the
@@ -135,7 +145,7 @@ router.post('/login', async (req, res) => {
  *
  * Thirty minutes, so a forgotten session expires on its own.
  */
-router.post('/view-as/:userId', requireAuth, requireCapability('users.manage'), async (req, res) => {
+router.post('/view-as/:userId', requireAuth, requireOwner, async (req, res) => {
   const target = (
     await query(
       `SELECT id, display_name, email, role FROM users WHERE id = $1 AND company_id = $2`,

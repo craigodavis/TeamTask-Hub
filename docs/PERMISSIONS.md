@@ -294,8 +294,22 @@ column is the last thing depending on the old model meaning anything.
 Two tools, answering two different questions. Neither grants anything; both
 read the same capabilities the server enforces.
 
-**"What do they see right now?" — View as.** Account menu → *View as…*, owner
-only (`users.manage` on the server). It mints a 30-minute token carrying the
+**"What do they see right now?" — View as.** Account menu → *View as…*.
+
+**Owner only, enforced by role.** The server guard is `requireOwner`, not a
+capability, and the difference matters: `users.manage` is a tickable box, so
+gating impersonation on it meant ticking that box for somebody handed them the
+ability to become any account in the company, owners included. The menu item
+would have stayed hidden from them — the client gate reads the role — but the
+endpoint would have answered anyone who called it directly. A role cannot be
+ticked. Changing this took nothing from anyone: only the two owners held
+`users.manage`. `audit-apps.mjs` fails if the guard is ever weakened back to a
+capability.
+
+It cannot be chained, either: a view-as session is read-only and `/view-as` is
+a POST, so you cannot hop from inside one person into another.
+
+It mints a 30-minute token carrying the
 target's id, so `/api/auth/me` returns *their* role and *their* grant rows and
 every client gate resolves exactly as it does for them. Not a mock-up of the
 sidebar — the actual app. Read-only on purpose: being able to look at somebody's
@@ -331,3 +345,21 @@ SyncUsers, KitchenInventory, FoodIngredients. Those resolve correctly under
 View as, because the role comes from the target, but the preview cannot show
 them. Convert them before narrowing anyone, or a narrowed manager will see
 menu entries that 403.
+
+### Still open: owner-only capabilities are grantable
+
+`OWNER_ONLY = ['kitchen.receipt_sources', 'users.manage']` shapes the role
+presets and nothing more. The save handler in `routes/permissions.js` checks
+only that a capability *exists* in the catalogue, so either can be ticked for
+anyone. Nobody outside the two owners holds either today.
+
+Two consequences if one were granted. `users.manage` lets its holder edit
+everyone's permissions — including setting a role, so they could make
+themselves an owner and from there reach View as after all. View-as is no
+longer the exposure it was, but that escalation path is. Closing it means
+refusing an owner-only capability for a non-owner in the PUT, and refusing a
+role change that promotes someone to owner unless an owner is making it.
+
+Recorded rather than changed: nobody holds these, so there is nothing urgent
+here, and narrowing what the permissions screen will accept is a decision, not
+a cleanup.

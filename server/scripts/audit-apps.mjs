@@ -147,5 +147,19 @@ console.log('\nThe capability gate has no second opinion');
   ok(!/export const LEGACY_ROLE_GRANTS/.test(caps), 'LEGACY_ROLE_GRANTS is not exported');
 }
 
+console.log('\nImpersonation is owner-only, by role');
+// "View as" answers every request as somebody else. Gating it on a CAPABILITY
+// meant a tickable box could hand that power to a non-owner -- the menu item
+// would stay hidden, but the endpoint would have answered anyone who called
+// it. A role is not tickable, which is the whole reason this is requireOwner.
+{
+  const src = await readFile(new URL('../routes/auth.js', import.meta.url), 'utf8');
+  const line = src.split('\n').find((l) => l.includes("router.post('/view-as/"));
+  ok(!!line, 'the view-as route still exists');
+  ok(!!line && /requireOwner/.test(line), 'view-as is guarded by requireOwner', line?.trim());
+  ok(!!line && !/requireCapability/.test(line),
+     'view-as is NOT gated on a tickable capability', line?.trim());
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
