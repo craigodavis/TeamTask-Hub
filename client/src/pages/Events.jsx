@@ -3,6 +3,7 @@ import { getEvents, createEvent, updateEvent, deleteEvent, getMusicians, createM
 import { ImageField } from '../components/MediaPicker';
 import '../styles/vintly.css';
 import './Talent.css';
+import './Events.css';
 import Drawer from '../components/Drawer';
 import TalentInbox from '../components/TalentInbox';
 
@@ -157,9 +158,10 @@ function EventsTab() {
 
   return (
     <>
-    <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      {/* Left rail */}
-      <aside style={{ flex: '0 0 210px', minWidth: 180, position: 'sticky', top: 12 }}>
+    <div className="ev-cols">
+      {/* Left rail. Sizing lives in Events.css because it has to stack on a
+          phone, and a media query cannot go in a style prop. */}
+      <aside className="ev-rail">
         <button style={{ ...btn(true), width: '100%', borderRadius: 10, marginBottom: 14 }} onClick={() => setShowNew(true)}>
           ＋ New event
         </button>
@@ -186,7 +188,7 @@ function EventsTab() {
       </aside>
 
       {/* Main */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="ev-main">
       <SlideOver open={showNew} label="Add event" onClose={() => setShowNew(false)}>
       <div>
         <h3 style={{ marginTop: 0 }}>Add event</h3>
@@ -1933,7 +1935,15 @@ function CalendarView({ events, onOpen, onCreate }) {
         <strong>{first.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</strong>
         <button style={{ ...btn(false), padding: '4px 10px' }} onClick={next}>→</button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
+      {/* minmax(0,1fr), not 1fr. `1fr` is shorthand for `minmax(auto,1fr)`, and a
+          track's auto minimum is its min-content width -- which, for a day cell
+          holding a `white-space: nowrap` event pill, is the full width of the
+          longest title in that column. So "Rochelle and the James Gang" made
+          Thursday wider than Tuesday and pushed the whole grid off the page.
+          Clipping the pill does not help: overflow on a descendant does not
+          shrink the cell's min-content contribution. Flooring the track at 0 is
+          what makes seven equal columns that always fit. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 4 }}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} style={{ fontSize: 11, opacity: 0.6, textAlign: 'center' }}>{d}</div>)}
         {cells.map((d, i) => {
           if (d === null) return <div key={'e' + i} />;
@@ -1942,7 +1952,7 @@ function CalendarView({ events, onOpen, onCreate }) {
           return (
             <div key={i} onClick={() => onCreate?.(key)}
                  title={onCreate ? 'Add an event on this day' : undefined}
-                 style={{ minHeight: 80, border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 4, fontSize: 11, cursor: onCreate ? 'pointer' : 'default' }}>
+                 style={{ minHeight: 80, minWidth: 0, overflow: 'hidden', border: '1px solid var(--border,#eee)', borderRadius: 6, padding: 4, fontSize: 11, cursor: onCreate ? 'pointer' : 'default' }}>
               <div style={{ opacity: 0.5, textAlign: 'right' }}>{d}</div>
               {evs.slice(0, 4).map((e) => {
                 const vc = venueColor(e.location_name); const live = stageOf(e) === 'published';

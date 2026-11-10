@@ -1,0 +1,38 @@
+/*
+ * The Events two-column layout.
+ *
+ * These two rules are a stylesheet rather than inline styles for one reason: a
+ * media query cannot be expressed in a `style` prop, and this layout has to
+ * stop being two columns on a phone.
+ *
+ * Why it has to: the rail is a fixed 210px and the main column is `flex: 1;
+ * min-width: 0`. `flex-wrap` only wraps when an item cannot fit at its MINIMUM
+ * width, and a minimum of 0 always fits -- so on a 375px screen the rail kept
+ * its 210px and the calendar was squeezed into what was left, seven day
+ * columns at 13px each. Removing `min-width: 0` is not the answer either; that
+ * is what used to push the grid sideways off the screen instead. Stacking is.
+ */
+.ev-cols {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.ev-rail {
+  flex: 0 0 210px;
+  min-width: 180px;
+  position: sticky;
+  top: 12px;
+}
+
+.ev-main {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .ev-cols { flex-direction: column; }
+  /* Full width, and not sticky: a rail pinned to the top of a stacked layout
+     would sit on top of the calendar as you scrolled. */
+  .ev-rail { flex: 1 1 auto; width: 100%; min-width: 0; position: static; }
+}
