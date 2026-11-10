@@ -264,9 +264,9 @@ deciding before Stage 2, not during it.
 4. Do the 2 existing `room_layouts` and 13 placed tables get migrated into
    `reservation_areas`/`reservation_tables`, or re-drawn? 13 is small enough
    that re-drawing may be cleaner than mapping.
-5. `google` is 744 of 5,000 bookings. Reserve-with-Google is a channel that
-   would have to be re-pointed at Stage 4; it is not covered by owning the
-   website endpoints.
+5. `google` is 744 of 5,000 bookings and is not covered by owning the website
+   endpoints. See **Reserve with Google** below, which is now the longest
+   section here for a reason.
 
 ---
 
@@ -393,20 +393,117 @@ it should be planned as one rather than assumed to fall out of the migration.
 The collision window itself is small at Creek — 4 to 10 bookings a day — but the
 cost of one collision is two parties at one table on a Saturday night.
 
-## Eventually dropping ResOS on the Google side
+## Keeping the Google feature without ResOS
 
-Three options, in increasing order of effort. The status of Google's booking
-partner programme changes often and should be checked before committing.
+Researched against Google's own documentation on 9 Nov 2026. These programmes
+change; re-check before committing. Where a claim below comes from a
+third-party source rather than from Google, it says so.
 
-1. **A booking link on the Google Business Profile.** Converts Google from a
-   booking channel into a referral channel — guests land on our page instead of
-   booking inside Google. Keeps the traffic, loses the in-Google convenience.
-   Needs checking whether an active partner integration overrides a self-set
-   link.
-2. **Keep a minimal ResOS subscription purely as the Google adapter.** Possibly
-   the cheapest honest answer, and the status quo of the plan above.
-3. **Become a Google booking partner directly.** A formal programme with feed
-   and real-time booking APIs. Large, uncertain, and not a beta activity.
+Switching Google off is not on this list. It is 30% of Creek's bookings, and
+losing that for the length of a beta is not a trade worth making.
 
-Losing 30% of Creek's bookings for the duration of a beta is not an option, so
-switching Google off is not on this list.
+### Who these guests are
+
+64% of Google bookings are made **same-day**. Otherwise they look like our
+website guests — average party 3.5 against 3.1, no-shows 2.2% against 1.8%. So
+it is not a different kind of customer, it is a more impulsive moment: someone
+standing in Google Maps deciding where to go now. That is the audience most
+sensitive to an extra hop, which is what makes Route A cost more here than the
+raw percentage suggests.
+
+### Route A — our own link, self-serve, available today
+
+Google Business Profile lets a business add its own reservation link when it
+does not use a booking provider. Free, no partner status, no vendor, and we
+control it.
+
+What it is NOT: the in-Google booking button. The guest gets a link and leaves
+Google to finish on our page. Vendor write-ups also report it is less prominent
+than a partner button; that is their claim, not Google's.
+
+This is the floor. It is always available, and it survives whatever happens
+with the rest.
+
+### Route B — become the Google partner ourselves
+
+The real answer to "keep the feature without ResOS", and more plausible than it
+first looks.
+
+Google's stated eligibility test is: *"Partners need to have a direct
+contractual relationship with all the merchants included in their integration
+feed."* We would be both partner and merchant, which satisfies that on its face.
+
+**Be honest about the gap: none of Google's pages says whether a business can
+integrate for itself.** They are written throughout for third-party platforms
+serving many merchants. They also never say a single business is excluded. Only
+Google can answer this.
+
+The technical bar, quoted from the E2E integration policies:
+
+| Requirement | Google's wording |
+|---|---|
+| Sub-second availability | *"partners must be able to respond to availability requests from Google in less than 1 second"* |
+| 30 days of availability | *"Partners must have 30 days or more of merchants' availability."* |
+| Online cancellation | *"Partners must support online cancellation of bookings."* |
+| Real-time confirmation | *"All bookings must be confirmed automatically in real time"* (except async integrations) |
+
+**Every one of these is something our own engine has to do anyway.** A
+reservation system that cannot answer availability in under a second, or
+publish 30 days out, is not good enough for our own website either. These are
+not an extra project — they are a reasonable specification for the thing we are
+already building.
+
+A third-party audit lists the booking server methods as HealthCheck,
+BatchAvailabilityLookup, CreateBooking, UpdateBooking, GetBookingStatus and
+ListBookings. That is not from Google's pages and should be verified.
+
+The gate is not technical. The programme is **invitation-only**: a partner
+interest form or a Google business development contact, then sandbox and
+production review. Google is explicit that *"meeting the requirements does not
+guarantee a partner will be eligible to integrate or go live."*
+
+**Submit the partner interest form early — before any code is written.** It is
+free, and the answer decides the end state. If Google will onboard a two-venue
+winery directly, ResOS goes away entirely and the feature survives intact. If
+not, we find out while there is still time to plan around it rather than at
+cutover.
+
+### Route C — a cheaper partner as the adapter
+
+Swap ResOS for a thinner booking platform that already holds partner status,
+used purely as the Google adapter. Same shape as keeping ResOS, possibly less
+money, but it does not get us out from under a vendor. Worth considering only
+if ResOS's cost is the actual motivation.
+
+### Sources
+
+- https://developers.google.com/actions-center/verticals/reservations/e2e/overview
+- https://developers.google.com/actions-center/verticals/reservations/e2e/policies/integration-policies
+- https://developers.google.com/actions-center/verticals/ordering/redirect/integration-steps/dining-reservation-links
+- https://support.google.com/business/answer/7475773
+
+---
+
+# Next actions
+
+In order, and the first two cost nothing to start.
+
+1. **Submit Google's partner interest form.** Free, needs no code, and the
+   answer decides whether ResOS ever goes away. The longest lead time of
+   anything here, so it should start first.
+2. **Find what writes `club_steward.reservations`, and how often.** Nothing in
+   this repository does. That interval is the overbooking window, and Stage 2
+   onwards depends on it.
+3. **Record the venue to ResOS-restaurant mapping.** `kindred_web.resos_config`
+   has no `restaurant_id` column, which is why `location_id` does not join to
+   `locations.id` and `restaurant_name` is NULL on all 5,000 mirrored rows.
+   Everything downstream needs to know which venue a booking belongs to.
+4. **Build the config layer** (the four tables above) and take Areas & Tables,
+   Layouts and Offers off the example data. The `· mockup` suffix comes off a
+   screen when that screen talks to the database.
+5. **Back-test.** Replay the 1,190 real Creek bookings with their real table
+   assignments through the engine. No live request needed, and it can happen
+   before shadow mode exists.
+6. **Shadow Creek**, then take Creek native on a date boundary, with ResOS
+   write-back for Google. Leave the Winery alone until Creek has been boring
+   for a month.
