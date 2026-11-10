@@ -35,22 +35,30 @@ half — getting every channel to point at you — is finished.
 
 | Table | Rows | |
 |---|---|---|
-| `club_steward.reservations` | 5,000 | guest, date, time, party, status, notes, custom fields |
-| `club_steward.reservation_tables` | 5,021 | table name, area, seats min/max, booking priority |
+| `club_steward.reservations` | 2,500 Kindred (5,000 incl. the duplicate tenant) | guest, date, time, party, status, notes, custom fields |
+| `club_steward.reservation_tables` | 5,021 across both tenants | table name, area, seats min/max, booking priority |
 | `club_steward.room_layouts` | 2 | `Main` 60×40ft and `Main` 40×30ft |
 | `club_steward.room_layout_tables` | 13 | shape, x, y, radius, rotation, keyed to `resos_table_id` |
 | `club_steward.booking_events` | 0 | audit-log shaped: action, origin, details, user. Built, never written |
 | `club_steward.reservations_stage` | 0 | raw ResOS import staging |
 | `public.resos_reservations` | 1,736 | older flat export, Feb 2025 – Mar 2026 |
 
-**This mirror is current.** Ten rows were created on 9 Nov, a steady couple of
-dozen a day before that, and it holds 52 future bookings out to 30 Jan 2027.
-Booking sources: website 3,946 · google 744 · phone 300 · walk-in 10.
+**This mirror is current**, and it holds 26 future Kindred bookings out to
+30 Jan 2027.
 
-**Nothing in this repository writes it.** No route, script or scheduler here
-touches `club_steward.reservations`. Something else — presumably the Club
-Steward service — syncs ResOS into it. Worth confirming what and on what
-cadence before anything depends on it.
+**ClubSteward writes it**, on a poll: `services/resosSchedulerService.js` ticks
+every minute and syncs each company on its own
+`club_steward.resos_settings.sync_frequency_minutes`, which for Kindred is
+**5 minutes**, covering today to +90 days. Nothing in THIS repository writes it.
+
+**Count correction.** ClubSteward is multi-tenant and holds a second tenant
+named "Resos" whose rows are an exact duplicate of Kindred's — same restaurant
+ids, same 1,905/595 split, 2,489 booking signatures under both. Any query that
+does not filter `company_id = '8d2df498-…'` returns double. Kindred's real
+totals are 2,500 bookings: **Winery 1,905, Creek 595**.
+
+Kindred booking sources: Creek — website 375 (63%), google 176 (30%), phone 43,
+walk-in 1. Winery — website 1,598 (84%), google 196 (10%), phone 107, walk-in 4.
 
 Two data snags to settle before using it:
 
@@ -278,13 +286,15 @@ Measured 9 Nov 2026 from `club_steward.reservations`.
 
 Bookings per open day, last 180 days:
 
+Kindred only (the duplicate tenant excluded):
+
 | | Mon | Tue | Wed | Thu | Fri | Sat | Sun |
 |---|---|---|---|---|---|---|---|
-| **Creek** | closed | 4.5 | 4.3 | **9.5** | 6.6 | 8.6 | 6.5 |
-| **Winery** | 15.2 | 13.3 | 4.8 | 12.0 | 30.5 | **47.4** | 34.1 |
+| **Creek** | closed | 2.3 | 2.1 | **4.7** | 3.3 | 4.3 | 3.3 |
+| **Winery** | 7.6 | 6.7 | 2.4 | 6.0 | 15.3 | **23.7** | 17.0 |
 
-Creek is flat — 4 to 10 every day it opens. Its busiest day is quieter than the
-Winery's quietest ordinary day. **Creek already is the slow week**, so slicing it
+Creek is flat — 2 to 5 every day it opens. Its busiest day is quieter than all
+but one of the Winery's days. **Creek already is the slow week**, so slicing it
 further by weekday buys about five bookings and costs a rule nobody can hold in
 their head.
 
@@ -306,7 +316,7 @@ tables held.
 | median lead time | 0 days (same day) |
 | 90th percentile | 8 days |
 | 99th percentile | 34 days |
-| Creek future book today | 20 bookings |
+| Creek future book today | 8 bookings (26 across both venues) |
 
 Nothing is migrated and there is no big-bang moment. Pick a date ~2 weeks out:
 from that date Creek bookings are ours, everything already booked plays out in
@@ -314,7 +324,7 @@ ResOS, and within five weeks the ResOS Creek book is empty on its own.
 
 ## Exit criteria
 
-Shadow first; it affects nobody and produces the evidence. The 1,190 real Creek
+Shadow first; it affects nobody and produces the evidence. The 595 real Creek
 bookings, with their real table assignments, can be replayed through the engine
 *before any live request* to check it never double-assigns a table.
 
@@ -329,17 +339,19 @@ one full service worked only from the new floor plan.
 
 # Reserve with Google
 
-**These are real Reserve with Google bookings, not Google referrals.** All 744
-have no referrer and *zero* custom fields — Google's form never asks our
+**These are real Reserve with Google bookings, not Google referrals.** Every
+one has no referrer and *zero* custom fields — Google's form never asks our
 questions — yet always carry email and phone. Bookings that merely arrived via
 a Google search appear as `source='website'` with a referrer.
 
 | | Google bookings | share of venue |
 |---|---|---|
-| Winery | 392 | 10% |
-| **Creek** | **352** | **30%** |
+| Winery | 196 | 10% |
+| **Creek** | **176** | **30%** |
 
-**Nearly a third of Creek's bookings** — at the venue proposed to go first.
+**Nearly a third of Creek's bookings** — at the venue proposed to go first. The
+share is what matters and it is unaffected by the duplicate-tenant correction;
+only the absolute counts halve.
 
 ## Why it cannot simply be repointed
 
@@ -491,9 +503,8 @@ In order, and the first two cost nothing to start.
 1. **Submit Google's partner interest form.** Free, needs no code, and the
    answer decides whether ResOS ever goes away. The longest lead time of
    anything here, so it should start first.
-2. **Find what writes `club_steward.reservations`, and how often.** Nothing in
-   this repository does. That interval is the overbooking window, and Stage 2
-   onwards depends on it.
+2. ~~Find what writes `club_steward.reservations`.~~ **Answered:** ClubSteward,
+   polling ResOS every 5 minutes. That 5 minutes is the overbooking window.
 3. **Record the venue to ResOS-restaurant mapping.** `kindred_web.resos_config`
    has no `restaurant_id` column, which is why `location_id` does not join to
    `locations.id` and `restaurant_name` is NULL on all 5,000 mirrored rows.
@@ -501,7 +512,7 @@ In order, and the first two cost nothing to start.
 4. **Build the config layer** (the four tables above) and take Areas & Tables,
    Layouts and Offers off the example data. The `· mockup` suffix comes off a
    screen when that screen talks to the database.
-5. **Back-test.** Replay the 1,190 real Creek bookings with their real table
+5. **Back-test.** Replay the 595 real Creek bookings with their real table
    assignments through the engine. No live request needed, and it can happen
    before shadow mode exists.
 6. **Shadow Creek**, then take Creek native on a date boundary, with ResOS
