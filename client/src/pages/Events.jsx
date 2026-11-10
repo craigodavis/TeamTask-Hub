@@ -34,10 +34,19 @@ import {
 
 export default function Events() {
   const [tab, setTab] = useState('events');
+  // No max-width and no padding of its own. This page is a calendar, a table
+  // and a list -- all three want the window. Capping it at 1000px and centring
+  // it left a wide screen with a few hundred pixels of nothing down the left
+  // while the calendar squeezed seven columns into the middle. The shell
+  // already pads the content area (.app-shell-main), so the padding here was
+  // being applied twice.
+  //
+  // The blurb keeps a cap, because prose is the one thing on the page that
+  // gets harder to read as it gets wider.
   return (
-    <div style={{ padding: 20, maxWidth: 1000, margin: '0 auto' }}>
+    <div>
       <h1 style={{ margin: '0 0 4px' }}>🎪 Events</h1>
-      <p style={{ marginTop: 0, opacity: 0.7 }}>Plan events in TeamHub. Publishing pushes them to the website. Musician lift helps you book with staffing in mind.</p>
+      <p style={{ marginTop: 0, opacity: 0.7, maxWidth: '72ch' }}>Plan events in TeamHub. Publishing pushes them to the website. Musician lift helps you book with staffing in mind.</p>
       <div style={{ display: 'flex', gap: 8, margin: '14px 0 18px' }}>
         {[['events', 'Events'], ['musicians', 'Musician/Talent'], ['reminders', 'Reminders'], ['promo', 'Promotion']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ ...btn(tab === k), borderRadius: 20 }}>{l}</button>
