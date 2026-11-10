@@ -288,3 +288,46 @@ Nothing writes to it now.
 Then delete the fallback branch in `requireCapability`, drop
 `LEGACY_ROLE_GRANTS`, and flip the two `inventory` users to `member` — that
 column is the last thing depending on the old model meaning anything.
+
+## Seeing what someone else sees
+
+Two tools, answering two different questions. Neither grants anything; both
+read the same capabilities the server enforces.
+
+**"What do they see right now?" — View as.** Account menu → *View as…*, owner
+only (`users.manage` on the server). It mints a 30-minute token carrying the
+target's id, so `/api/auth/me` returns *their* role and *their* grant rows and
+every client gate resolves exactly as it does for them. Not a mock-up of the
+sidebar — the actual app. Read-only on purpose: being able to look at somebody's
+screen is useful, being able to complete their tasks or post in their name is a
+way to corrupt data nobody would think to look for afterwards. A banner names
+whose account you are in, and the owner's own token is kept aside rather than
+discarded so leaving is one click and never a re-login.
+
+Nothing in the client writes on mount, so no screen 403s merely from being
+looked at. The one mount-time POST (`Square.jsx`, accepting an invite) needs a
+`?join=` token in the URL.
+
+**"What would they see if I changed this?" — the preview in the matrix.**
+Manage → Users & Roles, inside the editor. It renders the menu the *unsaved*
+checkboxes would produce, and names what the person gains and loses against
+what they hold today, including any app that would vanish entirely. Before it
+existed the only way to answer that was to save the change to a live account
+and go and look.
+
+It is built by handing the draft to `visibleApps` — the function the shell
+itself calls to draw the real sidebar (`client/src/lib/menuPreview.js`) — so it
+cannot drift from what the person will actually get. The role is part of the
+draft and not decoration: six Floor rows are gated on `isOwner`, so changing
+the dropdown moves them with no checkbox touched, and a preview that read only
+the checkboxes would be silent about exactly the change most likely to surprise
+someone. `server/scripts/audit-menu-preview.mjs` bundles that client module and
+asserts it, against the catalogue and against every real person's grants.
+
+**What the preview does not cover.** It is the menu. Twelve gates in eight
+screens still vary their own in-page tabs on `user.role === 'manager'` rather
+than on a capability — UserMenu, Dashboard, Settings, Square, Manager,
+SyncUsers, KitchenInventory, FoodIngredients. Those resolve correctly under
+View as, because the role comes from the target, but the preview cannot show
+them. Convert them before narrowing anyone, or a narrowed manager will see
+menu entries that 403.

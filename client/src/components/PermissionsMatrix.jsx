@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { previewFor } from '../lib/menuPreview';
+
+/** "Floor", "Floor and Cellar", "Floor, Cellar and Admin". */
+const listOf = (xs) =>
+  xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
 import './PermissionsMatrix.css';
 
 /**
@@ -12,6 +17,12 @@ import './PermissionsMatrix.css';
  *
  * The catalogue comes from the server rather than being duplicated here, so
  * the checkboxes cannot drift from what the API enforces.
+ *
+ * Beside the checkboxes is the menu they would produce. It is built by handing
+ * the UNSAVED draft to `visibleApps`, the very function the shell calls to draw
+ * the real sidebar -- so it cannot drift from what the person will actually get,
+ * and asking "what would Elaine lose?" no longer means saving it to her live
+ * account and going to look. See docs/APPS.md.
  */
 export function PermissionsMatrix({ authFetch, currentUserId, onError, onMessage }) {
   const [catalog, setCatalog] = useState(null);
@@ -84,10 +95,11 @@ export function PermissionsMatrix({ authFetch, currentUserId, onError, onMessage
     setSaving(true);
     onError?.(''); onMessage?.('');
     try {
-      // Only send a role the server still recognises. Tristan and Zoë are on
-      // the retired `inventory` role, and sending that back would 400 -- so
-      // ticking a box for them saves the boxes and leaves their role alone
-      // until someone deliberately picks one of the five.
+      // Only send a role the server still recognises. Migration 825 moved the
+      // last holders of `inventory`, `schedule` and `gc` to `member`, so in
+      // practice nobody is on a retired role any more -- but sending one back
+      // would 400, so a drifted row still saves its boxes and leaves the role
+      // alone until someone deliberately picks one.
       const body = { capabilities: [...draft.capabilities] };
       if (catalog.roles.includes(draft.role)) body.role = draft.role;
 
@@ -113,6 +125,16 @@ export function PermissionsMatrix({ authFetch, currentUserId, onError, onMessage
         return false;
       })()
     : false;
+
+  // What the draft would produce. Delegated to lib/menuPreview, which calls the
+  // shell's own `visibleApps` -- so this panel cannot drift from the real
+  // sidebar, and the same code is exercised against production grants by
+  // server/scripts/audit-menu-preview.mjs.
+  const preview = useMemo(() => {
+    if (!draft || !openId || !catalog) return null;
+    const saved = users.find((u) => u.id === openId);
+    return saved ? previewFor(saved, draft.role, draft.capabilities) : null;
+  }, [draft, openId, users, catalog]);
 
   if (!catalog) return <p className="hint">Loading permissions…</p>;
 
@@ -159,6 +181,67 @@ export function PermissionsMatrix({ authFetch, currentUserId, onError, onMessage
                   </span>
                 </div>
 
+                {preview && (
+                  <section className="pm-preview" aria-live="polite">
+                    <header className="pm-preview-head">
+                      <h4>What they would see</h4>
+                      <span className="pm-preview-note">
+                        Their menu, built from the boxes below as they stand — nothing is saved yet.
+                      </span>
+                    </header>
+
+                    {preview.apps.length === 0 ? (
+                      <p className="pm-preview-empty">
+                        Nothing at all. They would land on “Nothing is set up for you yet” and be
+                        unable to go anywhere.
+                      </p>
+                    ) : (
+                      <div className="pm-preview-apps">
+                        {preview.apps.map(({ app, nav }) => (
+                          <div
+                            key={app.id}
+                            className="pm-preview-app"
+                            style={{ '--pm-a-light': app.color[0], '--pm-a-dark': app.color[1] }}
+                          >
+                            <span className="pm-preview-app-name">{app.name}</span>
+                            <ul className="pm-preview-nav">
+                              {nav.map((i) => <li key={i.to}>{i.label}</li>)}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {(preview.lost.length > 0 || preview.gained.length > 0) && (
+                      <div className="pm-preview-diff">
+                        {preview.lost.length > 0 && (
+                          <p className="pm-diff pm-diff-lost">
+                            <strong>Loses {preview.lost.length}:</strong>{' '}
+                            {preview.lost.map((v) => `${v.label} (${v.app})`).join(', ')}
+                            {preview.appsLost.length > 0 && (
+                              <em> — and {listOf(preview.appsLost)} disappear{preview.appsLost.length === 1 ? 's' : ''} entirely.</em>
+                            )}
+                          </p>
+                        )}
+                        {preview.gained.length > 0 && (
+                          <p className="pm-diff pm-diff-gained">
+                            <strong>Gains {preview.gained.length}:</strong>{' '}
+                            {preview.gained.map((v) => `${v.label} (${v.app})`).join(', ')}
+                            {preview.appsGained.length > 0 && (
+                              <em> — {listOf(preview.appsGained)} {preview.appsGained.length === 1 ? 'is' : 'are'} new to them.</em>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="pm-preview-caveat">
+                      This is the menu. A few screens still vary their own tabs by role rather than
+                      by permission, so check those with “View as” in your account menu after saving.
+                    </p>
+                  </section>
+                )}
+
                 {groups.map((g) => {
                   const all = g.items.every((i) => draft.capabilities.has(i.key));
                   const some = !all && g.items.some((i) => draft.capabilities.has(i.key));
@@ -197,7 +280,19 @@ export function PermissionsMatrix({ authFetch, currentUserId, onError, onMessage
                     {saving ? 'Saving…' : 'Save permissions'}
                   </button>
                   <button type="button" onClick={() => { setOpenId(null); setDraft(null); }}>Cancel</button>
-                  <span className="pm-count">{draft.capabilities.size} selected</span>
+                  <span className="pm-count">
+                    {preview && (preview.lost.length > 0 || preview.gained.length > 0) ? (
+                      <>
+                        {preview.lost.length > 0 && (
+                          <span className="pm-count-lost">−{preview.lost.length} menu item{preview.lost.length === 1 ? '' : 's'}</span>
+                        )}
+                        {preview.gained.length > 0 && (
+                          <span className="pm-count-gained">+{preview.gained.length} menu item{preview.gained.length === 1 ? '' : 's'}</span>
+                        )}
+                      </>
+                    ) : null}
+                    <span>{draft.capabilities.size} selected</span>
+                  </span>
                 </div>
               </div>
             )}
