@@ -108,12 +108,18 @@ export const APPS = [
     icon: I.table,
     nav: [
       { to: '/tasting-room/reservations', label: 'Bookings', icon: I.table, when: cap('tastingroom.reservations'), exact: true },
-      { to: '/tasting-room/reservations/floor', label: 'Floor Plan', icon: I.grid, when: (u, c, isOwner) => isOwner(u) },
-      { to: '/tasting-room/reservations/layouts', label: 'Layouts', icon: I.layers, when: (u, c, isOwner) => isOwner(u) },
-      { to: '/tasting-room/reservations/tables', label: 'Areas & Tables', icon: I.rows, when: (u, c, isOwner) => isOwner(u) },
-      { to: '/tasting-room/reservations/offers', label: 'Offers', icon: I.tag, when: (u, c, isOwner) => isOwner(u) },
-      { to: '/tasting-room/reservations/hours', label: 'Hours & Limits', icon: I.clock, when: (u, c, isOwner) => isOwner(u) },
-      { to: '/tasting-room/reservations/settings', label: 'Booking Settings', icon: I.gear, when: (u, c, isOwner) => isOwner(u) },
+      // These six are MOCKUPS: they render example data and save nothing. The
+      // nav used to say so -- the old hand-written sidebar had one entry called
+      // "Reservations Mockup" (9914c2d, written for exactly this reason) and
+      // moving the nav into this file dropped the warning, leaving six entries
+      // that read like working software. ResOS owns every real booking.
+      // The suffix comes off a screen when that screen talks to the database.
+      { to: '/tasting-room/reservations/floor', label: 'Floor Plan · mockup', icon: I.grid, when: (u, c, isOwner) => isOwner(u) },
+      { to: '/tasting-room/reservations/layouts', label: 'Layouts · mockup', icon: I.layers, when: (u, c, isOwner) => isOwner(u) },
+      { to: '/tasting-room/reservations/tables', label: 'Areas & Tables · mockup', icon: I.rows, when: (u, c, isOwner) => isOwner(u) },
+      { to: '/tasting-room/reservations/offers', label: 'Offers · mockup', icon: I.tag, when: (u, c, isOwner) => isOwner(u) },
+      { to: '/tasting-room/reservations/hours', label: 'Hours & Limits · mockup', icon: I.clock, when: (u, c, isOwner) => isOwner(u) },
+      { to: '/tasting-room/reservations/settings', label: 'Booking Settings · mockup', icon: I.gear, when: (u, c, isOwner) => isOwner(u) },
       { to: '/tasting-room/menus', label: 'Menus', icon: I.menuCard, when: cap('tastingroom.menus') },
       { to: '/marketing/private-events', label: 'Private Events', icon: I.star, when: cap('events.private') },
     ],
