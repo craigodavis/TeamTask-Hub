@@ -267,3 +267,146 @@ deciding before Stage 2, not during it.
 5. `google` is 744 of 5,000 bookings. Reserve-with-Google is a channel that
    would have to be re-pointed at Stage 4; it is not covered by owning the
    website endpoints.
+
+---
+
+# The beta plan
+
+Measured 9 Nov 2026 from `club_steward.reservations`.
+
+## Slice by venue, not by weekday
+
+Bookings per open day, last 180 days:
+
+| | Mon | Tue | Wed | Thu | Fri | Sat | Sun |
+|---|---|---|---|---|---|---|---|
+| **Creek** | closed | 4.5 | 4.3 | **9.5** | 6.6 | 8.6 | 6.5 |
+| **Winery** | 15.2 | 13.3 | 4.8 | 12.0 | 30.5 | **47.4** | 34.1 |
+
+Creek is flat — 4 to 10 every day it opens. Its busiest day is quieter than the
+Winery's quietest ordinary day. **Creek already is the slow week**, so slicing it
+further by weekday buys about five bookings and costs a rule nobody can hold in
+their head.
+
+Venue is also a *true* partition: separate ResOS restaurant, separate API key,
+separate rooms. The two systems cannot disagree about a seat because they never
+describe the same seat. A weekday slice only looks like a partition — it leaks
+the moment a guest moves Tuesday's booking to Saturday, and it leaves staff
+asking "which system is tonight?" every shift.
+
+And the whole of Creek teaches more than a quiet Tuesday: a weekday, a Saturday,
+and Thursday live music, which is Creek's *busiest* day and uses the hard case
+the model was built for — the `Thursday Live Music` layout, 60 standing, inside
+tables held.
+
+## Lead times make the cutover forgiving
+
+| | |
+|---|---|
+| median lead time | 0 days (same day) |
+| 90th percentile | 8 days |
+| 99th percentile | 34 days |
+| Creek future book today | 20 bookings |
+
+Nothing is migrated and there is no big-bang moment. Pick a date ~2 weeks out:
+from that date Creek bookings are ours, everything already booked plays out in
+ResOS, and within five weeks the ResOS Creek book is empty on its own.
+
+## Exit criteria
+
+Shadow first; it affects nobody and produces the evidence. The 1,190 real Creek
+bookings, with their real table assignments, can be replayed through the engine
+*before any live request* to check it never double-assigns a table.
+
+The two error classes are not equally bad:
+
+- **We say free, ResOS says full → overbooking.** Must be **zero**.
+- **We say full, ResOS says free → lost revenue.** Near zero; survivable.
+
+Ready at: three consecutive weeks of >=99% identical availability covering at
+least three Thursdays and three Saturdays, zero overbooking-class errors, and
+one full service worked only from the new floor plan.
+
+# Reserve with Google
+
+**These are real Reserve with Google bookings, not Google referrals.** All 744
+have no referrer and *zero* custom fields — Google's form never asks our
+questions — yet always carry email and phone. Bookings that merely arrived via
+a Google search appear as `source='website'` with a referrer.
+
+| | Google bookings | share of venue |
+|---|---|---|
+| Winery | 392 | 10% |
+| **Creek** | **352** | **30%** |
+
+**Nearly a third of Creek's bookings** — at the venue proposed to go first.
+
+## Why it cannot simply be repointed
+
+ResOS is Google's integration partner, not us. Google holds a feed of ResOS's
+availability and posts bookings to ResOS's API. There is no setting on our side
+that redirects that; the relationship is Google-to-ResOS.
+
+So if Creek goes native and we stop treating ResOS as authoritative, Google
+keeps selling Creek tables against ResOS's idea of the floor — which no longer
+matches ours. That is overbooking arriving through a door we do not control,
+and it is the single largest risk in this whole plan.
+
+## The answer: invert ResOS rather than switch it off
+
+Keep ResOS running at Creek purely as the Google adapter, and reverse which
+system is upstream. Every booking we take natively is **written back into ResOS**
+so ResOS's floor stays correct and Google is never offered a seat we have sold.
+ResOS stops being the brain and becomes a peripheral.
+
+This is already plumbed:
+
+- `lib/resosClient.js` `createBooking` is in daily use — `routes/website.js:1258`
+  creates ResOS bookings from our own public endpoint today.
+- Write-back must not send a second confirmation. ResOS supports that: our
+  `walkin` bookings carry `send_notification = false`, so the seat can be held
+  without emailing the guest.
+- It must create with `status: 'approved'`. This is settled knowledge, not a
+  guess: a booking created without an explicit status files as `request`, which
+  *shows* a table but does not *hold* it, so the next booking is offered the
+  same table. That is exactly how Bock and Margaret Fair ended up on one table
+  on 8 Aug, 90 minutes apart.
+
+### What this changes about the end state
+
+**ResOS is not switched off at the end of the Creek beta. It is demoted.**
+Turning it off completely is a separate project with an external dependency, and
+it should be planned as one rather than assumed to fall out of the migration.
+
+### Two things to nail down
+
+1. **Mirror latency is the overbooking window.** A Google booking lands in ResOS
+   and we only learn of it when the mirror syncs. Whatever that interval is, it
+   is how long we may sell a seat Google has already sold. Near-real-time ingest
+   (ResOS webhook if available, otherwise a short poll) is required before Creek
+   goes native — and nothing in this repo writes that mirror, so the owner of
+   that sync needs finding first.
+2. **A failed write-back must be loud.** If we take a booking and cannot push it
+   to ResOS, the seat is sold in one system and free in the other. Fail the
+   guest's booking or alarm immediately; never let it fail quietly.
+
+The collision window itself is small at Creek — 4 to 10 bookings a day — but the
+cost of one collision is two parties at one table on a Saturday night.
+
+## Eventually dropping ResOS on the Google side
+
+Three options, in increasing order of effort. The status of Google's booking
+partner programme changes often and should be checked before committing.
+
+1. **A booking link on the Google Business Profile.** Converts Google from a
+   booking channel into a referral channel — guests land on our page instead of
+   booking inside Google. Keeps the traffic, loses the in-Google convenience.
+   Needs checking whether an active partner integration overrides a self-set
+   link.
+2. **Keep a minimal ResOS subscription purely as the Google adapter.** Possibly
+   the cheapest honest answer, and the status quo of the plan above.
+3. **Become a Google booking partner directly.** A formal programme with feed
+   and real-time booking APIs. Large, uncertain, and not a beta activity.
+
+Losing 30% of Creek's bookings for the duration of a beta is not an option, so
+switching Google off is not on this list.
