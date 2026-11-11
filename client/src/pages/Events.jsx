@@ -189,9 +189,14 @@ function EventsTab() {
 
       {/* Main */}
       <div className="ev-main">
-      <SlideOver open={showNew} label="Add event" onClose={() => setShowNew(false)}>
+      <Drawer
+        open={showNew}
+        wide
+        title="Add event"
+        onClose={() => setShowNew(false)}
+        footer={<button style={btn(true)} disabled={saving || !form.start_at || !form.title} onClick={save}>{saving ? 'Saving…' : 'Add event'}</button>}
+      >
       <div>
-        <h3 style={{ marginTop: 0 }}>Add event</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12 }}>
           <div><label style={lbl}>Date</label>
             <input type="date" style={inp} value={splitStart(form.start_at).date}
@@ -249,12 +254,9 @@ function EventsTab() {
           </div>
         </div>
         {err && <p style={{ color: 'crimson' }}>{err}</p>}
-        <div style={{ marginTop: 14 }}>
-          <button style={btn(true)} disabled={saving || !form.start_at || !form.title} onClick={save}>{saving ? 'Saving…' : 'Add event'}</button>
-          <span style={{ marginLeft: 10, opacity: 0.6, fontSize: 12 }}>Website publishing goes live in the next step; for now events are saved in TeamHub.</span>
-        </div>
+        <p style={{ margin: '14px 0 0', opacity: 0.6, fontSize: 12 }}>Website publishing goes live in the next step; for now events are saved in TeamHub.</p>
       </div>
-      </SlideOver>
+      </Drawer>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0 }}>{(SEGMENTS.find((s) => s.key === segment) || SEGMENTS[0]).label}
@@ -278,9 +280,11 @@ function EventsTab() {
       </div>
     </div>
 
-    <SlideOver open={!!selected} label="Event details" onClose={closeCockpit}>
+    {/* The drawer's own header carries the title, so EventDetail does not draw
+        one -- it opens straight onto the readiness strip and its tabs. */}
+    <Drawer open={!!selected} wide title={selected?.title || 'Event details'} onClose={closeCockpit}>
       {selected && <EventDetail ev={selected} users={users} musicians={musicians} locations={locations} onBack={closeCockpit} />}
-    </SlideOver>
+    </Drawer>
     </>
   );
 }
@@ -1873,31 +1877,11 @@ function SpreadsheetView({ events, musicians, locations, onOpen, onChanged }) {
  * labelled button in the content: the content scrolls, and a close that scrolls
  * away with it is a close you cannot find.
  */
-function SlideOver({ open, label, children, onClose }) {
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
-  }, [open, onClose]);
-
-  if (!open) return null;
-  return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(30,18,20,.36)', zIndex: 60, animation: 'ckfade .18s ease' }} />
-      <div role="dialog" aria-modal="true" aria-label={label}
-           style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(620px,100%)', background: 'var(--bg,#f6f2f0)', boxShadow: '-10px 0 48px rgba(0,0,0,.28)', zIndex: 61, overflowY: 'auto', padding: 20, animation: 'ckslide .26s cubic-bezier(.4,0,.2,1)' }}>
-        <button type="button" onClick={onClose} aria-label="Close" title="Close"
-                style={{ position: 'sticky', top: 0, float: 'right', marginLeft: 12, border: 'none', background: 'transparent', color: 'inherit', fontSize: 24, lineHeight: 1, cursor: 'pointer', opacity: 0.55, padding: '0 2px', zIndex: 2 }}>✕</button>
-        {children}
-      </div>
-      <style>{`@keyframes ckslide{from{transform:translateX(100%)}to{transform:none}}@keyframes ckfade{from{opacity:0}to{opacity:1}}`}</style>
-    </>
-  );
-}
-
+/* SlideOver lived here until 11 Nov 2026. It was a hand-rolled near-duplicate of
+   components/Drawer -- scrim, Escape, scroll lock -- but 620px with no phone
+   bottom sheet, no focus management and no footer, which is why Add event and
+   Event details behaved unlike every other editor in the app. Drawer's `wide`
+   covers the one thing it had that Drawer did not: the width. */
 function CalendarView({ events, onOpen, onCreate }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const first = new Date(month.y, month.m, 1);
