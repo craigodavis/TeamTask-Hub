@@ -28,6 +28,7 @@ look and it's easy to promise things that are not possible.
 | **Instagram / FB page post** | Partly | A *feed post* is possible via Graph API with a Business account. Not the same thing as an Event. |
 | **Facebook Events** | **No** | Meta removed event creation from the Graph API years ago. No aggregator restores it — they post to the page feed, not Events. **Native FB Events are human-only.** |
 | **Bandsintown** | **No (venue-side)** | Listings originate from the *artist's* account. We can claim a venue page, but the action is asking the performer to add the date. |
+| **BoiseDev** | **No — and nothing to build** | Their calendar is a **CitySpark** install. Submit redirects to `login.cityspark.com`, the site answers non-browser clients with a Cloudflare challenge, and every submission is human-approved. But CitySpark *crawls* venue sites, so we reach it by publishing a feed. See §2a. |
 | **Press / tourism orgs** | No | Email or a web form. Idaho Press has a Submit News form; the rest are email. |
 
 Two of these are load-bearing constraints, not details:
@@ -39,9 +40,9 @@ Two of these are load-bearing constraints, not details:
 
 ---
 
-## 2. Three tiers
+## 2. Four tiers
 
-Everything above sorts into three handling modes. The tiering is the design.
+Everything above sorts into four handling modes. The tiering is the design.
 
 **Tier A — automatic.** We call an API and record the result.
 Website · Google Business Profile · Eventbrite · App push · Member email
@@ -52,11 +53,93 @@ screen.
 Facebook Events · Instagram · Bandsintown (via the artist)
 
 **Tier C — outreach.** An email or form submission to a contact.
-Idaho Press · Idaho Wine Commission · Destination Caldwell · Sunnyslope · Visit SW Idaho · BoiseDev
+Idaho Press · Idaho Wine Commission · Destination Caldwell · Sunnyslope · Visit SW Idaho
 
 Tier B is where this earns its keep. The failure mode today isn't that posting to
 Facebook is hard — it's that nobody remembers, and nobody can tell afterwards whether
 it happened. A tracked task with the copy already written fixes both.
+
+**Tier D — feed.** They read a document we publish. Nothing to do per event, ever;
+the channel is registered once as a source and then carries every published event by
+construction.
+BoiseDev (via CitySpark)
+
+---
+
+## 2a. The feed tier — why BoiseDev is not a form to fill in
+
+Investigated 2026-11-11. The obvious plan — script the "Submit your event" form —
+is closed off four separate ways:
+
+1. **`boisedev.com` sits behind a Cloudflare managed challenge.** A plain client gets
+   `403` with `cf-mitigated: challenge`. Defeating bot detection is off the table, and
+   a browser-driven workaround would be fighting a control that exists on purpose.
+2. **The free submit path is not theirs.** "Submit your event" → a paid/free chooser →
+   `login.cityspark.com`. BoiseDev's calendar is a CitySpark install.
+3. **A CitySpark account is required**, and creating accounts on someone else's service
+   is the owner's action, not the software's.
+4. **Nothing goes live unreviewed.** CitySpark's FAQ: *"No submitted events will go live
+   without prior approval."* So a `posted` status could never mean "listed", and their
+   FAQ also warns that resubmitting **creates a duplicate** — which makes any retry loop
+   actively harmful.
+
+The way in is the opposite of submitting. BoiseDev does not author that calendar;
+CitySpark fills it, and CitySpark's own product page says their engine *"patrols more
+than 100,000 sites on the web 24/7"*, naming music venues explicitly, and that they
+ingest **~20 national partner feeds including Eventbrite**.
+
+So there are two automatic routes, and both already exist in our stack:
+
+- **Be crawlable.** `/api/website/events.ics` and `/api/website/events/feed.jsonld`
+  publish every upcoming published event in the two formats aggregators read. The same
+  documents serve Google event search, Bing and Apple Calendar subscribers — one
+  artefact, every channel, which no per-channel robot achieves.
+- **Be on a partner feed.** Eventbrite is already a Tier A channel firing on publish.
+  It was failing with *"No Eventbrite organization found for this account"*: the OAuth
+  token is valid (`/users/me/` → 200) but `/users/me/organizations/` returns `[]`, so
+  there is nothing to create events under. One organizer profile in Eventbrite fixes
+  it, and that unblocks a CitySpark partner path for free.
+
+**What a `feed` channel does in the UI.** Status `feed` ("In feed"), deliberately a
+different colour from `Posted` — nobody posted anything, and a confirmed listing on
+their site is a stronger claim than we can make. No `promo_task` is created, because a
+reminder for a non-action is how people learn to ignore reminders. A feed channel can
+never go `stale` either: the documents are generated from live data on each request, so
+an edit propagates without anyone re-announcing.
+
+**The one-time setup** rides on the channel row (`setup` in the catalogue, rendered as a
+"One-time setup" notice): register the site and the `.ics` URL as a source with
+CitySpark, and create the Eventbrite organization.
+
+### The clock, which is the thing most likely to break
+
+Event times are stored **wall-clock-labelled-UTC**: `18:30Z` *means* 6:30 PM in
+Caldwell. It is not an instant awaiting conversion — converting it is the bug.
+
+- **ICS** emits `DTSTART;TZID=America/Boise:20261112T183000` with a `VTIMEZONE` block,
+  carrying the wall clock across untouched. No arithmetic, nothing to get wrong.
+- **JSON-LD** has no `TZID` equivalent, so it needs a real offset, computed for the
+  *local* time rather than for the instant the `Z` would imply: `-07:00` in winter,
+  `-06:00` under daylight saving. Get this wrong and a 6:30 PM show lists at 11:30 AM —
+  an error nobody reports and everybody notices.
+
+`scripts/audit-event-feed.mjs` (58 checks) pins both, including the days either side of
+the autumn transition, RFC 5545 folding on octets rather than characters, and that UIDs
+are stable across reads.
+
+### Known gaps
+
+- `kindred_web.venue_details.lat`/`lng` are **null for both venues**. CitySpark geocodes
+  from the street address, so this is not fatal, but filling them removes a guess.
+- The feeds are served from `team.kindredvineyards.com`. A crawler weights a feed on the
+  venue's own domain more highly; worth proxying to `kindredvineyards.com/events.ics`
+  when the new site goes live.
+- `jsonld` is returned by `/api/website/events/:slug` ready to embed in a
+  `<script type="application/ld+json">` tag, but **nothing embeds it yet** — that is the
+  website's side of the work, and Google wants the markup on the event's own page.
+- Other form-based channels (SeekIdaho, Idaho Press, Boise Weekly, Destination Caldwell
+  on Tockify) are unchanged. Whether any of them also crawl is untested; each one that
+  does becomes a one-line tier change rather than new code.
 
 ---
 

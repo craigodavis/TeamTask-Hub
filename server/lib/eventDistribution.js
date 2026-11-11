@@ -6,19 +6,33 @@
  * to Facebook is hard — it's that nobody remembers and nobody can tell
  * afterwards whether it happened.
  *
- * Channels sort into three tiers, and the tiering is the whole design:
+ * Channels sort into four tiers, and the tiering is the whole design:
  *
  *   auto      we can call an API and record the result
+ *   feed      they read a feed we publish; nothing to do per event, ever
  *   assisted  we cannot post; we prepare copy + a deep link and track the click
  *   outreach  an email or web form to a contact in promo_contacts
  *
- * Two constraints drive that split and are not going to change:
+ * Three constraints drive that split and are not going to change:
  *
  *   - Facebook Events cannot be created through the Graph API. Meta removed it
  *     years ago and aggregators that claim otherwise post to the page *feed*,
  *     which is a different thing. Native Events are human-only, permanently.
  *   - Bandsintown listings originate from the *artist's* account, not the
  *     venue's, so the action is asking the performer to add the date.
+ *   - The local listing calendars have no write API at all. BoiseDev's is a
+ *     CitySpark install: the submit link redirects to login.cityspark.com, the
+ *     site answers non-browser clients with a Cloudflare challenge, and every
+ *     submission is human-approved. There is no endpoint to post to.
+ *
+ * That last one is what the `feed` tier answers. CitySpark does not author
+ * BoiseDev's calendar, it fills it — their engine "patrols more than 100,000
+ * sites on the web 24/7" — so the way in is to be a source rather than a
+ * submitter. We publish /api/website/events.ics and events/feed.jsonld; they
+ * read it. A feed channel is registered ONCE (see `setup`) and then needs no
+ * action for any event again, which is why it reports `feed` rather than
+ * growing a promo_task per show. It also cannot go stale: the feed always
+ * serves current data, so an edit propagates without anyone re-announcing.
  *
  * See docs/EVENT_DISTRIBUTION.md.
  */
@@ -27,6 +41,7 @@ import { query } from '../db.js';
 import { postEventToGoogleBusiness } from './googleBusinessClient.js';
 import { postEventToEventbrite } from './eventbriteClient.js';
 import { createEventPush } from './clubPush.js';
+import { publicVenueName } from './eventFeed.js';
 
 // The catalogue. Seeded per company on first use, so adding one here is all it
 // takes — no migration. `enabled` here is only the default for a new company.
@@ -60,9 +75,13 @@ export const CHANNELS = [
   { key: 'destination_caldwell', name: 'Destination Caldwell', tier: 'assisted', sort: 81, enabled: true, lead: 21,
     note: 'Tourism arm for Caldwell (Indian Creek Plaza). Highest-value local listing for a winery. Runs a Tockify calendar — the link goes straight to their public "Submit Event" form.',
     link: 'https://tockify.com/tkf2/submitEvent/503480e4179b406498c55f3f18c8bf09' },
-  { key: 'boisedev',        name: 'BoiseDev',           tier: 'assisted', sort: 82, enabled: true,  lead: 21,
-    note: 'Submit-your-event form on their calendar. Good reach with locals.',
-    link: 'https://boisedev.com/calendar/' },
+  // Not 'assisted' any more: there is no form we can usefully nag someone about
+  // weekly. Their calendar is filled by CitySpark's crawler, so our job is to
+  // keep the feed truthful and to be registered as a source once.
+  { key: 'boisedev',        name: 'BoiseDev',           tier: 'feed',     sort: 82, enabled: true,  lead: 21,
+    note: 'Carried by the events feed. BoiseDev\'s calendar is a CitySpark install, and CitySpark crawls venue sites — so every published event is already in the document they read. No per-event submission, and no staleness: the feed is generated from live data on each request.',
+    setup: 'One-time: register kindredvineyards.com and the .ics feed as a source with CitySpark (sales@cityspark.com, or the Manage Your Events hub), and create the Eventbrite organization so that channel starts working — Eventbrite is one of CitySpark\'s ~20 national partner feeds.',
+    link: 'https://team.kindredvineyards.com/api/website/events.ics' },
   { key: 'seek_idaho',      name: 'SeekIdaho',          tier: 'assisted', sort: 83, enabled: true,  lead: 21,
     note: 'Free for small businesses; Treasure Valley calendar. Reviewed & published within a couple of days.',
     link: 'https://seekidaho.com/calendar/submit' },
@@ -89,6 +108,10 @@ export const CHANNEL_BY_KEY = Object.fromEntries(CHANNELS.map((c) => [c.key, c])
 export function defaultMode(key) {
   if (key === 'website' || key === 'eventbrite') return 'on_publish';
   if (key === 'app_push' || key === 'google_business') return 'scheduled';
+  // A feed channel's mode is advisory only — firePublishHooks includes the tier
+  // whatever the stored mode says, because the event is in the feed the moment
+  // it is published whether or not anyone pressed anything.
+  if (CHANNEL_BY_KEY[key]?.tier === 'feed') return 'on_publish';
   return 'manual';
 }
 
@@ -143,7 +166,9 @@ function whenText(payload) {
 /** Plain-text copy a human can paste. Kept short — every channel truncates. */
 export function suggestedCopy(payload, channelKey) {
   const when = whenText(payload);
-  const where = payload.venue === 'creek' ? 'Kindred by the Creek' : 'Kindred Vineyards';
+  // One definition of the public venue name, shared with the feeds — this was
+  // the second copy of the same slug mapping.
+  const where = publicVenueName(payload.venue);
   const base = `${payload.title}\n${when} · ${where}`;
   const blurb = (payload.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   return `${base}\n\n${blurb.slice(0, 300)}${blurb.length > 300 ? '…' : ''}\n\n${payload.url}`.trim();
@@ -185,7 +210,7 @@ export async function getDistribution(companyId, eventId) {
       external_url: r.external_url, posted_at: r.posted_at, last_error: r.last_error,
       post_id: r.post_id, promo_task_id: r.promo_task_id,
       lead_days: r.lead_days, scheduled_at: r.scheduled_at,
-      note: meta.note ?? null, link: meta.link ?? null,
+      note: meta.note ?? null, link: meta.link ?? null, setup: meta.setup ?? null,
       copy: r.tier === 'assisted' ? suggestedCopy(payload, r.key) : null,
     };
   });
@@ -420,6 +445,22 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
       }
     }
 
+    // Feed channels: the event is in the document already. Record that, point at
+    // the feed, and create no task — there is nothing for a person to do, and a
+    // reminder for a non-action is how people learn to ignore reminders.
+    if (ch.tier === 'feed') {
+      await query(
+        `INSERT INTO event_channel_posts
+           (company_id, event_id, channel_key, status, external_url, posted_at, payload_hash)
+         VALUES ($1,$2,$3,'feed',$4,NOW(),$5)
+         ON CONFLICT (event_id, channel_key) DO UPDATE
+           SET status='feed', external_url=EXCLUDED.external_url, posted_at=NOW(),
+               last_error=NULL, payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+        [companyId, eventId, ch.key, CHANNEL_BY_KEY[ch.key]?.link || null, dist.payload_hash]);
+      touched.push({ key: ch.key, action: 'feed' });
+      continue;
+    }
+
     let taskId = ch.promo_task_id;
     if (ch.tier === 'assisted' && !taskId) {
       const t = await query(
@@ -455,8 +496,12 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
 export async function firePublishHooks(companyId, eventId, userId = null) {
   const dist = await getDistribution(companyId, eventId);
   if (!dist) return { skipped: 'no_event' };
-  const onPub = dist.channels.filter((c) => c.enabled && c.mode === 'on_publish' && c.status !== 'posted').map((c) => c.key);
-  const sched = dist.channels.filter((c) => c.enabled && c.mode === 'scheduled' && c.status !== 'posted').map((c) => c.key);
+  // Feed channels join the on-publish set whatever their stored mode is: being
+  // in the feed is a consequence of publishing, not a thing we choose to do.
+  const onPub = dist.channels.filter((c) => c.enabled && c.status !== 'posted'
+    && (c.mode === 'on_publish' || c.tier === 'feed')).map((c) => c.key);
+  const sched = dist.channels.filter((c) => c.enabled && c.mode === 'scheduled'
+    && c.tier !== 'feed' && c.status !== 'posted').map((c) => c.key);
   const out = {};
   if (onPub.length) out.announced = await announce(companyId, eventId, { channelKeys: onPub, userId }).catch((e) => ({ error: e.message }));
   if (sched.length) out.scheduled = await scheduleAnnounce(companyId, eventId, { channelKeys: sched }).catch((e) => ({ error: e.message }));

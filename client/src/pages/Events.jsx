@@ -1145,6 +1145,10 @@ function DistributionCard({ eventId, card }) {
 
   const PILL = {
     posted:      { bg: '#e6f4ea', fg: '#137333', label: 'Posted' },
+    // Distinct from Posted on purpose. Nobody posted anything — the event is in
+    // the feed the outlet reads, which is a different kind of done and should
+    // not be confused with a confirmed listing on their site.
+    feed:        { bg: '#e0f2f1', fg: '#00695c', label: 'In feed' },
     scheduled:   { bg: '#e8f0fe', fg: '#1967d2', label: 'Scheduled' },
     queued:      { bg: '#fef7e0', fg: '#b06000', label: 'To do' },
     needs_human: { bg: '#fef7e0', fg: '#b06000', label: 'Needs setup' },
@@ -1153,7 +1157,7 @@ function DistributionCard({ eventId, card }) {
     skipped:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Skipped' },
     pending:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Not started' },
   };
-  const TIER = { auto: 'automatic', assisted: 'needs a person', outreach: 'email' };
+  const TIER = { auto: 'automatic', feed: 'feed — no action', assisted: 'needs a person', outreach: 'email' };
   const MODE = { on_publish: '⚡ on publish', scheduled: '🕒 scheduled', manual: '✋ manual' };
 
   return (
@@ -1181,8 +1185,9 @@ function DistributionCard({ eventId, card }) {
       <p style={{ fontSize: 12, opacity: 0.6, margin: '6px 0 0' }}>
         <b>Push manual now</b> fires the ✋ manual channels immediately. <b>Schedule 🕒</b> queues the
         🕒 scheduled-mode channels to auto-fire the set number of days before the event. ⚡ on-publish
-        channels fire on their own when the event goes live. Uncheck a channel to skip it for this
-        event (remembered); set each channel’s mode in the settings tab.
+        channels fire on their own when the event goes live. <b>In feed</b> channels read our events
+        feed and need nothing per event — only the one-time registration shown on the row. Uncheck a
+        channel to skip it for this event (remembered); set each channel’s mode in the settings tab.
       </p>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12 }}>
@@ -1234,6 +1239,16 @@ function DistributionCard({ eventId, card }) {
                 )}
               </div>
               {c.note && <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{c.note}</div>}
+              {/* Setup is a standing prerequisite, not a per-event job, so it
+                  is styled as a notice rather than folded into the grey note
+                  where it would read as something to do again each time. */}
+              {c.setup && (
+                <div style={{ fontSize: 12, marginTop: 5, padding: '6px 9px', borderRadius: 7,
+                              background: 'var(--surface-3,#f0eeeb)', display: 'flex', gap: 7 }}>
+                  <span aria-hidden="true">🔑</span>
+                  <span><b>One-time setup:</b> {c.setup}</span>
+                </div>
+              )}
               {c.status === 'stale' && (
                 <div style={{ fontSize: 12, color: '#c5221f', marginTop: 4 }}>
                   The event changed after this was posted — update it there, then Announce again.

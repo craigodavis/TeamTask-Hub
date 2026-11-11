@@ -28,6 +28,7 @@ import { notifyWebsiteContentChanged } from '../lib/websiteDeploy.js';
 import { absMedia, absMediaAll } from '../lib/mediaUrls.js';
 import { readPopup } from './marketing.js';
 import { subscribeEverywhere } from '../lib/newsletterSubscribe.js';
+import { buildIcs, buildJsonLdGraph, eventJsonLd } from '../lib/eventFeed.js';
 
 export const websiteRouter = express.Router();
 
@@ -1292,6 +1293,83 @@ websiteRouter.post('/reservations/book', async (req, res) => {
   }
 });
 
+/*
+ * Machine-readable feeds of the same published events the site shows.
+ *
+ * These exist because the local listing calendars have no write API. BoiseDev
+ * runs on CitySpark, whose own engine "patrols more than 100,000 sites" for
+ * events; Google, Bing and Apple Calendar read these formats directly. Being a
+ * readable source reaches all of them at once, which no per-channel robot does.
+ *
+ * Both are public and read-only, like everything else under /api/website, and
+ * both carry venue_details so a listing has a real street address to geocode —
+ * without one, an aggregator either drops the event or guesses.
+ *
+ * Deliberately NOT venue-filtered by default: an aggregator wants every date we
+ * have. ?venue=creek narrows it for anyone who asks.
+ */
+const FEED_FIELDS = `
+  e.id, e.slug, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
+  e.event_url, e.image_url, e.social_image_url, e.fb_image_url, e.category,
+  e.booking_url, e.resos_experience_url, e.updated_at,
+  l.web_slug AS venue, l.name AS venue_name,
+  m.name AS musician_name, m.stage_name AS musician_stage_name,
+  v.street, v.city, v.region, v.postal, v.country, v.phone, v.lat, v.lng`;
+
+// Past events are useless to a listing service and actively harmful in a
+// subscribed calendar, so the window starts today. A year ahead is far beyond
+// anything we schedule and keeps the document small.
+async function feedEvents(companyId, venue) {
+  const params = [companyId];
+  let venueClause = '';
+  if (venue) { params.push(venue); venueClause = `AND l.web_slug = $${params.length}`; }
+  const r = await query(
+    `SELECT ${FEED_FIELDS}
+       FROM events e
+       LEFT JOIN locations l ON l.id = e.location_id
+       LEFT JOIN musicians m ON m.id = e.musician_id
+       LEFT JOIN kindred_web.venue_details v ON v.location_id = e.location_id
+      WHERE e.company_id = $1 AND e.status = 'published'
+        AND e.deleted_at IS NULL
+        AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= date_trunc('day', now())
+        AND e.start_at < now() + INTERVAL '1 year'
+        ${venueClause}
+      ORDER BY e.start_at ASC`,
+    params
+  );
+  return absMediaAll(r.rows);
+}
+
+// GET /api/website/events.ics — subscribable calendar (RFC 5545).
+websiteRouter.get('/events.ics', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const rows = await feedEvents(companyId, req.query.venue || null);
+    const body = buildIcs(rows, {
+      origin: 'https://kindredvineyards.com',
+      name: req.query.venue === 'creek' ? 'Kindred by the Creek Events' : 'Kindred Vineyards Events',
+    });
+    // Inline rather than attachment, so clicking it subscribes instead of
+    // saving a file nobody opens again.
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="kindred-events.ics"');
+    res.setHeader('Cache-Control', 'public, max-age=1800');
+    res.send(body);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/website/events/feed.jsonld — schema.org Event graph.
+// Before /events/:slug, or "feed.jsonld" is read as a slug.
+websiteRouter.get('/events/feed.jsonld', async (req, res) => {
+  try {
+    const companyId = await kindredCompanyId();
+    const rows = await feedEvents(companyId, req.query.venue || null);
+    res.setHeader('Content-Type', 'application/ld+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=1800');
+    res.send(JSON.stringify(buildJsonLdGraph(rows, { origin: 'https://kindredvineyards.com' }), null, 2));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/website/events/calendar?venue=&month=YYYY-MM — published events in a month.
 // (Defined before /events/:slug so "calendar" isn't treated as a slug.)
 websiteRouter.get('/events/calendar', async (req, res) => {
@@ -1418,7 +1496,16 @@ websiteRouter.get('/events/:slug', async (req, res) => {
       [companyId, req.params.slug]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Event not found' });
-    res.json(absMedia(r.rows[0]));
+    const row = absMedia(r.rows[0]);
+    // The page rendering this event should put `jsonld` into a
+    // <script type="application/ld+json"> tag. Google wants the markup on the
+    // event's own page, not only in a site-wide feed, and building it here
+    // keeps one definition of the shape rather than two that drift.
+    const det = await query(
+      `SELECT v.street, v.city, v.region, v.postal, v.country, v.phone, v.lat, v.lng
+         FROM events e LEFT JOIN kindred_web.venue_details v ON v.location_id = e.location_id
+        WHERE e.id = $1`, [row.id]);
+    res.json({ ...row, jsonld: eventJsonLd({ ...row, ...(det.rows[0] || {}) }, 'https://kindredvineyards.com') });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

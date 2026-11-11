@@ -66,10 +66,14 @@ for (const [url, want] of ROUTES) {
 }
 
 console.log('\nThe right ROW highlights, not just the right app');
+// The " · mockup" suffix is a deliberate warning on unbuilt screens, not part of
+// the row's identity, so it is stripped before comparing. Asserting the exact
+// string made this check fail every time a screen was marked or unmarked.
 const row = (url, want) => {
   const [p, s] = url.split('?');
   const m = matchPath(p, s ? '?' + s : '');
-  ok(m?.item.label === want, `${url.padEnd(34)} highlights ${want}`, m?.item.label || 'none');
+  const label = (m?.item.label || '').replace(/\s*·\s*mockup$/, '');
+  ok(label === want, `${url.padEnd(34)} highlights ${want}`, m?.item.label || 'none');
 };
 row('/products', 'Products');
 row('/products/inventory', 'Wine Inventory');
