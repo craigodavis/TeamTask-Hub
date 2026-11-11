@@ -11,7 +11,14 @@ import './Drawer.css';
  * (otherwise a phone scrolls the list under the sheet as you drag), and focus moves
  * into the panel so a keyboard user is not still tabbing the page behind.
  */
-export default function Drawer({ open, title, onClose, children, footer }) {
+/**
+ * `wide` opts into a 620px panel instead of 420px. Added for editors that carry a
+ * rich-text body -- an HTML editor with a toolbar inside 420px wraps its buttons
+ * onto three rows and leaves a two-inch column to write in. Phone behaviour is
+ * unchanged either way: the sheet is full width, and Drawer.css keeps `is-wide`
+ * out of that by naming it in the media query.
+ */
+export default function Drawer({ open, title, onClose, children, footer, wide = false }) {
   const panelRef = useRef(null);
 
   /**
@@ -48,7 +55,7 @@ export default function Drawer({ open, title, onClose, children, footer }) {
     <div className="vin-drawer-overlay" onClick={onClose}>
       {/* stopPropagation so a click inside never reaches the overlay's close. */}
       <div
-        className="vin-drawer-panel"
+        className={`vin-drawer-panel${wide ? ' is-wide' : ''}`}
         ref={panelRef}
         tabIndex={-1}
         role="dialog"

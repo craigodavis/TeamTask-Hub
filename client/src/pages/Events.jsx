@@ -2073,19 +2073,27 @@ function ContactsSub() {
   const del = async (id) => { if (window.confirm('Delete contact?')) { await deleteContact(id); load(); } };
   return (
     <div>
-      {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ Add contact</button>}
+      <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ Add contact</button>
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
+
+      {/* Rendered only while editing rather than with open={!!form}: every field
+          below dereferences `form`, and Drawer evaluates its children even when
+          closed. */}
       {form && (
-        <div style={{ ...card, margin: '12px 0' }}>
-          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'New'} contact</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
-            {[['name', 'Name'], ['org', 'Organization'], ['email', 'Email'], ['phone', 'Phone'], ['website', 'Website'], ['role', 'Role / title']].map(([k, l]) => (
-              <div key={k}><label style={lbl}>{l}</label><input style={inp} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })} /></div>
-            ))}
-            <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Notes</label><textarea rows={2} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-          </div>
-          <div style={{ marginTop: 10 }}><button style={btn(true)} disabled={!form.name} onClick={save}>Save</button><button style={{ ...btn(false), marginLeft: 8 }} onClick={() => setForm(null)}>Cancel</button></div>
-        </div>
+        <Drawer
+          open
+          title={`${form.id ? 'Edit' : 'New'} contact`}
+          onClose={() => setForm(null)}
+          footer={<>
+            <button style={btn(true)} disabled={!form.name} onClick={save}>Save</button>
+            <button style={btn(false)} onClick={() => setForm(null)}>Cancel</button>
+          </>}
+        >
+          {[['name', 'Name'], ['org', 'Organization'], ['email', 'Email'], ['phone', 'Phone'], ['website', 'Website'], ['role', 'Role / title']].map(([k, l]) => (
+            <div key={k}><label style={lbl}>{l}</label><input style={inp} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })} /></div>
+          ))}
+          <div><label style={lbl}>Notes</label><textarea rows={3} style={inp} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+        </Drawer>
       )}
       <div style={{ marginTop: 12 }}>
         {list.length === 0 && <p style={{ opacity: 0.6 }}>No contacts yet — add orgs you notify (e.g. Mary Smith @ Destination Caldwell).</p>}
@@ -2114,19 +2122,29 @@ function TemplatesSub() {
   const del = async (id) => { if (window.confirm('Delete template?')) { await deleteTemplate(id); load(); } };
   return (
     <div>
-      {!form && <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ New template</button>}
+      <button style={btn(true)} onClick={() => setForm({ ...blank })}>+ New template</button>
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
+
+      {/* `wide`: the body is a rich-text editor, and its toolbar wraps to three
+          rows inside the standard 420px panel. */}
       {form && (
-        <div style={{ ...card, margin: '12px 0' }}>
-          <h3 style={{ marginTop: 0 }}>{form.id ? 'Edit' : 'New'} email template</h3>
-          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10, background: 'var(--card-bg,#f6f6f6)', border: '1px solid var(--border,#eee)', padding: 8, borderRadius: 8 }}>
+        <Drawer
+          open
+          wide
+          title={`${form.id ? 'Edit' : 'New'} email template`}
+          onClose={() => setForm(null)}
+          footer={<>
+            <button style={btn(true)} disabled={!form.name || !form.subject} onClick={save}>Save</button>
+            <button style={btn(false)} onClick={() => setForm(null)}>Cancel</button>
+          </>}
+        >
+          <div style={{ fontSize: 12, opacity: 0.75, background: 'var(--card-bg,#f6f6f6)', border: '1px solid var(--border,#eee)', padding: 8, borderRadius: 8 }}>
             Tags: <code>{'{contact}'}</code> <code>{'{org}'}</code> <code>{'{event}'}</code> <code>{'{date}'}</code> <code>{'{time}'}</code> <code>{'{location}'}</code> <code>{'{description}'}</code> <code>{'{link}'}</code> <code>{'{image}'}</code>
           </div>
           <div><label style={lbl}>Template name</label><input style={inp} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-          <div style={{ marginTop: 10 }}><label style={lbl}>Subject</label><input style={inp} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Kindred event: {event} on {date}" /></div>
-          <div style={{ marginTop: 10 }}><HtmlDesc value={form.body_html} onChange={(v) => setForm({ ...form, body_html: v })} label="Email body" hint="tags allowed" /></div>
-          <div style={{ marginTop: 10 }}><button style={btn(true)} disabled={!form.name || !form.subject} onClick={save}>Save</button><button style={{ ...btn(false), marginLeft: 8 }} onClick={() => setForm(null)}>Cancel</button></div>
-        </div>
+          <div><label style={lbl}>Subject</label><input style={inp} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Kindred event: {event} on {date}" /></div>
+          <HtmlDesc value={form.body_html} onChange={(v) => setForm({ ...form, body_html: v })} label="Email body" hint="tags allowed" />
+        </Drawer>
       )}
       <div style={{ marginTop: 12 }}>
         {list.length === 0 && <p style={{ opacity: 0.6 }}>No email templates yet.</p>}

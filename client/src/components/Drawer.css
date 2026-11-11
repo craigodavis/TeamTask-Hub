@@ -12,6 +12,8 @@
   z-index: 60;
 }
 
+.vin-drawer-panel.is-wide { width: 620px; }
+
 .vin-drawer-panel {
   width: 420px; max-width: 92vw;
   height: 100%;
@@ -55,7 +57,9 @@
 
 @media (max-width: 760px) {
   .vin-drawer-overlay { flex-direction: column; justify-content: flex-end; }
-  .vin-drawer-panel {
+  /* `.is-wide` is listed so its higher specificity cannot beat the sheet here. */
+  .vin-drawer-panel,
+  .vin-drawer-panel.is-wide {
     width: 100%; max-width: 100%;
     height: auto; max-height: 92dvh;
     border-left: none;
