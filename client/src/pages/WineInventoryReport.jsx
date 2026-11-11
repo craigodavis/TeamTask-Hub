@@ -18,14 +18,26 @@ export function WineInventoryReport() {
     getLocations('inventory').then((d) => setLocations(d.locations || [])).catch(() => {});
   }, []);
 
+  // The cellar holds wine that is aging, not wine that is for sale, so the
+  // useful total for the tasting rooms is "everywhere but there". Found by
+  // name because nothing on the location row marks it as the cellar; if no
+  // such location exists the option simply does not appear.
+  const cellar = locations.find((l) => (l.name || '').trim().toLowerCase() === 'cellar');
+
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    getWineInventoryReport({ asOf, locationId, allItems })
+    const excludeCellar = locationId === 'all-minus-cellar';
+    getWineInventoryReport({
+      asOf,
+      locationId: excludeCellar ? 'all' : locationId,
+      allItems,
+      excludeLocationId: excludeCellar ? cellar?.id : null,
+    })
       .then((d) => { setItems(d.items || []); setSummary(d.summary || null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [asOf, locationId, allItems]);
+  }, [asOf, locationId, allItems, cellar?.id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -40,6 +52,7 @@ export function WineInventoryReport() {
         </label>
         <select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
           <option value="all">All locations (total)</option>
+          {cellar && <option value="all-minus-cellar">All locations except {cellar.name}</option>}
           {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
         <label className="wine-report-checkbox">

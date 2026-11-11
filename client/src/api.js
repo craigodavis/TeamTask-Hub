@@ -1422,11 +1422,14 @@ export async function saveWineInventoryCount({
   return data;
 }
 
-export async function getWineInventoryReport({ asOf, locationId, allItems }) {
+export async function getWineInventoryReport({ asOf, locationId, allItems, excludeLocationId }) {
   const qs = new URLSearchParams({
     as_of: asOf || '',
     location_id: locationId || 'all',
     all_items: allItems ? 'true' : 'false',
+    // Lets the report say "everywhere but one site" without inventing a
+    // second meaning for location_id.
+    ...(excludeLocationId ? { exclude_location_id: excludeLocationId } : {}),
   }).toString();
   const res = await fetch(`${API}/products/inventory/report?${qs}`, { headers: headers() });
   const data = await res.json().catch(() => ({}));

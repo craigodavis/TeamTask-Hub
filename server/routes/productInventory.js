@@ -557,6 +557,10 @@ router.get('/report', requireCapability('wine.reports'), async (req, res) => {
     const companyId = cid(req);
     const asOf = req.query.as_of || new Date().toISOString().slice(0, 10);
     const locationId = req.query.location_id && req.query.location_id !== 'all' ? req.query.location_id : null;
+    // Inverse of location_id: scope the table to every site EXCEPT this one.
+    // Named by id rather than by a magic location name so the report does not
+    // break if a site is renamed.
+    const excludeLocationId = req.query.exclude_location_id || null;
     const allItems = req.query.all_items === 'true';
 
     // Most recent log entry per product+location at or before as_of. Always
@@ -595,6 +599,7 @@ router.get('/report', requireCapability('wine.reports'), async (req, res) => {
     for (const row of r.rows) {
       if (!validProductIds.has(row.product_id)) continue;
       if (locationId && row.location_id !== locationId) continue;
+      if (excludeLocationId && row.location_id === excludeLocationId) continue;
       const prev = byProduct.get(row.product_id) || { total_bottles: 0, counted_at: null };
       prev.total_bottles += row.total_bottles;
       if (!prev.counted_at || row.counted_at > prev.counted_at) prev.counted_at = row.counted_at;
