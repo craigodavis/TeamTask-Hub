@@ -1280,7 +1280,16 @@ function DistributionCard({ eventId, card }) {
                     {c.rsvp_capacity ? ` / ${c.rsvp_capacity}` : ''}
                   </span>
                 )}
-                {c.external_url && <a href={c.external_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>view ↗</a>}
+                {/* Named, not a bare "view": this is how somebody checks what the
+                    public is actually being shown, and on a draft it is the only
+                    way to reach a listing that is waiting on a person. */}
+                {c.external_url && (
+                  <a href={c.external_url} target="_blank" rel="noreferrer"
+                     title={`Open this event on ${c.name} to review how it looks`}
+                     style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {c.external_state === 'draft' ? 'Review draft' : `View on ${c.name}`} ↗
+                  </a>
+                )}
                 <span style={{ flex: 1 }} />
                 {c.link && <a href={c.link} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>open ↗</a>}
                 {c.copy && (

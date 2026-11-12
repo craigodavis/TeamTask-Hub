@@ -199,7 +199,8 @@ export async function getDistribution(companyId, eventId) {
             COALESCE(pe.enabled, c.enabled) AS enabled,
             p.id AS post_id, p.status, p.external_url, p.payload_hash,
             p.posted_at, p.scheduled_at, p.last_error, p.promo_task_id,
-            eb.rsvp_count, eb.rsvp_capacity, eb.rsvp_synced_at
+            eb.rsvp_count, eb.rsvp_capacity, eb.rsvp_synced_at, eb.url AS eventbrite_url,
+            eb.state AS eventbrite_state
        FROM promo_channels c
        LEFT JOIN event_channel_posts p
          ON p.channel_key = c.key AND p.event_id = $2
@@ -219,12 +220,22 @@ export async function getDistribution(companyId, eventId) {
     return {
       key: r.key, name: r.name, tier: r.tier, mode: r.push_mode || 'manual', enabled: r.enabled, default_enabled: r.default_enabled,
       status: stale ? 'stale' : (r.status ?? 'pending'),
-      external_url: r.external_url, posted_at: r.posted_at, last_error: r.last_error,
+      // Fall back to the Eventbrite post's own URL. These can disagree: a draft
+      // Eventbrite would not publish is recorded by the client but the panel's
+      // row is written separately, and when that write failed the listing became
+      // unreachable from here even though it existed. The thing you most need to
+      // look at is the one that did not go cleanly, so the link must survive the
+      // bookkeeping going wrong.
+      external_url: r.external_url || r.eventbrite_url || null,
+      posted_at: r.posted_at, last_error: r.last_error,
       post_id: r.post_id, promo_task_id: r.promo_task_id,
       lead_days: r.lead_days, scheduled_at: r.scheduled_at,
       note: meta.note ?? null, link: meta.link ?? null, setup: meta.setup ?? null,
       rsvp_count: r.rsvp_count ?? null, rsvp_capacity: r.rsvp_capacity ?? null,
       rsvp_synced_at: r.rsvp_synced_at ?? null,
+      // 'live' or 'draft' as Eventbrite itself sees it, which is not always what
+      // our own status says.
+      external_state: r.eventbrite_state ?? null,
       copy: r.tier === 'assisted' ? suggestedCopy(payload, r.key) : null,
     };
   });

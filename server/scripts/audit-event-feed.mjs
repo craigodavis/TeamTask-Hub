@@ -425,6 +425,32 @@ console.log('\nEventbrite event image');
   ok('and the query selects both', /e\.image_url, e\.social_image_url/.test(src));
 }
 
+// ── reaching the listing to review it ──────────────────────────────────────
+console.log('\nLink to the live listing');
+{
+  const dsrc = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  // The link must survive the row's own bookkeeping failing: that is exactly
+  // when you most want to look at what went up.
+  ok('the panel falls back to the Eventbrite post URL',
+    /external_url: r\.external_url \|\| r\.eventbrite_url \|\| null/.test(dsrc));
+  ok('and the query selects it', /eb\.url AS eventbrite_url/.test(dsrc));
+  // Eventbrite's own view of the listing, which can disagree with ours.
+  ok('Eventbrite\'s own live/draft state is surfaced',
+    /eb\.state AS eventbrite_state/.test(dsrc) && /external_state: r\.eventbrite_state/.test(dsrc));
+
+  const ui = await (await import('node:fs/promises')).readFile(
+    new URL('../../client/src/pages/Events.jsx', import.meta.url), 'utf8');
+  ok('the link names the channel rather than saying "view"',
+    /View on \$\{c\.name\}/.test(ui) && !/>view \u2197</.test(ui));
+  ok('a draft is labelled as needing review',
+    /c\.external_state === 'draft' \? 'Review draft'/.test(ui));
+  // The window has to clear the title and style attributes between the anchor
+  // and the label — ~240 characters, not the 200 this first allowed.
+  ok('it opens in a new tab, safely',
+    /target="_blank" rel="noreferrer"[\s\S]{0,400}View on/.test(ui));
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
