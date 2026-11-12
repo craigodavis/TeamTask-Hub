@@ -1417,12 +1417,28 @@ websiteRouter.get('/events', async (req, res) => {
   try {
     const companyId = await kindredCompanyId();
     const defaultLimit = Number(await getSetting('events_list_count', 10)) || 10;
-    const limit = Math.min(Math.max(Number(req.query.limit) || defaultLimit, 1), 100);
+    // 500 rather than 100 so a caller wanting the whole archive gets it in one
+    // request — there are a few hundred events in all, not a few thousand.
+    const limit = Math.min(Math.max(Number(req.query.limit) || defaultLimit, 1), 500);
+
+    // `from=YYYY-MM-DD` reaches back past today.
+    //
+    // The website's build uses it to make a page for every event that HAS
+    // happened as well as every one that will. The calendar lets visitors page
+    // backwards and links each event it finds, so without the old pages those
+    // links 404 — and an event's URL dying the morning after is also a dead
+    // link in every email, post and share that ever carried it.
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || '')) ? req.query.from : null;
 
     const params = [companyId];
-    // Same rule as the calendar above: still on today means still listed.
-    let where = `e.company_id = $1 AND e.status = 'published'`
-              + ` AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= date_trunc('day', now())`;
+    let where = `e.company_id = $1 AND e.status = 'published'`;
+    if (from) {
+      params.push(from);
+      where += ` AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= $${params.length}::date`;
+    } else {
+      // Same rule as the calendar above: still on today means still listed.
+      where += ` AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= date_trunc('day', now())`;
+    }
     if (req.query.venue) { params.push(req.query.venue); where += ` AND l.web_slug = $${params.length}`; }
     if (req.query.category) { params.push(req.query.category); where += ` AND e.category = $${params.length}`; }
     if (req.query.q && req.query.q.trim()) {
