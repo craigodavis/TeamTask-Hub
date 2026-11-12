@@ -199,7 +199,7 @@ eventsRouter.get('/', async (req, res) => {
     const where = past ? '' : `AND GREATEST(e.start_at, COALESCE(e.end_at, e.start_at)) >= NOW() - INTERVAL '1 day'`;
     const order = past ? 'DESC' : 'ASC';
     const r = await query(
-      `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.event_url, e.image_url, e.social_image_url, e.fb_image_url,
+      `SELECT e.id, e.title, e.description, e.internal_notes, e.start_at, e.end_at, e.all_day, e.cost, e.club_cost, e.event_url, e.image_url, e.social_image_url, e.fb_image_url,
               e.category, e.status, e.stage, e.sticky, e.resos_experience_url, e.booking_url, e.review_notes, e.review_by, e.review_at, e.submitted_by, e.wp_event_id, e.location_id, e.musician_id,
               l.name AS location_name, m.name AS musician_name, m.lift_pct
          FROM events e
@@ -217,7 +217,7 @@ eventsRouter.post('/upload-image', imgUpload.single('image'), (req, res) => {
 });
 
 // Internal-only fields (notes, tasks) are never included in the WordPress push.
-const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'event_url', 'image_url', 'social_image_url', 'fb_image_url', 'category', 'status', 'internal_notes', 'sticky', 'resos_experience_url', 'booking_url'];
+const EV_FIELDS = ['location_id', 'musician_id', 'title', 'description', 'start_at', 'end_at', 'all_day', 'cost', 'club_cost', 'event_url', 'image_url', 'social_image_url', 'fb_image_url', 'category', 'status', 'internal_notes', 'sticky', 'resos_experience_url', 'booking_url'];
 
 // Employees assignable to event tasks
 eventsRouter.get('/assignable-users', async (req, res) => {
@@ -685,7 +685,8 @@ eventsRouter.post('/', async (req, res) => {
 
 // Human labels for the fields we announce in the audit log.
 const FIELD_LABEL = { location_id: 'venue', musician_id: 'talent', title: 'title', description: 'description',
-  start_at: 'date/time', end_at: 'end time', all_day: 'all-day', cost: 'cost', event_url: 'ticket URL', sticky: 'always show on the events page', resos_experience_url: 'booking link', booking_url: 'booking link',
+  start_at: 'date/time', end_at: 'end time', all_day: 'all-day', cost: 'ticket price',
+  club_cost: 'club ticket price', event_url: 'ticket URL', sticky: 'always show on the events page', resos_experience_url: 'booking link', booking_url: 'booking link',
   image_url: 'image', social_image_url: 'social image', fb_image_url: 'Facebook image', category: 'category',
   status: 'status', internal_notes: 'internal notes' };
 
@@ -796,8 +797,8 @@ eventsRouter.post('/:id/duplicate', async (req, res) => {
     // Copy the event but NOT the images — each event gets its own artwork — and
     // start it as a fresh draft with no dates.
     const r = await query(
-      `INSERT INTO events (company_id, location_id, musician_id, title, description, internal_notes, cost, event_url, image_url, social_image_url, fb_image_url, category, status, start_at, end_at, created_by)
-       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, event_url, NULL, NULL, NULL, category, 'draft', NULL, NULL, $3
+      `INSERT INTO events (company_id, location_id, musician_id, title, description, internal_notes, cost, club_cost, event_url, image_url, social_image_url, fb_image_url, category, status, start_at, end_at, created_by)
+       SELECT company_id, location_id, musician_id, $2, description, internal_notes, cost, club_cost, event_url, NULL, NULL, NULL, category, 'draft', NULL, NULL, $3
          FROM events WHERE id = $1
        RETURNING id`, [req.params.id, title, req.userId || null]);
     const newId = r.rows[0].id;

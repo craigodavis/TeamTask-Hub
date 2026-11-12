@@ -243,6 +243,51 @@ console.log('\nTicketed events');
   ok('the RSVP count is rendered', ui.includes('RSVP{c.rsvp_count === 1'));
 }
 
+// ── two prices: the public one travels, the members' one does not ──────────
+console.log('\nClub ticket price');
+{
+  const ev = { title: 'Jazz Night', slug: 'jazz-night-2026-11-14',
+               start_at: '2026-11-14T19:30:00.000Z', cost: 30, club_cost: 20 };
+  const ld = eventJsonLd(ev);
+  // The members' price is not a public offer. Publishing it would advertise a
+  // price most readers cannot get, and schema.org has no way to say "members
+  // only" that any consumer honours.
+  ok('JSON-LD publishes the public price', ld.offers?.price === 30, JSON.stringify(ld.offers));
+  // Matched on the price FIELD, not on the digits: a bare search for "20" hits
+  // the date in "2026-11-14" and the slug, which is how this check first failed
+  // against perfectly correct output.
+  ok('JSON-LD does NOT leak the club price',
+    !/"price"\s*:\s*"?20\b/.test(JSON.stringify(ld)) && !Array.isArray(ld.offers),
+    JSON.stringify(ld.offers));
+  const ics = icsEvent(ev, 'https://kindredvineyards.com').join('\r\n');
+  ok('ICS states the public price', /Tickets \$30/.test(ics));
+  ok('ICS does NOT leak the club price', !/\$20/.test(ics));
+
+  const route = await (await import('node:fs/promises')).readFile(
+    new URL('../routes/events.js', import.meta.url), 'utf8');
+  ok('club_cost is saveable (in EV_FIELDS)', /EV_FIELDS = \[[^\]]*'club_cost'/.test(route));
+  ok('club_cost is returned by the events list', /e\.club_cost/.test(route));
+  ok('a change to it is described in words', /club_cost: 'club ticket price'/.test(route));
+  ok('duplicating an event carries it over',
+    /INSERT INTO events \([^)]*club_cost/.test(route));
+
+  const ui = await (await import('node:fs/promises')).readFile(
+    new URL('../../client/src/pages/Events.jsx', import.meta.url), 'utf8');
+  ok('the form says "Ticket Price", not "Cost"',
+    ui.includes('>Ticket Price<') && !ui.includes('>Cost<'));
+  ok('and has a Club Ticket Price beside it', ui.includes('>Club Ticket Price<'));
+  // Both forms, not one: the new-event form and the edit drawer are separate.
+  ok('both forms have both fields',
+    (ui.match(/>Ticket Price</g) || []).length === 2
+    && (ui.match(/>Club Ticket Price</g) || []).length === 2,
+    `ticket=${(ui.match(/>Ticket Price</g)||[]).length} club=${(ui.match(/>Club Ticket Price</g)||[]).length}`);
+  // A field that renders but never saves is the classic half-done version of
+  // this change, so the payload list is asserted too.
+  ok('the edit form actually sends it', /'cost', 'club_cost'/.test(ui));
+  ok('the new-event form resets it after save',
+    (ui.match(/club_cost: ''/g) || []).length >= 2);
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

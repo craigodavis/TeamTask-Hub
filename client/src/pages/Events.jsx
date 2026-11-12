@@ -71,7 +71,7 @@ function EventsTab() {
   const [venueOff, setVenueOff] = useState({});
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState({ location_id: '', musician_id: '', status: '', from: '', to: '' });
-  const [form, setForm] = useState({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+  const [form, setForm] = useState({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', club_cost: '', category: 'Live Music', status: 'draft', image_url: '' });
 
   const load = useCallback(async () => {
     try {
@@ -123,7 +123,7 @@ function EventsTab() {
       Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
       await createEvent(body);
       setShowNew(false);
-      setForm({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+      setForm({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', club_cost: '', category: 'Live Music', status: 'draft', image_url: '' });
       await load();
     } catch (x) { setErr(x.message); } finally { setSaving(false); }
   };
@@ -236,7 +236,13 @@ function EventsTab() {
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Title</label><input style={inp} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="Event title" /></div>
           <div style={{ gridColumn: '1 / -1' }}><HtmlDesc value={form.description} onChange={(v) => set('description', v)} /></div>
           <div><label style={lbl}>Category</label><input style={inp} value={form.category} onChange={(e) => set('category', e.target.value)} /></div>
-          <div><label style={lbl}>Cost</label><input type="number" step="1" style={inp} value={form.cost} onChange={(e) => set('cost', e.target.value)} placeholder="0 = free" /></div>
+          {/* Two prices. "Ticket Price" is what the public pays and is the one
+              that travels: the feeds, the website payload and the Eventbrite
+              decision all read it, and leaving it blank on a ticketed event is
+              how a $30 show ends up listed as free. Club Ticket Price is the
+              members' price and stays internal. */}
+          <div><label style={lbl}>Ticket Price</label><input type="number" step="0.01" min="0" style={inp} value={form.cost} onChange={(e) => set('cost', e.target.value)} placeholder="0 = free" /></div>
+          <div><label style={lbl}>Club Ticket Price</label><input type="number" step="0.01" min="0" style={inp} value={form.club_cost} onChange={(e) => set('club_cost', e.target.value)} placeholder="blank = same as ticket price" /></div>
           <div><label style={lbl}>Status</label>
             <select style={inp} value={form.status} onChange={(e) => set('status', e.target.value)}>
               <option value="draft">Draft (not on website)</option>
@@ -1482,7 +1488,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const toLocal = toLocalInput; // see the note on toLocalInput — stored time is wall clock
   const [f, setF] = useState({
     title: ev.title || '', description: ev.description || '', musician_id: ev.musician_id || '', location_id: ev.location_id || '',
-    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', category: ev.category || '', status: ev.status || 'draft', sticky: !!ev.sticky, booking_url: ev.booking_url || ev.resos_experience_url || '', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
+    start_at: toLocal(ev.start_at), end_at: toLocal(ev.end_at), cost: ev.cost ?? '', club_cost: ev.club_cost ?? '', category: ev.category || '', status: ev.status || 'draft', sticky: !!ev.sticky, booking_url: ev.booking_url || ev.resos_experience_url || '', image_url: ev.image_url || '', social_image_url: ev.social_image_url || '', fb_image_url: ev.fb_image_url || '',
   });
   const [savedD, setSavedD] = useState(false);
   const [saveErr, setSaveErr] = useState('');
@@ -1493,7 +1499,7 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
   const dateErr = dateRangeError(f.start_at, f.end_at);
   const saveDetails = async () => {
     const body = {};
-    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url', 'booking_url']) body[k] = f[k] === '' ? null : f[k];
+    for (const k of ['title', 'description', 'musician_id', 'location_id', 'start_at', 'end_at', 'cost', 'club_cost', 'category', 'status', 'image_url', 'social_image_url', 'fb_image_url', 'booking_url']) body[k] = f[k] === '' ? null : f[k];
     // Separate from the loop above: that turns '' into null, and false is not ''
     // — but a checkbox that cannot be turned back off is worse than no checkbox.
     body.sticky = !!f.sticky;
@@ -1635,7 +1641,8 @@ function EventDetail({ ev, users, musicians, locations, onBack }) {
             </select>
           </div>
           <div><label style={lbl}>Category</label><input style={inp} value={f.category} onChange={(e) => setField('category', e.target.value)} /></div>
-          <div><label style={lbl}>Cost</label><input type="number" style={inp} value={f.cost} onChange={(e) => setField('cost', e.target.value)} /></div>
+          <div><label style={lbl}>Ticket Price</label><input type="number" step="0.01" min="0" style={inp} value={f.cost} onChange={(e) => setField('cost', e.target.value)} placeholder="0 = free" /></div>
+          <div><label style={lbl}>Club Ticket Price</label><input type="number" step="0.01" min="0" style={inp} value={f.club_cost} onChange={(e) => setField('club_cost', e.target.value)} placeholder="blank = same as ticket price" /></div>
           <div><label style={lbl}>Status</label>
             <select style={inp} value={f.status} onChange={(e) => setField('status', e.target.value)}>
               <option value="draft">Draft (not on website)</option>

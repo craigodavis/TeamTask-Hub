@@ -5699,6 +5699,31 @@ If the deposit is not received by that date, or if the date, guest count, venue 
      ADD COLUMN IF NOT EXISTS rsvp_capacity  INTEGER,
      ADD COLUMN IF NOT EXISTS rsvp_synced_at TIMESTAMPTZ`,
 
+  // Two ticket prices. `cost` keeps its name in the database -- it is read by
+  // the feeds, the app, the website payload and a dozen queries, and renaming a
+  // live column to improve a form label would be a poor trade. The FORM calls it
+  // "Ticket Price"; club_cost is the members' price beside it.
+  `ALTER TABLE events_all ADD COLUMN IF NOT EXISTS club_cost NUMERIC`,
+  // events is a view over events_all. CREATE OR REPLACE VIEW accepts new columns
+  // only at the END of the select list, so club_cost is appended rather than
+  // placed next to cost where it would read better.
+  `CREATE OR REPLACE VIEW events AS
+     SELECT events_all.id, events_all.company_id, events_all.location_id, events_all.musician_id,
+            events_all.title, events_all.description, events_all.start_at, events_all.end_at,
+            events_all.all_day, events_all.cost, events_all.event_url, events_all.image_url,
+            events_all.category, events_all.status, events_all.wp_event_id, events_all.wp_synced_at,
+            events_all.source, events_all.reminder_week_sent_at, events_all.reminder_day_sent_at,
+            events_all.created_by, events_all.created_at, events_all.updated_at,
+            events_all.reminder_month_sent_at, events_all.internal_notes, events_all.social_image_url,
+            events_all.slug, events_all.app_notify, events_all.announce_lead_days,
+            events_all.publish_warned_at, events_all.fb_image_url, events_all.deleted_at,
+            events_all.deleted_by, events_all.stage, events_all.submitted_at, events_all.submitted_by,
+            events_all.review_notes, events_all.review_by, events_all.review_at,
+            events_all.review_notified_at, events_all.approved_notified_at, events_all.sticky,
+            events_all.resos_experience_url, events_all.booking_url, events_all.club_cost
+       FROM events_all
+      WHERE events_all.deleted_at IS NULL`,
+
 ];
 
 export async function runMigrations() {
