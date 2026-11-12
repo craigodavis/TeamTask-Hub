@@ -415,16 +415,29 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
           continue;
         }
         const status = r.published ? 'posted' : 'needs_human';
+        // $4 is CAST because it is used both as the inserted value and inside a
+        // comparison; without the cast Postgres deduces two different types for
+        // the one parameter and rejects the whole statement with "inconsistent
+        // types deduced for parameter $4". That failure is why this branch has
+        // never recorded a result: the Eventbrite call would succeed and then
+        // the bookkeeping would throw, so the panel showed a Postgres error
+        // instead of whatever Eventbrite actually said.
+        //
+        // last_error carries Eventbrite's OWN reason rather than a generic
+        // "finish & publish it". The reason is the whole value of the message:
+        // "Phone verification is required to publish events" is something you
+        // can act on, and a draft needing attention is not.
         await query(
           `INSERT INTO event_channel_posts
              (company_id, event_id, channel_key, status, external_url, posted_at, posted_by, last_error, payload_hash)
-           VALUES ($1,$2,$3,$4,$5, CASE WHEN $4='posted' THEN NOW() END, $6,
-                   CASE WHEN $4='posted' THEN NULL ELSE 'Created as an Eventbrite draft — finish & publish it' END, $7)
+           VALUES ($1,$2,$3,$4::text,$5, CASE WHEN $4::text='posted' THEN NOW() END, $6,
+                   CASE WHEN $4::text='posted' THEN NULL ELSE $8::text END, $7)
            ON CONFLICT (event_id, channel_key) DO UPDATE
              SET status=EXCLUDED.status, external_url=EXCLUDED.external_url,
                  posted_at=EXCLUDED.posted_at, posted_by=EXCLUDED.posted_by,
                  last_error=EXCLUDED.last_error, payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
-          [companyId, eventId, ch.key, status, r.url || null, userId || null, dist.payload_hash]);
+          [companyId, eventId, ch.key, status, r.url || null, userId || null, dist.payload_hash,
+           r.reason || 'Created as an Eventbrite draft — finish & publish it']);
         touched.push({ key: ch.key, action: status });
         continue;
       } catch (e) {
@@ -456,7 +469,7 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
         await query(
           `INSERT INTO event_channel_posts
              (company_id, event_id, channel_key, status, external_url, posted_at, posted_by, last_error, payload_hash)
-           VALUES ($1,$2,$3,$4,$5, CASE WHEN $4='posted' THEN NOW() END, $6, $7, $8)
+           VALUES ($1,$2,$3,$4::text,$5, CASE WHEN $4::text='posted' THEN NOW() END, $6, $7, $8)
            ON CONFLICT (event_id, channel_key) DO UPDATE
              SET status=EXCLUDED.status, external_url=EXCLUDED.external_url,
                  posted_at=EXCLUDED.posted_at, posted_by=EXCLUDED.posted_by,

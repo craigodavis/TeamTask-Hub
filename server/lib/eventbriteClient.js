@@ -30,6 +30,7 @@
  *     real price. See docs/EVENT_DISTRIBUTION.md.
  */
 import { query } from '../db.js';
+import { publicVenueName } from './eventFeed.js';
 
 const OAUTH_AUTHORIZE = 'https://www.eventbrite.com/oauth/authorize';
 const OAUTH_TOKEN = 'https://www.eventbrite.com/oauth/token';
@@ -162,7 +163,12 @@ async function ensureVenue(companyId, orgId, ev) {
     method: 'POST',
     body: {
       venue: {
-        name: ev.venue_name || 'Kindred',
+        // The PUBLIC name. locations.name is an internal label -- "Creek",
+        // "Winery" -- and an Eventbrite venue called "Creek, 616 Main Street"
+        // is both wrong and unsearchable. Same rule as the feeds, same one
+        // function, keyed on web_slug so renaming the internal label cannot
+        // change what the outside world is told.
+        name: publicVenueName(ev.venue_web_slug, ev.venue_name),
         address: {
           address_1: vd.street, city: vd.city || undefined, region: vd.region || undefined,
           postal_code: vd.postal || undefined, country: 'US',
@@ -226,7 +232,7 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
 
   const ev = (await query(
     `SELECT e.id, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
-            e.location_id, l.name AS venue_name
+            e.location_id, l.name AS venue_name, l.web_slug AS venue_web_slug
        FROM events e LEFT JOIN locations l ON l.id = e.location_id
       WHERE e.id = $1 AND e.company_id = $2`,
     [eventId, companyId]
@@ -285,8 +291,13 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
     await apiFetch(companyId, `/events/${ebId}/publish/`, { method: 'POST', token });
   } catch (e) {
     // Created but couldn't publish — leave it as a draft to finish by hand.
-    await record('draft', ebId, url, `Created as draft — finish & publish on Eventbrite: ${e.message}`);
-    return { url, published: false, eventbrite_event_id: ebId };
+    // Eventbrite's own wording goes back to the caller: the reason is the
+    // actionable part, and the commonest one ("Phone verification is required
+    // to publish events") is a thing the owner can fix in a minute if anyone
+    // tells them. Swallowing it into "finish & publish it" hid that for good.
+    const reason = `Eventbrite created the event but would not publish it: ${e.message}`;
+    await record('draft', ebId, url, reason);
+    return { url, published: false, eventbrite_event_id: ebId, reason };
   }
 
   await record('live', ebId, url, null);
@@ -304,11 +315,18 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
  * months the number, rather than an opinion, decides whether paid ticketing is
  * worth revisiting.
  *
- * One request for the whole organization rather than one per event: the
- * ticket_availability expansion carries quantity_sold, so N events cost a single
- * call. Never throws — a missing RSVP count must not break the panel it decorates.
+ * Two requests per live event, not one for the whole organization. The tidier
+ * version read ticket_availability off a single organization-wide listing, which
+ * is what the field names suggest you should do — but that expansion has no
+ * quantity_sold in it, so every event came back with a defaulted 0 that looked
+ * exactly like a real measurement. /attendees/ reports a genuine count, and it
+ * is per event. Correct and slower beats fast and fictional.
  *
- * Returns { synced, skipped, error } for the caller to log, not to show.
+ * An unreadable event is left with whatever number it already had rather than
+ * being overwritten with a guess, and never throws — a missing RSVP count must
+ * not break the panel it decorates.
+ *
+ * Returns { synced, failed, skipped, error } for the caller to log, not to show.
  */
 export async function syncEventbriteRsvps(companyId, { maxAgeMinutes = 20 } = {}) {
   try {
@@ -327,39 +345,41 @@ export async function syncEventbriteRsvps(companyId, { maxAgeMinutes = 20 } = {}
       return { synced: 0, skipped: live.length, fresh: true };
     }
 
-    const orgId = (await query(
-      `SELECT eventbrite_org_id FROM company_integrations WHERE company_id = $1`,
-      [companyId])).rows[0]?.eventbrite_org_id;
-    if (!orgId) return { synced: 0, skipped: live.length, error: 'no organization' };
+    let synced = 0, failed = 0;
+    for (const row of live) {
+      const ebId = String(row.eventbrite_event_id);
+      try {
+        // /attendees/ is the only endpoint that actually reports how many
+        // people signed up. The ticket_availability expansion looks like it
+        // should -- it is what the docs point you at -- but it carries prices
+        // and a sold-out flag and NO quantity_sold, so reading a count from it
+        // meant writing a default of 0 and calling it a measurement. A panel
+        // that invents zeros is worse than one that shows nothing.
+        const att = await apiFetch(companyId, `/events/${ebId}/attendees/?page_size=1`);
+        const count = att?.pagination?.object_count;
+        if (!Number.isFinite(count)) { failed++; continue; }
 
-    const wanted = new Set(live.map((r) => String(r.eventbrite_event_id)));
-    const seen = new Map();
-    // Paginate defensively: a venue with years of events will exceed one page.
-    let page = 1;
-    for (; page <= 10; page++) {
-      const d = await apiFetch(companyId,
-        `/organizations/${orgId}/events/?expand=ticket_availability&page_size=200&page=${page}`);
-      for (const e of d?.events || []) {
-        if (!wanted.has(String(e.id))) continue;
-        const ta = e.ticket_availability || {};
-        seen.set(String(e.id), {
-          sold: Number(ta.quantity_sold ?? 0),
-          cap: ta.quantity_total == null ? null : Number(ta.quantity_total),
-        });
+        // Capacity is on the event itself. Absent is null, not zero.
+        let cap = null;
+        try {
+          const e = await apiFetch(companyId, `/events/${ebId}/`);
+          cap = Number.isFinite(Number(e?.capacity)) ? Number(e.capacity) : null;
+        } catch { /* capacity is decoration; the count is the point */ }
+
+        await query(
+          `UPDATE eventbrite_event_posts
+              SET rsvp_count = $3, rsvp_capacity = $4, rsvp_synced_at = NOW(), updated_at = NOW()
+            WHERE company_id = $1 AND eventbrite_event_id = $2`,
+          [companyId, ebId, count, cap]);
+        synced++;
+      } catch (e) {
+        // One unreadable event must not stop the others, and must not leave a
+        // stale or invented number behind: the row simply keeps whatever it had.
+        console.error('syncEventbriteRsvps', ebId, e.message);
+        failed++;
       }
-      if (!d?.pagination?.has_more_items) break;
     }
-
-    let synced = 0;
-    for (const [ebId, v] of seen) {
-      await query(
-        `UPDATE eventbrite_event_posts
-            SET rsvp_count = $3, rsvp_capacity = $4, rsvp_synced_at = NOW(), updated_at = NOW()
-          WHERE company_id = $1 AND eventbrite_event_id = $2`,
-        [companyId, ebId, Number.isFinite(v.sold) ? v.sold : null, v.cap]);
-      synced++;
-    }
-    return { synced, skipped: live.length - synced };
+    return { synced, failed, skipped: live.length - synced - failed };
   } catch (e) {
     console.error('syncEventbriteRsvps', e.message);
     return { synced: 0, skipped: 0, error: e.message };

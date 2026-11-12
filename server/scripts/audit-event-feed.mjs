@@ -323,6 +323,47 @@ console.log('\nEventbrite checkbox gating');
   ok('the distribution payload carries cost', /cost: ev\.cost \?\? null/.test(dsrc));
 }
 
+// ── what the Eventbrite listing tells the public ────────────────────────────
+console.log('\nEventbrite listing correctness');
+{
+  const src = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+
+  // The venue name was the same bug as the feeds had: locations.name is an
+  // internal label, so Eventbrite showed a venue called "Creek".
+  ok('the Eventbrite venue uses the public name',
+    /name: publicVenueName\(ev\.venue_web_slug, ev\.venue_name\)/.test(src));
+  ok('and the query actually selects web_slug',
+    /l\.web_slug AS venue_web_slug/.test(src));
+  ok('one definition of the public name, shared with the feeds',
+    /import \{ publicVenueName \} from '\.\/eventFeed\.js'/.test(src));
+
+  // The RSVP count must come from somewhere that reports one. The
+  // ticket_availability expansion does NOT carry quantity_sold, so reading it
+  // there wrote a defaulted 0 that was indistinguishable from a real zero.
+  ok('RSVPs are counted from the attendees endpoint',
+    /\/attendees\/\?page_size=1/.test(src));
+  ok('ticket_availability is no longer trusted for a count',
+    !/quantity_sold \?\? 0/.test(src));
+  ok('an unreadable count is left NULL, never defaulted to 0',
+    /if \(!Number\.isFinite\(count\)\) \{ failed\+\+; continue; \}/.test(src));
+  ok('capacity absent means null, not zero',
+    /cap = Number\.isFinite\(Number\(e\?\.capacity\)\) \? Number\(e\.capacity\) : null/.test(src));
+  ok('one failing event does not stop the rest', /failed\+\+;\n\s*\}\n\s*\}/.test(src));
+
+  // The bookkeeping INSERT: $4 was used as a value and in a comparison, which
+  // Postgres rejects outright, so the channel could never record ANY result.
+  const dsrc = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  ok('the status parameter is cast, so the insert is valid SQL',
+    /\$4::text/.test(dsrc));
+  ok('no uncast $4 comparison remains', !/CASE WHEN \$4='posted'/.test(dsrc));
+  // And Eventbrite's own reason reaches the panel, rather than being replaced
+  // by a generic message. "Phone verification is required" is actionable.
+  ok('Eventbrite\'s own reason is stored', /r\.reason \|\|/.test(dsrc));
+  ok('and the client hands one back', /return \{ url, published: false, eventbrite_event_id: ebId, reason \}/.test(src));
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
