@@ -288,6 +288,41 @@ console.log('\nClub ticket price');
     (ui.match(/club_cost: ''/g) || []).length >= 2);
 }
 
+// ── the panel gate: grey when priced, warn when not ────────────────────────
+console.log('\nEventbrite checkbox gating');
+{
+  const ui = await (await import('node:fs/promises')).readFile(
+    new URL('../../client/src/pages/Events.jsx', import.meta.url), 'utf8');
+
+  ok('ticketed is derived from the payload price', /const isTicketed =/.test(ui));
+  // Blank and 0 are both free. Most events are entered with no price at all, so
+  // treating blank as "unknown" would grey the channel for nearly all of them.
+  ok('blank and 0 both count as free', /dist\?\.payload\?\.cost \?\? 0/.test(ui));
+  ok('only Eventbrite is ever blocked', /key === 'eventbrite' && isTicketed/.test(ui));
+
+  ok('the checkbox is disabled when priced', /disabled=\{blocked\}/.test(ui));
+  ok('the row is greyed when priced', /opacity: blocked \? 0\.45/.test(ui));
+  // A greyed control with no reason beside it is what people file bugs about.
+  ok('and the row says why', /Ticketed event\{ticketPrice/.test(ui));
+
+  ok('turning it on for a free event asks first',
+    /window\.confirm\(\s*\n?\s*'This event has no ticket price/.test(ui));
+  // The disabled attribute is a hint, not a guarantee — the handler must refuse
+  // too, or a stale render or a keyboard path switches it on anyway.
+  ok('the handler refuses a blocked channel regardless of the input',
+    /if \(blockedChannel\(key\) && enabled\) return;/.test(ui));
+  // "Select all" was the obvious hole: it bypasses the checkbox entirely.
+  ok('"select all" cannot switch on a blocked channel',
+    /\.filter\(\(c\) => !\(enabled && blockedChannel\(c\.key\)\)\)/.test(ui));
+  ok('and its optimistic update leaves it alone',
+    /\(enabled && blockedChannel\(c\.key\)\) \? c :/.test(ui));
+
+  // The payload must actually carry the price, or every event looks free.
+  const dsrc = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  ok('the distribution payload carries cost', /cost: ev\.cost \?\? null/.test(dsrc));
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

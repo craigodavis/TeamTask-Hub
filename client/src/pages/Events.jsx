@@ -1130,8 +1130,30 @@ function DistributionCard({ eventId, card }) {
     try { await markEventChannelPost(postId, { status, external_url: url }); load(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  // Ticketed means a price above zero. Blank and 0 are both "free": blank is
+  // how most of these events are entered, and treating it as unknown would
+  // block the channel for nearly every event.
+  const ticketPrice = Number(dist?.payload?.cost ?? 0);
+  const isTicketed = Number.isFinite(ticketPrice) && ticketPrice > 0;
+  // Only Eventbrite cares. Every other channel takes a ticketed event happily.
+  const blockedChannel = (key) => key === 'eventbrite' && isTicketed;
+
   const toggleChannel = async (key, enabled) => {
     setErr('');
+    // Selling on Eventbrite would mean Eventbrite taking the payment, so a
+    // ticketed event cannot be switched on here at all. The checkbox is
+    // disabled too; this is the guard for the ways round a disabled input.
+    if (blockedChannel(key) && enabled) return;
+    // Turning Eventbrite ON for an event with no price is a decision, not a
+    // formality: it will be listed publicly as a free RSVP. If the price is
+    // simply missing — as it was on Jazz Night — this is the moment to notice.
+    if (key === 'eventbrite' && enabled && !isTicketed) {
+      const ok = window.confirm(
+        'This event has no ticket price, so it will be allowed on Eventbrite.\n\n'
+        + 'It will be listed publicly as a free RSVP. If it is actually a paid '
+        + 'event, cancel and set the Ticket Price first.');
+      if (!ok) return;
+    }
     // Optimistic — flip locally, then persist.
     setDist((d) => d && ({ ...d, channels: d.channels.map((c) => c.key === key ? { ...c, enabled } : c) }));
     try { await setEventChannelEnabled(eventId, key, enabled); }
@@ -1139,10 +1161,16 @@ function DistributionCard({ eventId, card }) {
   };
   const setAllChannels = async (enabled) => {
     if (!dist) return;
-    const keys = dist.channels.filter((c) => !!c.enabled !== enabled).map((c) => c.key);
+    const keys = dist.channels
+      .filter((c) => !!c.enabled !== enabled)
+      // "Select all" must respect the same rule as the individual checkbox, or
+      // it becomes the way a ticketed event gets switched on by accident.
+      .filter((c) => !(enabled && blockedChannel(c.key)))
+      .map((c) => c.key);
     if (!keys.length) return;
     setErr('');
-    setDist((d) => d && ({ ...d, channels: d.channels.map((c) => ({ ...c, enabled })) }));
+    setDist((d) => d && ({ ...d, channels: d.channels.map((c) =>
+      (enabled && blockedChannel(c.key)) ? c : { ...c, enabled }) }));
     try { await Promise.all(keys.map((k) => setEventChannelEnabled(eventId, k, enabled))); }
     catch (e) { setErr(e.message); } finally { load(); }
   };
@@ -1222,12 +1250,17 @@ function DistributionCard({ eventId, card }) {
       <div style={{ marginTop: 10 }}>
         {dist.channels.map((c) => {
           const p = PILL[c.status] ?? PILL.pending;
+          const blocked = blockedChannel(c.key);
           return (
-            <div key={c.key} style={{ borderTop: '1px solid var(--border,#eee)', padding: '10px 0', opacity: c.enabled ? 1 : 0.5 }}>
+            <div key={c.key} style={{ borderTop: '1px solid var(--border,#eee)', padding: '10px 0',
+                                      opacity: blocked ? 0.45 : (c.enabled ? 1 : 0.5) }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <input type="checkbox" checked={!!c.enabled} onChange={(e) => toggleChannel(c.key, e.target.checked)}
-                       title={c.enabled ? 'On for this event — uncheck to skip it' : 'Skipped for this event — check to include'}
-                       style={{ cursor: 'pointer' }} />
+                <input type="checkbox" checked={!blocked && !!c.enabled} disabled={blocked}
+                       onChange={(e) => toggleChannel(c.key, e.target.checked)}
+                       title={blocked
+                         ? `Ticketed event (${ticketPrice ? '$' + ticketPrice : 'priced'}) — Eventbrite would have to take the payment, so it is not listed there`
+                         : (c.enabled ? 'On for this event — uncheck to skip it' : 'Skipped for this event — check to include')}
+                       style={{ cursor: blocked ? 'not-allowed' : 'pointer' }} />
                 <span style={{ fontWeight: 600, minWidth: 140 }}>{c.name}</span>
                 <span style={{ background: p.bg, color: p.fg, borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>{p.label}</span>
                 <span style={{ fontSize: 12, opacity: 0.55 }}>{MODE[c.mode] || TIER[c.tier]}</span>
@@ -1267,6 +1300,18 @@ function DistributionCard({ eventId, card }) {
                           onClick={() => mark(c.post_id, 'queued')}>Undo</button>
                 )}
               </div>
+              {blocked && (
+                <div style={{ fontSize: 12, marginTop: 5, padding: '6px 9px', borderRadius: 7,
+                              background: 'var(--surface-3,#f0eeeb)', display: 'flex', gap: 7 }}>
+                  <span aria-hidden="true">🎟️</span>
+                  <span>
+                    <b>Ticketed event{ticketPrice ? ` ($${ticketPrice})` : ''}.</b> Not listed on
+                    Eventbrite, because selling there would mean Eventbrite taking the payment.
+                    It still reaches listing sites through the events feed, with its real price.
+                    Clear the Ticket Price to make this a free RSVP instead.
+                  </span>
+                </div>
+              )}
               {c.note && <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{c.note}</div>}
               {/* Setup is a standing prerequisite, not a per-event job, so it
                   is styled as a notice rather than folded into the grey note
