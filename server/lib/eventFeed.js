@@ -244,6 +244,13 @@ function e164(phone) {
   return phone || undefined;
 }
 
+/** Whole dollars read as "$30", not "$30.00"; cents are kept when they exist. */
+export function money(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '$0';
+  return '$' + (Number.isInteger(v) ? String(v) : v.toFixed(2));
+}
+
 /** FMTTYPE must match the actual bytes; most of our event art is PNG. */
 function imageType(url) {
   const ext = String(url || '').toLowerCase().split('?')[0].split('.').pop();
@@ -297,7 +304,14 @@ export function icsEvent(ev, origin) {
   }
 
   lines.push(`SUMMARY:${icsEscape(ev.title)}`);
-  if (desc) lines.push(`DESCRIPTION:${icsEscape(desc)}`);
+  // iCalendar has no price property, so an unqualified ticketed event travels
+  // with no cost stated at all. The JSON-LD feed carries a real `offers` node;
+  // for ICS the only honest place is the description a human will read.
+  const priced = Number(ev.cost);
+  const descWithPrice = Number.isFinite(priced) && priced > 0
+    ? `${desc ? desc + '\n\n' : ''}Tickets ${money(priced)}. Book at ${url}`
+    : desc;
+  if (descWithPrice) lines.push(`DESCRIPTION:${icsEscape(descWithPrice)}`);
   lines.push(`LOCATION:${icsEscape(v.oneLine)}`);
   if (v.lat != null && v.lng != null) lines.push(`GEO:${v.lat};${v.lng}`);
   lines.push(`URL:${url}`);

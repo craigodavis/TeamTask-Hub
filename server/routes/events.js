@@ -16,6 +16,7 @@ import { query } from '../db.js';
 // still supported: scripts/reconcile-events-from-wp.js.
 import { sendOnePromoEmail } from '../lib/promoEmailSender.js';
 import { getDistribution, announce, markPost, scheduleAnnounce, firePublishHooks } from '../lib/eventDistribution.js';
+import { syncEventbriteRsvps } from '../lib/eventbriteClient.js';
 import { sendSmsToPhone } from '../lib/smsHelper.js';
 import { MARKS, DEFAULTS, render } from '../lib/talentReminders.js';
 import { logEventActivity, getEventActivity, getCompanyActivity } from '../lib/eventActivity.js';
@@ -231,6 +232,11 @@ eventsRouter.get('/assignable-users', async (req, res) => {
 // See docs/EVENT_DISTRIBUTION.md.
 eventsRouter.get('/:id/distribution', async (req, res) => {
   try {
+    // Refresh the RSVP numbers first so the panel shows today's, not the ones
+    // from whenever the event was announced. Throttled to one call per 20
+    // minutes inside the sync, and it never throws — a channel count is not
+    // worth failing the panel over.
+    await syncEventbriteRsvps(cId(req));
     const d = await getDistribution(cId(req), req.params.id);
     if (!d) return res.status(404).json({ error: 'Event not found' });
     res.json(d);

@@ -1155,6 +1155,11 @@ function DistributionCard({ eventId, card }) {
     stale:       { bg: '#fce8e6', fg: '#c5221f', label: 'Event changed' },
     failed:      { bg: '#fce8e6', fg: '#c5221f', label: 'Failed' },
     skipped:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Skipped' },
+    // Grey, not amber: nothing is wrong and nothing is owed. The channel was
+    // considered and correctly declined (a ticketed event on Eventbrite would
+    // mean Eventbrite taking the payment), so it must not read as a job
+    // half-done or people will keep trying to finish it.
+    not_applicable: { bg: '#f1f3f4', fg: '#5f6368', label: "Doesn't apply" },
     pending:     { bg: '#f1f3f4', fg: '#5f6368', label: 'Not started' },
   };
   const TIER = { auto: 'automatic', feed: 'feed — no action', assisted: 'needs a person', outreach: 'email' };
@@ -1189,6 +1194,13 @@ function DistributionCard({ eventId, card }) {
         feed and need nothing per event — only the one-time registration shown on the row. Uncheck a
         channel to skip it for this event (remembered); set each channel’s mode in the settings tab.
       </p>
+      <p style={{ fontSize: 12, opacity: 0.6, margin: '6px 0 0' }}>
+        A <b>ticketed</b> event doesn’t go to Eventbrite — selling there would mean Eventbrite taking
+        the payment, so the row reads <b>Doesn’t apply</b> and the event reaches listing sites through
+        the feed instead, with its real price. Free events do go to Eventbrite, as free RSVPs, and the
+        RSVP count shown on that row is read back from Eventbrite — it’s how we find out whether
+        they’re actually sending anyone.
+      </p>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12 }}>
         <button type="button" onClick={() => setAllChannels(true)}
@@ -1218,6 +1230,17 @@ function DistributionCard({ eventId, card }) {
                     {fmtDT(c.scheduled_at)} · {c.lead_days}d before
                   </span>
                 )}
+                {/* The answer to "is Eventbrite worth it here?" -- read back from
+                    their API rather than taken on faith. 0 is a real answer and
+                    is shown; null means we have not managed to ask yet. */}
+                {c.rsvp_count != null && (
+                  <span title={c.rsvp_synced_at ? `RSVPs as of ${fmtDT(c.rsvp_synced_at)}` : 'RSVPs on Eventbrite'}
+                        style={{ fontSize: 12, fontWeight: 600,
+                                 color: c.rsvp_count > 0 ? '#137333' : 'var(--text-dim,#5f6368)' }}>
+                    {c.rsvp_count} RSVP{c.rsvp_count === 1 ? '' : 's'}
+                    {c.rsvp_capacity ? ` / ${c.rsvp_capacity}` : ''}
+                  </span>
+                )}
                 {c.external_url && <a href={c.external_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>view ↗</a>}
                 <span style={{ flex: 1 }} />
                 {c.link && <a href={c.link} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>open ↗</a>}
@@ -1227,7 +1250,7 @@ function DistributionCard({ eventId, card }) {
                     {open === c.key ? 'Hide copy' : 'Copy text'}
                   </button>
                 )}
-                {c.post_id && c.status !== 'posted' && (
+                {c.post_id && c.status !== 'posted' && c.status !== 'not_applicable' && (
                   <button style={{ ...btn(false), padding: '3px 9px', fontSize: 12 }}
                           onClick={() => mark(c.post_id, 'posted', window.prompt('Link to the post (optional):') || null)}>
                     Mark posted

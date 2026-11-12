@@ -5691,6 +5691,14 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   // UPDATE on its own would have taken that tab away from exactly the two people
   // it is supposed to leave alone.
   `UPDATE users SET role = 'member' WHERE role IN ('inventory', 'schedule', 'gc')`,
+  // RSVP read-back from Eventbrite. Appended, never inserted: `version` in this
+  // runner is the array index + 1, so putting a statement in the middle would
+  // renumber every migration after it and re-run them against a live schema.
+  `ALTER TABLE eventbrite_event_posts
+     ADD COLUMN IF NOT EXISTS rsvp_count     INTEGER,
+     ADD COLUMN IF NOT EXISTS rsvp_capacity  INTEGER,
+     ADD COLUMN IF NOT EXISTS rsvp_synced_at TIMESTAMPTZ`,
+
 ];
 
 export async function runMigrations() {

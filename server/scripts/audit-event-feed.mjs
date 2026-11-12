@@ -13,7 +13,7 @@ import express from 'express';
 import { websiteRouter } from '../routes/website.js';
 import {
   zoneOffsetMinutes, offsetString, icsLocal, isoLocal, icsEscape, foldLine,
-  stripHtml, buildIcs, eventJsonLd, eventUid,
+  stripHtml, buildIcs, eventJsonLd, eventUid, icsEvent, money,
 } from '../lib/eventFeed.js';
 import { CHANNEL_BY_KEY, defaultMode } from '../lib/eventDistribution.js';
 
@@ -185,6 +185,62 @@ console.log('\nDegenerate cases');
   const bare = eventJsonLd({ title: 'X', slug: 'x', start_at: '2026-11-12T18:30:00.000Z' });
   ok('an event with no venue row still produces valid markup', bare.name === 'X' && !!bare.startDate);
   ok('and does not invent an address', !bare.location.address?.streetAddress);
+}
+
+// ── ticketed events: the price must survive, and Eventbrite must decline ────
+console.log('\nTicketed events');
+{
+  ok('money() drops pointless cents', money(30) === '$30', money(30));
+  ok('money() keeps real cents', money(27.5) === '$27.50', money(27.5));
+  ok('money() survives rubbish', money(null) === '$0' && money('x') === '$0');
+
+  const paid = { title: 'Harvest Dinner', slug: 'harvest-dinner-2026-11-20',
+                 start_at: '2026-11-20T18:30:00.000Z', cost: 30 };
+  const ld = eventJsonLd(paid);
+  ok('JSON-LD carries the real price', ld.offers?.price === 30, JSON.stringify(ld.offers));
+  ok('JSON-LD prices a free event at 0',
+    eventJsonLd({ ...paid, cost: null }).offers?.price === 0);
+
+  // iCalendar has no price property at all, so the description is the only
+  // honest place to put it. A ticketed event that travels with no cost stated
+  // is the failure this guards.
+  const icsLines = icsEvent(paid, 'https://kindredvineyards.com').join('\r\n');
+  ok('ICS states the ticket price somewhere a human reads',
+    /DESCRIPTION:[^\r\n]*Tickets \$30/.test(icsLines),
+    icsLines.split('\r\n').find((l) => l.startsWith('DESCRIPTION:')) || 'no DESCRIPTION');
+  const freeLines = icsEvent({ ...paid, cost: 0 }, 'https://kindredvineyards.com').join('\r\n');
+  ok('a free event is not labelled with a price', !/Tickets \$/.test(freeLines));
+
+  // The client must refuse before it creates anything: the bug being prevented
+  // is a $30 show listed on Eventbrite at $0.
+  const src = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+  const fn = src.slice(src.indexOf('export async function postEventToEventbrite'));
+  const body = fn.slice(0, fn.indexOf('\n}\n'));
+  const guardAt = body.indexOf("skipped: 'paid'");
+  const ticketAt = body.indexOf('ticket_classes');
+  ok('the paid guard exists', guardAt > -1);
+  ok('and returns BEFORE any ticket class is created',
+    guardAt > -1 && ticketAt > -1 && guardAt < ticketAt, `guard@${guardAt} ticket@${ticketAt}`);
+  ok('the free ticket class is still free', /free: true/.test(body));
+
+  const dsrc = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  ok('announce records it as not_applicable', dsrc.includes("'not_applicable'"));
+  // Settled means settled: retrying every publish would call Eventbrite to be
+  // told the same thing and would rewrite the explanation each time.
+  ok('not_applicable is terminal, like posted',
+    /DONE = new Set\(\['posted', 'not_applicable'\]\)/.test(dsrc));
+  ok('RSVP counts are read back onto the channel row', dsrc.includes('rsvp_count'));
+
+  const ui = await (await import('node:fs/promises')).readFile(
+    new URL('../../client/src/pages/Events.jsx', import.meta.url), 'utf8');
+  ok('the UI has a pill for it', ui.includes('not_applicable:'));
+  ok('it is grey, not amber — nothing is owed',
+    /not_applicable: \{ bg: '#f1f3f4'/.test(ui));
+  ok('Mark posted is hidden on a channel that does not apply',
+    ui.includes("c.status !== 'not_applicable'"));
+  ok('the RSVP count is rendered', ui.includes('RSVP{c.rsvp_count === 1'));
 }
 
 srv.close();

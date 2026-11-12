@@ -16,6 +16,18 @@
  *     stores event times as wall-clock-labelled-UTC (18:00Z means 6 PM at the
  *     venue), so we reinterpret that clock face in the venue timezone to get the
  *     true UTC instant Eventbrite wants.
+ *   - A TICKETED event is deliberately NOT listed. Selling through Eventbrite
+ *     means Eventbrite takes the payment, which we do not want: it is a second
+ *     payment rail to reconcile against Square, and for alcohol-inclusive
+ *     admission the licensee should be the one taking the money. The two
+ *     alternatives are both worse than not listing. Publishing it with a free
+ *     ticket would state the wrong price and fail Eventbrite's own requirement
+ *     that a listing "use Eventbrite to offer valid free or paid registrations";
+ *     and a listing that shows the price but sends buyers elsewhere needs the
+ *     external_ticketing feature, which answers a standard account with
+ *     403 NOT_AUTHORIZED. So cost > 0 means "not applicable", and the event
+ *     still reaches aggregators through the ICS/JSON-LD feed, which carries the
+ *     real price. See docs/EVENT_DISTRIBUTION.md.
  */
 import { query } from '../db.js';
 
@@ -221,6 +233,14 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   )).rows[0];
   if (!ev) { const e = new Error('Event not found'); e.code = 'not_found'; e.statusCode = 404; throw e; }
 
+  // Ticketed: report it rather than listing it. Returning instead of throwing
+  // because this is the correct outcome, not a failure — the caller records it
+  // as 'not applicable' and leaves the other channels alone.
+  const cost = Number(ev.cost);
+  if (Number.isFinite(cost) && cost > 0) {
+    return { skipped: 'paid', cost, published: false, url: null };
+  }
+
   // Resolve (and cache) the organization to create events under.
   let orgId = (await query(`SELECT eventbrite_org_id FROM company_integrations WHERE company_id = $1`, [companyId])).rows[0]?.eventbrite_org_id;
   if (!orgId) {
@@ -254,9 +274,9 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   const ebId = created.id;
   const url = created.url || null;
 
-  // A published event needs at least one ticket class. Kindred events are RSVP;
-  // paid pricing is noted in the description rather than wired to Eventbrite
-  // payouts, so create a free General Admission class.
+  // A published event needs at least one ticket class. We only ever get here for
+  // a free event (cost > 0 returned above), so a free class is the truth rather
+  // than a convenience — the RSVP it creates is a valid registration.
   try {
     await apiFetch(companyId, `/events/${ebId}/ticket_classes/`, {
       method: 'POST', token,
@@ -271,4 +291,77 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
 
   await record('live', ebId, url, null);
   return { url, published: true, eventbrite_event_id: ebId };
+}
+
+/**
+ * Pull RSVP numbers back from Eventbrite onto the posts we created.
+ *
+ * This exists to answer a question we cannot otherwise answer: does Eventbrite
+ * actually bring anyone to a Caldwell winery? Their "89M monthly users" is a
+ * global figure and tells us nothing about the Treasure Valley. A free listing
+ * is placed in the same marketplace as a paid one, so counting RSVPs on the free
+ * events measures the channel at no cost and with no payment rail — and in a few
+ * months the number, rather than an opinion, decides whether paid ticketing is
+ * worth revisiting.
+ *
+ * One request for the whole organization rather than one per event: the
+ * ticket_availability expansion carries quantity_sold, so N events cost a single
+ * call. Never throws — a missing RSVP count must not break the panel it decorates.
+ *
+ * Returns { synced, skipped, error } for the caller to log, not to show.
+ */
+export async function syncEventbriteRsvps(companyId, { maxAgeMinutes = 20 } = {}) {
+  try {
+    const live = (await query(
+      `SELECT eventbrite_event_id, rsvp_synced_at
+         FROM eventbrite_event_posts
+        WHERE company_id = $1 AND state = 'live' AND eventbrite_event_id IS NOT NULL`,
+      [companyId])).rows;
+    if (!live.length) return { synced: 0, skipped: 0 };
+
+    // Throttle on the freshest row: RSVP counts are not worth a call per panel
+    // open, and Eventbrite rate-limits by token.
+    const freshest = live.reduce((a, r) => (
+      r.rsvp_synced_at && (!a || r.rsvp_synced_at > a) ? r.rsvp_synced_at : a), null);
+    if (freshest && Date.now() - new Date(freshest).getTime() < maxAgeMinutes * 60000) {
+      return { synced: 0, skipped: live.length, fresh: true };
+    }
+
+    const orgId = (await query(
+      `SELECT eventbrite_org_id FROM company_integrations WHERE company_id = $1`,
+      [companyId])).rows[0]?.eventbrite_org_id;
+    if (!orgId) return { synced: 0, skipped: live.length, error: 'no organization' };
+
+    const wanted = new Set(live.map((r) => String(r.eventbrite_event_id)));
+    const seen = new Map();
+    // Paginate defensively: a venue with years of events will exceed one page.
+    let page = 1;
+    for (; page <= 10; page++) {
+      const d = await apiFetch(companyId,
+        `/organizations/${orgId}/events/?expand=ticket_availability&page_size=200&page=${page}`);
+      for (const e of d?.events || []) {
+        if (!wanted.has(String(e.id))) continue;
+        const ta = e.ticket_availability || {};
+        seen.set(String(e.id), {
+          sold: Number(ta.quantity_sold ?? 0),
+          cap: ta.quantity_total == null ? null : Number(ta.quantity_total),
+        });
+      }
+      if (!d?.pagination?.has_more_items) break;
+    }
+
+    let synced = 0;
+    for (const [ebId, v] of seen) {
+      await query(
+        `UPDATE eventbrite_event_posts
+            SET rsvp_count = $3, rsvp_capacity = $4, rsvp_synced_at = NOW(), updated_at = NOW()
+          WHERE company_id = $1 AND eventbrite_event_id = $2`,
+        [companyId, ebId, Number.isFinite(v.sold) ? v.sold : null, v.cap]);
+      synced++;
+    }
+    return { synced, skipped: live.length - synced };
+  } catch (e) {
+    console.error('syncEventbriteRsvps', e.message);
+    return { synced: 0, skipped: 0, error: e.message };
+  }
 }

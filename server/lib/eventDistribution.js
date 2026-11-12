@@ -135,6 +135,13 @@ export async function ensureChannels(companyId) {
  * same hash means nothing worth re-posting changed. Internal notes and
  * checklists are deliberately absent — they are never promoted.
  */
+/** Whole dollars read as "$30", not "$30.00"; cents are kept when they exist. */
+function money(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '$0';
+  return '$' + (Number.isInteger(v) ? String(v) : v.toFixed(2));
+}
+
 export function buildPayload(ev) {
   return {
     title: ev.title ?? '',
@@ -191,10 +198,15 @@ export async function getDistribution(companyId, eventId) {
     `SELECT c.key, c.name, c.tier, c.push_mode, c.enabled AS default_enabled, c.sort_order, c.lead_days,
             COALESCE(pe.enabled, c.enabled) AS enabled,
             p.id AS post_id, p.status, p.external_url, p.payload_hash,
-            p.posted_at, p.scheduled_at, p.last_error, p.promo_task_id
+            p.posted_at, p.scheduled_at, p.last_error, p.promo_task_id,
+            eb.rsvp_count, eb.rsvp_capacity, eb.rsvp_synced_at
        FROM promo_channels c
        LEFT JOIN event_channel_posts p
          ON p.channel_key = c.key AND p.event_id = $2
+       -- Only Eventbrite reports a number back, so the join is keyed on it
+       -- rather than widening every channel row with columns it cannot fill.
+       LEFT JOIN eventbrite_event_posts eb
+         ON c.key = 'eventbrite' AND eb.event_id = $2 AND eb.company_id = $1
        LEFT JOIN event_channel_prefs pe
          ON pe.channel_key = c.key AND pe.event_id = $2
       WHERE c.company_id = $1
@@ -211,6 +223,8 @@ export async function getDistribution(companyId, eventId) {
       post_id: r.post_id, promo_task_id: r.promo_task_id,
       lead_days: r.lead_days, scheduled_at: r.scheduled_at,
       note: meta.note ?? null, link: meta.link ?? null, setup: meta.setup ?? null,
+      rsvp_count: r.rsvp_count ?? null, rsvp_capacity: r.rsvp_capacity ?? null,
+      rsvp_synced_at: r.rsvp_synced_at ?? null,
       copy: r.tier === 'assisted' ? suggestedCopy(payload, r.key) : null,
     };
   });
@@ -382,6 +396,24 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
     if (ch.key === 'eventbrite') {
       try {
         const r = await postEventToEventbrite(companyId, eventId, userId);
+        // Ticketed events are not listed at all - see eventbriteClient.js. This
+        // is an outcome, not an error: no task, no red, and no retry on the next
+        // publish. The event still reaches aggregators via the feed.
+        if (r.skipped === 'paid') {
+          const why = 'Ticketed event (' + money(r.cost) + ') \u2014 not listed, because '
+            + 'Eventbrite would have to take the payment. Carried by the events feed instead.';
+          await query(
+            `INSERT INTO event_channel_posts
+               (company_id, event_id, channel_key, status, last_error, payload_hash)
+             VALUES ($1,$2,$3,'not_applicable',$4,$5)
+             ON CONFLICT (event_id, channel_key) DO UPDATE
+               SET status='not_applicable', last_error=EXCLUDED.last_error,
+                   external_url=NULL, posted_at=NULL,
+                   payload_hash=EXCLUDED.payload_hash, updated_at=NOW()`,
+            [companyId, eventId, ch.key, why, dist.payload_hash]);
+          touched.push({ key: ch.key, action: 'not_applicable' });
+          continue;
+        }
         const status = r.published ? 'posted' : 'needs_human';
         await query(
           `INSERT INTO event_channel_posts
@@ -498,10 +530,14 @@ export async function firePublishHooks(companyId, eventId, userId = null) {
   if (!dist) return { skipped: 'no_event' };
   // Feed channels join the on-publish set whatever their stored mode is: being
   // in the feed is a consequence of publishing, not a thing we choose to do.
-  const onPub = dist.channels.filter((c) => c.enabled && c.status !== 'posted'
+  // 'not_applicable' is as settled as 'posted': the channel has been considered
+  // and correctly declined. Re-attempting it every publish would call Eventbrite
+  // to be told the same thing, and would overwrite the explanation each time.
+  const DONE = new Set(['posted', 'not_applicable']);
+  const onPub = dist.channels.filter((c) => c.enabled && !DONE.has(c.status)
     && (c.mode === 'on_publish' || c.tier === 'feed')).map((c) => c.key);
   const sched = dist.channels.filter((c) => c.enabled && c.mode === 'scheduled'
-    && c.tier !== 'feed' && c.status !== 'posted').map((c) => c.key);
+    && c.tier !== 'feed' && !DONE.has(c.status)).map((c) => c.key);
   const out = {};
   if (onPub.length) out.announced = await announce(companyId, eventId, { channelKeys: onPub, userId }).catch((e) => ({ error: e.message }));
   if (sched.length) out.scheduled = await scheduleAnnounce(companyId, eventId, { channelKeys: sched }).catch((e) => ({ error: e.message }));

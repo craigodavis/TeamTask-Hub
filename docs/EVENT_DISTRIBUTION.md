@@ -143,6 +143,99 @@ are stable across reads.
 
 ---
 
+## 2b. Ticketed events, and why they do not go to Eventbrite
+
+Decided 2026-11-12. Free events go to Eventbrite as free RSVPs. **A ticketed event
+is not listed there at all**, and the channel reports `not_applicable` ("Doesn't
+apply") rather than posting anything.
+
+### The reasoning, since the fee argument is weaker than it looks
+
+Selling a $30 ticket on Eventbrite costs about **$3.77** (3.7% + $1.79 service,
+plus 2.9% processing) — and *by default the buyer pays it*, not us. So this is not
+really a cost decision; we would still receive $30 while the customer paid $33.77.
+What actually decides it:
+
+1. **Alcohol.** For alcohol-inclusive admission the licensee should be the one
+   taking the money. Routing it through a third-party processor muddies who made
+   the sale, and that is not worth any amount of reach.
+2. **A second payment rail.** Square already holds the money, the payouts and the
+   reconciliation. Eventbrite ticketing adds a second of each.
+3. **Channel conflict.** Our own site would sell the same ticket at $30 while
+   Eventbrite showed $33.77, so we look more expensive on the platform where
+   people are comparing.
+
+### The three options, and why the third wins
+
+| | Outcome |
+|---|---|
+| List it paid on Eventbrite | They take the payment. Rejected, above. |
+| List it as a free RSVP | States the wrong price, and fails Eventbrite's own rule that a listing must "use Eventbrite to offer valid free or paid registrations". A decoy RSVP is not a valid registration. |
+| **Don't list it** | **No $0 anywhere. Discovery still happens through the feed.** |
+
+A fourth option would have been ideal — a listing showing the real price that sends
+buyers to Square. Eventbrite has an `external_ticketing` endpoint for exactly this,
+and a standard account is refused:
+
+```
+GET /events/{id}/external_ticketing/
+  -> 403 NOT_AUTHORIZED  "The feature that you requested is not available to you."
+```
+
+It is a gated partner feature, so that option does not exist for us.
+
+### What a ticketed event loses, and what it does not
+
+It loses Eventbrite's own audience for that event. It does **not** lose BoiseDev:
+the Eventbrite route to CitySpark is only one of two, and our own feed is the other.
+The JSON-LD feed carries the real price from `events.cost`, so a $30 show is
+published as $30 to CitySpark, Google event search and anything else reading
+schema.org.
+
+One format gap worth knowing: **iCalendar has no price property.** A ticketed event
+would otherwise travel through the `.ics` feed with no cost stated at all, so the
+price is written into the DESCRIPTION ("Tickets $30. Book at …") — the only honest
+place ICS offers.
+
+### The guard is before the write, deliberately
+
+`postEventToEventbrite` returns `{ skipped: 'paid' }` *before* it creates an event
+or a ticket class. The bug being prevented is a $30 show listed at $0, and a guard
+that ran after creation would have to delete a live listing to recover. The audit
+asserts the ordering, not just the presence of the check.
+
+`not_applicable` is terminal, like `posted`: re-attempting it on every publish would
+call Eventbrite to be told the same thing and would rewrite the explanation each
+time. It renders grey rather than amber, because nothing is owed — a channel that
+reads as a job half-done is a channel people keep trying to finish.
+
+---
+
+## 2c. Measuring whether Eventbrite is worth anything here
+
+Eventbrite's "89M monthly users" is a global figure and says nothing about whether
+anyone in the Treasure Valley opens it to decide their Saturday. Rather than guess,
+the panel now reports the number.
+
+`syncEventbriteRsvps()` reads `ticket_availability.quantity_sold` back from
+Eventbrite and the Eventbrite row shows **"12 RSVPs"** next to its status. One
+request covers the whole organization (the expansion carries sold counts, so N
+events cost one call), it is throttled to one call per 20 minutes, and it never
+throws — a missing count must not break the panel it decorates.
+
+The measurement works *because* a free listing sits in the same marketplace as a
+paid one: counting RSVPs on free events measures the channel at no cost and with no
+payment rail. In a few months the number decides whether paid ticketing deserves
+another look.
+
+**One honest caveat.** Eventbrite earns nothing on free events, so it is plausible
+their ranking favours paid listings — in which case free-RSVP numbers understate
+what paid tickets would do. There is no public evidence either way; ranking
+algorithms are not published. Read a low number with that possible bias in mind
+rather than as a settled verdict.
+
+---
+
 ## 3. Reuse, don't rebuild
 
 Most of this exists:
