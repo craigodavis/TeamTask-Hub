@@ -31,6 +31,7 @@
  */
 import { query } from '../db.js';
 import { publicVenueName } from './eventFeed.js';
+import sharp from 'sharp';
 
 const OAUTH_AUTHORIZE = 'https://www.eventbrite.com/oauth/authorize';
 const OAUTH_TOKEN = 'https://www.eventbrite.com/oauth/token';
@@ -149,6 +150,109 @@ function wallClockUtcToRealUtc(date, tz) {
 const isoZ = (dt) => dt.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 /** Create (or reuse) an Eventbrite venue for a TeamHub location from its address. */
+/** Where a relative upload path resolves to, for fetching our own images. */
+const SELF_BASE = process.env.PUBLIC_BASE_URL || 'https://team.kindredvineyards.com';
+
+/** Eventbrite's event logo: 2:1, 2160x1080 recommended, 940x470 minimum. */
+const EB_IMAGE_W = 2160;
+const EB_IMAGE_H = 1080;
+
+/**
+ * Fit our artwork to Eventbrite's 2:1 without cropping it or stretching it.
+ *
+ * Nothing is cut. Kindred's banner art is 2.4:1 with the typography hard
+ * against both edges -- "THURSDAYS" ends about 20px from the right -- so a
+ * crop to 2:1 takes 16.7% off the width and decapitates the S, the K of CREEK,
+ * the K of the KINDRED sign and the end of "ACOUSTIC LIVE MUSIC". Crop-to-fill
+ * is therefore off the table for this set.
+ *
+ * The art is also not one shape: 2.4:1 banners, a 16:9, and 640x640 squares.
+ * Flat letterbox bars suit the banners (a 2.4:1 gains a sliver top and bottom)
+ * but ruin a square, which would sit in the middle 50% of the frame with the
+ * rest a solid slab. So the gap is filled with a blurred, darkened copy of the
+ * image itself: on a banner it reads as a soft glow, on a square it reads as
+ * deliberate, and in both cases every pixel of the original survives.
+ *
+ * The result is exactly 2160x1080, which is what Eventbrite recommends.
+ */
+async function fitToEventbriteLogo(buf) {
+  const meta = await sharp(buf, { failOn: 'none' }).metadata();
+  if (!meta.width || !meta.height) throw new Error('unreadable image');
+
+  // Background: cover the whole frame, then blur it past recognition. Darkened
+  // a little so it recedes behind the real image rather than competing with it.
+  const background = await sharp(buf, { failOn: 'none' })
+    .resize(EB_IMAGE_W, EB_IMAGE_H, { fit: 'cover', position: 'centre' })
+    .blur(60)
+    .modulate({ brightness: 0.55 })
+    .toBuffer();
+
+  // Foreground: the whole image, scaled to fit inside the frame. `contain`
+  // never crops and never changes the aspect ratio.
+  // .png() is load-bearing, not tidiness. toBuffer() keeps the INPUT format, and
+  // most of this art is JPEG, which has no alpha channel — so `contain`'s
+  // transparent padding flattened to opaque black and the composite covered the
+  // blurred background completely, producing exactly the flat bars this is meant
+  // to avoid. PNG carries the transparency through to the composite.
+  const foreground = await sharp(buf, { failOn: 'none' })
+    .resize(EB_IMAGE_W, EB_IMAGE_H, {
+      fit: 'contain',
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+
+  return sharp(background)
+    .composite([{ input: foreground, blend: 'over' }])
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+}
+
+/**
+ * Put an image on an Eventbrite event. Returns a logo id, or null.
+ *
+ * Never throws. An event with no picture still beats no event at all, so every
+ * failure here -- unreachable file, image Eventbrite rejects, upload hiccup --
+ * leaves the listing to publish without one.
+ */
+async function uploadEventImage(companyId, token, imageUrl) {
+  if (!imageUrl) return null;
+  try {
+    // Stored images are usually absolute, but an upload path can be relative.
+    const src = imageUrl.startsWith('http') ? imageUrl : `${SELF_BASE}${imageUrl}`;
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`fetching the image gave HTTP ${res.status}`);
+    const raw = Buffer.from(await res.arrayBuffer());
+    const fitted = await fitToEventbriteLogo(raw);
+
+    // 1. ask where to put it
+    const hand = await apiFetch(companyId, '/media/upload/?type=image-event-logo', { token });
+    const form = new FormData();
+    for (const [k, v] of Object.entries(hand.upload_data || {})) if (v) form.append(k, v);
+    form.append(hand.file_parameter_name || 'file',
+      new Blob([fitted], { type: 'image/jpeg' }), 'event.jpg');
+
+    // 2. put it there (their storage, not the API host — no Authorization)
+    const put = await fetch(hand.upload_url, { method: hand.upload_method || 'POST', body: form });
+    if (!put.ok) throw new Error(`the upload host gave HTTP ${put.status}`);
+
+    // 3. tell the API it landed. The crop mask is the whole image: we have
+    //    already made it the right shape, and letting Eventbrite crop again
+    //    would undo the point of the letterboxing.
+    const media = await apiFetch(companyId, '/media/upload/', {
+      method: 'POST', token,
+      body: {
+        upload_token: hand.upload_token,
+        crop_mask: { top_left: { x: 0, y: 0 }, width: EB_IMAGE_W, height: EB_IMAGE_H },
+      },
+    });
+    return media?.id || null;
+  } catch (e) {
+    console.error('uploadEventImage', e.message);
+    return null;
+  }
+}
+
 async function ensureVenue(companyId, orgId, ev) {
   if (!ev.location_id) return null;
   const vd = (await query(
@@ -232,6 +336,7 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
 
   const ev = (await query(
     `SELECT e.id, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
+            e.image_url, e.social_image_url,
             e.location_id, l.name AS venue_name, l.web_slug AS venue_web_slug
        FROM events e LEFT JOIN locations l ON l.id = e.location_id
       WHERE e.id = $1 AND e.company_id = $2`,
@@ -278,6 +383,19 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   }
 
   const ebId = created.id;
+
+  // The picture, before publishing. An imageless listing looks abandoned next to
+  // everything around it, and it is Eventbrite's most prominent field. It is
+  // deliberately not fatal: uploadEventImage swallows its own failures and
+  // returns null, because a listing with no picture still beats no listing.
+  // image_url is preferred over social_image_url here -- the social crop is cut
+  // for Facebook's 1.91:1 and is usually the tighter of the two.
+  try {
+    const logoId = await uploadEventImage(companyId, token, ev.image_url || ev.social_image_url);
+    if (logoId) await apiFetch(companyId, `/events/${ebId}/`, {
+      method: 'POST', token, body: { event: { logo_id: logoId } },
+    });
+  } catch (e) { console.error('eventbrite image', ebId, e.message); }
   const url = created.url || null;
 
   // A published event needs at least one ticket class. We only ever get here for

@@ -364,6 +364,67 @@ console.log('\nEventbrite listing correctness');
   ok('and the client hands one back', /return \{ url, published: false, eventbrite_event_id: ebId, reason \}/.test(src));
 }
 
+// ── the Eventbrite image: nothing cropped, nothing stretched ───────────────
+console.log('\nEventbrite event image');
+{
+  const sharp = (await import('sharp')).default;
+  const EB_W = 2160, EB_H = 1080;
+  // The same pipeline the client runs, exercised on synthetic art of each shape
+  // we actually hold: 2.4:1 banners, a 16:9, and 640x640 squares.
+  const fit = async (buf) => {
+    const bg = await sharp(buf, { failOn: 'none' })
+      .resize(EB_W, EB_H, { fit: 'cover', position: 'centre' })
+      .blur(60).modulate({ brightness: 0.55 }).toBuffer();
+    const fg = await sharp(buf, { failOn: 'none' })
+      .resize(EB_W, EB_H, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png().toBuffer();
+    return sharp(bg).composite([{ input: fg, blend: 'over' }])
+      .jpeg({ quality: 88, mozjpeg: true }).toBuffer();
+  };
+  // A red block on a green field: if anything crops, the red edges vanish.
+  const art = async (w, h) => sharp({
+    create: { width: w, height: h, channels: 3, background: { r: 0, g: 128, b: 0 } },
+  }).composite([{
+    input: await sharp({ create: { width: w, height: Math.max(1, Math.round(h * 0.1)),
+      channels: 3, background: { r: 255, g: 0, b: 0 } } }).png().toBuffer(),
+    top: 0, left: 0,
+  }]).jpeg().toBuffer();
+
+  for (const [w, h, label] of [[2400, 1000, '2.4:1 banner'], [2102, 1182, '16:9'], [640, 640, 'square']]) {
+    const out = await fit(await art(w, h));
+    const m = await sharp(out).metadata();
+    ok(`${label} comes out exactly 2160x1080`,
+      m.width === EB_W && m.height === EB_H, `${m.width}x${m.height}`);
+  }
+
+  // The aspect ratio must survive. A 2.4:1 source scaled to `contain` inside a
+  // 2:1 frame keeps its own ratio; a stretched one would not.
+  {
+    const out = await fit(await art(2400, 1000));
+    const { channels } = await sharp(out)
+      .extract({ left: 0, top: 0, width: EB_W, height: 2 }).stats();
+    // Top rows are the blurred background, not the red stripe: the artwork is
+    // letterboxed, so the stripe sits lower. That it is NOT pure red is the
+    // evidence that nothing was stretched to fill the frame.
+    ok('a 2.4:1 image is letterboxed, not stretched to fill',
+      channels[0].mean < 250, `top-row red mean ${channels[0].mean.toFixed(0)}`);
+  }
+
+  const src = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+  // .png() on the foreground is load-bearing: without it a JPEG source loses the
+  // alpha and the composite covers the blur with flat black bars.
+  ok('the foreground keeps its alpha channel',
+    /fit: 'contain',[\s\S]{0,120}\.png\(\)/.test(src));
+  ok('the crop mask covers the whole frame, so Eventbrite does not re-crop',
+    /crop_mask: \{ top_left: \{ x: 0, y: 0 \}, width: EB_IMAGE_W, height: EB_IMAGE_H \}/.test(src));
+  ok('a failed image never fails the publish', /catch \(e\) \{\s*console\.error\('uploadEventImage'/.test(src));
+  ok('the image is attached before publishing', src.indexOf('logo_id') < src.indexOf('/publish/'));
+  ok('image_url is preferred over the social crop',
+    /ev\.image_url \|\| ev\.social_image_url/.test(src));
+  ok('and the query selects both', /e\.image_url, e\.social_image_url/.test(src));
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
