@@ -71,7 +71,7 @@ function EventsTab() {
   const [venueOff, setVenueOff] = useState({});
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState({ location_id: '', musician_id: '', status: '', from: '', to: '' });
-  const [form, setForm] = useState({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', club_cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+  const [form, setForm] = useState({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', club_cost: '', category: 'Live Music', status: 'draft', image_url: '', booking_url: '' });
 
   const load = useCallback(async () => {
     try {
@@ -123,7 +123,7 @@ function EventsTab() {
       Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
       await createEvent(body);
       setShowNew(false);
-      setForm({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', club_cost: '', category: 'Live Music', status: 'draft', image_url: '' });
+      setForm({ start_at: '', end_at: '', duration_min: DEFAULT_DURATION_MIN, all_day: false, musician_id: '', location_id: '', title: '', description: '', cost: '', club_cost: '', category: 'Live Music', status: 'draft', image_url: '', booking_url: '' });
       await load();
     } catch (x) { setErr(x.message); } finally { setSaving(false); }
   };
@@ -243,6 +243,15 @@ function EventsTab() {
               members' price and stays internal. */}
           <div><label style={lbl}>Ticket Price</label><input type="number" step="0.01" min="0" style={inp} value={form.cost} onChange={(e) => set('cost', e.target.value)} placeholder="0 = free" /></div>
           <div><label style={lbl}>Club Ticket Price</label><input type="number" step="0.01" min="0" style={inp} value={form.club_cost} onChange={(e) => set('club_cost', e.target.value)} placeholder="blank = same as ticket price" /></div>
+          {/* Where people actually book this one. Most of our events seat
+              people, and this is the only link that reaches the Eventbrite
+              listing, so it is worth asking for at creation rather than
+              leaving it to a second pass through the edit form. */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={lbl}>Booking link <span style={{ textTransform: 'none', letterSpacing: 0, opacity: 0.7 }}>— optional</span></label>
+            <input style={inp} value={form.booking_url} onChange={(e) => set('booking_url', e.target.value)}
+                   placeholder="https://square.link/u/...  or  https://kindred.resos.com/booking?experience=..." />
+          </div>
           <div><label style={lbl}>Status</label>
             <select style={inp} value={form.status} onChange={(e) => set('status', e.target.value)}>
               <option value="draft">Draft (not on website)</option>

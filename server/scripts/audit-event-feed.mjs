@@ -451,6 +451,55 @@ console.log('\nLink to the live listing');
     /target="_blank" rel="noreferrer"[\s\S]{0,400}View on/.test(ui));
 }
 
+// ── the booking link on the listing ─────────────────────────────────
+console.log('\nBooking link on the Eventbrite listing');
+{
+  const src = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+
+  // The link only survives in structured_content. `description.html` is
+  // flattened to text by Eventbrite, so an <a> put there is silently lost --
+  // which is why the body is written as a module and not as a description.
+  ok('the body goes to structured_content, where links survive',
+    /structured_content\/\$\{next\}\//.test(src));
+  ok('the version is read before writing, since it must increment',
+    /page_version_number \|\| 1\) \+ 1/.test(src));
+  ok('the event query actually selects the link',
+    /e\.booking_url, e\.resos_experience_url/.test(src));
+
+  // No invented destination. Almost every event seats people, so a "book a
+  // table" link pointing somewhere that cannot take a booking for THIS event
+  // would send real guests astray; no link is the better failure.
+  const fn = src.slice(src.indexOf('async function setListingBody'), src.indexOf('\nfunction buildEventBody'));
+  ok('only a link the event carries is used',
+    /ev\.booking_url \|\| ev\.resos_experience_url \|\| null/.test(fn));
+  // Comments stripped first: this is about what the code does, and the comment
+  // right above it explains the rule by naming the thing it refuses to do.
+  const fnCode = fn.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('no generic reservations page is substituted', !/reservations/i.test(fnCode));
+  ok('an event with neither link nor description writes nothing',
+    /if \(!paras\.length\) return;/.test(fn));
+
+  // User-entered text and a user-entered URL both land inside HTML.
+  ok('text and URL are escaped before going into the markup',
+    /replace\(\/&\/g, '&amp;'\)/.test(fn) && /replace\(\/"\/g, '&quot;'\)/.test(fn));
+  ok('the description is stripped of its own tags', /replace\(\/<\[\^>\]\*>\/g, ' '\)/.test(fn));
+
+  // It runs before publish, so throwing here would cost the whole listing.
+  ok('a failed body write never throws', /catch \(e\) \{ console\.error\('eventbrite listing body'/.test(fn));
+  ok('the body is written before the event is published',
+    src.indexOf('setListingBody(companyId, token, ebId, ev)') < src.indexOf('/publish/'));
+
+  // The field has to be reachable when the event is first created, not only on
+  // a second pass through the edit form.
+  const ui = await (await import('node:fs/promises')).readFile(
+    new URL('../../client/src/pages/Events.jsx', import.meta.url), 'utf8');
+  ok('the create form offers a booking link', /value=\{form\.booking_url\}/.test(ui));
+  ok('the edit form still does', /value=\{f\.booking_url\}/.test(ui));
+  ok('the create form clears it after saving',
+    (ui.match(/status: 'draft', image_url: '', booking_url: ''/g) || []).length === 2);
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

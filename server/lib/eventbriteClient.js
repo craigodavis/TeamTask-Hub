@@ -289,6 +289,55 @@ async function ensureVenue(companyId, orgId, ev) {
   return venue.id;
 }
 
+/**
+ * Put a real body on the Eventbrite listing: the description, plus the booking
+ * link when the event carries one.
+ *
+ * `description.html` on the event object is NOT this. Eventbrite renders the
+ * page body from `structured_content`, and ours had zero modules, so the body of
+ * every listing we created was effectively blank. structured_content is also the
+ * only one of the two that keeps a link -- the plain description is flattened to
+ * text, so an <a> there is simply lost.
+ *
+ * The version number must increment on every write, hence the read first. A
+ * freshly created event sits at version 1 with no modules.
+ *
+ * Deliberately never throws. This runs before publish, so a failure here would
+ * cost us the whole listing, and a listing with a thin body still beats none.
+ */
+async function setListingBody(companyId, token, ebId, ev) {
+  const esc = (v) => String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const paras = [];
+  const desc = (ev.description || '').toString().replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (desc) paras.push(`<p>${esc(desc)}</p>`);
+
+  // Only a link the event actually carries. There is deliberately no fallback to
+  // a generic reservations page: nearly all of these events seat people, and a
+  // "book a table" link that lands somewhere unable to take a booking for THIS
+  // event sends real guests astray. No link is the better failure.
+  const booking = ev.booking_url || ev.resos_experience_url || null;
+  if (booking) {
+    paras.push(`<p>Want a table for this one? <a href="${esc(booking)}">Book it here</a>.</p>`);
+  }
+  if (!paras.length) return;
+
+  try {
+    const cur = await apiFetch(companyId, `/events/${ebId}/structured_content/`, { token });
+    const next = Number(cur?.page_version_number || 1) + 1;
+    await apiFetch(companyId, `/events/${ebId}/structured_content/${next}/`, {
+      method: 'POST', token,
+      body: {
+        modules: [{ type: 'text', data: { body: { type: 'text', text: paras.join(''), alignment: 'left' } } }],
+        publish: true,
+        purpose: 'listing',
+      },
+    });
+  } catch (e) { console.error('eventbrite listing body', ebId, e.message); }
+}
+
 function buildEventBody(ev, venueId) {
   const start = ev.start_at ? wallClockUtcToRealUtc(new Date(ev.start_at), EVENT_TZ) : null;
   let end = ev.end_at ? wallClockUtcToRealUtc(new Date(ev.end_at), EVENT_TZ) : null;
@@ -336,7 +385,7 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
 
   const ev = (await query(
     `SELECT e.id, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
-            e.image_url, e.social_image_url,
+            e.image_url, e.social_image_url, e.booking_url, e.resos_experience_url,
             e.location_id, l.name AS venue_name, l.web_slug AS venue_web_slug
        FROM events e LEFT JOIN locations l ON l.id = e.location_id
       WHERE e.id = $1 AND e.company_id = $2`,
@@ -396,6 +445,11 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
       method: 'POST', token, body: { event: { logo_id: logoId } },
     });
   } catch (e) { console.error('eventbrite image', ebId, e.message); }
+
+  // The body, also before publishing -- this is where the booking link lives,
+  // and the link is the whole reason a seated event can go on Eventbrite at all.
+  await setListingBody(companyId, token, ebId, ev);
+
   const url = created.url || null;
 
   // A published event needs at least one ticket class. We only ever get here for
