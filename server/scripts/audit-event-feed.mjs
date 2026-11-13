@@ -501,7 +501,14 @@ console.log('\nBooking link on the Eventbrite listing');
   // User-entered text and a user-entered URL both land inside HTML.
   ok('text and URL are escaped before going into the markup',
     /replace\(\/&\/g, '&amp;'\)/.test(fn) && /replace\(\/"\/g, '&quot;'\)/.test(fn));
-  ok('the description is stripped of its own tags', /replace\(\/<\[\^>\]\*>\/g, ' '\)/.test(fn));
+  // Stripping moved with the description: setListingBody no longer carries it,
+  // but buildEventBody still sends it as description.html, and Eventbrite
+  // flattens that to text -- so leftover markup would show as literal tags.
+  {
+    const bf = src.slice(src.indexOf('function buildEventBody'), src.indexOf('\n/**', src.indexOf('function buildEventBody')));
+    ok('the description is stripped of its own tags before it is sent',
+      /replace\(\/<\[\^>\]\*>\/g, ' '\)/.test(bf));
+  }
 
   // It runs before publish, so throwing here would cost the whole listing.
   ok('a failed body write never throws', /catch \(e\) \{ console\.error\('eventbrite listing body'/.test(fn));
@@ -559,15 +566,60 @@ console.log('\nTicket link vs booking link');
 
   // Wording follows the link type: "a table" is only true of a table booking.
   const fn = src.slice(src.indexOf('async function setListingBody'), src.indexOf('\nfunction buildEventBody'));
-  ok('a checkout link is offered as tickets', /kind === 'tickets'[\s\S]{0,120}Tickets for this one/.test(fn));
+  ok('a checkout link is offered as tickets', /kind === 'tickets'[\s\S]{0,200}Get tickets here/.test(fn));
   // Both a real booking system and our own event page lead to a table, so both
   // must also say that the Eventbrite RSVP is not one. A guest arriving to no
-  // table because they clicked RSVP is the whole failure being prevented.
+  // table because they clicked RSVP is the whole failure being prevented, and
+  // naming Eventbrite's own button is what makes it land.
   ok('a link that leads to a table says the RSVP is not one',
     /kind === 'booking' \|\| kind === 'site'/.test(fn)
-    && /does not hold a table/.test(fn) && /Reserve a table/.test(fn));
-  ok('an unrecognised link claims neither a table nor tickets',
-    /To book this one/.test(fn));
+    && /does not reserve a table/.test(fn) && /Reserve a Table here/.test(fn));
+  ok('it names Eventbrite\'s own button rather than a vague "registering"',
+    /Reserve a spot/.test(fn));
+  ok('an unrecognised link claims neither a table nor tickets', /Book here/.test(fn));
+
+  // Eventbrite's `summary` and `description` are two views of ONE field --
+  // clearing description cleared summary too, and sending both is rejected with
+  // SUMMARY_DESCRIPTION_CONFLICT. So the listing is summary + structured
+  // content, and the full text belongs in the modules.
+  ok('no description field is sent alongside the summary',
+    !/event\.description = /.test(src));
+  ok('a short summary is sent instead', /summary: summarise\(desc\)/.test(src));
+
+  // Left unset, Eventbrite derived the summary from the description at full
+  // length, so the page opened with the whole description, then the booking
+  // call, then the whole description again -- the call buried between two
+  // copies of the same text, past the "Read more" fold.
+  {
+    const long = 'Ease into Thursday evening with wine by the creek and soft, background live '
+      + 'music from 6:30-8:30 PM. This is a relaxed, ambient experience designed to complement '
+      + 'your wine tasting. Join us downtown for an unhurried evening.';
+    const sum = src.slice(src.indexOf('function summarise'), src.indexOf('function buildEventBody'));
+    const summarise = eval(`(${sum.slice(sum.indexOf('function summarise')).replace(/^function summarise/, 'function')})`);
+    const out = summarise(long);
+    ok('the summary fits Eventbrite\'s 140-character limit', out.length <= 140, `${out.length} chars`);
+    ok('and breaks at a sentence, not mid-word', /\.$/.test(out), JSON.stringify(out.slice(-40)));
+    ok('a short description is left alone', summarise('Short one.') === 'Short one.');
+    ok('an empty description yields no summary at all', summarise('') === undefined);
+    // No sentence end in range: must still not cut mid-word.
+    const nodots = 'a'.repeat(5) + ' ' + 'wordy '.repeat(40);
+    ok('a description with no sentence end still breaks on a word',
+      !/\w\u2026$/.test(summarise(nodots)) || summarise(nodots).endsWith(' …') === false);
+  }
+
+  // The booking call leads; the description follows it in the same module.
+  ok('the booking call comes before the description in the body',
+    fn.indexOf('bookingLinkFor(ev)') < fn.indexOf('ev.description'));
+
+  // style/class/font are all stripped by Eventbrite (probed, not assumed), so a
+  // heading is the only way left to make this read like a button.
+  ok('the call to action is a heading, since styling is stripped',
+    /<h3><strong><a href=/.test(fn));
+  ok('and no dead styling is sent', !/style="/.test(fn) && !/class="btn/.test(fn));
+
+  // The comment that justified the old field-only rule must not outlive it.
+  ok('no stale comment still claims there is no fallback',
+    !/No link is the better failure/.test(fn));
 
   const dist = await (await import('node:fs/promises')).readFile(
     new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');

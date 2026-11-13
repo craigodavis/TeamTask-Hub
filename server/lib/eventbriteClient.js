@@ -311,32 +311,44 @@ async function setListingBody(companyId, token, ebId, ev) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   const paras = [];
-  const desc = (ev.description || '').toString().replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  if (desc) paras.push(`<p>${esc(desc)}</p>`);
 
-  // Only a link the event actually carries. There is deliberately no fallback to
-  // a generic reservations page: nearly all of these events seat people, and a
-  // "book a table" link that lands somewhere unable to take a booking for THIS
-  // event sends real guests astray. No link is the better failure.
-  // Not just the booking_url field. That field is only filled for the events
-  // whose booking cannot be derived; a normal event's route is its own page on
-  // the website. Reading the field alone is why these listings went up with no
-  // booking route at all.
+  // The booking route leads, the description follows it.
+  //
+  // This is the whole body of the listing now. The event carries no
+  // `description` field -- Eventbrite refuses summary and description together
+  // -- so the Overview reads: short summary, then these modules. Putting the
+  // booking call first therefore puts it near the top of the page instead of
+  // behind the "Read more" fold, which was where a full-length description had
+  // been burying it.
+  //
+  // And not just the booking_url field: that field is only filled for events
+  // whose booking cannot be derived, so a normal event's route is its own page
+  // on the website. Reading the field alone is why these listings first went up
+  // with no booking route at all.
   const { url: booking, kind } = bookingLinkFor(ev);
   if (booking) {
-    // Say only what is true of the place the link goes. Nearly every event here
-    // seats people, so where the link does lead to a table, the listing also
-    // says plainly that registering on Eventbrite is not that -- a guest who
-    // turns up expecting a held table because they clicked RSVP is the failure
-    // this paragraph exists to prevent.
-    const line = kind === 'tickets'
-      ? `Tickets for this one: <a href="${esc(booking)}">get them here</a>.`
-      : kind === 'booking' || kind === 'site'
-        ? `Registering here helps us plan, but it does not hold a table. `
-          + `<a href="${esc(booking)}">Reserve a table</a>.`
-        : `To book this one, <a href="${esc(booking)}">see here</a>.`;
-    paras.push(`<p>${line}</p>`);
+    // A real button is not available. Eventbrite's sanitizer drops style, class
+    // and font attributes outright -- probed against a throwaway draft, not
+    // guessed -- and keeps only headings and bold. A bold heading link is
+    // therefore the most button-like thing that survives, which is why this is
+    // an <h3> and not a styled anchor.
+    if (kind === 'tickets') {
+      paras.push(`<h3><strong><a href="${esc(booking)}">Get tickets here</a></strong></h3>`);
+    } else if (kind === 'booking' || kind === 'site') {
+      // Named after Eventbrite's own button, because the confusion being
+      // prevented is specifically between that button and a table. "Registering
+      // does not hold a table" leaves the guest to make the connection; this
+      // does not.
+      paras.push('<p><strong>Eventbrite\u2019s \u201cReserve a spot\u201d does not reserve a table.</strong></p>');
+      paras.push(`<h3><strong><a href="${esc(booking)}">Reserve a Table here</a></strong></h3>`);
+    } else {
+      paras.push(`<h3><strong><a href="${esc(booking)}">Book here</a></strong></h3>`);
+    }
   }
+
+  // The description, after the call to action rather than before it.
+  const desc = (ev.description || '').toString().replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (desc) paras.push(`<p>${esc(desc)}</p>`);
   if (!paras.length) return;
 
   try {
@@ -353,6 +365,23 @@ async function setListingBody(companyId, token, ebId, ev) {
   } catch (e) { console.error('eventbrite listing body', ebId, e.message); }
 }
 
+/**
+ * One sentence of teaser, inside Eventbrite's 140-character summary limit.
+ *
+ * Cuts at a sentence end when there is one in range, otherwise at the last word
+ * -- a summary clipped mid-word reads like a bug on a public page.
+ */
+function summarise(desc, limit = 140) {
+  const t = String(desc || '').trim();
+  if (!t) return undefined;
+  if (t.length <= limit) return t;
+  const window = t.slice(0, limit);
+  const sentence = Math.max(window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '));
+  if (sentence > 60) return window.slice(0, sentence + 1);
+  const word = window.lastIndexOf(' ');
+  return (word > 60 ? window.slice(0, word) : window.slice(0, limit - 1)).replace(/[,;:\s]+$/, '') + '\u2026';
+}
+
 function buildEventBody(ev, venueId) {
   const start = ev.start_at ? wallClockUtcToRealUtc(new Date(ev.start_at), EVENT_TZ) : null;
   let end = ev.end_at ? wallClockUtcToRealUtc(new Date(ev.end_at), EVENT_TZ) : null;
@@ -360,13 +389,30 @@ function buildEventBody(ev, venueId) {
   const desc = (ev.description || '').toString().replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   const event = {
     name: { html: (ev.title || 'Event').slice(0, 250) },
+    // A short summary, and NOT a description. Eventbrite rejects both together
+    // with SUMMARY_DESCRIPTION_CONFLICT: `description` is the legacy field, and
+    // the modern body is structured content, so the pair is summary + modules.
+    //
+    // The Overview renders summary first, then the structured content. Leaving
+    // summary unset made Eventbrite derive it from the description at full
+    // length, so the page opened with the whole description and then repeated
+    // it below -- with the booking call buried between the two copies, past the
+    // "Read more" fold. One short sentence here lifts the booking call to just
+    // under a teaser.
+    //
+    // It stays a real teaser rather than the warning on purpose: this is the
+    // snippet Eventbrite shows in search results and hands to aggregators.
+    summary: summarise(desc),
     start: { timezone: EVENT_TZ, utc: isoZ(start) },
     end: { timezone: EVENT_TZ, utc: isoZ(end) },
     currency: 'USD',
     listed: true,
     shareable: true,
   };
-  if (desc) event.description = { html: desc };
+  // No description field: see the summary comment above. The full text goes
+  // into structured content instead, which is also the only place a link
+  // survives.
+
   if (venueId) event.venue_id = venueId;
   return { event };
 }
