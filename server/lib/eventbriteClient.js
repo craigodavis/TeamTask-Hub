@@ -30,7 +30,7 @@
  *     real price. See docs/EVENT_DISTRIBUTION.md.
  */
 import { query } from '../db.js';
-import { publicVenueName, classifyBookingLink } from './eventFeed.js';
+import { publicVenueName, classifyBookingLink, bookingLinkFor } from './eventFeed.js';
 import sharp from 'sharp';
 
 const OAUTH_AUTHORIZE = 'https://www.eventbrite.com/oauth/authorize';
@@ -318,15 +318,22 @@ async function setListingBody(companyId, token, ebId, ev) {
   // a generic reservations page: nearly all of these events seat people, and a
   // "book a table" link that lands somewhere unable to take a booking for THIS
   // event sends real guests astray. No link is the better failure.
-  const booking = ev.booking_url || ev.resos_experience_url || null;
+  // Not just the booking_url field. That field is only filled for the events
+  // whose booking cannot be derived; a normal event's route is its own page on
+  // the website. Reading the field alone is why these listings went up with no
+  // booking route at all.
+  const { url: booking, kind } = bookingLinkFor(ev);
   if (booking) {
-    // Only promise a table when the link goes somewhere that books tables. An
-    // unrecognised link gets wording true of either, since it may be either.
-    const kind = classifyBookingLink(booking);
-    const line = kind === 'booking'
-      ? `Want a table for this one? <a href="${esc(booking)}">Book it here</a>.`
-      : kind === 'tickets'
-        ? `Tickets for this one: <a href="${esc(booking)}">get them here</a>.`
+    // Say only what is true of the place the link goes. Nearly every event here
+    // seats people, so where the link does lead to a table, the listing also
+    // says plainly that registering on Eventbrite is not that -- a guest who
+    // turns up expecting a held table because they clicked RSVP is the failure
+    // this paragraph exists to prevent.
+    const line = kind === 'tickets'
+      ? `Tickets for this one: <a href="${esc(booking)}">get them here</a>.`
+      : kind === 'booking' || kind === 'site'
+        ? `Registering here helps us plan, but it does not hold a table. `
+          + `<a href="${esc(booking)}">Reserve a table</a>.`
         : `To book this one, <a href="${esc(booking)}">see here</a>.`;
     paras.push(`<p>${line}</p>`);
   }
@@ -469,6 +476,7 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   const ev = (await query(
     `SELECT e.id, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
             e.image_url, e.social_image_url, e.booking_url, e.resos_experience_url,
+            e.slug, e.event_url,
             e.location_id, l.name AS venue_name, l.web_slug AS venue_web_slug
        FROM events e LEFT JOIN locations l ON l.id = e.location_id
       WHERE e.id = $1 AND e.company_id = $2`,

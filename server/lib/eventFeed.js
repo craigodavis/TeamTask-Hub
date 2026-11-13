@@ -244,6 +244,36 @@ function e164(phone) {
   return phone || undefined;
 }
 
+/**
+ * Where people actually book this event, and what kind of place that is.
+ *
+ * Every event has a booking route, but only the exceptional ones carry it in a
+ * field. `booking_url` is for the case that cannot be derived -- Jazz Night
+ * sells through Square -- and it is empty on a normal event. The normal route is
+ * the event's own page on the website, which already renders a "Reserve a table"
+ * button deep-linked to the venue, date and time.
+ *
+ * So an empty booking_url does NOT mean there is nowhere to book. Treating it
+ * that way is what left the Eventbrite listings with no booking route at all.
+ *
+ * Linking to the event page rather than rebuilding that deep link is deliberate.
+ * The query-string format belongs to the website; reconstructing it here would
+ * duplicate someone else's URL scheme and break quietly the day it changes. One
+ * extra click buys immunity from that.
+ *
+ * Returns { url, kind } where kind is 'tickets' | 'booking' | 'site' |
+ * 'unknown' | 'none'. 'site' is our own event page -- known-good, but a page to
+ * book FROM rather than a booking system itself.
+ */
+export function bookingLinkFor(ev, origin = `https://${DOMAIN}`) {
+  const explicit = ev.booking_url || ev.resos_experience_url || null;
+  if (explicit) return { url: explicit, kind: classifyBookingLink(explicit) };
+  // No slug and no explicit page means the only honest answer is the site root,
+  // which is not a booking route for THIS event. Say there is none instead.
+  if (!ev.slug && !ev.event_url) return { url: null, kind: 'none' };
+  return { url: eventUrl(ev, origin), kind: 'site' };
+}
+
 /** Whole dollars read as "$30", not "$30.00"; cents are kept when they exist. */
 /**
  * What kind of link `booking_url` holds: a ticket purchase, a table reservation,
@@ -448,7 +478,7 @@ export function eventJsonLd(ev, origin = `https://${DOMAIN}`) {
     price: Number.isFinite(price) ? price : 0,
     priceCurrency: 'USD',
     availability: 'https://schema.org/InStock',
-    url: ev.booking_url || ev.resos_experience_url || url,
+    url: bookingLinkFor(ev, origin).url || url,
     validFrom: undefined,
   };
 

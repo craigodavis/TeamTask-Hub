@@ -467,12 +467,30 @@ console.log('\nBooking link on the Eventbrite listing');
   ok('the event query actually selects the link',
     /e\.booking_url, e\.resos_experience_url/.test(src));
 
-  // No invented destination. Almost every event seats people, so a "book a
-  // table" link pointing somewhere that cannot take a booking for THIS event
-  // would send real guests astray; no link is the better failure.
+  // The destination must be specific to THIS event. A field link when there is
+  // one, otherwise the event's own page -- which already renders a "Reserve a
+  // table" button deep-linked to venue, date and time. What is still forbidden
+  // is a generic page that cannot book this particular event.
   const fn = src.slice(src.indexOf('async function setListingBody'), src.indexOf('\nfunction buildEventBody'));
-  ok('only a link the event carries is used',
-    /ev\.booking_url \|\| ev\.resos_experience_url \|\| null/.test(fn));
+  ok('the booking route comes from the shared ladder, not the field alone',
+    /bookingLinkFor\(ev\)/.test(fn) && !/ev\.booking_url \|\| ev\.resos_experience_url \|\| null/.test(fn));
+  ok('the event page is needed to derive it, so the query selects the slug',
+    /e\.slug, e\.event_url/.test(src));
+  {
+    const { bookingLinkFor } = await import('../lib/eventFeed.js');
+    // A field link wins and keeps its own kind.
+    const sq = bookingLinkFor({ booking_url: 'https://square.link/u/A', slug: 's' });
+    ok('an explicit checkout link wins over the derived page',
+      sq.kind === 'tickets' && sq.url === 'https://square.link/u/A');
+    // The normal case: no field, so the event's own page.
+    const site = bookingLinkFor({ slug: 'wine-bingo-2026-11-18' });
+    ok('a normal event falls back to its own page, not a generic one',
+      site.kind === 'site'
+      && site.url === 'https://kindredvineyards.com/events/wine-bingo-2026-11-18');
+    // Nothing to point at is still a real answer.
+    ok('an event with no page at all gets no link rather than the site root',
+      bookingLinkFor({}).url === null && bookingLinkFor({}).kind === 'none');
+  }
   // Comments stripped first: this is about what the code does, and the comment
   // right above it explains the rule by naming the thing it refuses to do.
   const fnCode = fn.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -541,10 +559,15 @@ console.log('\nTicket link vs booking link');
 
   // Wording follows the link type: "a table" is only true of a table booking.
   const fn = src.slice(src.indexOf('async function setListingBody'), src.indexOf('\nfunction buildEventBody'));
-  ok('only a booking link is offered as a table', /kind === 'booking'[\s\S]{0,120}Want a table/.test(fn));
   ok('a checkout link is offered as tickets', /kind === 'tickets'[\s\S]{0,120}Tickets for this one/.test(fn));
-  ok('an unknown link claims neither',
-    /To book this one/.test(fn) && !/Want a table[\s\S]{0,40}unknown/.test(fn));
+  // Both a real booking system and our own event page lead to a table, so both
+  // must also say that the Eventbrite RSVP is not one. A guest arriving to no
+  // table because they clicked RSVP is the whole failure being prevented.
+  ok('a link that leads to a table says the RSVP is not one',
+    /kind === 'booking' \|\| kind === 'site'/.test(fn)
+    && /does not hold a table/.test(fn) && /Reserve a table/.test(fn));
+  ok('an unrecognised link claims neither a table nor tickets',
+    /To book this one/.test(fn));
 
   const dist = await (await import('node:fs/promises')).readFile(
     new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
