@@ -414,9 +414,17 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
           // The client's own reason wins when it has one. A skip triggered by a
           // checkout link has no recorded price to quote, and "Ticketed event
           // ($0)" would read as a contradiction rather than an explanation.
-          const why = r.reason
+          const why = (r.reason
             || ('Ticketed event (' + money(r.cost) + ') \u2014 not listed, because '
-              + 'Eventbrite would have to take the payment. Carried by the events feed instead.');
+              + 'Eventbrite would have to take the payment. Carried by the events feed instead.'))
+            // An event can turn ticketed after it was listed, in which case a
+            // public page just came down. That is not a detail to leave in a log.
+            + (r.takedown === 'unpublished'
+              ? ' The Eventbrite listing that was already up has been unpublished.' : '')
+            + (r.takedown === 'stuck'
+              ? ' WARNING: the Eventbrite listing is still public and could not be taken '
+                + 'down automatically \u2014 most likely because somebody has registered. '
+                + 'Deal with it on Eventbrite.' : '');
           await query(
             `INSERT INTO event_channel_posts
                (company_id, event_id, channel_key, status, last_error, payload_hash)

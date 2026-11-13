@@ -374,6 +374,84 @@ function buildEventBody(ev, venueId) {
  * event was created but Eventbrite refused to publish (incomplete listing); the
  * URL is then the draft/manage page for a person to finish.
  */
+/**
+ * Bring an already-live listing back into line with the event.
+ *
+ * Eventbrite edits a live event with the same calls that create one, so this is
+ * mostly the creation path minus the creating. Three things get refreshed:
+ *
+ *   details    name, start, end, venue -- the whole body, so a venue rename or a
+ *              time change lands too
+ *   image      only when it would actually differ. image_source_url remembers
+ *              what we last pushed, so an unchanged picture is left alone rather
+ *              than re-uploaded on every edit
+ *   page body  always rewritten; structured_content is versioned, so a repeat
+ *              write is harmless and the booking link cannot drift
+ *
+ * The ticket class is deliberately untouched. Changing capacity or a name on a
+ * class people have already registered against is a decision for a person, not
+ * a side effect of fixing a typo in the description.
+ *
+ * Returns { updated: true, changed: [...] } so the caller can say what moved.
+ */
+async function updateLiveListing({ companyId, token, orgId, ev, existing, record }) {
+  const ebId = existing.eventbrite_event_id;
+  const changed = [];
+
+  // Never refresh an event that is over. Found the hard way: the first backfill
+  // pushed fresh artwork at a show that had ended the night before, and
+  // Eventbrite flipped it from 'live' to 'completed' the moment it was touched.
+  // Nobody can register for it, so every call spent on it is waste, and touching
+  // a finished listing only invites surprises.
+  const endsAt = ev.end_at
+    ? wallClockUtcToRealUtc(new Date(ev.end_at), EVENT_TZ)
+    : ev.start_at
+      ? new Date(wallClockUtcToRealUtc(new Date(ev.start_at), EVENT_TZ).getTime() + 2 * 3600 * 1000)
+      : null;
+  if (endsAt && endsAt < new Date()) {
+    return {
+      url: existing.url, published: true, eventbrite_event_id: ebId,
+      updated: false, changed: [], skipped: 'past',
+    };
+  }
+
+  const venueId = await ensureVenue(companyId, orgId, ev);
+  await apiFetch(companyId, `/events/${ebId}/`, {
+    method: 'POST', token, body: buildEventBody(ev, venueId),
+  });
+  changed.push('details');
+
+  // The image, only if it would really change. Two reasons to push: we have
+  // artwork the listing is missing (the backfill case), or the event's artwork
+  // is not the one we last uploaded.
+  const want = ev.image_url || ev.social_image_url || null;
+  if (want) {
+    let hasLogo = true;
+    try {
+      const live = await apiFetch(companyId, `/events/${ebId}/`, { token });
+      hasLogo = !!live.logo?.url;
+    } catch { /* if we cannot tell, fall through to the recorded source */ }
+    if (!hasLogo || existing.image_source_url !== want) {
+      try {
+        const logoId = await uploadEventImage(companyId, token, want);
+        if (logoId) {
+          await apiFetch(companyId, `/events/${ebId}/`, {
+            method: 'POST', token, body: { event: { logo_id: logoId } },
+          });
+          changed.push('image');
+        }
+      } catch (e) { console.error('eventbrite image', ebId, e.message); }
+    }
+  }
+
+  await setListingBody(companyId, token, ebId, ev);
+  changed.push('page body');
+
+  const url = existing.url || null;
+  await record('live', ebId, url, null, changed.includes('image') ? want : null);
+  return { url, published: true, eventbrite_event_id: ebId, updated: true, changed };
+}
+
 /** Cancel a published Eventbrite event (keeps the listing but marks it cancelled). */
 export async function cancelEventbriteEvent(companyId, eventbriteEventId) {
   return apiFetch(companyId, `/events/${eventbriteEventId}/cancel/`, { method: 'POST' });
@@ -383,13 +461,10 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   const token = await getToken(companyId);
 
   const existing = (await query(
-    `SELECT eventbrite_event_id, url, state FROM eventbrite_event_posts
+    `SELECT eventbrite_event_id, url, state, image_source_url FROM eventbrite_event_posts
       WHERE company_id = $1 AND event_id = $2`,
     [companyId, eventId]
   )).rows[0];
-  if (existing?.state === 'live') {
-    return { url: existing.url, published: true, eventbrite_event_id: existing.eventbrite_event_id, existing: true };
-  }
 
   const ev = (await query(
     `SELECT e.id, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
@@ -401,27 +476,65 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   )).rows[0];
   if (!ev) { const e = new Error('Event not found'); e.code = 'not_found'; e.statusCode = 404; throw e; }
 
+  const record = async (state, ebId, url, error, imageSourceUrl) => {
+    await query(
+      `INSERT INTO eventbrite_event_posts (company_id, event_id, eventbrite_event_id, url, state, error, created_by, image_source_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (company_id, event_id) DO UPDATE
+         SET eventbrite_event_id = COALESCE(EXCLUDED.eventbrite_event_id, eventbrite_event_posts.eventbrite_event_id),
+             url = COALESCE(EXCLUDED.url, eventbrite_event_posts.url),
+             image_source_url = COALESCE(EXCLUDED.image_source_url, eventbrite_event_posts.image_source_url),
+             state = EXCLUDED.state, error = EXCLUDED.error, updated_at = NOW()`,
+      [companyId, eventId, ebId || null, url || null, state, error || null, userId, imageSourceUrl || null]
+    );
+  };
+
+  // An event can turn ticketed AFTER it was listed: somebody records the price,
+  // or pastes the Square link in. The live listing then advertises as free an
+  // event that is not, so it has to come DOWN -- merely declining to refresh it
+  // would leave the wrong page up for good.
+  const takeDownIfLive = async (why) => {
+    if (existing?.state !== 'live' || !existing.eventbrite_event_id) return null;
+    const ebId = existing.eventbrite_event_id;
+    try {
+      await apiFetch(companyId, `/events/${ebId}/unpublish/`, { method: 'POST', token });
+      await record('unpublished', ebId, existing.url, why);
+      return 'unpublished';
+    } catch (e) {
+      // Eventbrite refuses to unpublish once somebody has registered. That is a
+      // thing a person has to decide about, so it is recorded loudly and left
+      // live rather than quietly reported as handled.
+      console.error('eventbrite unpublish', ebId, e.message);
+      await record('live', ebId, existing.url,
+        `${why} This listing is still public and could not be taken down automatically: ${e.message}`);
+      return 'stuck';
+    }
+  };
+
   // Ticketed: report it rather than listing it. Returning instead of throwing
   // because this is the correct outcome, not a failure — the caller records it
   // as 'not applicable' and leaves the other channels alone.
+  //
+  // A checkout link counts as ticketed on its own. It outranks a $0 price rather
+  // than agreeing with it: the price is the field a person forgets, the checkout
+  // link is not, because without it the event could not be sold at all. Jazz
+  // Night was recorded at $0 with a Square link on it, and a price check alone
+  // waved a $30 event through as free.
   const cost = Number(ev.cost);
-  if (Number.isFinite(cost) && cost > 0) {
-    return { skipped: 'paid', cost, published: false, url: null };
-  }
-
-  // A checkout link is independent proof the event is ticketed, and it outranks
-  // a $0 price rather than agreeing with it. The price is the field a person
-  // forgets; the checkout link is not, because without it the event could not be
-  // sold at all. Jazz Night was recorded at $0 with a Square link on it, and the
-  // price check above waved a $30 event through as free.
   const linkKind = classifyBookingLink(ev.booking_url || ev.resos_experience_url);
-  if (linkKind === 'tickets') {
+  const ticketed = (Number.isFinite(cost) && cost > 0) ? { reason: null }
+    : linkKind === 'tickets' ? { reason: 'Not listed: the booking link is a ticket checkout page, so this is a '
+        + 'ticketed event whatever the price field says. Check the ticket price is '
+        + 'recorded. Carried by the events feed instead.' }
+    : null;
+  if (ticketed) {
+    const takedown = await takeDownIfLive(ticketed.reason || 'This event is ticketed, so it does not belong on Eventbrite.');
     return {
       skipped: 'paid', cost: Number.isFinite(cost) ? cost : null,
-      published: false, url: null,
-      reason: 'Not listed: the booking link is a ticket checkout page, so this is a '
-        + 'ticketed event whatever the price field says. Check the ticket price is '
-        + 'recorded. Carried by the events feed instead.',
+      published: false, url: null, takedown,
+      // No reason for the priced case: the caller already words that one from
+      // the price itself, which reads better than anything repeated from here.
+      ...(ticketed.reason ? { reason: ticketed.reason } : {}),
     };
   }
 
@@ -434,17 +547,13 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
     await query(`UPDATE company_integrations SET eventbrite_org_id = $2, updated_at = NOW() WHERE company_id = $1`, [companyId, orgId]);
   }
 
-  const record = async (state, ebId, url, error) => {
-    await query(
-      `INSERT INTO eventbrite_event_posts (company_id, event_id, eventbrite_event_id, url, state, error, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (company_id, event_id) DO UPDATE
-         SET eventbrite_event_id = COALESCE(EXCLUDED.eventbrite_event_id, eventbrite_event_posts.eventbrite_event_id),
-             url = COALESCE(EXCLUDED.url, eventbrite_event_posts.url),
-             state = EXCLUDED.state, error = EXCLUDED.error, updated_at = NOW()`,
-      [companyId, eventId, ebId || null, url || null, state, error || null, userId]
-    );
-  };
+  // Already live: refresh it in place rather than walking away. The channel goes
+  // 'stale' when the event's payload hash stops matching what was posted, and
+  // announce() re-runs a stale channel -- so editing an event here is what
+  // brings the listing back into line, and nothing else has to be wired up.
+  if (existing?.state === 'live' && existing.eventbrite_event_id) {
+    return updateLiveListing({ companyId, token, orgId, ev, existing, record });
+  }
 
   let created;
   try {

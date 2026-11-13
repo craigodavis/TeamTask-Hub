@@ -5724,6 +5724,11 @@ If the deposit is not received by that date, or if the date, guest count, venue 
        FROM events_all
       WHERE events_all.deleted_at IS NULL`,
 
+  // Remembering which image we pushed is what lets an update tell "the artwork
+  // changed" from "the artwork is the same". Without it a refresh either
+  // re-uploads every time or never replaces a stale picture.
+  `ALTER TABLE eventbrite_event_posts ADD COLUMN IF NOT EXISTS image_source_url TEXT`,
+
 ];
 
 export async function runMigrations() {

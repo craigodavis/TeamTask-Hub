@@ -551,7 +551,58 @@ console.log('\nTicket link vs booking link');
   // "Ticketed event ($0)" would read as a contradiction, so the client's own
   // reason has to win when it has one.
   ok('the panel prefers the real reason over quoting a $0 price',
-    /const why = r\.reason/.test(dist));
+    /const why = \(?r\.reason/.test(dist));
+}
+
+// ── refreshing a listing that is already up ───────────────────────
+console.log('\nUpdating a live Eventbrite listing');
+{
+  const fs = await import('node:fs/promises');
+  const src = await fs.readFile(new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+
+  // It used to walk away from a live listing, which meant an edit in TeamHub
+  // could never reach Eventbrite.
+  ok('a live listing is refreshed, not skipped',
+    /return updateLiveListing\(/.test(src) && !/published: true, eventbrite_event_id: existing\.eventbrite_event_id, existing: true/.test(src));
+
+  const fn = src.slice(src.indexOf('async function updateLiveListing'), src.indexOf('/** Cancel a published'));
+  ok('it refreshes the details', /changed\.push\('details'\)/.test(fn));
+  ok('it refreshes the page body', /changed\.push\('page body'\)/.test(fn));
+
+  // The picture is the expensive one: fetch, resize, three uploads. It must only
+  // happen when it would actually change something.
+  ok('the image is pushed only when it differs or is missing',
+    /if \(!hasLogo \|\| existing\.image_source_url !== want\)/.test(fn));
+  ok('and what was pushed is remembered, so the next run can tell',
+    /image_source_url/.test(src) && /changed\.includes\('image'\) \? want : null/.test(fn));
+
+  // Pushing at a finished show is waste, and touching it flips it to
+  // 'completed'. The first backfill did exactly this.
+  ok('a finished event is left entirely alone',
+    /skipped: 'past'/.test(fn) && fn.indexOf("skipped: 'past'") < fn.indexOf('ensureVenue'));
+
+  // Capacity and ticket names affect people who already registered.
+  ok('the ticket class is not touched on an update', !/ticket_classes/.test(fn));
+
+  // An event that turns ticketed AFTER listing: the page must come down.
+  ok('a listing is taken down when the event turns ticketed',
+    /takeDownIfLive/.test(src) && /\/unpublish\//.test(src));
+  ok('a takedown that fails is recorded as still public, not as handled',
+    /still public and could not be taken down automatically/.test(src));
+
+  const dist = await fs.readFile(new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  ok('the panel says when a public listing was pulled',
+    /has been unpublished/.test(dist));
+  ok('and shouts when one could not be pulled',
+    /WARNING: the Eventbrite listing is still public/.test(dist));
+
+  // Positional migrations: the new column must be the LAST array entry, or it
+  // gets a version already marked applied and never runs.
+  const mig = await fs.readFile(new URL('./run-migrations.js', import.meta.url), 'utf8');
+  const last = mig.lastIndexOf('image_source_url TEXT`');
+  const close = mig.lastIndexOf('\n];');
+  ok('the image_source_url migration is appended, not inserted',
+    last > 0 && last < close && !mig.slice(last, close).includes('`,\n  `'));
 }
 
 srv.close();
