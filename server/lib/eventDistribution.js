@@ -411,8 +411,12 @@ export async function announce(companyId, eventId, { channelKeys, userId } = {})
         // is an outcome, not an error: no task, no red, and no retry on the next
         // publish. The event still reaches aggregators via the feed.
         if (r.skipped === 'paid') {
-          const why = 'Ticketed event (' + money(r.cost) + ') \u2014 not listed, because '
-            + 'Eventbrite would have to take the payment. Carried by the events feed instead.';
+          // The client's own reason wins when it has one. A skip triggered by a
+          // checkout link has no recorded price to quote, and "Ticketed event
+          // ($0)" would read as a contradiction rather than an explanation.
+          const why = r.reason
+            || ('Ticketed event (' + money(r.cost) + ') \u2014 not listed, because '
+              + 'Eventbrite would have to take the payment. Carried by the events feed instead.');
           await query(
             `INSERT INTO event_channel_posts
                (company_id, event_id, channel_key, status, last_error, payload_hash)

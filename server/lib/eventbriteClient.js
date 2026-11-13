@@ -30,7 +30,7 @@
  *     real price. See docs/EVENT_DISTRIBUTION.md.
  */
 import { query } from '../db.js';
-import { publicVenueName } from './eventFeed.js';
+import { publicVenueName, classifyBookingLink } from './eventFeed.js';
 import sharp from 'sharp';
 
 const OAUTH_AUTHORIZE = 'https://www.eventbrite.com/oauth/authorize';
@@ -320,7 +320,15 @@ async function setListingBody(companyId, token, ebId, ev) {
   // event sends real guests astray. No link is the better failure.
   const booking = ev.booking_url || ev.resos_experience_url || null;
   if (booking) {
-    paras.push(`<p>Want a table for this one? <a href="${esc(booking)}">Book it here</a>.</p>`);
+    // Only promise a table when the link goes somewhere that books tables. An
+    // unrecognised link gets wording true of either, since it may be either.
+    const kind = classifyBookingLink(booking);
+    const line = kind === 'booking'
+      ? `Want a table for this one? <a href="${esc(booking)}">Book it here</a>.`
+      : kind === 'tickets'
+        ? `Tickets for this one: <a href="${esc(booking)}">get them here</a>.`
+        : `To book this one, <a href="${esc(booking)}">see here</a>.`;
+    paras.push(`<p>${line}</p>`);
   }
   if (!paras.length) return;
 
@@ -399,6 +407,22 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   const cost = Number(ev.cost);
   if (Number.isFinite(cost) && cost > 0) {
     return { skipped: 'paid', cost, published: false, url: null };
+  }
+
+  // A checkout link is independent proof the event is ticketed, and it outranks
+  // a $0 price rather than agreeing with it. The price is the field a person
+  // forgets; the checkout link is not, because without it the event could not be
+  // sold at all. Jazz Night was recorded at $0 with a Square link on it, and the
+  // price check above waved a $30 event through as free.
+  const linkKind = classifyBookingLink(ev.booking_url || ev.resos_experience_url);
+  if (linkKind === 'tickets') {
+    return {
+      skipped: 'paid', cost: Number.isFinite(cost) ? cost : null,
+      published: false, url: null,
+      reason: 'Not listed: the booking link is a ticket checkout page, so this is a '
+        + 'ticketed event whatever the price field says. Check the ticket price is '
+        + 'recorded. Carried by the events feed instead.',
+    };
   }
 
   // Resolve (and cache) the organization to create events under.

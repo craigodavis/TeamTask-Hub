@@ -245,6 +245,55 @@ function e164(phone) {
 }
 
 /** Whole dollars read as "$30", not "$30.00"; cents are kept when they exist. */
+/**
+ * What kind of link `booking_url` holds: a ticket purchase, a table reservation,
+ * or something unrecognised.
+ *
+ * This earns its keep twice.
+ *
+ * It is independent evidence that an event is ticketed. The price field is the
+ * one a person forgets: Jazz Night sat in the database at $0 with a Square
+ * checkout link on it, so a $30 event would have gone onto Eventbrite as free.
+ * A checkout link cannot be forgotten in the same way, because somebody had to
+ * paste it in for the event to be sellable at all.
+ *
+ * And it decides the wording. Offering "a table" for a checkout page is wrong,
+ * and so is "get tickets" for a ResOS booking.
+ *
+ * 'unknown' is deliberately a third answer rather than a default to either. The
+ * field accepts anything on purpose, so guessing strictly would silently drop
+ * events and guessing loosely would mislabel them. Only hosts we recognise get
+ * a verdict; the rest get neutral treatment.
+ */
+const TICKET_HOSTS = [
+  'square.link', 'squareup.com', 'square.site',
+  'eventbrite.com', 'eventbrite.co.uk',
+  'ticketleap.com', 'tickettailor.com', 'brownpapertickets.com',
+  'universe.com', 'seetickets.us', 'etix.com', 'ticketspice.com',
+  'buy.stripe.com', 'checkout.stripe.com', 'paypal.me', 'paypal.com',
+];
+const BOOKING_HOSTS = [
+  'resos.com', 'opentable.com', 'exploretock.com', 'tock.com',
+  'sevenrooms.com', 'resy.com', 'tableagent.com',
+];
+
+/** 'none' | 'tickets' | 'booking' | 'unknown' */
+export function classifyBookingLink(url) {
+  if (!url) return 'none';
+  let host;
+  try {
+    host = new URL(String(url).trim()).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return 'unknown'; // not even a URL; certainly not something to reason from
+  }
+  // endsWith('.' + h) so a subdomain counts (kindred.resos.com) but a lookalike
+  // registered as notresos.com does not.
+  const on = (list) => list.some((h) => host === h || host.endsWith('.' + h));
+  if (on(TICKET_HOSTS)) return 'tickets';
+  if (on(BOOKING_HOSTS)) return 'booking';
+  return 'unknown';
+}
+
 export function money(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '$0';

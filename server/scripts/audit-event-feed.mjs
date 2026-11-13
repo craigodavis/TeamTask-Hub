@@ -336,7 +336,7 @@ console.log('\nEventbrite listing correctness');
   ok('and the query actually selects web_slug',
     /l\.web_slug AS venue_web_slug/.test(src));
   ok('one definition of the public name, shared with the feeds',
-    /import \{ publicVenueName \} from '\.\/eventFeed\.js'/.test(src));
+    /import \{[^}]*\bpublicVenueName\b[^}]*\} from '\.\/eventFeed\.js'/.test(src));
 
   // The RSVP count must come from somewhere that reports one. The
   // ticket_availability expansion does NOT carry quantity_sold, so reading it
@@ -498,6 +498,60 @@ console.log('\nBooking link on the Eventbrite listing');
   ok('the edit form still does', /value=\{f\.booking_url\}/.test(ui));
   ok('the create form clears it after saving',
     (ui.match(/status: 'draft', image_url: '', booking_url: ''/g) || []).length === 2);
+}
+
+// ── a checkout link is proof of a ticketed event ─────────────────────
+console.log('\nTicket link vs booking link');
+{
+  const { classifyBookingLink } = await import('../lib/eventFeed.js');
+
+  // The real link that exposed this: Jazz Night sat at $0 in the database with a
+  // Square checkout on it, so the price check alone would have listed a $30
+  // event as free.
+  ok('a Square checkout reads as ticketed',
+    classifyBookingLink('https://square.link/u/XfzSWKBn') === 'tickets');
+  ok('so does Stripe, Tock-style ticketing and a foreign Eventbrite',
+    classifyBookingLink('https://buy.stripe.com/x') === 'tickets'
+    && classifyBookingLink('https://www.eventbrite.com/e/x-123') === 'tickets');
+  ok('our own ResOS reads as a table booking',
+    classifyBookingLink('https://kindred.resos.com/booking?experience=1') === 'booking');
+  ok('OpenTable and Tock do too',
+    classifyBookingLink('https://www.opentable.com/r/x') === 'booking'
+    && classifyBookingLink('https://www.exploretock.com/x') === 'booking');
+
+  // The two ways a host check goes wrong. Both must come back 'unknown' rather
+  // than a confident wrong answer.
+  ok('a lookalike domain is not trusted',
+    classifyBookingLink('https://notresos.com/booking') === 'unknown');
+  ok('a known name in the path proves nothing',
+    classifyBookingLink('https://evil.example/square.link') === 'unknown');
+  ok('something that is not a URL is unknown, not a crash',
+    classifyBookingLink('nonsense') === 'unknown');
+  ok('no link is its own answer, distinct from unknown',
+    classifyBookingLink(null) === 'none' && classifyBookingLink('') === 'none');
+
+  const src = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+  ok('the guard refuses an event whose link is a checkout page',
+    /linkKind === 'tickets'/.test(src) && /skipped: 'paid'/.test(src));
+  ok('and it refuses before anything is created on Eventbrite',
+    src.indexOf("linkKind === 'tickets'") < src.indexOf('/organizations/${orgId}/events/'));
+  ok('the refusal says to go and record the price',
+    /Check the ticket price is/.test(src));
+
+  // Wording follows the link type: "a table" is only true of a table booking.
+  const fn = src.slice(src.indexOf('async function setListingBody'), src.indexOf('\nfunction buildEventBody'));
+  ok('only a booking link is offered as a table', /kind === 'booking'[\s\S]{0,120}Want a table/.test(fn));
+  ok('a checkout link is offered as tickets', /kind === 'tickets'[\s\S]{0,120}Tickets for this one/.test(fn));
+  ok('an unknown link claims neither',
+    /To book this one/.test(fn) && !/Want a table[\s\S]{0,40}unknown/.test(fn));
+
+  const dist = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  // "Ticketed event ($0)" would read as a contradiction, so the client's own
+  // reason has to win when it has one.
+  ok('the panel prefers the real reason over quoting a $0 price',
+    /const why = r\.reason/.test(dist));
 }
 
 srv.close();

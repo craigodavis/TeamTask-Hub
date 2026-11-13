@@ -136,13 +136,33 @@ router.put('/:locationId', requireCapability('reports.operational'), async (req,
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/hours/:locationId/push-google — manually re-push this venue's hours.
+// POST /api/hours/:locationId/push-google — re-push this venue's hours.
+//
+// Two callers, and the second is why this comment exists.
+//
+//   1. The Hours screen's "Push to Google" button.
+//   2. KITH, the reservation app, over a service token (`thk_…`, role manager).
+//      Kith writes the same kindred_web.hours rows this screen writes, but the
+//      Google refresh token and the website deploy token are TeamHub's, so Kith
+//      asks rather than keeping a second copy of googleBusinessClient.js. See
+//      kith/server/lib/teamhub.ts.
+//
+// Mounted under /api/hours, so `websiteContentWatch` sees this POST finish and
+// queues the static site's rebuild too. That is load-bearing for caller 2:
+// hours changed in Kith are a database write the website's build never hears
+// about, and before this they waited for the hourly safety-net build.
+//
+// The two deliberate errors — 409 not_connected, 400 not_mapped — are setup
+// rather than failure, and Kith classifies them that way. Keep the codes.
 router.post('/:locationId/push-google', requireCapability('reports.operational'), async (req, res) => {
   try {
     const { locationId } = req.params;
     const chk = await query(`SELECT id FROM locations WHERE id = $1 AND company_id = $2`, [locationId, cId(req)]);
     if (!chk.rows.length) return res.status(404).json({ error: 'Location not found' });
-    const r = await pushHoursToGoogle(cId(req), locationId, req.userId);
+    // `?? null` is not decoration: a service token has no user row, so this is
+    // undefined for caller 2, and the publish log's confirmed_by must be a null
+    // rather than whatever a driver decides undefined means.
+    const r = await pushHoursToGoogle(cId(req), locationId, req.userId ?? null);
     res.json({ ok: true, ...r });
   } catch (e) {
     res.status(e.statusCode || 500).json({ error: e.message });
