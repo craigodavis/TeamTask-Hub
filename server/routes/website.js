@@ -1494,7 +1494,47 @@ websiteRouter.get('/events', async (req, res) => {
       rows = rows.concat(extra.rows.map((e) => ({ ...e, pinned: true })));
     }
 
-    res.json({ events: absMediaAll(rows), limit });
+    const out = { events: absMediaAll(rows), limit };
+
+    /* ?jsonld=1 — schema.org ItemList for the events index page.
+     *
+     * Individual event pages already carry Event markup, supplied by the
+     * single-event route below. The index page had none at all, so a crawler
+     * landing on /events/ saw a list of links and no events, and only learned
+     * anything by following through to each page. Aggregators that read a
+     * summary page rather than crawling every link therefore saw nothing.
+     *
+     * Opt-in rather than always-on. The index renders about ten events and
+     * wants the markup; the website's build also calls this with limit=500 to
+     * make a page per event, and that caller has no use for half a megabyte of
+     * JSON-LD it will not render.
+     *
+     * Addresses come from a separate lookup instead of joining venue_details
+     * into LIST_FIELDS. There are a handful of venues, so this is one small
+     * query rather than six address columns repeated on every row of every
+     * list response -- the rows are unchanged, which is what keeps this
+     * additive for existing callers.
+     */
+    if (/^(1|true|yes)$/i.test(String(req.query.jsonld || ''))) {
+      const vd = (await query(
+        `SELECT l.web_slug, v.street, v.city, v.region, v.postal, v.country, v.phone, v.lat, v.lng
+           FROM kindred_web.venue_details v JOIN locations l ON l.id = v.location_id`
+      )).rows;
+      const byVenue = new Map(vd.map((v) => [v.web_slug, v]));
+      out.jsonld = {
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        // Mirrors what the page actually shows, pinned events included: markup
+        // that disagrees with the visible list is worse than none.
+        itemListElement: out.events.map((e, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          item: eventJsonLd({ ...e, ...(byVenue.get(e.venue) || {}) }, 'https://kindredvineyards.com'),
+        })),
+      };
+    }
+
+    res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

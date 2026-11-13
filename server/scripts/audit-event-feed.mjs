@@ -708,6 +708,39 @@ console.log('\nUpdating a live Eventbrite listing');
     last > 0 && last < close && !mig.slice(last, close).includes('`,\n  `'));
 }
 
+// ── the events index page ──────────────────────────────────────
+console.log('\nItemList for the events index');
+{
+  const w = await (await import('node:fs/promises')).readFile(
+    new URL('../routes/website.js', import.meta.url), 'utf8');
+
+  // Event pages carry Event markup already; the index carried none, so a
+  // crawler landing there saw links and no events.
+  ok('the list route can emit an ItemList', /'@type': 'ItemList'/.test(w));
+  ok('each entry is a positioned ListItem',
+    /'@type': 'ListItem'/.test(w) && /position: i \+ 1/.test(w));
+  ok('entries carry the full Event, not just a link',
+    /item: eventJsonLd\(/.test(w));
+
+  // Opt-in: the website's build also calls this with limit=500 to make a page
+  // per event, and that caller renders none of it.
+  ok('it is off unless asked for', /req\.query\.jsonld/.test(w));
+
+  // Addresses are required by Google's event results, and come from a separate
+  // lookup so the rows themselves stay exactly as they were for every caller.
+  ok('venue addresses are looked up for the markup',
+    /venue_details v JOIN locations l/.test(w) && /byVenue\.get\(e\.venue\)/.test(w));
+  // Scoped to the LIST_FIELDS template itself: an unbounded match runs on past
+  // it and finds the v.street in the address lookup below, which is a different
+  // query entirely and says nothing about the row shape.
+  ok('the row shape is untouched',
+    !/v\./.test((w.match(/LIST_FIELDS = `([^`]*)`/) || [, ''])[1]));
+
+  // Markup that disagrees with the rendered list is worse than none.
+  ok('the markup mirrors the events actually returned',
+    /out\.events\.map\(\(e, i\)/.test(w));
+}
+
 srv.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
