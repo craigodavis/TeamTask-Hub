@@ -521,6 +521,7 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
 
   const ev = (await query(
     `SELECT e.id, e.title, e.description, e.start_at, e.end_at, e.all_day, e.cost,
+            e.club_cost,
             e.image_url, e.social_image_url, e.booking_url, e.resos_experience_url,
             e.slug, e.event_url,
             e.location_id, l.name AS venue_name, l.web_slug AS venue_web_slug
@@ -575,8 +576,16 @@ export async function postEventToEventbrite(companyId, eventId, userId = null) {
   // Night was recorded at $0 with a Square link on it, and a price check alone
   // waved a $30 event through as free.
   const cost = Number(ev.cost);
+  const clubCost = Number(ev.club_cost);
   const linkKind = classifyBookingLink(ev.booking_url || ev.resos_experience_url);
+  // A club price on its own still means money changes hands. It also usually
+  // means the public price is the field that went unrecorded, which is the same
+  // way Jazz Night slipped through -- so it is treated as evidence, not ignored
+  // because the column next to it happens to be empty.
   const ticketed = (Number.isFinite(cost) && cost > 0) ? { reason: null }
+    : (Number.isFinite(clubCost) && clubCost > 0) ? { reason: 'Not listed: this event has a club '
+        + 'ticket price, so it is a ticketed event. Check the public ticket price is recorded '
+        + 'too. Carried by the events feed instead.' }
     : linkKind === 'tickets' ? { reason: 'Not listed: the booking link is a ticket checkout page, so this is a '
         + 'ticketed event whatever the price field says. Check the ticket price is '
         + 'recorded. Carried by the events feed instead.' }

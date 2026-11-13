@@ -242,6 +242,11 @@ export async function getDistribution(companyId, eventId) {
 
   return {
     event_id: eventId, payload, payload_hash: hash, channels,
+    // Deliberately beside the payload rather than inside it. The payload is
+    // hashed to detect "this event changed since we posted it", so adding a
+    // field to it would change the hash of EVERY event at once, mark every
+    // posted channel stale and set the manual channels asking to be redone.
+    club_cost: ev.club_cost ?? null,
     start_at: ev.start_at, announce_lead_days: ev.announce_lead_days,
   };
 }

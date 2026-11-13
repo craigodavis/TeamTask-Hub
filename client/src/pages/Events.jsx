@@ -1139,11 +1139,23 @@ function DistributionCard({ eventId, card }) {
     try { await markEventChannelPost(postId, { status, external_url: url }); load(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
-  // Ticketed means a price above zero. Blank and 0 are both "free": blank is
-  // how most of these events are entered, and treating it as unknown would
-  // block the channel for nearly every event.
+  // Ticketed means a price above zero in EITHER field. Blank and 0 are both
+  // "free": blank is how most of these events are entered, and treating it as
+  // unknown would block the channel for nearly every event.
+  //
+  // The club price counts on its own. Money still changes hands, and an event
+  // with only a club price recorded is usually one whose public price was
+  // forgotten -- so it is evidence of a ticketed event rather than something to
+  // ignore because the field beside it is empty.
   const ticketPrice = Number(dist?.payload?.cost ?? 0);
-  const isTicketed = Number.isFinite(ticketPrice) && ticketPrice > 0;
+  const clubPrice = Number(dist?.club_cost ?? 0);
+  const priced = (Number.isFinite(ticketPrice) && ticketPrice > 0 ? ticketPrice : 0)
+    || (Number.isFinite(clubPrice) && clubPrice > 0 ? clubPrice : 0);
+  const isTicketed = priced > 0;
+  // Which field it came from, so the explanation can name the right one.
+  const pricedLabel = (Number.isFinite(ticketPrice) && ticketPrice > 0)
+    ? `$${ticketPrice}`
+    : (Number.isFinite(clubPrice) && clubPrice > 0 ? `club $${clubPrice}` : 'priced');
   // Only Eventbrite cares. Every other channel takes a ticketed event happily.
   const blockedChannel = (key) => key === 'eventbrite' && isTicketed;
 
@@ -1267,7 +1279,7 @@ function DistributionCard({ eventId, card }) {
                 <input type="checkbox" checked={!blocked && !!c.enabled} disabled={blocked}
                        onChange={(e) => toggleChannel(c.key, e.target.checked)}
                        title={blocked
-                         ? `Ticketed event (${ticketPrice ? '$' + ticketPrice : 'priced'}) — Eventbrite would have to take the payment, so it is not listed there`
+                         ? `Ticketed event (${pricedLabel}) — Eventbrite would have to take the payment, so it is not listed there`
                          : (c.enabled ? 'On for this event — uncheck to skip it' : 'Skipped for this event — check to include')}
                        style={{ cursor: blocked ? 'not-allowed' : 'pointer' }} />
                 <span style={{ fontWeight: 600, minWidth: 140 }}>{c.name}</span>
@@ -1323,10 +1335,11 @@ function DistributionCard({ eventId, card }) {
                               background: 'var(--surface-3,#f0eeeb)', display: 'flex', gap: 7 }}>
                   <span aria-hidden="true">🎟️</span>
                   <span>
-                    <b>Ticketed event{ticketPrice ? ` ($${ticketPrice})` : ''}.</b> Not listed on
+                    <b>Ticketed event ({pricedLabel}).</b> Not listed on
                     Eventbrite, because selling there would mean Eventbrite taking the payment.
                     It still reaches listing sites through the events feed, with its real price.
-                    Clear the Ticket Price to make this a free RSVP instead.
+                    Clear both the Ticket Price and the Club Ticket Price to make this a free
+                    RSVP instead.
                   </span>
                 </div>
               )}

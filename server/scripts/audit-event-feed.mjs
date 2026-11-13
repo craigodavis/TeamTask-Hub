@@ -303,7 +303,9 @@ console.log('\nEventbrite checkbox gating');
   ok('the checkbox is disabled when priced', /disabled=\{blocked\}/.test(ui));
   ok('the row is greyed when priced', /opacity: blocked \? 0\.45/.test(ui));
   // A greyed control with no reason beside it is what people file bugs about.
-  ok('and the row says why', /Ticketed event\{ticketPrice/.test(ui));
+  ok('and the row says why', /<b>Ticketed event \(\{pricedLabel\}\)\.<\/b>/.test(ui));
+  ok('the reason names which price it found',
+    /const pricedLabel =/.test(ui) && /club \$\$\{clubPrice\}/.test(ui));
 
   ok('turning it on for a free event asks first',
     /window\.confirm\(\s*\n?\s*'This event has no ticket price/.test(ui));
@@ -557,6 +559,32 @@ console.log('\nTicket link vs booking link');
 
   const src = await (await import('node:fs/promises')).readFile(
     new URL('../lib/eventbriteClient.js', import.meta.url), 'utf8');
+  // A club price on its own is still money changing hands, and an event with
+  // only a club price recorded is usually one whose public price was forgotten
+  // -- the same way Jazz Night slipped through on a blank cost.
+  ok('a club ticket price alone marks the event ticketed',
+    /Number\.isFinite\(clubCost\) && clubCost > 0/.test(src));
+  ok('and the query selects it', /e\.club_cost,/.test(src));
+  ok('its reason names the club price rather than quoting $0',
+    /this event has a club /.test(src) && /ticket price, so it is a ticketed event/.test(src));
+
+  const dist0 = await (await import('node:fs/promises')).readFile(
+    new URL('../lib/eventDistribution.js', import.meta.url), 'utf8');
+  // Beside the payload, never inside it: the payload is hashed to detect "this
+  // event changed since we posted it", so adding a field would change every
+  // event's hash at once and set every manual channel asking to be redone.
+  ok('the panel gets the club price without it entering the hashed payload',
+    /club_cost: ev\.club_cost \?\? null/.test(dist0)
+    && !/club_cost: ev\.club_cost \?\? null/.test(dist0.slice(dist0.indexOf('function buildPayload'), dist0.indexOf('export function hashPayload'))));
+
+  const ui0 = await (await import('node:fs/promises')).readFile(
+    new URL('../../client/src/pages/Events.jsx', import.meta.url), 'utf8');
+  ok('the checkbox greys out on either price',
+    /const clubPrice = Number\(dist\?\.club_cost \?\? 0\)/.test(ui0)
+    && /const isTicketed = priced > 0/.test(ui0));
+  ok('and the notice says to clear both fields',
+    /Clear both the Ticket Price and the Club Ticket Price/.test(ui0));
+
   ok('the guard refuses an event whose link is a checkout page',
     /linkKind === 'tickets'/.test(src) && /skipped: 'paid'/.test(src));
   ok('and it refuses before anything is created on Eventbrite',
