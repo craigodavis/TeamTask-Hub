@@ -1242,6 +1242,18 @@ websiteRouter.post('/reservations/book', async (req, res) => {
             _id: f.id, name: f.name, label: f.label,
             value: (f.options.length ? [{ _id: f.options[0].id, name: f.options[0].name, value: true }] : []),
           });
+        } else if (f.type === 'number') {
+          // A number is typed, not chosen, so there is no option to look up —
+          // the answer IS the value. ResOS's own widget builds the entry the
+          // same way and only adds multipleChoiceValueName for choice types,
+          // so a number carries its value and nothing else. Without this branch
+          // the lookup below found no matching option and the answer was
+          // dropped on the floor: the guest typed it, and it never arrived.
+          const n = Number(String(picked).trim());
+          if (!Number.isFinite(n) || n < 0) continue;
+          customFieldPayload.push({
+            _id: f.id, name: f.name, label: f.label, value: n,
+          });
         } else {
           const opt = f.options.find((o) => o.id === picked);
           if (!opt) continue;
