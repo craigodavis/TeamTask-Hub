@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { can, isOwner } from './utils/can';
 import { Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { Login } from './pages/Login';
@@ -94,29 +94,59 @@ function App() {
   const [timezone, setTimezone] = useState('America/Denver');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  /**
+   * The one place a signed-in user is assembled.
+   *
+   * /api/auth/me is the ONLY endpoint that returns `capabilities`. /login,
+   * /pin-login and /view-as all answer with a thinner user that omits them,
+   * and `user.capabilities` is what lib/apps.js derives the entire shell from.
+   * Setting `user` straight from a login response therefore produced a session
+   * holding zero capabilities: no apps, no nav, and the AppShell empty state
+   * ("Nothing is set up for you yet") on a login that had in fact succeeded.
+   * It healed on the next page load, because a page load comes through here --
+   * which is exactly what made it look intermittent and impossible to pin on
+   * the account.
+   *
+   * Owners never saw it: their Floor entries are gated on role rather than on
+   * a capability, so an owner always holds at least one app and never reaches
+   * the empty state. Members hit it on every single login.
+   *
+   * So every path that establishes a session calls this, and nothing sets
+   * `user` from a login payload.
+   */
+  const loadMe = useCallback(async () => {
     const token = localStorage.getItem('teamtask_token');
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    fetch('/api/auth/me', {
+    if (!token) return null;
+    const r = await fetch('/api/auth/me', {
       headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => {
-        setUser(data.user);
-        // Load company timezone separately — a failure here (e.g. permissions,
-        // transient error) must NEVER clear the auth token. Swallow its errors.
-        getGeneralSettings()
-          .then((settings) => { if (settings?.timezone) setTimezone(settings.timezone); })
-          .catch(() => {});
-      })
-      .catch(() => localStorage.removeItem('teamtask_token'))
-      .finally(() => setLoading(false));
+    });
+    if (!r.ok) throw new Error('auth/me failed');
+    const data = await r.json();
+    setUser(data.user);
+    // Load company timezone separately — a failure here (e.g. permissions,
+    // transient error) must NEVER clear the auth token. Swallow its errors.
+    getGeneralSettings()
+      .then((settings) => { if (settings?.timezone) setTimezone(settings.timezone); })
+      .catch(() => {});
+    return data.user;
   }, []);
 
-  const onLogin = (u) => setUser(u);
+  useEffect(() => {
+    loadMe()
+      .catch(() => localStorage.removeItem('teamtask_token'))
+      .finally(() => setLoading(false));
+  }, [loadMe]);
+
+  const onLogin = (u) => {
+    // Hold the loading screen over the round trip rather than mounting the
+    // shell with a capability-less user, which would flash the empty state.
+    setLoading(true);
+    loadMe()
+      // Only when /me is unreachable: a thin session still beats bouncing
+      // somebody who has just authenticated back to the login form.
+      .catch(() => setUser(u))
+      .finally(() => setLoading(false));
+  };
   const onLogout = () => {
     localStorage.removeItem('teamtask_token');
     setUser(null);
