@@ -627,7 +627,9 @@ router.get('/day-summary', async (req, res) => {
       const shiftRes = await query(
         `SELECT
            l.id AS location_id,
-           COALESCE(ja.job_title, ss.pub_job_id) AS wage_title
+           COALESCE(ja.job_title, ss.pub_job_id) AS wage_title,
+           (ss.pub_start_at AT TIME ZONE $3)::time AS starts_at,
+           (ss.pub_end_at   AT TIME ZONE $3)::time AS ends_at
          FROM team_square.scheduled_shift ss
          LEFT JOIN LATERAL (
            SELECT job_title FROM team_square.team_member_job_assignment
@@ -647,7 +649,9 @@ router.get('/day-summary', async (req, res) => {
       const clockedRes = await query(
         `SELECT
            l.id AS location_id,
-           s.wage_title
+           s.wage_title,
+           (s.start_at AT TIME ZONE $3)::time AS starts_at,
+           (s.end_at   AT TIME ZONE $3)::time AS ends_at
          FROM team_square.shift s
          LEFT JOIN locations l
            ON l.square_location_id = s.location_id AND l.company_id = $1
@@ -707,9 +711,96 @@ router.get('/day-summary', async (req, res) => {
       }
       resolvedWageTitles = [...withTrainedRole];
 
+      // Opening and closing lists belong to the people who actually open and
+      // close. Every template carries type = 'opening' | 'closing' (there is no
+      // third kind), but until now nothing read it: lists were matched on role,
+      // location and date alone, so a 3pm starter got the opening checklist and
+      // a 9am-to-4pm shift got the closing one. Kayla raised it on 2026-11-15;
+      // it had been true for everybody since the column was added.
+      //
+      // The test is the shift against that location's posted hours for the day,
+      // with a half-hour of grace at each end so that arriving a little before
+      // open, or staying a little past close, still counts.
+      //
+      // Fails OPEN on purpose: if the hours for this location and date are not
+      // known, or the shift carries no times, no type filtering happens and the
+      // lists show exactly as before. An unfiltered list is a nuisance; a list
+      // nobody can see is a job nobody does.
+      const GRACE_MIN = 30;
+      const toMin = (t) => {
+        if (!t) return null;
+        const m = /^(\d{1,2}):(\d{2})/.exec(String(t));
+        return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+      };
+
+      let allowOpening = true;
+      let allowClosing = true;
+      const shiftLocIds = [...new Set(allShiftRows.map((r) => r.location_id).filter(Boolean))];
+      if (shiftLocIds.length > 0) {
+        const hoursRes = await query(
+          `SELECT location_id, opens, closes
+             FROM kindred_web.hours
+            WHERE company_id = $1
+              AND location_id = ANY($2::uuid[])
+              AND day_of_week = EXTRACT(DOW FROM $3::date)::int
+              AND (from_date IS NULL OR $3::date BETWEEN from_date AND to_date)
+            ORDER BY (from_date IS NULL)`,
+          [cId, shiftLocIds, date]
+        ).catch(() => ({ rows: [] }));
+
+        // A dated override for this day wins over the standing weekly row.
+        const hoursFor = new Map();
+        for (const h of hoursRes.rows) if (!hoursFor.has(h.location_id)) hoursFor.set(h.location_id, h);
+
+        if (hoursFor.size > 0) {
+          allowOpening = false;
+          allowClosing = false;
+          // Start and end are judged SEPARATELY, per row. A shift that is
+          // clocked in right now has status OPEN and a NULL end_at -- the
+          // person has not left yet -- and every single person on the floor
+          // looks like that mid-shift. Treating a missing end as "cannot
+          // evaluate" and failing open made the whole rule inert for anyone
+          // currently working, which is everyone it matters for. The open
+          // clock-in still tells us when they arrived; the scheduled row
+          // supplies when they are due to leave.
+          let sawUsable = false;
+          for (const row of allShiftRows) {
+            const h = hoursFor.get(row.location_id);
+            if (!h) continue;
+            const opens = toMin(h.opens), closes = toMin(h.closes);
+            if (opens == null || closes == null) continue;
+            const st = toMin(row.starts_at), en = toMin(row.ends_at);
+            if (st != null) {
+              sawUsable = true;
+              if (st <= opens + GRACE_MIN) allowOpening = true;
+            }
+            if (en != null) {
+              sawUsable = true;
+              if (en >= closes - GRACE_MIN) allowClosing = true;
+            }
+          }
+          // Nothing usable anywhere: no hours, or no times on any row. Show
+          // both rather than hide a job nobody would then know to do.
+          if (!sawUsable) { allowOpening = true; allowClosing = true; }
+        }
+      }
+
+      const allowedTypes = [
+        ...(allowOpening ? ['opening'] : []),
+        ...(allowClosing ? ['closing'] : []),
+      ];
+      if (debug) Object.assign(debug, { allowOpening, allowClosing });
+
       shiftFilter = {
         wageTitles: resolvedWageTitles.length > 0 ? resolvedWageTitles : null,
-        locationIds: [...new Set(allShiftRows.map((r) => r.location_id).filter(Boolean))],
+        locationIds: shiftLocIds,
+        // Deliberately NOT collapsed to null when empty. Empty means "this
+        // shift neither opens nor closes", and an empty array matches no type,
+        // which is the intended outcome -- a midday shift sees neither list.
+        // Collapsing it to null would disable the filter and show them both,
+        // which is the exact bug this is here to fix. Failing open is handled
+        // above, by leaving both flags true, never by emptying this.
+        types: allowedTypes,
       };
       if (debug) debug.wageTitles = resolvedWageTitles;
     }
@@ -736,10 +827,16 @@ router.get('/day-summary', async (req, res) => {
              WHERE tll.template_id = tlt.id AND tll.location_id = ANY($4::uuid[])
            )
          )
+         AND (
+           $5::text[] IS NULL
+           OR tlt.type IS NULL
+           OR tlt.type = ANY($5::text[])
+         )
        ORDER BY tlt.name`,
       [cId, date,
        shiftFilter ? shiftFilter.wageTitles : null,
-       shiftFilter ? shiftFilter.locationIds : null]
+       shiftFilter ? shiftFilter.locationIds : null,
+       shiftFilter ? shiftFilter.types : null]
     );
     const assignments = assignmentsResult.rows;
     const out = [];
