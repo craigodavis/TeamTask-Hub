@@ -687,6 +687,26 @@ router.get('/day-summary', async (req, res) => {
         }
       }
 
+      // A trainee does the job they are training in. Square writes the job
+      // title as "Training Wine Steward/Bartender", while the task templates
+      // are keyed on the real title ("Wine Steward/Bartender"), so a trainee
+      // matched nothing and got an empty list -- while the list for the role
+      // they are shadowing sat there unopened. Kayla hit this on 2026-11-15:
+      // scheduled at Creek as a Training Wine Steward/Bartender, with two
+      // "Creek - Wine Steward/Bartender" lists assigned that day and no way to
+      // see either.
+      //
+      // Additive on purpose: the original title is kept alongside the stripped
+      // one, so this can only ever widen what somebody sees, never narrow it.
+      // No "Training X" title has a template of its own, so there is nothing
+      // for the stripped title to collide with.
+      const withTrainedRole = new Set(resolvedWageTitles);
+      for (const t of resolvedWageTitles) {
+        const m = /^\s*training\s+(.+?)\s*$/i.exec(t || '');
+        if (m) withTrainedRole.add(m[1]);
+      }
+      resolvedWageTitles = [...withTrainedRole];
+
       shiftFilter = {
         wageTitles: resolvedWageTitles.length > 0 ? resolvedWageTitles : null,
         locationIds: [...new Set(allShiftRows.map((r) => r.location_id).filter(Boolean))],
