@@ -12,6 +12,7 @@
  */
 import { query } from '../db.js';
 import { sendSmsToUsers } from './smsHelper.js';
+import { requestLink } from './eventRequests.js';
 
 /** Actions worth telling somebody about, and how they read in a text. */
 export const NOTIFIABLE = {
@@ -71,9 +72,12 @@ async function notifyFor(companyId, requestId, action, detail) {
   const when = r.event_date ? new Date(r.event_date).toLocaleDateString('en-US',
     { month: 'short', day: 'numeric' }) : 'no date';
 
+  // The link last, so a phone that truncates the preview still shows who and
+  // when, and so the tap target is at the end where a thumb already is.
   const body = `Kindred events — ${NOTIFIABLE[action]}: ${who}, ${when}`
     + (r.guests ? `, ${r.guests} guests` : '')
-    + (detail ? `. ${detail}` : '');
+    + (detail ? `. ${detail}` : '')
+    + `. ${requestLink(requestId)}`;
   await sendSmsToUsers(companyId, people.map((p) => p.id), body, null);
 }
 

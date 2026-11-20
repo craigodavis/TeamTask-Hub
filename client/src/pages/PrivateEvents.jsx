@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import {
   getPrivateEventCalendar, getPrivateEventBoard, sendEventContract, sendEventProposal,
   countersignEventContract,
@@ -47,8 +47,18 @@ const LABEL = {
 };
 
 export function PrivateEvents() {
-  const [tab, setTab] = useState('flow');
-  const [inboxFilter, setInboxFilter] = useState(null);
+  // Notification texts link straight to one enquiry. Landing on Flow and leaving
+  // someone to find it again is most of what the link was for, so the id in the
+  // query string opens the inbox on that booking. Read once: the page should not
+  // fight the user if they then navigate somewhere else with the id still in the
+  // URL. Filtered to "Everything", because a link followed a week later points at
+  // a booking that has long since left the default view.
+  const deepLinkId = useMemo(() => {
+    const v = new URLSearchParams(window.location.search).get('request');
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v || '') ? v : null;
+  }, []);
+  const [tab, setTab] = useState(deepLinkId ? 'requests' : 'flow');
+  const [inboxFilter, setInboxFilter] = useState(deepLinkId ? 'all' : null);
   const [err, setErr] = useState('');
   return (
     <div className="pe">
@@ -74,6 +84,7 @@ export function PrivateEvents() {
       {tab === 'calendar' && <CalendarTab />}
       {tab === 'requests' && (
         <RequestsInbox onError={setErr} initialFilter={inboxFilter}
+                       openRequestId={deepLinkId}
                        onBack={() => setTab('flow')} />)}
       {tab === 'copy' && <Copy onError={setErr} />}
       {tab === 'terms' && <TermsTab />}
@@ -84,9 +95,17 @@ export function PrivateEvents() {
 }
 
 /** The inbox, with the same slide-out the calendar uses. */
-function RequestsInbox({ onError, onBack, initialFilter }) {
+function RequestsInbox({ onError, onBack, initialFilter, openRequestId }) {
   const [sel, setSel] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Once only. Without the latch, closing the drawer would re-open it on the next
+  // render for as long as the id sat in the URL, and the enquiry could not be shut.
+  const autoOpened = useRef(false);
+  const openOnce = useCallback((row) => {
+    if (autoOpened.current) return;
+    autoOpened.current = true;
+    setSel(row);
+  }, []);
   return (
     <>
       {onBack && (
@@ -95,7 +114,8 @@ function RequestsInbox({ onError, onBack, initialFilter }) {
         </button>
       )}
       <Requests key={`${reloadKey}:${initialFilter || ''}`} onError={onError}
-                onOpen={setSel} initialFilter={initialFilter} />
+                onOpen={setSel} initialFilter={initialFilter}
+                openId={openRequestId} onFound={openOnce} />
       <RequestDrawer request={sel} onClose={() => setSel(null)}
                      onChanged={() => { setSel(null); setReloadKey((k) => k + 1); }} />
     </>

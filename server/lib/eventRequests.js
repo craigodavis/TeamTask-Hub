@@ -87,6 +87,23 @@ export const money = (cents) =>
 /* ------------------------------------------------------- staff notification */
 
 /**
+ * The staff link to one enquiry.
+ *
+ * Every alert about a booking carries it. "Review in Team" was the whole pointer
+ * before, which left whoever got the text to open the app, find Private Events,
+ * cross to the inbox and pick the right name out of the list -- enough friction
+ * that an alert on a phone got dealt with later, or not at all.
+ *
+ * Not in publicLinks.js: that file is URLs we hand to customers, and this one is
+ * behind the login.
+ */
+const appBase = () =>
+  (process.env.APP_BASE_URL || 'https://team.kindredvineyards.com').replace(/\/+$/, '');
+
+export const requestLink = (requestId) =>
+  `${appBase()}/marketing/private-events?request=${requestId}`;
+
+/**
  * Who gets texted about event requests.
  *
  * An explicit list, not "everyone with a manager role". The role query returns
@@ -136,13 +153,14 @@ export function planningMeetingSms(reqRow) {
   const who = `${reqRow.first_name} ${reqRow.last_name}`.trim();
   const when = shortDate(reqRow.event_date);
   const by = reqRow.planning_meeting_due ? ` Book the pre-event planning meeting by ${shortDate(reqRow.planning_meeting_due)}.` : '';
-  return `Kindred: event approved — ${who}, ${reqRow.guests} guests, ${when}.${by}`;
+  return `Kindred: event approved — ${who}, ${reqRow.guests} guests, ${when}.${by} ${requestLink(reqRow.id)}`;
 }
 
 /** The alert when a new request arrives, before anyone has approved anything. */
 export function newRequestSms(reqRow) {
   const who = `${reqRow.first_name} ${reqRow.last_name}`.trim();
-  return `Kindred: new event request — ${who}, ${reqRow.guests} guests, ${shortDate(reqRow.event_date)}. Review in Team.`;
+  return `Kindred: new event request — ${who}, ${reqRow.guests} guests, `
+    + `${shortDate(reqRow.event_date)}. ${requestLink(reqRow.id)}`;
 }
 
 /**

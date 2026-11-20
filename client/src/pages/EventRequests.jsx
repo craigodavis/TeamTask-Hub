@@ -118,7 +118,7 @@ function FormLink({ url }) {
 
 /* -------------------------------------------------------------- requests */
 
-export function Requests({ onError, onOpen, initialFilter }) {
+export function Requests({ onError, onOpen, initialFilter, openId, onFound }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   // Open by default. A cancelled enquiry is kept but stops being something to look
@@ -147,6 +147,16 @@ export function Requests({ onError, onOpen, initialFilter }) {
     finally { setLoading(false); }
   }, [filter, sort, onError]);
   useEffect(() => { load(); }, [load]);
+
+  // A link from a notification names one enquiry; open it in the same slide-out
+  // everything else uses, so there is one way a booking is read. Nothing happens
+  // if it is not in the list -- a stale or foreign id leaves the inbox as it is
+  // rather than throwing an error at somebody who only tapped a text.
+  useEffect(() => {
+    if (!openId || !onFound || loading) return;
+    const row = rows.find((r) => r.id === openId);
+    if (row) onFound(row);
+  }, [openId, onFound, loading, rows]);
 
   const patch = async (id, body) => {
     try {
