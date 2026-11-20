@@ -87,6 +87,16 @@ function sittings(blocks) {
     if (!byKey.has(key)) byKey.set(key, { key, day, open: b.open, close: b.close, areas: b.areas || [], tiers: [] });
     byKey.get(key).tiers.push(b);
   }
+  // The grouping key has to carry the areas, because areas are what decide how
+  // many tables a sitting has. It is the wrong thing to file an alert under:
+  // adding an area to reopen a full sitting changes the key, so the old entry
+  // is orphaned, and taking that area away again lands back on a key still
+  // marked "already told you" -- swallowing the next full-up in silence.
+  // The opening-hour blocks are the sitting's real identity: editing a block's
+  // areas leaves its _id alone. So remember by day plus block ids.
+  for (const s of byKey.values()) {
+    s.memKey = `${s.day}|${s.tiers.map((t) => t._id).sort().join(',')}`;
+  }
   return [...byKey.values()];
 }
 
@@ -107,6 +117,11 @@ export async function runCapacityWatch({ dryRun = false } = {}) {
   const nowIso = new Date().toISOString();
   let changed = false;
   const full = [];
+  // Which sittings we managed to look at, for the sweep at the end. A venue or
+  // a day we could not read leaves a hole, and a hole must not be mistaken for
+  // "that sitting is gone".
+  const seen = new Set();
+  let allRead = true;
 
   for (const v of venues) {
     let blocks, areas;
@@ -115,6 +130,7 @@ export async function runCapacityWatch({ dryRun = false } = {}) {
       areas = asList(await resos(v, '/tables'));
     } catch (e) {
       console.warn(`[capacity] ${v.web_slug}: ResOS unreachable — ${e.message}`);
+      allRead = false;
       continue;
     }
     const tablesIn = new Map(areas.map((a) => [a._id, (a.tables || []).length]));
@@ -132,6 +148,7 @@ export async function runCapacityWatch({ dryRun = false } = {}) {
         bookings = [...asList(d), ...asList(d2)].filter((b) => LIVE(b) && ids.has(b.openingHourId));
       } catch (e) {
         console.warn(`[capacity] ${v.web_slug} ${s.day}: bookings unreadable — ${e.message}`);
+        allRead = false;
         continue;
       }
 
@@ -143,18 +160,19 @@ export async function runCapacityWatch({ dryRun = false } = {}) {
       const outOfTables = capacityTables > 0 && usedTables.size >= capacityTables;
       const outOfGuests = guestCap > 0 && guests >= guestCap;
       const isFull = outOfTables || outOfGuests;
+      seen.add(s.memKey);
 
-      if (isFull && !alerted[s.key]) {
-        alerted[s.key] = nowIso;
+      if (isFull && !alerted[s.memKey]) {
+        alerted[s.memKey] = nowIso;
         changed = true;
         full.push({
           venue: v, sitting: s, bookings, guests, guestCap,
           usedTables: usedTables.size, capacityTables, outOfTables, outOfGuests,
         });
-      } else if (!isFull && alerted[s.key]) {
+      } else if (!isFull && alerted[s.memKey]) {
         // Room again — adding an area or a cancellation. Forget it, so the next
         // time it fills is reported rather than swallowed as "already told you".
-        delete alerted[s.key];
+        delete alerted[s.memKey];
         changed = true;
       }
     }
@@ -165,6 +183,15 @@ export async function runCapacityWatch({ dryRun = false } = {}) {
     try { drafts.push(await emailFull(f, { dryRun })); }
     catch (e) { console.error('[capacity] email failed:', e.message); }
   }
+  // The loop above only clears an entry while its sitting is still in range, so
+  // without a sweep they pile up in the setting for good: days gone by,
+  // sittings that were moved or deleted, keys written in an older format.
+  if (allRead) {
+    for (const k of Object.keys(alerted)) {
+      if (!seen.has(k)) { delete alerted[k]; changed = true; }
+    }
+  }
+
   if (changed && !dryRun) await writeAlerted(alerted);
   console.log(`[capacity] checked; ${full.length} sitting(s) newly full.${dryRun ? ' (dry run)' : ''}`);
   return { full: full.length, drafts };
