@@ -26,6 +26,8 @@ const MENU_ROOT = path.join(HERE, '..', 'assets', 'menus');
 const PAGE_SIZE = {
   tasting: { width: '5.5in', height: '8.5in' },
   burgers: { width: '5.5in', height: '8.5in' },
+  // Letter PORTRAIT -- the only menu that is not a landscape booklet sheet.
+  wine: { width: '8.5in', height: '11in' },
   _default: { width: '11in', height: '8.5in' },
 };
 
@@ -82,6 +84,30 @@ function rows(wines) {
       + '<span class="wtype">' + esc(w.varietal) + '</span></td>'
       + `<td class="p">${money(w.glass)}</td><td class="p">${money(club(w.glass))}</td><td></td>`
       + `<td class="p">${money(w.bottle)}</td><td class="p">${money(club(w.bottle))}</td></tr>`;
+  }).join('\n');
+}
+
+/**
+ * A wine row carrying ONE price pair rather than both.
+ *
+ * The booklet's rows() prints glass and bottle side by side, which suits a
+ * single combined table. The wine menu splits them across the page: glass
+ * prices live on the tasting side and bottle prices on the bottle side, so a
+ * row there has three columns, not six.
+ *
+ * Which shape a menu gets is decided by WHICH MARKER its template contains,
+ * not by its key -- splice() leaves a document alone when the marker is
+ * absent, so creek and winery keep the six-column rows untouched.
+ */
+function priceRows(wines, kind) {
+  return (wines || []).map((w) => {
+    const { vint, rest } = splitVintage(w.name, w.vintage);
+    const price = kind === 'glass' ? w.glass : w.bottle;
+    return '<tr><td class="w">'
+      + (vint ? '<span class="vint">' + esc(vint) + '</span> ' : '')
+      + '<span class="wname">' + esc(rest) + '</span>'
+      + '<span class="wtype">' + esc(w.varietal) + '</span></td>'
+      + `<td class="p">${money(price)}</td><td class="p">${money(club(price))}</td></tr>`;
   }).join('\n');
 }
 
@@ -237,6 +263,12 @@ export async function renderMenuPdf(menuKey, wines, foodItems = []) {
   let doc = await fs.readFile(templatePath, 'utf8');
   doc = splice(doc, 'WINES_WHITE', rows(wines.white || []));
   doc = splice(doc, 'WINES_RED', rows(wines.red || []));
+  // Three-column variants, for a menu that separates the glass pours from the
+  // bottle list. Absent markers are a no-op, so this costs the other menus
+  // nothing.
+  doc = splice(doc, 'WINES_TASTING', priceRows(wines.tasting, 'glass'));
+  doc = splice(doc, 'WINES_BOTTLE_WHITE', priceRows(wines.white, 'bottle'));
+  doc = splice(doc, 'WINES_BOTTLE_RED', priceRows(wines.red, 'bottle'));
   doc = spliceFood(doc, foodItems);
 
   // Render from a temp file inside the menu directory so the template's

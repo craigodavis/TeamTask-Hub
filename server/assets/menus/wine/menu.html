@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "EB Garamond"; src: url("../creek/fonts/EBGaramond[wght].ttf"); font-weight: 400 800; font-style: normal; }
+  @font-face { font-family: "EB Garamond"; src: url("../creek/fonts/EBGaramond-Italic[wght].ttf"); font-weight: 400 800; font-style: italic; }
+  /* Letter portrait with the source document's margins: 0.25in top and bottom,
+     0.5in left and right. */
+  @page { size: 8.5in 11in; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { font-family: "EB Garamond", serif; color: #1a1a1a; }
+
+  .sheet { width: 8.5in; height: 11in; padding: 0.25in 0.5in; display: flex; overflow: hidden; }
+  /* Two columns, 3.5in each with a 0.5in gutter -- the source document's own
+     column geometry rather than a guess. */
+  .col { width: 3.5in; display: flex; flex-direction: column; }
+  .col + .col { margin-left: 0.5in; }
+
+  .sec-head { text-align: center; font-variant: small-caps; letter-spacing: 0.12em;
+              font-size: 20pt; font-weight: 500; }
+  .sec-head .rule { width: 0.62in; height: 0; border-top: 1.2pt solid #9b1b21; margin: 5pt auto 0; }
+  .sec-sub { text-align: center; font-size: 11.5pt; margin-top: 7pt; line-height: 1.35; }
+  .sec-note { text-align: center; font-style: italic; font-size: 10pt; color: #555;
+              margin-top: 4pt; line-height: 1.3; }
+
+  .sub-head { text-align: center; font-variant: small-caps; letter-spacing: 0.11em;
+              font-size: 13.5pt; font-weight: 500; margin-top: 16pt; }
+  .sub-head .rule { width: 0.4in; height: 0; border-top: 0.8pt solid #b7893c; margin: 4pt auto 0; }
+
+  table.wine { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+  table.wine th { font-variant: small-caps; font-weight: 500; letter-spacing: 0.07em;
+                  font-size: 9pt; color: #333; padding: 2pt 0 4pt; }
+  table.wine th.grp { border-bottom: 0.6pt solid #c9c1b4; }
+  table.wine td { font-size: 10.5pt; padding: 6pt 0 0; vertical-align: baseline; }
+  table.wine td.w { text-align: left; line-height: 1.22; padding-right: 5pt; }
+  table.wine td.p, table.wine th.p { text-align: center; width: 0.6in; white-space: nowrap; }
+  .vint { color: #1a1a1a; }
+  .wname { color: #9b1b21; font-weight: 500; }
+  .wtype { display: block; font-size: 9.5pt; color: #444; }
+
+  /* Club 77 follows the tasting wines directly, as in the source document,
+     rather than being pinned to the foot of the column -- with only four
+     pours, margin-top:auto left a hand's width of white space between them. */
+  .club { margin-top: 22pt; }
+  .club-head { text-align: center; font-variant: small-caps; letter-spacing: 0.08em;
+               font-size: 11pt; font-weight: 600; color: #9b1b21; line-height: 1.35; }
+  .bene { font-size: 9.5pt; line-height: 1.4; text-align: center; margin-top: 5pt; color: #333; }
+  .qr-wrap { text-align: center; margin-top: 8pt; }
+  .qr-wrap img { width: 0.78in; }
+  .qr-wrap .scan { font-variant: small-caps; letter-spacing: 0.09em; font-size: 9pt; margin-top: 3pt; }
+  .orn { text-align: center; margin-top: auto; padding-top: 12pt; }
+  .orn img { width: 0.7in; }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <!-- ===== left column: the tasting side. Glass prices live only here. ===== -->
+  <div class="col">
+    <div class="sec-head">Tasting Menu<div class="rule"></div></div>
+    <div class="sec-sub">4 (2oz) tastings &mdash; $15</div>
+    <div class="sec-note">Tasting fees are waived<br>with each bottle purchase</div>
+
+    <table class="wine">
+      <tr><th class="w"></th><th class="p grp">Glass</th><th class="p grp">Club</th></tr>
+      <!-- WINES_TASTING:START -->
+      <!-- WINES_TASTING:END -->
+    </table>
+
+    <div class="club">
+      <div class="club-head">To access exclusive wines and more,<br>ask about Club 77 Wine Club</div>
+      <div class="bene">Exclusive access to specialty low production &amp; library wines.</div>
+      <div class="bene">Club discount on all wine purchases.</div>
+      <div class="bene">Invitation to club-only events.</div>
+      <div class="bene">Complimentary tastings for 2 members &amp; 2 guests every visit at the Vineyard, quarterly at the Creek.</div>
+      <div class="bene">4 release minimum commitment.</div>
+      <div class="qr-wrap">
+        <img src="assets/crop_qr.png">
+        <div class="scan">Scan to join Club 77</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== right column: the bottle side. Bottle prices only. ===== -->
+  <div class="col">
+    <div class="sec-head">Bottle Menu<div class="rule"></div></div>
+
+    <div class="sub-head" style="margin-top:10pt">White &amp; Ros&eacute;<div class="rule"></div></div>
+    <table class="wine">
+      <tr><th class="w"></th><th class="p grp">Bottle</th><th class="p grp">Club</th></tr>
+      <!-- WINES_BOTTLE_WHITE:START -->
+      <!-- WINES_BOTTLE_WHITE:END -->
+    </table>
+
+    <div class="sub-head">Red<div class="rule"></div></div>
+    <table class="wine">
+      <tr><th class="w"></th><th class="p grp">Bottle</th><th class="p grp">Club</th></tr>
+      <!-- WINES_BOTTLE_RED:START -->
+      <!-- WINES_BOTTLE_RED:END -->
+    </table>
+
+    <div class="orn"><img src="assets/kv_mono.png"></div>
+  </div>
+
+</div>
+
+</body>
+</html>

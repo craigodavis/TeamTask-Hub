@@ -5729,6 +5729,16 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   // re-uploads every time or never replaces a stale picture.
   `ALTER TABLE eventbrite_event_posts ADD COLUMN IF NOT EXISTS image_source_url TEXT`,
 
+
+  // The wine menu puts the SAME wine on two sides: Paso a Paso is a $9 glass
+  // pour on the tasting side and a $26 bottle on the bottle side. One row per
+  // (menu, product) could not express that, so the key gains the section.
+  //
+  // Widening a UNIQUE is backward compatible -- every existing row stays unique
+  // under the longer key -- so creek, winery and tasting are untouched.
+  `ALTER TABLE menu_wines DROP CONSTRAINT IF EXISTS menu_wines_company_id_menu_key_product_id_key`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS menu_wines_company_menu_product_section_key
+     ON menu_wines(company_id, menu_key, product_id, section)`,
 ];
 
 export async function runMigrations() {

@@ -23,7 +23,20 @@ export const MENUS = [
   { key: 'tasting', name: 'Tasting Flight' },
   // Hand-authored food card; carries no wine tables.
   { key: 'burgers', name: 'Hot August Nights' },
+  // One Letter page, two columns: glass pours on the left, bottles on the
+  // right. The only menu with THREE wine lists -- a wine can be a glass pour
+  // and a bottle at once, which is why menu_wines is keyed by section here.
+  { key: 'wine', name: 'Wine Menu' },
 ];
+
+/** Menus whose wines are picked per SECTION rather than white/red only. */
+export const THREE_LIST_MENUS = new Set(['wine']);
+export const WINE_SECTIONS = {
+  _default: [{ key: 'white', label: 'White & Rosé' }, { key: 'red', label: 'Red' }],
+  wine: [{ key: 'tasting', label: 'Tasting (by the glass)' },
+         { key: 'white', label: 'Bottles — White & Rosé' },
+         { key: 'red', label: 'Bottles — Red' }],
+};
 
 /**
  * How many rows each table holds before it crowds the footnotes. From the
@@ -85,6 +98,9 @@ router.get('/:key', requireCapability('tastingroom.menus'), async (req, res) => 
       name: row.name,
       vintage: row.vintage,
       varietal: row.varietal,
+      // A wine may sit on more than one list of the same menu (a pour AND a
+      // bottle), so the row carries the section its menu_wines row names; two
+      // rows for one product is correct rather than a duplicate.
       section: row.saved_section || sectionFor(row),
       bottle: row.bottle_cents === null ? null : Number(row.bottle_cents) / 100,
       glass: row.glass_available && row.glass_cents !== null
@@ -96,13 +112,16 @@ router.get('/:key', requireCapability('tastingroom.menus'), async (req, res) => 
     }));
 
     const printing = wines.filter((w) => !w.excluded);
-    const counts = {
-      white: printing.filter((w) => w.section === 'white').length,
-      red: printing.filter((w) => w.section === 'red').length,
-    };
+    const counts = {};
+    for (const sec of (WINE_SECTIONS[key] || WINE_SECTIONS._default)) {
+      counts[sec.key] = printing.filter((w) => w.section === sec.key).length;
+    }
 
     const warnings = [];
+    // Only the booklet tables have a crowding limit; the tasting list is four
+    // pours by design and needs no warning.
     for (const s of ['white', 'red']) {
+      if (capacityFor(key)[s] === undefined) continue;
       if (counts[s] > capacityFor(key)[s]) {
         warnings.push({
           section: s,
@@ -118,6 +137,12 @@ router.get('/:key', requireCapability('tastingroom.menus'), async (req, res) => 
     res.json({
       menu: MENUS.find((m) => m.key === key),
       menus: MENUS,
+      // The lists this menu actually has. The Menus screen used to hard-code
+      // white and red, which meant a tasting wine simply never appeared.
+      sections: WINE_SECTIONS[key] || WINE_SECTIONS._default,
+      // Whether a wine must be put on a list explicitly (tasting) or is on it
+      // until hidden (the bottle lists). The two defaults are opposite.
+      optIn: THREE_LIST_MENUS.has(key) ? ['tasting'] : [],
       wines,
       counts,
       capacity: capacityFor(key),
@@ -137,18 +162,35 @@ router.put('/:key/order', requireCapability('tastingroom.menus'), async (req, re
   if (!items) return res.status(400).json({ error: 'items array is required' });
 
   try {
+    const allowed = new Set((WINE_SECTIONS[key] || WINE_SECTIONS._default).map((x) => x.key));
+    const multi = THREE_LIST_MENUS.has(key);
+
     for (const it of items) {
       if (!it.product_id) continue;
+      const section = allowed.has(it.section) ? it.section : 'red';
+
+      // On a two-list menu a wine lives in exactly ONE list, so moving it from
+      // white to red must MOVE the row, not leave a copy behind. The conflict
+      // target now includes section -- it has to, so the Wine Menu can hold a
+      // wine as both a pour and a bottle -- which means the old row has to go
+      // explicitly. Without this, dragging a wine between columns on the creek
+      // menu would print it in both.
+      if (!multi) {
+        await query(
+          `DELETE FROM menu_wines
+            WHERE company_id = $1 AND menu_key = $2 AND product_id = $3 AND section <> $4`,
+          [cid(req), key, it.product_id, section]
+        );
+      }
+
       await query(
         `INSERT INTO menu_wines (company_id, menu_key, product_id, section, sort_order, excluded)
          VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (company_id, menu_key, product_id) DO UPDATE
-           SET section = EXCLUDED.section,
-               sort_order = EXCLUDED.sort_order,
+         ON CONFLICT (company_id, menu_key, product_id, section) DO UPDATE
+           SET sort_order = EXCLUDED.sort_order,
                excluded = EXCLUDED.excluded,
                updated_at = NOW()`,
-        [cid(req), key, it.product_id,
-         it.section === 'white' ? 'white' : 'red',
+        [cid(req), key, it.product_id, section,
          Number(it.sort_order) || 0,
          Boolean(it.excluded)]
       );
@@ -181,6 +223,10 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
             WHERE product_id = p.id AND is_glass LIMIT 1) g ON true
          LEFT JOIN menu_wines mw
            ON mw.product_id = p.id AND mw.menu_key = $2 AND mw.company_id = $1
+          -- Tasting rows are fetched separately; without this a wine that is
+          -- BOTH a pour and a bottle would be bucketed as 'tasting' here and
+          -- land in a list that does not exist.
+          AND mw.section <> 'tasting'
         WHERE p.company_id = $1 AND p.is_archived = false AND p.is_available = true
           AND (p.product_type = 'Wine' OR p.product_type IS NULL)
           AND COALESCE(mw.excluded, false) = false
@@ -188,9 +234,11 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
       [cid(req), key]
     );
 
-    const wines = { white: [], red: [] };
+    // tasting is always present so a stray section value cannot crash the
+    // render; sectionFor only ever returns white or red.
+    const wines = { white: [], red: [], tasting: [] };
     for (const row of r.rows) {
-      const sec = row.saved_section || sectionFor(row);
+      const sec = wines[row.saved_section] ? row.saved_section : sectionFor(row);
       wines[sec].push({
         vintage: row.vintage,
         name: row.name,
@@ -200,6 +248,41 @@ router.post('/:key/print', requireCapability('tastingroom.menus'), async (req, r
         glass: row.glass_available && row.glass_cents !== null
           ? Number(row.glass_cents) / 100 : null,
       });
+    }
+
+    // The tasting side is OPT-IN, unlike the bottle lists.
+    //
+    // A bottle list defaults to every available wine and `excluded` removes
+    // one -- right for a list that should show everything on the shelf. The
+    // tasting side is four wines chosen deliberately, so defaulting the whole
+    // cellar onto it would be wrong; a wine appears only once somebody puts it
+    // there. Same table, opposite default, because the two lists mean
+    // different things.
+    if (THREE_LIST_MENUS.has(key)) {
+      const t = await query(
+        `SELECT p.name, p.vintage, p.varietal, mw.sort_order,
+                g.price_cents AS glass_cents,
+                COALESCE(g.is_available, false) AS glass_available
+           FROM menu_wines mw
+           JOIN product.products p ON p.id = mw.product_id
+           LEFT JOIN LATERAL (
+             SELECT price_cents, is_available FROM product.product_variants
+              WHERE product_id = p.id AND is_glass LIMIT 1) g ON true
+          WHERE mw.company_id = $1 AND mw.menu_key = $2 AND mw.section = 'tasting'
+            AND COALESCE(mw.excluded, false) = false
+            AND p.is_archived = false
+          ORDER BY COALESCE(mw.sort_order, 9999), p.name`,
+        [cid(req), key]
+      );
+      wines.tasting = t.rows.map((row) => ({
+        vintage: row.vintage,
+        name: row.name,
+        varietal: row.varietal,
+        // Glass price only; the tasting column has no bottle figure at all.
+        glass: row.glass_available && row.glass_cents !== null
+          ? Number(row.glass_cents) / 100 : null,
+        bottle: null,
+      }));
     }
 
     // Food and drink rows for this menu, in printed order. The templates

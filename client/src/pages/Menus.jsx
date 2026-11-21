@@ -5,7 +5,10 @@ import './Menus.css';
 
 const price = (n) => (n === null || n === undefined ? '—' : `$${Number(n).toFixed(Number(n) % 1 ? 2 : 0)}`);
 
-const SECTIONS = [
+// Fallback only. The server now says which lists a menu has, because the Wine
+// Menu has three (a tasting list plus the two bottle lists) and hard-coding
+// white and red meant a tasting wine was fetched and then never rendered.
+const DEFAULT_SECTIONS = [
   { key: 'white', label: 'White & Rosé' },
   { key: 'red', label: 'Red' },
 ];
@@ -19,6 +22,9 @@ export function Menus() {
   const [saving, setSaving] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [dragging, setDragging] = useState(null);
+  const sections = data?.sections?.length ? data.sections : DEFAULT_SECTIONS;
+  // Lists a wine must be added to deliberately, rather than being on until hidden.
+  const optIn = new Set(data?.optIn || []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -46,18 +52,26 @@ export function Menus() {
     finally { setSaving(false); }
   };
 
+  // A wine is identified by product AND list now, because the Wine Menu can
+  // hold the same bottle as a pour and as a bottle at once. Matching on id
+  // alone moved both copies.
+  const same = (a, b) => a.id === b.id && a.section === b.section;
+
   const onDrop = (target) => {
-    if (!dragging || dragging.id === target.id) return;
-    const next = wines.filter((w) => w.id !== dragging.id);
-    const at = next.findIndex((w) => w.id === target.id);
-    // Dropping onto a row in the other table moves the wine between sections.
+    if (!dragging || same(dragging, target)) return;
+    const toOptIn = optIn.has(target.section) && !optIn.has(dragging.section);
+    // Dragging onto an opt-in list ADDS the wine there and leaves it where it
+    // was -- a wine poured by the glass is usually sold by the bottle too, so
+    // moving it off the bottle list would be the wrong read of the gesture.
+    const next = toOptIn ? [...wines] : wines.filter((w) => !same(w, dragging));
+    const at = next.findIndex((w) => same(w, target));
     next.splice(at, 0, { ...dragging, section: target.section });
     setDragging(null);
     persist(next);
   };
 
   const toggleExcluded = (w) =>
-    persist(wines.map((x) => (x.id === w.id ? { ...x, excluded: !x.excluded } : x)));
+    persist(wines.map((x) => (same(x, w) ? { ...x, excluded: !x.excluded } : x)));
 
   const doPrint = async () => {
     setPrinting(true);
@@ -113,7 +127,7 @@ export function Menus() {
 
       {!loading && data && (
         <div className="menus-grid">
-          {SECTIONS.map((sec) => {
+          {sections.map((sec) => {
             const rows = wines.filter((w) => w.section === sec.key);
             const printingCount = rows.filter((w) => !w.excluded).length;
             const cap = data.capacity?.[sec.key];
@@ -121,14 +135,17 @@ export function Menus() {
               <div key={sec.key} className="menus-col">
                 <h3 className="menus-col-head">
                   {sec.label}
-                  <span className={`menus-count${printingCount > cap ? ' over' : ''}`}>
-                    {printingCount} / {cap}
+                  {/* The bottle tables have a crowding limit; the tasting list
+                      is a deliberate four and has none, so it shows a plain
+                      count rather than "4 / undefined". */}
+                  <span className={`menus-count${cap && printingCount > cap ? ' over' : ''}`}>
+                    {cap ? `${printingCount} / ${cap}` : printingCount}
                   </span>
                 </h3>
                 <ul className="menus-list">
                   {rows.map((w) => (
                     <li
-                      key={w.id}
+                      key={`${sec.key}:${w.id}`}
                       className={`menus-row${w.excluded ? ' excluded' : ''}`}
                       draggable
                       onDragStart={() => setDragging(w)}
