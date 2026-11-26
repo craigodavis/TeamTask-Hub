@@ -11,9 +11,7 @@ import { query } from '../db.js';
 import { availableTimes, createBooking, customFields, experienceTimes, restaurantSlug } from '../lib/resosClient.js';
 import {
   KEYS as EVENT_KEYS, newToken, money, BOOKING_WINDOW, latestStart, resolveWindow,
-  alertRecipients, newRequestSms,
 } from '../lib/eventRequests.js';
-import { sendSmsToUsers } from '../lib/smsHelper.js';
 import { resolveDay, exceptions, addDays } from '../lib/hoursResolver.js';
 import { resolveTerms, evaluate, effectiveTerms } from '../lib/eventTerms.js';
 import { venueAvailability } from '../lib/eventAvailability.js';
@@ -738,18 +736,10 @@ websiteRouter.post('/event-request', async (req, res) => {
       console.error('[event-request] guest acknowledgement failed for', saved.email, e.message);
     }
 
-    // Alert after the row is committed, and never allowed to fail the submit —
-    // a guest who filled in the form has done their part whatever Twilio does.
-    try {
-      const people = await alertRecipients(companyId);
-      if (people.length) {
-        await sendSmsToUsers(companyId, people.map((p) => p.id), newRequestSms(saved), null);
-      } else {
-        console.warn('[event-request] saved but nobody has a phone number to alert');
-      }
-    } catch (e) {
-      console.error('[event-request] alert failed for', saved.email, e.message);
-    }
+    // Staff are told by the `request_received` journal entry above, which texts
+    // whoever is ticked for it in Private Events -> Settings. A second alert
+    // used to go out from here to a separate hard-coded list; see the note in
+    // lib/eventRequests.js for why that is gone.
 
     res.json({ ok: true });
   } catch (e) {

@@ -20,10 +20,8 @@ import { clientIpOf } from './mcpDb.js';
 import { renderContract, isoDate } from '../lib/contractRender.js';
 import { EVENT_REQUEST_URL, EVENT_CONTRACT_URL, EVENT_PROPOSAL_URL } from '../lib/publicLinks.js';
 import {
-  KEYS, money, outstanding, allSatisfied, newToken,
-  alertRecipients, planningMeetingSms, shortDate,
+  KEYS, money, outstanding, allSatisfied, newToken, shortDate,
 } from '../lib/eventRequests.js';
-import { sendSmsToUsers } from '../lib/smsHelper.js';
 
 const router = express.Router();
 
@@ -1157,29 +1155,19 @@ router.patch('/:id', requirePrivateEvents, async (req, res) => {
         WHERE id=$${vals.length} RETURNING *`, vals);
     const updated = rows[0];
 
-    // Tell us to book the planning meeting. After the row is saved, and never
-    // allowed to fail the request: the approval is the thing that matters, and a
-    // Twilio outage must not leave staff unable to approve an event.
-    if (justApproved) {
-      try {
-        const people = await alertRecipients(req.companyId);
-        if (people.length) {
-          await sendSmsToUsers(req.companyId, people.map((p) => p.id),
-            planningMeetingSms(updated), req.userId || null);
-        } else {
-          console.warn('[event-requests] approved but nobody has a phone number to alert');
-        }
-      } catch (e) {
-        console.error('[event-requests] approval SMS failed:', e.message);
-      }
-    }
-
     // One place for every PATCH-driven action, so a status change cannot happen
     // without the journal hearing about it.
     const who = await actorName(req);
     if (b.status && b.status !== cur.status) {
+      // "Book the planning meeting by X" used to travel in an SMS of its own.
+      // It is the one time-critical part of an approval, so rather than losing
+      // it with that message it rides along as the journal detail -- which the
+      // notifier appends to the text and the activity log shows as written.
+      const detail = b.status === 'approved' && updated.planning_meeting_due
+        ? `Book the pre-event planning meeting by ${shortDate(updated.planning_meeting_due)}`
+        : (b.declined_reason || null);
       await journal(req.companyId, cur.id, b.status,
-        { detail: b.declined_reason || null, actorId: req.userId || null, actorName: who });
+        { detail, actorId: req.userId || null, actorName: who });
     }
     if (b.insurance_ok === true && !cur.insurance_ok) {
       await journal(req.companyId, cur.id, 'insurance_ok', { actorId: req.userId || null, actorName: who });
