@@ -75,12 +75,12 @@ export async function runAbcPortalWatch(companyId, opts = {}) {
   const result = await runAbcPortalFill(companyId, month, { trigger: 'scheduled' });
 
   if (result.status === 'failed') {
-    await notify(companyId, `Idaho ABC ${month}: portal fill failed — ${result.error}`.slice(0, 300));
+    await notify(companyId, `Idaho ABC ${month}: portal fill failed - ${result.error}`.slice(0, 300));
     return { ok: false, month, action: 'fill_failed', error: result.error };
   }
 
   const warn = result.mismatches?.length
-    ? ` NOTE: ${result.mismatches.length} line(s) read back differently — check before submitting.`
+    ? ` NOTE: ${result.mismatches.length} line(s) read back differently - check before submitting.`
     : '';
   const sent = await notify(companyId,
     `Idaho ABC ${month} is saved on the portal and ready for your review and submit.${warn}`.slice(0, 300));

@@ -35,7 +35,7 @@ export async function runPublishWarnings(companyId) {
   const results = [];
   for (const e of events) {
     const when = e.days_until <= 0 ? 'TODAY' : `${e.days_until} day(s) out`;
-    const msg = `⚠ Kindred: "${e.title}" (${e.date_str}) is ${when} and still a DRAFT — not on the calendar yet. Publish it: ${BASE}/events?open=${e.id}`;
+    const msg = `⚠ Kindred: "${e.title}" (${e.date_str}) is ${when} and still a DRAFT - not on the calendar yet. Publish it: ${BASE}/events?open=${e.id}`;
     const r = await sendSmsToUsers(companyId, recipients, msg, null);
     await query(`UPDATE events SET publish_warned_at = NOW() WHERE id = $1`, [e.id]);
     results.push({ event: e.title, days: e.days_until, sent: r.sent });

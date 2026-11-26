@@ -31,7 +31,7 @@ export async function getApprovalConfig(companyId) {
 export async function notifyApprover(companyId, event, actorId = null) {
   const { approverId } = await getApprovalConfig(companyId);
   if (!approverId) return { skipped: 'no_approver' };
-  const msg = `TeamHub — review needed: “${event.title}” is ready for your approval. ${eventsLink()}`;
+  const msg = `TeamHub - review needed: "${event.title}" is ready for your approval. ${eventsLink()}`;
   const r = await sendSmsToUsers(companyId, [approverId], msg, actorId);
   await query(`UPDATE events SET review_notified_at = NOW() WHERE id = $1`, [event.id]).catch(() => {});
   return r;
@@ -40,7 +40,7 @@ export async function notifyApprover(companyId, event, actorId = null) {
 /** Text the creator that their event was approved (nudge to publish). */
 export async function notifyCreatorApproved(companyId, event, actorId = null) {
   if (!event.created_by) return { skipped: 'no_creator' };
-  const msg = `TeamHub — “${event.title}” was approved and is ready to publish. ${eventsLink()}`;
+  const msg = `TeamHub - "${event.title}" was approved and is ready to publish. ${eventsLink()}`;
   const r = await sendSmsToUsers(companyId, [event.created_by], msg, actorId);
   await query(`UPDATE events SET approved_notified_at = NOW() WHERE id = $1`, [event.id]).catch(() => {});
   return r;
@@ -49,8 +49,8 @@ export async function notifyCreatorApproved(companyId, event, actorId = null) {
 /** Text the creator that changes were requested. */
 export async function notifyCreatorChanges(companyId, event, notes, actorId = null) {
   if (!event.created_by) return { skipped: 'no_creator' };
-  const tail = notes ? `: ${String(notes).slice(0, 300)}` : ' — see the review notes.';
-  const msg = `TeamHub — changes requested on “${event.title}”${tail} ${eventsLink()}`;
+  const tail = notes ? `: ${String(notes).slice(0, 300)}` : ' - see the review notes.';
+  const msg = `TeamHub - changes requested on "${event.title}"${tail} ${eventsLink()}`;
   return sendSmsToUsers(companyId, [event.created_by], msg, actorId);
 }
 

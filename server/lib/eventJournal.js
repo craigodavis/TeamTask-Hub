@@ -74,7 +74,7 @@ async function notifyFor(companyId, requestId, action, detail) {
 
   // The link last, so a phone that truncates the preview still shows who and
   // when, and so the tap target is at the end where a thumb already is.
-  const body = `Kindred events — ${NOTIFIABLE[action]}: ${who}, ${when}`
+  const body = `Kindred events - ${NOTIFIABLE[action]}: ${who}, ${when}`
     + (r.guests ? `, ${r.guests} guests` : '')
     + (detail ? `. ${detail}` : '')
     + `. ${requestLink(requestId)}`;

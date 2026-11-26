@@ -46,7 +46,7 @@ export async function runPromoReminders(companyId, { force = false } = {}) {
     if (!recipients.size) continue;
 
     const escalated = current.d <= ESCALATE_AT;
-    const msg = `${escalated ? '⚠ ESCALATED — ' : '⏰ '}Promo reminder (${current.label} out): "${t.title}" for "${t.event_title}" (${t.date_str}) is not done yet. Post it, then mark it complete in TeamHub.`;
+    const msg = `${escalated ? '⚠ ESCALATED - ' : '⏰ '}Promo reminder (${current.label} out): "${t.title}" for "${t.event_title}" (${t.date_str}) is not done yet. Post it, then mark it complete in TeamHub.`;
     const r = await sendSmsToUsers(companyId, [...recipients], msg, t.assignee_user_id || null);
     // Mark current + all larger reached marks as sent so we don't backfire.
     const newSent = [...new Set([...sent, ...applicable.map((m) => m.d)])];

@@ -81,7 +81,7 @@ export async function runZeroCanary(companyId, { force = false } = {}) {
   const detail = newlyFlagged.slice(0, 6)
     .map((p) => `${p.TxnDate} ${p.EntityRef?.name || '?'} "${(p.Line?.[0]?.Description || '').slice(0, 22)}" (id ${p.Id})`)
     .join('; ');
-  const msg = `⚠️ QBO canary: ${newlyFlagged.length} new expense(s) posted at $0 in the last ${LOOKBACK_HOURS}h — possible transaction corruption. ${detail}`;
+  const msg = `⚠️ QBO canary: ${newlyFlagged.length} new expense(s) posted at $0 in the last ${LOOKBACK_HOURS}h - possible transaction corruption. ${detail}`;
 
   let notified = 0;
   if (owners.length) {

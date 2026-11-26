@@ -38,7 +38,7 @@ async function createAndSend(companyId, userId, locationId, workDate, locationNa
   if (!r.rows.length) return { skipped: 'already sent today' };
   const link = `${BASE}/feedback/${r.rows[0].token}`;
   const where = locationName ? ` at ${locationName}` : '';
-  const msg = `Kindred: how did today's shift go${where}? 10-sec check-in — 🙂 😐 ☹️ + staffing + emphasis: ${link} (enter your PIN)`;
+  const msg = `Kindred: how did today's shift go${where}? 10-sec check-in - 🙂 😐 ☹️ + staffing + emphasis: ${link} (enter your PIN)`;
   const res = await sendSmsToUsers(companyId, [userId], msg, userId);
   return { sent: res.sent, failed: res.failed };
 }

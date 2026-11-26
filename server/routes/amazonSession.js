@@ -66,7 +66,7 @@ router.post('/notify-expired', requireAuth, requireOwner, async (req, res) => {
     const smsResult = await sendSmsToUsers(
       req.companyId,
       ownerIds,
-      'Amazon session expired on Skynet. Run scripts/capture-amazon-cookies.js on your Mac to refresh it, then wait up to 12h for auto-sync — or run sync-amazon-session.js manually.',
+      'Amazon session expired on Skynet. Run scripts/capture-amazon-cookies.js on your Mac to refresh it, then wait up to 12h for auto-sync - or run sync-amazon-session.js manually.',
       ownerIds[0] || null
     );
     res.json({ ok: true, sms: smsResult });
