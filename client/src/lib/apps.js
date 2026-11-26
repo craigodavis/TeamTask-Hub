@@ -56,6 +56,7 @@ const I = {
   doc: 'M6 3h8l4 4v14H6V3zM14 3v4h4M9 13h6M9 17h6',
   stamp: 'M5 21h14M8 17h8v-3a4 4 0 00-8 0zM12 10V6',
   mic: 'M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3zM5 11a7 7 0 0014 0M12 18v3',
+  glass: 'M7 4h10l-1.2 7.2a3.8 3.8 0 01-7.6 0L7 4zM12 15v4M9 21h6',
   mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
   phone: 'M8 2h8a1 1 0 011 1v18a1 1 0 01-1 1H8a1 1 0 01-1-1V3a1 1 0 011-1zM10 19h4',
   image: 'M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6M7 9h.01',
@@ -157,13 +158,29 @@ export const APPS = [
     ],
   },
   {
+    id: 'experiences',
+    name: 'Experiences',
+    blurb: 'What guests book: nights, tastings and the talent who play them',
+    // Bronze. The only hue left unused by the other seven, and far enough from
+    // Floor's rust to tell apart at tile size. 5.53:1 on the worst light
+    // surface, 8.80:1 on the worst dark one -- measured, like the rest.
+    color: ['#7a5a0b', '#e0c274'],
+    icon: I.glass,
+    nav: [
+      // Still /events, and still gated by `marketing.events`. The URL and the
+      // capability key are identifiers, not labels: renaming them would break
+      // every bookmark, the three SMS deep links that point here, and every
+      // grant already in the database -- to change a word nobody reads.
+      { to: '/events', label: 'Experiences', icon: I.glass, when: cap('marketing.events') },
+    ],
+  },
+  {
     id: 'marketing',
     name: 'Marketing',
-    blurb: 'Events, talent, campaigns and the club',
+    blurb: 'Campaigns, loyalty and the guest app',
     color: ['#0c447c', '#9cc5ef'],
     icon: I.megaphone,
     nav: [
-      { to: '/events', label: 'Events & Talent', icon: I.mic, when: cap('marketing.events') },
       { to: '/marketing/campaigns', label: 'Campaigns', icon: I.mail, when: cap('marketing.campaigns') },
       { to: '/marketing/loyalty', label: 'Loyalty', icon: I.star, when: cap('marketing.loyalty') },
       { to: '/kindred-app', label: 'Kindred App', icon: I.phone, when: cap('kindredapp.manage') },

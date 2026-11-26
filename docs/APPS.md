@@ -19,7 +19,7 @@ sidebar is organised by what the data is, rather than by what the job is.**
 
 - `Kitchen ▸ Receipts` and `Betty Bookkeeper` are the same job — making the
   books right — in two different places, one nested and one top-level.
-- `Events` and `Private Events` sit side by side under Marketing and are
+- `Events` and `Private Events` sat side by side under Marketing and were
   different jobs: one is programming the calendar, the other is selling the
   room.
 - `Media Library` sits under Marketing but exists to serve the website.
@@ -97,9 +97,10 @@ Cellar ───────── the wine, from vine to compliance
   Wine Reports
   ABC Filing                    monthly state report
 
+Experiences ──── what guests book
+  Experiences                   the calendar, the talent, and where it is published
+
 Marketing ────── filling the room
-  Events                        the calendar, and where it gets published
-  Talent                        performers, terms, their submissions
   Campaigns                     email
   Loyalty
   Kindred App                   members, push notifications
@@ -165,6 +166,23 @@ disappearing, because the shift grid is genuinely the same object.
 calendar is marketing work; knowing that a duo starts at six is service work.
 One owns it, the other needs a view. Duplicating the whole screen into Floor
 would be the familiar mistake.
+
+> **SUPERSEDED — Events is now its own app, Experiences.** The reasoning above
+> holds for *promoting* a night and still explains why the screen lived in
+> Marketing. What it got wrong is what the screen actually is. Marketing is how
+> a thing gets announced; an experience is the thing being sold -- the calendar,
+> the pricing tiers, the performer, the distribution channels and the ticketing
+> all hang off it, and Kith is being built to publish the same objects to Square
+> as products. That is a product line, not a campaign. It sits ahead of
+> Marketing in the switcher for that reason.
+>
+> Renamed in the UI only. The path is still `/events` and the capability is
+> still `marketing.events`: both are identifiers, and renaming them would break
+> every bookmark, the three SMS deep links that point at `/events`, and every
+> grant already in the database, to change a word nobody reads. The now
+> misleading capability name is the price, and `audit-apps.mjs` asserts that
+> `marketing.events` conjures Experiences and *not* Marketing, so the mismatch
+> cannot rot quietly.
 
 **Media Library → Website, linked from Marketing.** It is website plumbing.
 Marketing reaches it through the picker it already uses, which is how marketing

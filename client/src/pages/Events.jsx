@@ -46,10 +46,10 @@ export default function Events() {
   // gets harder to read as it gets wider.
   return (
     <div>
-      <h1 style={{ margin: '0 0 4px' }}>🎪 Events</h1>
+      <h1 style={{ margin: '0 0 4px' }}>🎪 Experiences</h1>
       <p style={{ marginTop: 0, opacity: 0.7, maxWidth: '72ch' }}>Plan events in TeamHub. Publishing pushes them to the website. Musician lift helps you book with staffing in mind.</p>
       <div style={{ display: 'flex', gap: 8, margin: '14px 0 18px' }}>
-        {[['events', 'Events'], ['musicians', 'Musician/Talent'], ['reminders', 'Reminders'], ['promo', 'Promotion']].map(([k, l]) => (
+        {[['events', 'Experiences'], ['musicians', 'Musician/Talent'], ['reminders', 'Reminders'], ['promo', 'Promotion']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={{ ...btn(tab === k), borderRadius: 20 }}>{l}</button>
         ))}
       </div>

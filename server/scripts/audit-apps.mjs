@@ -47,7 +47,7 @@ const ROUTES = [
   ['/product-lines/abc-123', 'cellar'], ['/products', 'cellar'], ['/products/new', 'cellar'],
   ['/products/abc-123', 'cellar'], ['/products/inventory', 'cellar'],
   ['/products/inventory/report', 'cellar'], ['/abc', 'cellar'],
-  ['/events', 'marketing'], ['/marketing/campaigns', 'marketing'],
+  ['/events', 'experiences'], ['/marketing/campaigns', 'marketing'],
   ['/marketing/loyalty', 'marketing'], ['/kindred-app', 'marketing'],
   ['/marketing/images', 'website'], ['/marketing/media', 'website'],
   ['/marketing/website/testimonials', 'website'], ['/marketing/website/popup', 'website'],
@@ -104,7 +104,11 @@ console.log('\nAn app with no items held never appears');
 const marketingOnly = { role:'marketing', capabilities:['marketing.events'] };
 const got = visibleApps(marketingOnly, can, isOwner).map((v) => v.app.id);
 ok(!got.includes('kitchen') && !got.includes('admin'), 'one marketing grant does not conjure Kitchen or Admin', `[${got.join(', ')}]`);
-ok(got.includes('marketing'), 'but it does conjure Marketing');
+// `marketing.events` is the Experiences grant, not a Marketing one -- the key
+// kept its old name when the app split off, so this is the check that would
+// quietly pass while the switcher showed the wrong tile.
+ok(got.includes('experiences'), 'but it does conjure Experiences', `[${got.join(', ')}]`);
+ok(!got.includes('marketing'), 'and NOT Marketing, which it holds nothing in', `[${got.join(', ')}]`);
 
 console.log('\nLanding targets are real and held');
 for (const { app } of visibleApps({ role:'owner', capabilities: APPS.flatMap(a=>a.nav).map(()=>'') }, () => true, () => true)) {

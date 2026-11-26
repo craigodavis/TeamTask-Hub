@@ -57,7 +57,7 @@ export const CAPABILITIES = [
   // change who can do what, which is a decision, not a conversion.
   { key: 'events.private',           label: 'Private Events',     path: '/marketing/private-events' },
 
-  { key: 'marketing.events',         label: 'Events',             path: '/events',              container: 'marketing' },
+  { key: 'marketing.events',         label: 'Experiences',        path: '/events',              container: 'marketing' },
   { key: 'marketing.campaigns',      label: 'Campaigns',          path: '/marketing/campaigns', container: 'marketing' },
   { key: 'marketing.media',          label: 'Media Library',      path: '/marketing/media',     container: 'marketing' },
   { key: 'marketing.hours',          label: 'Store Hours',        path: '/marketing/hours',     container: 'marketing' },
