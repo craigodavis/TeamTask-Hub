@@ -98,3 +98,10 @@
   font-weight: 400;
 }
 .abc-verdict-why li { margin: 3px 0; }
+
+/* The count-basis switch, beside the month picker. */
+.abc-basis {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 14px; font-size: 13px; color: var(--vin-muted);
+}
+.abc-basis input { margin: 0; }

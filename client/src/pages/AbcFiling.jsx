@@ -14,6 +14,11 @@ function prevMonth() {
 
 export function AbcFiling() {
   const [month, setMonth] = useState(prevMonth);
+  // File the count as the crew took it, rather than restated to month end. The
+  // restatement is right when the count is a few days out and wrong when it
+  // overshoots -- which shows up as a negative spoilage line. Both figures are
+  // on the page, so this is a visible choice.
+  const [rawCount, setRawCount] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,12 +29,12 @@ export function AbcFiling() {
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    getAbcFiling(month)
+    getAbcFiling(month, { rawCount })
       .then(setData)
       .catch((e) => { setError(e.message); setData(null); })
       .finally(() => setLoading(false));
     getAbcPortalRun(month).then(setPortalRun).catch(() => setPortalRun(null));
-  }, [month]);
+  }, [month, rawCount]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -77,6 +82,11 @@ export function AbcFiling() {
         <label>
           Period
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <label className="abc-basis">
+            <input type="checkbox" checked={rawCount}
+                   onChange={(e) => setRawCount(e.target.checked)} />
+            File the count as taken
+          </label>
         </label>
         {data?.stored && (
           <span className={`abc-status abc-status-${data.stored.status}`}>
@@ -175,7 +185,17 @@ export function AbcFiling() {
                 </tr>
               )}
               <tr className="abc-subtotal">
-                <td>= Counted inventory restated to month end</td>
+                <td>
+                  {d.countBasis === 'as_counted'
+                    ? '= Counted inventory, as taken'
+                    : '= Counted inventory restated to month end'}
+                  {d.countBasis === 'as_counted' && d.restatedGallons != null && (
+                    <em> (restated to month end it would be {GAL(d.restatedGallons)})</em>
+                  )}
+                  {d.countBasis !== 'as_counted' && d.asCountedGallons != null && (
+                    <em> (as taken it would be {GAL(d.asCountedGallons)})</em>
+                  )}
+                </td>
                 <td className="num">{GAL(l.endingInventory)}</td>
               </tr>
               <tr className={`abc-residual ${data.checks.find((c) => c.id === 'residual_within_tolerance')?.ok ? '' : 'bad'}`}>

@@ -82,8 +82,10 @@ router.get('/filing/:month', async (req, res) => {
       });
     }
 
-    const filing = await computeFiling(cid(req), req.params.month,
-      { countAsOf: req.query.count_as_of || req.body?.count_as_of || null });
+    const filing = await computeFiling(cid(req), req.params.month, {
+      countAsOf: req.query.count_as_of || req.body?.count_as_of || null,
+      rawCount: /^(1|true|yes)$/i.test(String(req.query.raw_count || '')),
+    });
     res.json({ ...filing, unfulfilled, stored: storedMeta });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -125,8 +127,10 @@ router.get('/next-month', async (req, res) => {
 // draft that failed preflight — a draft that can't be filed shouldn't look ready.
 router.post('/filing/:month/draft', async (req, res) => {
   try {
-    const filing = await computeFiling(cid(req), req.params.month,
-      { countAsOf: req.body?.count_as_of || req.query.count_as_of || null });
+    const filing = await computeFiling(cid(req), req.params.month, {
+      countAsOf: req.body?.count_as_of || req.query.count_as_of || null,
+      rawCount: /^(1|true|yes)$/i.test(String(req.body?.raw_count ?? req.query.raw_count ?? '')),
+    });
     if (!filing.readyToFile) {
       return res.status(409).json({
         error: 'Preflight failed — not saved.',

@@ -1586,8 +1586,9 @@ export async function getDashboard() {
   return data;
 }
 
-export async function getAbcFiling(month) {
-  const res = await fetch(`${API}/abc/filing/${month}`, { headers: headers() });
+export async function getAbcFiling(month, { rawCount = false } = {}) {
+  const res = await fetch(`${API}/abc/filing/${month}${rawCount ? '?raw_count=1' : ''}`,
+    { headers: headers() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load ABC filing');
   return data;

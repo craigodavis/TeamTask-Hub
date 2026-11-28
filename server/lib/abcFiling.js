@@ -374,7 +374,7 @@ async function physicalCount(companyId, asOfIso = null, excludedProductIds = [])
  * @param {string} companyId
  * @param {string} month  'YYYY-MM' — the period being reported
  */
-export async function computeFiling(companyId, month, { countAsOf = null } = {}) {
+export async function computeFiling(companyId, month, { countAsOf = null, rawCount = false } = {}) {
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error(`month must be YYYY-MM, got "${month}"`);
   if (countAsOf && !/^\d{4}-\d{2}-\d{2}$/.test(countAsOf)) {
     throw new Error(`countAsOf must be YYYY-MM-DD, got "${countAsOf}"`);
@@ -452,10 +452,22 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
     );
     postUncollected = round2(atCount.gallons - uncollectedEnd.gallons);
   }
-  const countedAtMonthEnd = round2(
+  // Two defensible answers, and which one is right depends on the month.
+  //
+  // Restating is correct in principle: a count taken on 3 July is the 3 July
+  // position, and June's filing wants 30 June. June 2026 ties to the gallon that
+  // way. But the correction grows with the gap, and when it overshoots it drives
+  // the spoilage line NEGATIVE -- wine un-spoiling, which is not a thing. October
+  // 2026 did exactly that: restated to -3.49, as counted to +2.15.
+  //
+  // So it is a choice, made per filing and shown on the page, not a silent
+  // default. `rawCount` files the count as taken; the restatement is still
+  // computed and returned either way, so the page can show both.
+  const restated = round2(
     count.gallons + postMonth.salesConsumers + postMonth.freeTastings - postMonth.returns
     - postUncollected
   );
+  const countedAtMonthEnd = rawCount ? count.gallons : restated;
 
   // Expected position from the books, reconciled for wine sold but not collected.
   const expectedEnding = beginning === null ? null : round2(
@@ -601,6 +613,11 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
       countedFrom:      count.firstCountedAt,
       countedAt:        count.lastCountedAt,
       postCountBackout: postMonth,
+      // Which basis this filing is on, and what the other one would have given,
+      // so the choice is visible rather than inferred from a number.
+      countBasis:       rawCount ? 'as_counted' : 'restated',
+      restatedGallons:  restated,
+      asCountedGallons: count.gallons,
       // Stated so the restatement is auditable: how much of the backed-out sales was
       // still physically on the shelf when the count was taken.
       postCountUncollected: postUncollected,
