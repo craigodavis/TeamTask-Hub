@@ -61,7 +61,10 @@ router.get('/filing/:month', async (req, res) => {
         month: req.params.month,
         companyId: cid(req),
         readyToFile: row.status !== 'filed',
-        blocking: row.status === 'filed' ? ['Already marked filed'] : [],
+        blocking: row.status === 'filed'
+          ? [{ id: 'already_filed', label: 'Already marked filed',
+               detail: `${req.params.month} is already marked filed.` }]
+          : [],
         checks: [{
           id: 'previously_reconciled', ok: true, label: 'Previously reconciled',
           detail: 'These figures come from the original hand reconciliation, not a live computation. Enter them as-is.',

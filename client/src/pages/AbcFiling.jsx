@@ -96,7 +96,22 @@ export function AbcFiling() {
           <div className={`abc-verdict ${data.readyToFile ? 'ok' : 'blocked'}`}>
             {data.readyToFile
               ? 'All checks passed — the numbers below reconcile to the physical count.'
-              : `Not ready to file — ${data.blocking.join('; ')}.`}
+              : (
+                <>
+                  <strong>
+                    Not ready to file — {data.blocking.length}{' '}
+                    {data.blocking.length === 1 ? 'check' : 'checks'} failed:
+                  </strong>
+                  {/* The reason, never the check's name. "Count covers this period"
+                      is the question being asked; printed as a blocker it reads as
+                      the answer, and the opposite of the true one. */}
+                  <ul className="abc-verdict-why">
+                    {data.blocking.map((b) => (
+                      <li key={b.id || b.label}>{b.detail || b.label}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
           </div>
 
           <ul className="abc-checks">

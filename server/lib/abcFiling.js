@@ -255,12 +255,19 @@ async function productionFor(companyId, startIso, endIso) {
  * "25 A Souvenir Viognier" — nothing is excluded and the id is reported instead, so
  * a duplicate product record can never silently delete the wrong wine's bottles.
  */
-export async function excludedProducts(companyId) {
+export async function excludedProducts(companyId, asOfDate = null) {
   const r = await query(
     `WITH ex AS (
-       SELECT id, name, product_line_id, vintage, unbottled_on, abc_exclusion_reason
+       SELECT id, name, product_line_id, vintage, unbottled_on, rebottled_on,
+              abc_exclusion_reason
          FROM vintly.projects
         WHERE company_id = $1 AND deleted_at IS NULL AND exclude_from_abc
+          -- Only while the wine is actually in bulk. Once it is rebottled the
+          -- bottles are back on the shelf and have to be back in the count:
+          -- leaving them struck out reports a loss the size of the run every
+          -- month thereafter. With no date given, nothing rebottled is excluded.
+          AND (rebottled_on IS NULL
+               OR ($2::date IS NOT NULL AND rebottled_on > $2::date))
      ),
      direct AS (
        SELECT ex.id AS project_id, p.id AS product_id
@@ -285,7 +292,7 @@ export async function excludedProducts(companyId) {
             ) AS product_ids,
             COALESCE(bl.matches, 0) AS line_matches
        FROM ex LEFT JOIN byline bl ON bl.project_id = ex.id`,
-    [companyId]
+    [companyId, asOfDate]
   );
   const productIds = [];
   const unresolved = [];
@@ -299,6 +306,7 @@ export async function excludedProducts(companyId) {
     lots: r.rows.map((x) => ({
       name: x.name,
       unbottledOn: x.unbottled_on ? x.unbottled_on.toISOString().slice(0, 10) : null,
+      rebottledOn: x.rebottled_on ? x.rebottled_on.toISOString().slice(0, 10) : null,
       reason: x.abc_exclusion_reason,
       resolved: (x.product_ids?.length ?? 0) > 0,
     })),
@@ -334,6 +342,10 @@ async function physicalCount(companyId, asOfIso = null, excludedProductIds = [])
             COALESCE(SUM(total_bottles), 0)::int                                AS regular_bottles,
             COALESCE(SUM(library_bottles), 0)::int                              AS library_bottles,
             COUNT(*)::int                        AS lines,
+            -- MIN and MAX skip NULLs, so a line that was never counted at all is
+            -- invisible to both. Counted separately, because "never counted" is
+            -- the worst case of the very thing this feeds, not an absence of data.
+            COUNT(*) FILTER (WHERE last_counted_at IS NULL)::int AS uncounted_lines,
             MIN(last_counted_at)                 AS first_counted_at,
             MAX(last_counted_at)                 AS last_counted_at
        FROM product.product_inventory
@@ -347,6 +359,10 @@ async function physicalCount(companyId, asOfIso = null, excludedProductIds = [])
     regularBottles: Number(row.regular_bottles),
     libraryBottles: Number(row.library_bottles),
     lines:          Number(row.lines),
+    // The log branch cannot produce one: a line with no count has no log row, so
+    // it is absent rather than null. Reported as 0 there, which is honest about
+    // what that branch can see.
+    uncountedLines: Number(row.uncounted_lines ?? 0),
     gallons:        round2(Number(row.bottles) * GAL_PER_BOTTLE),
     firstCountedAt: row.first_counted_at,
     lastCountedAt:  row.last_counted_at,
@@ -392,7 +408,9 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
   // Resolved FIRST and not in the Promise.all: physicalCount needs the product ids,
   // and the whole point is that the production side and the bottle side are excluded
   // together. Running them in parallel would let one land without the other.
-  const excluded = await excludedProducts(companyId);
+  // Bounded to the month being filed: a lot rebottled in September is excluded
+  // from August and earlier, and counted from September on.
+  const excluded = await excludedProducts(companyId, m_end_date);
 
   const [inMonth, production, count] = await Promise.all([
     volumesBetween(companyId, m_start, m_end),
@@ -477,7 +495,9 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
   // shelf full of stale July figures would sail through. MIN is the question
   // actually worth asking: was every line counted after the month closed?
   const countCoversPeriod =
-    !!count.firstCountedAt && new Date(count.firstCountedAt) >= new Date(m_end);
+    !!count.firstCountedAt
+    && count.uncountedLines === 0
+    && new Date(count.firstCountedAt) >= new Date(m_end);
   checks.push({
     id: 'count_is_current',
     ok: countCoversPeriod,
@@ -486,7 +506,18 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
       ? `All ${count.lines} lines counted after ${month} closed.`
       : !count.firstCountedAt
         ? `No physical inventory count on record.`
-        : new Date(count.lastCountedAt) >= new Date(m_end)
+        : count.uncountedLines > 0
+          // Both halves, not the worse one. Reporting only the never-counted
+          // lines sends somebody off to fix two rows, file again, and discover
+          // the other sixteen -- a round trip per class of problem.
+          ? `${count.uncountedLines} line(s) have never been counted at all, and their `
+            + `bottles are in the total regardless.`
+            + (count.firstCountedAt && new Date(count.firstCountedAt) < new Date(m_end)
+                ? ` Separately, the oldest dated line was counted `
+                  + `${count.firstCountedAt.toISOString().slice(0, 10)}, before ${month} `
+                  + `closed. Both need counting before filing.`
+                : ' Count them before filing.')
+          : new Date(count.lastCountedAt) >= new Date(m_end)
           ? `Partial count — the oldest line was counted `
             + `${count.firstCountedAt.toISOString().slice(0, 10)}, before ${month} closed. `
             + `Some lines are current but not all; recount the stale ones before filing.`
@@ -534,7 +565,13 @@ export async function computeFiling(companyId, month, { countAsOf = null } = {})
     month,
     companyId,
     readyToFile: blocking.length === 0,
-    blocking: blocking.map((c) => c.label),
+    // Objects, not labels. A label is the NAME of the question -- "Count covers
+    // this period" -- so a list of failures rendered from labels reads like a
+    // list of things that are fine, and the one line telling you what is wrong
+    // says the opposite of what it means. The detail is the answer; ship both.
+    // abcPortalScheduler already destructured .detail off these and had been
+    // texting "undefined undefined" to the owners ever since.
+    blocking: blocking.map((c) => ({ id: c.id, label: c.label, detail: c.detail })),
     checks,
 
     // The ABC form, line for line.

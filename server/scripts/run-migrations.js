@@ -5739,6 +5739,14 @@ If the deposit is not received by that date, or if the date, guest count, venue 
   `ALTER TABLE menu_wines DROP CONSTRAINT IF EXISTS menu_wines_company_id_menu_key_product_id_key`,
   `CREATE UNIQUE INDEX IF NOT EXISTS menu_wines_company_menu_product_section_key
      ON menu_wines(company_id, menu_key, product_id, section)`,
+
+  // A lot that went back to barrel and later came back. `unbottled_on` could
+  // say it left; nothing could say it returned, so `exclude_from_abc` stayed on
+  // for good and the bottles were struck from every count from then on -- a
+  // phantom loss the size of the run, every month, for as long as the wine sat
+  // on the shelf. 24 Into the Mystic: unbottled 2026-08-26, rebottled
+  // 2026-09-02, and 772 of its bottles were still being deleted in November.
+  `ALTER TABLE vintly.projects ADD COLUMN IF NOT EXISTS rebottled_on DATE`,
 ];
 
 export async function runMigrations() {

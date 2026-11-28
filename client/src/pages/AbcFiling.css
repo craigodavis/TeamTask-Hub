@@ -89,3 +89,12 @@
   line-height: 1.4;
   color: var(--text-muted, #888);
 }
+
+/* The blocker list inside the verdict. Reasons, one per line -- joined into a
+   sentence they ran together into something unreadable. */
+.abc-verdict-why {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-weight: 400;
+}
+.abc-verdict-why li { margin: 3px 0; }

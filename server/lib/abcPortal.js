@@ -384,7 +384,7 @@ export async function runAbcPortalFill(companyId, month, opts = {}) {
       { entered, observed, mismatches, source, screenshot: shot });
   } catch (err) {
     if (browser) await browser.close().catch(() => {});
-    return finish('failed', { error: err.blocking ? `${err.message} ${err.blocking.join('; ')}` : err.message });
+    return finish('failed', { error: err.blocking ? `${err.message} ${err.blocking.map((b) => b.detail || b.label).join(' ')}` : err.message });
   }
 }
 
